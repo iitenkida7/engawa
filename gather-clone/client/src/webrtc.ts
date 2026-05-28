@@ -1,6 +1,67 @@
 import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
 import type { StreamKind } from './types';
 import type { MediaManager } from './media';
+import { transformSdpForLowLatency } from './sdp';
+
+// Per-kind bitrate ceilings. These are the maximum the encoder is allowed
+// to spend; the actual rate adapts down to available bandwidth.
+const SEND_BITRATE: Record<StreamKind, number> = {
+  mic: 64_000,
+  cam: 600_000,
+  screen: 3_000_000,
+};
+
+function getPc(peer: PeerInstance): RTCPeerConnection | undefined {
+  return (peer as unknown as { _pc?: RTCPeerConnection })._pc;
+}
+
+// Receiver playout/jitter buffer floor. Lower = less perceived lag, but small
+// jitter bursts cause clicks. Chrome's default ramps up to 100–200ms for
+// audio; we target 50ms which is the lowest that survives typical Wi-Fi /
+// consumer ISP jitter without audible artifacts.
+const PLAYOUT_DELAY_HINT_S = 0.05; // 50ms (seconds)
+const JITTER_BUFFER_TARGET_MS = 50;
+
+function tuneReceivers(pc: RTCPeerConnection) {
+  for (const r of pc.getReceivers()) {
+    try { (r as unknown as { playoutDelayHint: number }).playoutDelayHint = PLAYOUT_DELAY_HINT_S; } catch { /* unsupported */ }
+    try { (r as unknown as { jitterBufferTarget: number }).jitterBufferTarget = JITTER_BUFFER_TARGET_MS; } catch { /* unsupported */ }
+  }
+}
+
+// Apply per-kind bitrate / priority / degradationPreference to every sender.
+// kind is inferred from track.kind (audio→mic) and contentHint (detail→screen,
+// else cam) — both are set at the MediaManager layer.
+async function tuneSenders(pc: RTCPeerConnection) {
+  for (const sender of pc.getSenders()) {
+    const track = sender.track;
+    if (!track) continue;
+    const kind: StreamKind =
+      track.kind === 'audio' ? 'mic' : track.contentHint === 'detail' ? 'screen' : 'cam';
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) {
+        params.encodings = [{}];
+      }
+      const enc = params.encodings[0] as RTCRtpEncodingParameters & {
+        networkPriority?: 'very-low' | 'low' | 'medium' | 'high';
+        priority?: 'very-low' | 'low' | 'medium' | 'high';
+      };
+      enc.maxBitrate = SEND_BITRATE[kind];
+      if (kind === 'mic') {
+        enc.networkPriority = 'high';
+        enc.priority = 'high';
+      } else if (kind === 'screen') {
+        params.degradationPreference = 'maintain-framerate';
+      } else {
+        params.degradationPreference = 'balanced';
+      }
+      await sender.setParameters(params);
+    } catch (err) {
+      console.warn('[rtc] setParameters failed', err);
+    }
+  }
+}
 
 type PeerEntry = {
   peer: PeerInstance;
@@ -76,6 +137,8 @@ export class WebRtcManager {
       config: { iceServers },
       // simple-peer accepts one stream up-front; we add the rest via addStream.
       stream: initialStreams[0]?.stream,
+      // Low-latency Opus tuning is applied during offer/answer.
+      sdpTransform: transformSdpForLowLatency,
     });
 
     const entry: PeerEntry = {
@@ -102,6 +165,15 @@ export class WebRtcManager {
       }
     }
 
+    if (initialStreams.length > 0) {
+      // Senders exist synchronously after addStream; tune them on the next
+      // microtask once simple-peer is done wiring transceivers.
+      queueMicrotask(() => {
+        const pc = getPc(peer);
+        if (pc) void tuneSenders(pc);
+      });
+    }
+
     // Apply any stream-meta that arrived before the peer existed.
     const pending = this.pendingMeta.get(remoteUserId);
     if (pending) {
@@ -115,6 +187,11 @@ export class WebRtcManager {
 
     peer.on('connect', () => {
       entry.ready = true;
+      const pc = getPc(peer);
+      if (pc) {
+        tuneReceivers(pc);
+        void tuneSenders(pc);
+      }
     });
 
     const handleIncoming = (stream: MediaStream) => {
@@ -129,6 +206,9 @@ export class WebRtcManager {
       track.addEventListener('ended', () => {
         this.events.onRemoteStreamRemoved(remoteUserId, stream.id);
       });
+      // New incoming transceiver — re-apply receiver hints.
+      const pc = getPc(peer);
+      if (pc) tuneReceivers(pc);
     });
 
     peer.on('error', (err) => {
@@ -203,7 +283,13 @@ export class WebRtcManager {
         entry.peer.addStream(stream);
       } catch (err) {
         console.warn('[rtc] addStream failed', err);
+        continue;
       }
+      // Re-tune senders after the new tracks have been attached.
+      queueMicrotask(() => {
+        const pc = getPc(entry.peer);
+        if (pc) void tuneSenders(pc);
+      });
     }
   }
 

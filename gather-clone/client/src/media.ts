@@ -26,7 +26,18 @@ export class MediaManager {
 
   async enableMic() {
     if (this.micStream) return this.micStream;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+        // Hint to the audio capture stack to keep its buffer short.
+        // Chrome respects this; Firefox/Safari currently ignore it but it
+        // does no harm.
+        latency: { ideal: 0.01 },
+      } as MediaTrackConstraints,
+    });
     this.micStream = stream;
     this.emit();
     return stream;
@@ -44,8 +55,17 @@ export class MediaManager {
   async enableCam() {
     if (this.camStream) return this.camStream;
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 320, height: 240 },
+      video: {
+        width: { ideal: 320 },
+        height: { ideal: 240 },
+        // Higher fps target keeps per-frame interval short → less wait.
+        frameRate: { ideal: 30, max: 30 },
+      },
     });
+    for (const t of stream.getVideoTracks()) {
+      // Tell encoders to optimize for motion (low-latency over crisp text).
+      t.contentHint = 'motion';
+    }
     this.camStream = stream;
     this.emit();
     return stream;
@@ -63,11 +83,13 @@ export class MediaManager {
   async enableScreen() {
     if (this.screenStream) return this.screenStream;
     const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
+      video: { frameRate: { ideal: 30, max: 60 } },
       audio: false,
     });
     const track = stream.getVideoTracks()[0];
     if (track) {
+      // Tell encoders to optimize for crisp text/UI rather than low bitrate.
+      track.contentHint = 'detail';
       // browser stop-sharing → propagate
       track.addEventListener('ended', () => this.disableScreen());
     }
