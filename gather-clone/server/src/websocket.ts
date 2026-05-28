@@ -85,11 +85,13 @@ export function createWebSocketHandler(
           if (!ws.data.joined) return;
           const x = Math.max(0, Math.min(MAP_WIDTH, Number(msg.x) || 0));
           const y = Math.max(0, Math.min(MAP_HEIGHT, Number(msg.y) || 0));
+          const vx = Number(msg.vx) || 0;
+          const vy = Number(msg.vy) || 0;
           ws.data.x = x;
           ws.data.y = y;
           broadcast(
             clients,
-            { type: 'player-moved', userId: ws.data.userId, x, y },
+            { type: 'player-moved', userId: ws.data.userId, x, y, vx, vy },
             ws.data.userId,
           );
           break;

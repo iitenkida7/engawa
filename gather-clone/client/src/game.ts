@@ -139,7 +139,7 @@ export class Game {
       }
       case 'player-moved': {
         const p = this.players.get(msg.userId);
-        if (p) p.setTarget(msg.x, msg.y);
+        if (p) p.setTarget(msg.x, msg.y, msg.vx, msg.vy);
         break;
       }
       case 'player-left': {
@@ -171,38 +171,65 @@ export class Game {
     this.rtc.signal(from, data);
   }
 
-  private loop = () => {
-    this.update();
+  private lastFrameMs = 0;
+
+  private loop = (nowMs?: number) => {
+    const t = nowMs ?? performance.now();
+    const dt = this.lastFrameMs ? Math.min(0.1, (t - this.lastFrameMs) / 1000) : 1 / 60;
+    this.lastFrameMs = t;
+    this.update(dt);
     this.renderer.render(this.me, this.players.values());
     requestAnimationFrame(this.loop);
   };
 
-  private update() {
-    // Move self by input
+  private lastSentVx = 0;
+  private lastSentVy = 0;
+
+  private update(dt: number) {
+    // Move self by input (frame-rate independent: dt × speed-per-second)
+    let selfVx = 0;
+    let selfVy = 0;
     if (this.me) {
       const { dx, dy } = this.input.getDirection();
-      if (dx !== 0 || dy !== 0) {
-        this.me.x = clamp(this.me.x + dx * PLAYER_SPEED, PLAYER_RADIUS, MAP_WIDTH - PLAYER_RADIUS);
-        this.me.y = clamp(this.me.y + dy * PLAYER_SPEED, PLAYER_RADIUS, MAP_HEIGHT - PLAYER_RADIUS);
+      selfVx = dx * PLAYER_SPEED;
+      selfVy = dy * PLAYER_SPEED;
+      if (selfVx !== 0 || selfVy !== 0) {
+        this.me.x = clamp(this.me.x + selfVx * dt, PLAYER_RADIUS, MAP_WIDTH - PLAYER_RADIUS);
+        this.me.y = clamp(this.me.y + selfVy * dt, PLAYER_RADIUS, MAP_HEIGHT - PLAYER_RADIUS);
         this.me.targetX = this.me.x;
         this.me.targetY = this.me.y;
       }
     }
 
-    // Interpolate remote players
+    // Interpolate remote players (also frame-rate independent).
     for (const p of this.players.values()) {
-      if (!p.isSelf) p.interpolate();
+      if (!p.isSelf) p.interpolate(dt);
     }
 
-    // Periodic position broadcast
+    // Periodic position broadcast. Also send when velocity changes (especially
+    // when it transitions to 0) so the receiver stops extrapolating.
     const now = performance.now();
-    if (this.me && now - this.lastSent > POSITION_SEND_INTERVAL_MS) {
-      if (Math.abs(this.me.x - this.lastSentX) > 0.5 || Math.abs(this.me.y - this.lastSentY) > 0.5) {
-        this.net.send({ type: 'move', x: this.me.x, y: this.me.y });
+    if (this.me) {
+      const velChanged = selfVx !== this.lastSentVx || selfVy !== this.lastSentVy;
+      const posMoved =
+        Math.abs(this.me.x - this.lastSentX) > 0.5 || Math.abs(this.me.y - this.lastSentY) > 0.5;
+      const intervalElapsed = now - this.lastSent > POSITION_SEND_INTERVAL_MS;
+      // Send immediately on velocity change (e.g. key released → stop signal);
+      // otherwise send at the regular cadence while moving.
+      if (velChanged || (intervalElapsed && posMoved)) {
+        this.net.send({
+          type: 'move',
+          x: this.me.x,
+          y: this.me.y,
+          vx: selfVx,
+          vy: selfVy,
+        });
         this.lastSentX = this.me.x;
         this.lastSentY = this.me.y;
+        this.lastSentVx = selfVx;
+        this.lastSentVy = selfVy;
+        this.lastSent = now;
       }
-      this.lastSent = now;
     }
 
     // Proximity check

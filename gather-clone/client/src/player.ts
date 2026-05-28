@@ -1,14 +1,22 @@
-import type { Player } from './types';
+import { EXTRAP_MAX_MS, INTERP_DECAY, type Player } from './types';
 
 export class PlayerState implements Player {
   userId: string;
   name: string;
+
+  // Rendered position (interpolated).
   x: number;
   y: number;
 
-  // for remote players: interpolation target
+  // Last authoritative position received from the network.
   targetX: number;
   targetY: number;
+  // Velocity at the time of the last update — used to predict where the
+  // remote player is *now* instead of where they were when the message left.
+  vx = 0;
+  vy = 0;
+  // performance.now() of the last update.
+  lastUpdate = 0;
 
   color: string;
   isSelf: boolean;
@@ -24,21 +32,34 @@ export class PlayerState implements Player {
     this.y = p.y;
     this.targetX = p.x;
     this.targetY = p.y;
+    this.lastUpdate = performance.now();
     this.isSelf = isSelf;
     this.color = colorForId(p.userId);
   }
 
-  setTarget(x: number, y: number) {
+  setTarget(x: number, y: number, vx: number, vy: number) {
     this.targetX = x;
     this.targetY = y;
+    this.vx = vx;
+    this.vy = vy;
+    this.lastUpdate = performance.now();
   }
 
-  interpolate() {
-    // smoothly move toward target
-    const ax = (this.targetX - this.x) * 0.25;
-    const ay = (this.targetY - this.y) * 0.25;
-    this.x += ax;
-    this.y += ay;
+  // dt is seconds elapsed since the previous frame.
+  interpolate(dt: number) {
+    // Predict where the remote player should be *right now* by extrapolating
+    // from the last known position + velocity, capped to avoid runaway when
+    // the network drops.
+    const elapsedMs = performance.now() - this.lastUpdate;
+    const extrapMs = Math.min(EXTRAP_MAX_MS, elapsedMs);
+    const t = extrapMs / 1000;
+    const predX = this.targetX + this.vx * t;
+    const predY = this.targetY + this.vy * t;
+
+    // Frame-rate independent exponential ease toward the predicted position.
+    const alpha = 1 - Math.exp(-INTERP_DECAY * dt);
+    this.x += (predX - this.x) * alpha;
+    this.y += (predY - this.y) * alpha;
   }
 
   initials() {
