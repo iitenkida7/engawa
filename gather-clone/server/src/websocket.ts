@@ -9,6 +9,22 @@ import type {
 const MAP_WIDTH = 2000;
 const MAP_HEIGHT = 1500;
 
+// Workspace passwords from env: JSON object like {"ws1":"pass1","ws2":"pass2"}
+// If empty or not set, all workspaces are open (no auth required).
+function loadWorkspacePasswords(): Map<string, string> {
+  const raw = process.env.WORKSPACE_PASSWORDS ?? '';
+  if (!raw) return new Map();
+  try {
+    const obj = JSON.parse(raw) as Record<string, string>;
+    return new Map(Object.entries(obj));
+  } catch {
+    console.warn('[auth] WORKSPACE_PASSWORDS is not valid JSON, ignoring');
+    return new Map();
+  }
+}
+
+const workspacePasswords = loadWorkspacePasswords();
+
 function send(ws: ServerWebSocket<WsData>, msg: ServerMessage) {
   ws.send(JSON.stringify(msg));
 }
@@ -56,8 +72,16 @@ export function createWebSocketHandler(
 
       switch (msg.type) {
         case 'join': {
+          const workspace = (msg.workspace || 'default').slice(0, 64);
+          const requiredPass = workspacePasswords.get(workspace);
+          if (requiredPass && msg.password !== requiredPass) {
+            send(ws, { type: 'auth-error', message: 'パスワードが正しくありません' });
+            ws.close(4001, 'auth failed');
+            return;
+          }
+
           ws.data.name = (msg.name || 'anon').slice(0, 24);
-          ws.data.workspace = (msg.workspace || 'default').slice(0, 64);
+          ws.data.workspace = workspace;
           // Spawn in the open office area (center aisle, avoids walls/desks)
           ws.data.x = 800 + Math.random() * 400;
           ws.data.y = 400 + Math.random() * 600;
