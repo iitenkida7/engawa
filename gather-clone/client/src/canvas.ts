@@ -1,5 +1,14 @@
 import { MAP_WIDTH, MAP_HEIGHT, PLAYER_RADIUS, CONNECT_RADIUS } from './types';
 import type { PlayerState } from './player';
+import {
+  TILE_SIZE,
+  MAP_COLS,
+  MAP_ROWS,
+  officeMap,
+  TILE_FILL,
+  TILE_BORDER,
+  Tile,
+} from './tilemap';
 
 export class CanvasRenderer {
   private canvas: HTMLCanvasElement;
@@ -41,29 +50,46 @@ export class CanvasRenderer {
     const camX = self ? self.x - w / 2 : MAP_WIDTH / 2 - w / 2;
     const camY = self ? self.y - h / 2 : MAP_HEIGHT / 2 - h / 2;
 
-    // Background: map area + grid
     ctx.save();
     ctx.translate(-camX, -camY);
 
-    // map rectangle
-    ctx.fillStyle = '#22272f';
-    ctx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+    // Tile map — only draw tiles visible in the viewport
+    const startCol = Math.max(0, Math.floor(camX / TILE_SIZE));
+    const endCol = Math.min(MAP_COLS - 1, Math.floor((camX + w) / TILE_SIZE));
+    const startRow = Math.max(0, Math.floor(camY / TILE_SIZE));
+    const endRow = Math.min(MAP_ROWS - 1, Math.floor((camY + h) / TILE_SIZE));
 
-    // grid
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-    ctx.lineWidth = 1;
-    const gridSize = 80;
-    for (let x = 0; x <= MAP_WIDTH; x += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, MAP_HEIGHT);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= MAP_HEIGHT; y += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(MAP_WIDTH, y);
-      ctx.stroke();
+    for (let r = startRow; r <= endRow; r++) {
+      for (let c = startCol; c <= endCol; c++) {
+        const tile = officeMap[r][c];
+        const tx = c * TILE_SIZE;
+        const ty = r * TILE_SIZE;
+
+        ctx.fillStyle = TILE_FILL[tile] ?? TILE_FILL[Tile.FLOOR];
+        ctx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
+
+        const border = TILE_BORDER[tile];
+        if (border) {
+          ctx.strokeStyle = border;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(tx + 0.5, ty + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+        }
+
+        // Subtle grid line on floor / meeting / lounge tiles
+        if (tile === Tile.FLOOR || tile === Tile.MEETING || tile === Tile.LOUNGE) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(tx + 0.5, ty + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+        }
+
+        // Plant decoration: draw a small circle
+        if (tile === Tile.PLANT) {
+          ctx.beginPath();
+          ctx.arc(tx + TILE_SIZE / 2, ty + TILE_SIZE / 2, TILE_SIZE * 0.3, 0, Math.PI * 2);
+          ctx.fillStyle = '#4a8a4a';
+          ctx.fill();
+        }
+      }
     }
 
     // map border

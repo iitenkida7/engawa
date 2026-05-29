@@ -4,6 +4,7 @@ import { MediaManager } from './media';
 import { NetworkClient } from './network';
 import { PlayerState } from './player';
 import { SoundManager } from './sounds';
+import { canOccupy } from './tilemap';
 import {
   CONNECT_RADIUS,
   DISCONNECT_RADIUS,
@@ -20,14 +21,52 @@ import { WebRtcManager } from './webrtc';
 type RemoteTile = {
   container: HTMLDivElement;
   video: HTMLVideoElement;
+  placeholder: HTMLDivElement;
   label: HTMLSpanElement;
   camStreamId?: string;
+  hasCam: boolean;
 };
 
 type RemoteAudio = {
   audio: HTMLAudioElement;
   streamId: string;
 };
+
+// ---- Speaking detection via AnalyserNode ----
+const SPEAKING_THRESHOLD = 15; // RMS amplitude (0-255 scale) to count as "speaking"
+const SPEAKING_SMOOTHING = 0.85; // FFT smoothing
+
+type SpeakingDetector = {
+  ctx: AudioContext;
+  analyser: AnalyserNode;
+  source: MediaStreamAudioSourceNode;
+  buf: Uint8Array;
+};
+
+function createSpeakingDetector(stream: MediaStream): SpeakingDetector | null {
+  const audioTrack = stream.getAudioTracks()[0];
+  if (!audioTrack) return null;
+  const ctx = new AudioContext();
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = SPEAKING_SMOOTHING;
+  const source = ctx.createMediaStreamSource(stream);
+  source.connect(analyser);
+  // Don't connect to destination — we only analyse, not play.
+  return { ctx, analyser, source, buf: new Uint8Array(analyser.frequencyBinCount) as Uint8Array<ArrayBuffer> };
+}
+
+function isSpeaking(det: SpeakingDetector): boolean {
+  det.analyser.getByteFrequencyData(det.buf);
+  let sum = 0;
+  for (let i = 0; i < det.buf.length; i++) sum += det.buf[i];
+  return sum / det.buf.length > SPEAKING_THRESHOLD;
+}
+
+function destroySpeakingDetector(det: SpeakingDetector) {
+  det.source.disconnect();
+  void det.ctx.close();
+}
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -55,6 +94,10 @@ export class Game {
   private screenshareVideoEl: HTMLVideoElement;
   private screenshareLabelEl: HTMLSpanElement;
   private currentScreenshareUserId: string | null = null;
+
+  // Speaking detection
+  private localSpeakingDetector: SpeakingDetector | null = null;
+  private remoteSpeakingDetectors = new Map<string, SpeakingDetector>();
 
   private selfPreviewEl: HTMLDivElement;
   private selfVideoEl: HTMLVideoElement;
@@ -114,7 +157,9 @@ export class Game {
   }
 
   private onOpen() {
-    this.net.send({ type: 'join', name: this.joinedName });
+    const params = new URLSearchParams(window.location.search);
+    const workspace = params.get('workspace') || 'default';
+    this.net.send({ type: 'join', name: this.joinedName, workspace });
   }
 
   private onClose() {
@@ -200,8 +245,11 @@ export class Game {
       selfVx = dx * PLAYER_SPEED;
       selfVy = dy * PLAYER_SPEED;
       if (selfVx !== 0 || selfVy !== 0) {
-        this.me.x = clamp(this.me.x + selfVx * dt, PLAYER_RADIUS, MAP_WIDTH - PLAYER_RADIUS);
-        this.me.y = clamp(this.me.y + selfVy * dt, PLAYER_RADIUS, MAP_HEIGHT - PLAYER_RADIUS);
+        const newX = clamp(this.me.x + selfVx * dt, PLAYER_RADIUS, MAP_WIDTH - PLAYER_RADIUS);
+        const newY = clamp(this.me.y + selfVy * dt, PLAYER_RADIUS, MAP_HEIGHT - PLAYER_RADIUS);
+        // Try each axis independently so the player slides along walls
+        if (canOccupy(newX, this.me.y, PLAYER_RADIUS)) this.me.x = newX;
+        if (canOccupy(this.me.x, newY, PLAYER_RADIUS)) this.me.y = newY;
         this.me.targetX = this.me.x;
         this.me.targetY = this.me.y;
       }
@@ -238,6 +286,18 @@ export class Game {
       }
     }
 
+    // Speaking detection
+    if (this.me && this.localSpeakingDetector) {
+      this.me.isSpeaking = isSpeaking(this.localSpeakingDetector);
+    }
+    for (const [userId, det] of this.remoteSpeakingDetectors) {
+      const p = this.players.get(userId);
+      if (p) p.isSpeaking = isSpeaking(det);
+      // Update tile speaking indicator
+      const tile = this.remoteTiles.get(userId);
+      if (tile) tile.container.classList.toggle('speaking', p?.isSpeaking ?? false);
+    }
+
     // Proximity check
     if (this.me) {
       for (const p of this.players.values()) {
@@ -261,10 +321,16 @@ export class Game {
       if (this.media.micOn) {
         const old = this.media.disableMic();
         if (old) this.rtc.removeLocalStream(old);
+        if (this.localSpeakingDetector) {
+          destroySpeakingDetector(this.localSpeakingDetector);
+          this.localSpeakingDetector = null;
+        }
+        if (this.me) this.me.isSpeaking = false;
       } else {
         try {
           const stream = await this.media.enableMic();
           this.rtc.addLocalStream(stream, 'mic');
+          this.localSpeakingDetector = createSpeakingDetector(stream);
         } catch (e) {
           alert('マイクを使えません: ' + (e as Error).message);
         }
@@ -337,6 +403,16 @@ export class Game {
     }
     if (kind === 'mic') {
       this.attachRemoteMic(userId, stream);
+      // Create a tile for mic-only users (no-video placeholder)
+      if (!this.remoteTiles.has(userId)) {
+        const tile = this.createRemoteTile(userId);
+        this.remoteTiles.set(userId, tile);
+      }
+      // Set up speaking detector for this remote user
+      const oldDet = this.remoteSpeakingDetectors.get(userId);
+      if (oldDet) destroySpeakingDetector(oldDet);
+      const det = createSpeakingDetector(stream);
+      if (det) this.remoteSpeakingDetectors.set(userId, det);
       return;
     }
     // cam → tile with <video>
@@ -345,8 +421,11 @@ export class Game {
       tile = this.createRemoteTile(userId);
       this.remoteTiles.set(userId, tile);
     }
+    tile.hasCam = true;
     tile.camStreamId = stream.id;
     tile.video.srcObject = stream;
+    tile.video.style.display = '';
+    tile.placeholder.style.display = 'none';
     tile.video.play().catch(() => {
       // autoplay blocked: will play on user gesture
     });
@@ -360,12 +439,32 @@ export class Game {
       try { audio.audio.srcObject = null; } catch { /* noop */ }
       audio.audio.remove();
       this.remoteAudios.delete(userId);
+      // Clean up speaking detector
+      const det = this.remoteSpeakingDetectors.get(userId);
+      if (det) {
+        destroySpeakingDetector(det);
+        this.remoteSpeakingDetectors.delete(userId);
+      }
+      // If no cam either, remove the tile entirely
+      const tile = this.remoteTiles.get(userId);
+      if (tile && !tile.hasCam) {
+        tile.container.remove();
+        this.remoteTiles.delete(userId);
+      }
     }
     const tile = this.remoteTiles.get(userId);
     if (tile && tile.camStreamId === streamId) {
+      tile.hasCam = false;
+      tile.camStreamId = undefined;
       try { tile.video.srcObject = null; } catch { /* noop */ }
-      tile.container.remove();
-      this.remoteTiles.delete(userId);
+      // If still has mic, show placeholder; otherwise remove tile
+      if (this.remoteAudios.has(userId)) {
+        tile.video.style.display = 'none';
+        tile.placeholder.style.display = '';
+      } else {
+        tile.container.remove();
+        this.remoteTiles.delete(userId);
+      }
     }
     if (this.currentScreenshareUserId === userId &&
         (this.screenshareVideoEl.srcObject as MediaStream | null)?.id === streamId) {
@@ -403,13 +502,21 @@ export class Game {
     video.playsInline = true;
     container.appendChild(video);
 
+    const placeholder = document.createElement('div');
+    placeholder.className = 'no-video';
+    const p = this.players.get(userId);
+    const name = p?.name || userId.slice(0, 6);
+    const initials = p ? p.initials() : name.slice(0, 2).toUpperCase();
+    placeholder.innerHTML = `<span class="no-video-initials">${initials}</span><span class="no-video-name">${name}</span>`;
+    container.appendChild(placeholder);
+
     const label = document.createElement('span');
     label.className = 'label';
-    label.textContent = userId.slice(0, 6);
+    label.textContent = name;
     container.appendChild(label);
 
     this.remoteVideosEl.appendChild(container);
-    return { container, video, label };
+    return { container, video, placeholder, label, hasCam: false };
   }
 
   private removeRemoteTile(userId: string) {
@@ -424,6 +531,11 @@ export class Game {
       try { a.audio.srcObject = null; } catch { /* noop */ }
       a.audio.remove();
       this.remoteAudios.delete(userId);
+    }
+    const det = this.remoteSpeakingDetectors.get(userId);
+    if (det) {
+      destroySpeakingDetector(det);
+      this.remoteSpeakingDetectors.delete(userId);
     }
   }
 

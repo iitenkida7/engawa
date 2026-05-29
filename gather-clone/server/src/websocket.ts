@@ -58,8 +58,9 @@ export function createWebSocketHandler(
         case 'join': {
           ws.data.name = (msg.name || 'anon').slice(0, 24);
           ws.data.workspace = (msg.workspace || 'default').slice(0, 64);
-          ws.data.x = Math.random() * MAP_WIDTH;
-          ws.data.y = Math.random() * MAP_HEIGHT;
+          // Spawn in the open office area (center aisle, avoids walls/desks)
+          ws.data.x = 800 + Math.random() * 400;
+          ws.data.y = 400 + Math.random() * 600;
           ws.data.joined = true;
 
           const existing: Player[] = [];
