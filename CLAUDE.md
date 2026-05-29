@@ -3,7 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 このリポジトリで Claude が守るべきルールと、コードベースの全体像をまとめる。
-**Claude の出力（会話・説明・質問）はすべて日本語。コミットメッセージ・コード中のコメントは英語。**
+**Claude の出力（会話・説明・質問）はすべて日本語。コミットメッセージ・コード中のコメントは英語。
+PR のタイトル・本文（メッセージ）は日本語で書く。**
 
 ## プロジェクト概要
 engawa（縁側）はブラウザだけで使える社内向けの仮想オフィス。2D マップ上でアバターを動かし、
