@@ -63,8 +63,12 @@ cp .env.example .env   # （任意）TURN やパスワードを使う場合の�
 make up                # 起動（バックグラウンド）
 ```
 
-- クライアント: http://localhost:5173
-- サーバー: http://localhost:3000
+開発環境は **Caddy リバースプロキシが HTTPS を終端** します。次の URL で開きます:
+
+- **アプリ: https://engawa.localhost** ← これが開発の入口
+- 初回は Caddy のローカル CA を信頼していないため証明書警告が出ます。下記「ローカル CA を信頼する」を参照。
+
+> `.localhost` ドメインは OS が自動で `127.0.0.1` に解決するため、hosts ファイルの編集は不要です。
 
 | コマンド | 内容 |
 |---|---|
@@ -74,7 +78,32 @@ make up                # 起動（バックグラウンド）
 | `make test` | テスト実行（server / client 両方） |
 | `make build` | クライアントの本番ビルド |
 
-> WebRTC は HTTPS または localhost でのみ動作します。`localhost:5173` での開発はそのまま動きます。
+> WebRTC は **HTTPS または localhost でのみ** 動作します。アプリ自身は TLS を持たず、**TLS 終端はリバースプロキシの責務** です。本番でも各自のリバースプロキシ（Caddy / nginx / クラウドの LB など）で HTTPS（`wss://` を含む）を終端してください。
+
+### ローカル CA を信頼する
+
+`tls internal` が発行する証明書はローカル CA 署名です。警告を消すには CA ルート証明書を OS に取り込みます:
+
+```bash
+# Caddy コンテナから CA ルート証明書を取り出す
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+```
+
+- **macOS**: `caddy-root.crt` をダブルクリック →「キーチェーンアクセス」で「常に信頼」に設定
+- **Windows**: 「信頼されたルート証明機関」ストアにインポート
+- **Linux**: `/usr/local/share/ca-certificates/` に置いて `sudo update-ca-certificates`
+
+### LAN 内の別端末（スマホ等）から実機テストする
+
+別端末で WebRTC を試すには HTTPS が必須です。`tls internal` の証明書は他端末では既定で信頼されないため、次の準備が必要です:
+
+1. ホスト PC の LAN IP を調べる（例: `192.168.1.10`）
+2. 別端末の hosts に `192.168.1.10 engawa.localhost` を追加する（証明書は `engawa.localhost` 向けに発行されるため、IP 直アクセスではなくこの名前で開く）
+   - iOS など hosts を編集できない端末では、社内 DNS で同名を引かせる等の代替が必要です
+3. 上記の `caddy-root.crt` をその端末に転送してインストール・信頼する
+4. 別端末で **https://engawa.localhost** を開く
+
+> これらの設定（hosts・CA 配布）は端末環境ごとに異なるため、各自の環境に合わせて行ってください。本リポジトリは特定ホスティング前提のデプロイ設定は持ちません。
 
 ---
 

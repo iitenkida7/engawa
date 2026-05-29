@@ -1,0 +1,17 @@
+# Dev-only reverse proxy: terminates HTTPS with a locally-trusted CA and
+# fronts the Vite client and the Bun server under a single origin so that
+# WebRTC (which requires https or localhost) works on engawa.localhost and
+# from LAN devices. TLS termination is the proxy's job; the app speaks plain
+# http internally. Production should use its own reverse proxy (see README).
+engawa.localhost {
+	tls internal
+
+	# Bun server: WebSocket signaling/position sync and TURN credentials.
+	# reverse_proxy relays the WebSocket 101 upgrade transparently, which the
+	# Vite dev proxy cannot do for Bun.
+	@server path /ws /api/*
+	reverse_proxy @server server:3000
+
+	# Everything else (incl. Vite HMR websocket) goes to the dev client.
+	reverse_proxy client:5173
+}
