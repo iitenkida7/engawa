@@ -25,179 +25,14 @@ import {
 import { RecorderManager } from './recorder';
 import { WebRtcManager } from './webrtc';
 import { bringToFront, makeDraggable } from './draggable';
-
-type RemoteTile = {
-  container: HTMLDivElement;
-  video: HTMLVideoElement;
-  placeholder: HTMLDivElement;
-  label: HTMLSpanElement;
-  camStreamId?: string;
-  hasCam: boolean;
-  // Removes the drag listeners when the tile is destroyed.
-  cleanupDrag: () => void;
-};
-
-type RemoteAudio = {
-  audio: HTMLAudioElement;
-  streamId: string;
-};
-
-// ---- Speaking detection via AnalyserNode ----
-const SPEAKING_THRESHOLD = 15; // RMS amplitude (0-255 scale) to count as "speaking"
-const SPEAKING_SMOOTHING = 0.85; // FFT smoothing
-
-type SpeakingDetector = {
-  ctx: AudioContext;
-  analyser: AnalyserNode;
-  source: MediaStreamAudioSourceNode;
-  buf: Uint8Array<ArrayBuffer>;
-};
-
-function createSpeakingDetector(stream: MediaStream): SpeakingDetector | null {
-  const audioTrack = stream.getAudioTracks()[0];
-  if (!audioTrack) return null;
-  const ctx = new AudioContext();
-  const analyser = ctx.createAnalyser();
-  analyser.fftSize = 256;
-  analyser.smoothingTimeConstant = SPEAKING_SMOOTHING;
-  const source = ctx.createMediaStreamSource(stream);
-  source.connect(analyser);
-  // Don't connect to destination — we only analyse, not play.
-  return { ctx, analyser, source, buf: new Uint8Array(analyser.frequencyBinCount) as Uint8Array<ArrayBuffer> };
-}
-
-function isSpeaking(det: SpeakingDetector): boolean {
-  det.analyser.getByteFrequencyData(det.buf);
-  let sum = 0;
-  for (let i = 0; i < det.buf.length; i++) sum += det.buf[i];
-  return sum / det.buf.length > SPEAKING_THRESHOLD;
-}
-
-function destroySpeakingDetector(det: SpeakingDetector) {
-  det.source.disconnect();
-  void det.ctx.close();
-}
-
-type PanelPreset = 'pip' | 'side' | 'full';
-
-// Layout margins used when computing presets (px).
-const PANEL_MARGIN = 12;
-// Space reserved at the bottom for the toolbar, so presets never sit under it.
-const PANEL_BOTTOM_RESERVED = 80;
-
-// Reads the camera aspect ratio stored in --cam-aspect ("w / h"); falls back
-// to 4/3. Used to size aspect-locked camera windows by width.
-function readCamAspect(el: HTMLElement): number {
-  const v = getComputedStyle(el).getPropertyValue('--cam-aspect').trim();
-  const m = v.match(/([\d.]+)\s*\/\s*([\d.]+)/);
-  if (m) {
-    const r = parseFloat(m[1]) / parseFloat(m[2]);
-    if (r > 0) return r;
-  }
-  return 4 / 3;
-}
-
-// Applies a preset layout as explicit inline geometry. Presets only set an
-// initial position/size — the panel stays freely draggable and resizable
-// afterwards (nothing is locked). Aspect-locked camera windows get width only;
-// their height follows the CSS aspect-ratio.
-function applyPanelPreset(el: HTMLElement, preset: PanelPreset, aspectLocked: boolean) {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const m = PANEL_MARGIN;
-  const maxH = vh - m - PANEL_BOTTOM_RESERVED;
-
-  let left: number;
-  let top: number;
-  let width: number;
-  let height: number | null = null;
-
-  if (preset === 'pip') {
-    width = aspectLocked ? 180 : 420;
-    if (aspectLocked) {
-      left = vw - m - width;
-      top = m;
-    } else {
-      height = 280;
-      left = m;
-      top = Math.max(m, vh - PANEL_BOTTOM_RESERVED - height);
-    }
-  } else if (preset === 'side') {
-    const target = Math.max(300, Math.round(vw * 0.4));
-    width = aspectLocked ? Math.min(target, Math.round(maxH * readCamAspect(el))) : target;
-    left = vw - m - width;
-    top = m;
-    if (!aspectLocked) height = maxH;
-  } else {
-    width = aspectLocked ? Math.min(vw - m * 2, Math.round(maxH * readCamAspect(el))) : vw - m * 2;
-    left = m;
-    top = m;
-    if (!aspectLocked) height = maxH;
-  }
-
-  el.style.right = 'auto';
-  el.style.bottom = 'auto';
-  el.style.left = `${left}px`;
-  el.style.top = `${top}px`;
-  el.style.width = `${width}px`;
-  // Aspect-locked windows derive height from width, so leave it unset.
-  el.style.height = height == null ? '' : `${height}px`;
-}
-
-// Keeps a camera panel's --cam-aspect in sync with its live video dimensions,
-// so the aspect-locked PiP window matches the actual camera (and re-adjusts
-// when the device changes). No-op until the video reports real dimensions.
-function bindCamAspect(panel: HTMLElement, video: HTMLVideoElement) {
-  const update = () => {
-    if (video.videoWidth > 0 && video.videoHeight > 0) {
-      panel.style.setProperty('--cam-aspect', `${video.videoWidth} / ${video.videoHeight}`);
-    }
-  };
-  // loadedmetadata: first frame sized; resize: intrinsic size changed (device switch).
-  video.addEventListener('loadedmetadata', update);
-  video.addEventListener('resize', update);
-  update();
-}
-
-// The pip/side/full preset buttons shown in every panel header. Markup matches
-// the static .stage-controls block in index.html so CSS is shared.
-function createModeControls(): HTMLDivElement {
-  const controls = document.createElement('div');
-  controls.className = 'stage-controls';
-  const presets: Array<[PanelPreset, string, string]> = [
-    ['pip', '🪟', '小窓'],
-    ['side', '◧', 'サイドパネル'],
-    ['full', '⬜', '全画面'],
-  ];
-  for (const [preset, icon, title] of presets) {
-    const btn = document.createElement('button');
-    btn.dataset.mode = preset;
-    btn.title = title;
-    btn.textContent = icon;
-    controls.appendChild(btn);
-  }
-  return controls;
-}
-
-// Wires the header preset buttons. Each click applies a one-shot layout preset
-// (position + size) as inline styles; the panel remains freely draggable and
-// resizable afterwards. `aspectLocked` panels (camera windows) get width-only
-// presets. `onActivate` fires on each click (e.g. raise z-order).
-function setupPanelModes(
-  el: HTMLElement,
-  opts: { aspectLocked?: boolean; onActivate?: () => void } = {},
-) {
-  const controls = el.querySelector('.stage-controls');
-  // Don't let a click/drag on the buttons start a header drag.
-  controls?.addEventListener('mousedown', (e) => e.stopPropagation());
-  el.querySelectorAll<HTMLButtonElement>('.stage-controls button').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      applyPanelPreset(el, btn.dataset.mode as PanelPreset, !!opts.aspectLocked);
-      opts.onActivate?.();
-    });
-  });
-}
+import { bindCamAspect, setupPanelModes } from './panel';
+import {
+  createSpeakingDetector,
+  destroySpeakingDetector,
+  isSpeaking,
+  type SpeakingDetector,
+} from './speaking';
+import { RemoteParticipants } from './remote';
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -220,19 +55,17 @@ export class Game {
   private moveIndex = 0;
 
   private remoteVideosEl: HTMLDivElement;
-  private remoteTiles = new Map<string, RemoteTile>();
-  // Mic audio is attached to dedicated <audio> elements so it plays even when
-  // the user has no cam (no video tile yet). userId → audio element.
-  private remoteAudios = new Map<string, RemoteAudio>();
+  // Remote camera tiles, mic audio elements and speaking detectors, managed as
+  // one cohesive unit keyed by user id.
+  private participants!: RemoteParticipants;
 
   private screenshareStageEl: HTMLDivElement;
   private screenshareVideoEl: HTMLVideoElement;
   private screenshareLabelEl: HTMLSpanElement;
   private currentScreenshareUserId: string | null = null;
 
-  // Speaking detection
+  // Speaking detection for the local user (remote ones live in participants).
   private localSpeakingDetector: SpeakingDetector | null = null;
-  private remoteSpeakingDetectors = new Map<string, SpeakingDetector>();
 
   private selfPreviewEl: HTMLDivElement;
   private selfPreviewHeaderEl: HTMLDivElement;
@@ -274,6 +107,11 @@ export class Game {
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
     this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
     this.recorder = new RecorderManager();
+    this.participants = new RemoteParticipants({
+      container: this.remoteVideosEl,
+      recorder: this.recorder,
+      info: (userId) => this.participantInfo(userId),
+    });
 
     this.net = new NetworkClient({
       onMessage: (m) => this.onServerMessage(m),
@@ -287,7 +125,7 @@ export class Game {
       },
       onRemoteStream: (userId, stream, kind) => this.attachRemoteStream(userId, stream, kind),
       onRemoteStreamRemoved: (userId, streamId) => this.detachRemoteStream(userId, streamId),
-      onPeerClosed: (userId) => this.removeRemoteTile(userId),
+      onPeerClosed: (userId) => this.participants.remove(userId),
     });
 
     this.media.on(() => this.refreshToolbar());
@@ -401,18 +239,14 @@ export class Game {
           p.status = msg.status;
           p.isMuted = msg.isMuted;
           p.isVideoOn = msg.isVideoOn;
-          // Update tile mute indicator
-          const tile = this.remoteTiles.get(msg.userId);
-          if (tile) {
-            tile.container.classList.toggle('muted', msg.isMuted);
-          }
+          this.participants.setMuted(msg.userId, msg.isMuted);
         }
         break;
       }
       case 'player-left': {
         this.players.delete(msg.userId);
         this.rtc.closePeer(msg.userId);
-        this.removeRemoteTile(msg.userId);
+        this.participants.remove(msg.userId);
         if (this.currentScreenshareUserId === msg.userId) {
           this.clearScreenshareStage();
         }
@@ -503,13 +337,10 @@ export class Game {
     if (this.me && this.localSpeakingDetector) {
       this.me.isSpeaking = isSpeaking(this.localSpeakingDetector);
     }
-    for (const [userId, det] of this.remoteSpeakingDetectors) {
+    this.participants.updateSpeaking((userId, speaking) => {
       const p = this.players.get(userId);
-      if (p) p.isSpeaking = isSpeaking(det);
-      // Update tile speaking indicator
-      const tile = this.remoteTiles.get(userId);
-      if (tile) tile.container.classList.toggle('speaking', p?.isSpeaking ?? false);
-    }
+      if (p) p.isSpeaking = speaking;
+    });
 
     // Proximity check + chime sounds
     if (this.me) {
@@ -634,10 +465,7 @@ export class Game {
         // Collect all active audio streams (local mic + remote mics)
         const audioStreams: MediaStream[] = [];
         if (this.media.micStream) audioStreams.push(this.media.micStream);
-        for (const entry of this.remoteAudios.values()) {
-          const stream = entry.audio.srcObject as MediaStream | null;
-          if (stream) audioStreams.push(stream);
-        }
+        audioStreams.push(...this.participants.audioStreams());
         // Use cam or screen as video source (prefer screen if active)
         const videoStream = this.media.screenStream ?? this.media.camStream ?? undefined;
         this.recorder.start(audioStreams, videoStream);
@@ -808,7 +636,9 @@ export class Game {
     }
   }
 
-  // ============= Remote tiles =============
+  // ============= Remote streams =============
+  // Screenshare goes to the shared stage; mic/cam are handled by the
+  // RemoteParticipants manager (tile + audio + speaking detector per user).
   private attachRemoteStream(userId: string, stream: MediaStream, kind: StreamKind) {
     if (kind === 'screen') {
       this.showScreenshareStage(userId, stream);
@@ -817,73 +647,14 @@ export class Game {
       return;
     }
     if (kind === 'mic') {
-      this.attachRemoteMic(userId, stream);
-      // Create a tile for mic-only users (no-video placeholder)
-      if (!this.remoteTiles.has(userId)) {
-        const tile = this.createRemoteTile(userId);
-        this.remoteTiles.set(userId, tile);
-      }
-      // Set up speaking detector for this remote user
-      const oldDet = this.remoteSpeakingDetectors.get(userId);
-      if (oldDet) destroySpeakingDetector(oldDet);
-      const det = createSpeakingDetector(stream);
-      if (det) this.remoteSpeakingDetectors.set(userId, det);
-      return;
+      this.participants.attachMic(userId, stream);
+    } else {
+      this.participants.attachCam(userId, stream);
     }
-    // cam → tile with <video>
-    let tile = this.remoteTiles.get(userId);
-    if (!tile) {
-      tile = this.createRemoteTile(userId);
-      this.remoteTiles.set(userId, tile);
-    }
-    tile.hasCam = true;
-    tile.camStreamId = stream.id;
-    tile.video.srcObject = stream;
-    tile.video.style.display = '';
-    tile.placeholder.style.display = 'none';
-    tile.video.play().catch(() => {
-      // autoplay blocked: will play on user gesture
-    });
-    const p = this.players.get(userId);
-    tile.label.textContent = p?.name || userId.slice(0, 6);
   }
 
   private detachRemoteStream(userId: string, streamId: string) {
-    const audio = this.remoteAudios.get(userId);
-    if (audio && audio.streamId === streamId) {
-      try { audio.audio.srcObject = null; } catch { /* noop */ }
-      audio.audio.remove();
-      this.remoteAudios.delete(userId);
-      this.recorder.removeAudioStream(streamId);
-      // Clean up speaking detector
-      const det = this.remoteSpeakingDetectors.get(userId);
-      if (det) {
-        destroySpeakingDetector(det);
-        this.remoteSpeakingDetectors.delete(userId);
-      }
-      // If no cam either, remove the tile entirely
-      const tile = this.remoteTiles.get(userId);
-      if (tile && !tile.hasCam) {
-        tile.cleanupDrag();
-        tile.container.remove();
-        this.remoteTiles.delete(userId);
-      }
-    }
-    const tile = this.remoteTiles.get(userId);
-    if (tile && tile.camStreamId === streamId) {
-      tile.hasCam = false;
-      tile.camStreamId = undefined;
-      try { tile.video.srcObject = null; } catch { /* noop */ }
-      // If still has mic, show placeholder; otherwise remove tile
-      if (this.remoteAudios.has(userId)) {
-        tile.video.style.display = 'none';
-        tile.placeholder.style.display = '';
-      } else {
-        tile.cleanupDrag();
-        tile.container.remove();
-        this.remoteTiles.delete(userId);
-      }
-    }
+    this.participants.detach(userId, streamId);
     if (this.currentScreenshareUserId === userId &&
         (this.screenshareVideoEl.srcObject as MediaStream | null)?.id === streamId) {
       this.clearScreenshareStage();
@@ -892,105 +663,12 @@ export class Game {
     }
   }
 
-  private attachRemoteMic(userId: string, stream: MediaStream) {
-    let entry = this.remoteAudios.get(userId);
-    if (!entry) {
-      const audio = document.createElement('audio');
-      audio.autoplay = true;
-      // off-screen but still in DOM so audio plays
-      audio.style.display = 'none';
-      document.body.appendChild(audio);
-      entry = { audio, streamId: stream.id };
-      this.remoteAudios.set(userId, entry);
-    }
-    entry.streamId = stream.id;
-    entry.audio.srcObject = stream;
-    entry.audio.play().catch(() => {
-      // autoplay blocked: will play on user gesture
-    });
-    // If recording is active, add this stream to the mix
-    if (this.recorder.recording) {
-      this.recorder.addAudioStream(stream);
-    }
-  }
-
-  private createRemoteTile(userId: string): RemoteTile {
+  // Display name + avatar initials for a remote user, used by the tile manager.
+  private participantInfo(userId: string): { name: string; initials: string } {
     const p = this.players.get(userId);
     const name = p?.name || userId.slice(0, 6);
     const initials = p ? p.initials() : name.slice(0, 2).toUpperCase();
-
-    // Panel shell: header bar (grab handle + name) + body (video / no-video).
-    // Shares the .panel / .panel-header / .panel-body chrome with the
-    // screenshare stage and self preview.
-    const container = document.createElement('div');
-    container.className = 'panel remote-tile';
-    container.dataset.userId = userId;
-
-    const header = document.createElement('div');
-    header.className = 'panel-header';
-    const label = document.createElement('span');
-    label.className = 'label';
-    label.textContent = name;
-    header.appendChild(label);
-    header.appendChild(createModeControls());
-    container.appendChild(header);
-
-    const body = document.createElement('div');
-    body.className = 'panel-body';
-    container.appendChild(body);
-
-    const video = document.createElement('video');
-    video.autoplay = true;
-    video.playsInline = true;
-    video.style.display = 'none';
-    body.appendChild(video);
-    // Lock the floating window to this camera's aspect ratio.
-    bindCamAspect(container, video);
-
-    const placeholder = document.createElement('div');
-    placeholder.className = 'no-video';
-    placeholder.innerHTML = `<span class="no-video-initials">${initials}</span><span class="no-video-name">${name}</span>`;
-    body.appendChild(placeholder);
-
-    // Initial position: stack tiles down from the top-right corner, offsetting
-    // each new tile so they don't fully overlap.
-    const index = this.remoteTiles.size;
-    container.style.left = 'auto';
-    container.style.right = `${12 + index * 16}px`;
-    container.style.top = `${12 + index * 16}px`;
-
-    this.remoteVideosEl.appendChild(container);
-    // Drag by the header only (matches the other panels).
-    const cleanupDrag = makeDraggable(container, {
-      handle: header,
-      onStart: () => bringToFront(container),
-    });
-    setupPanelModes(container, {
-      aspectLocked: true,
-      onActivate: () => bringToFront(container),
-    });
-    return { container, video, placeholder, label, hasCam: false, cleanupDrag };
-  }
-
-  private removeRemoteTile(userId: string) {
-    const t = this.remoteTiles.get(userId);
-    if (t) {
-      t.cleanupDrag();
-      try { t.video.srcObject = null; } catch { /* noop */ }
-      t.container.remove();
-      this.remoteTiles.delete(userId);
-    }
-    const a = this.remoteAudios.get(userId);
-    if (a) {
-      try { a.audio.srcObject = null; } catch { /* noop */ }
-      a.audio.remove();
-      this.remoteAudios.delete(userId);
-    }
-    const det = this.remoteSpeakingDetectors.get(userId);
-    if (det) {
-      destroySpeakingDetector(det);
-      this.remoteSpeakingDetectors.delete(userId);
-    }
+    return { name, initials };
   }
 
   private showScreenshareStage(userId: string, stream: MediaStream) {
