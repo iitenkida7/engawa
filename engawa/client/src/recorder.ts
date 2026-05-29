@@ -57,8 +57,11 @@ export class RecorderManager {
       return;
     }
 
-    // Mix all audio into a single destination
+    // Mix all audio into a single destination. A context created outside a
+    // direct user gesture can start 'suspended', which yields a silent
+    // destination track; resume it so the mixed audio actually flows.
     this.mixCtx = new AudioContext();
+    if (this.mixCtx.state === 'suspended') void this.mixCtx.resume();
     this.mixDest = this.mixCtx.createMediaStreamDestination();
 
     for (const stream of audioStreams) {
@@ -76,8 +79,13 @@ export class RecorderManager {
     this.combinedStream = new MediaStream(tracks);
     this.chunks = [];
 
+    // The default video bitrate is conservative (~2.5 Mbps) and looks soft for
+    // a full-viewport scene that includes a screenshare; bump it so text stays
+    // legible. Audio gets a comfortable music-grade rate.
     this.recorder = new MediaRecorder(this.combinedStream, {
       mimeType: this.mimeType,
+      videoBitsPerSecond: 8_000_000,
+      audioBitsPerSecond: 128_000,
     });
     this.recorder.ondataavailable = (e) => {
       if (e.data.size > 0) this.chunks.push(e.data);

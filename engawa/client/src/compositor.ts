@@ -64,11 +64,15 @@ export class SceneCompositor {
 
   // Begin compositing and return a 30fps capture stream of the scene. The
   // resolution is fixed to the current viewport size for the whole recording.
+  // The backing store is scaled by devicePixelRatio so the capture stays crisp
+  // on hi-DPI displays, while all drawing keeps using CSS-pixel coordinates.
   start(): MediaStream {
+    const dpr = window.devicePixelRatio || 1;
     this.width = Math.max(2, Math.floor(window.innerWidth));
     this.height = Math.max(2, Math.floor(window.innerHeight));
-    this.canvas.width = this.width;
-    this.canvas.height = this.height;
+    this.canvas.width = Math.floor(this.width * dpr);
+    this.canvas.height = Math.floor(this.height * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.running = true;
     this.lastDrawMs = 0;
     this.drawFrame(); // paint an initial frame before capture starts
