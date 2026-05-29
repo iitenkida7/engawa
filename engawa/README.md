@@ -1,12 +1,14 @@
-# gather-clone
+# engawa
 
 社内向け Gather.town クローン。2Dマップでアバターを動かし、近づくと WebRTC P2P で音声/映像/画面共有。
 
 ## 開発 (Docker)
 
+docker-compose.yml と Makefile はリポジトリ最上位にあります。
+
 ```bash
 cp .env.example .env  # (任意) Cloudflare TURN を使う場合のみ設定
-docker compose up
+make up               # = docker compose up -d
 ```
 
 - クライアント: http://localhost:5173

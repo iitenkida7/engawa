@@ -1,5 +1,5 @@
 {
-  "name": "gather-clone-server",
+  "name": "engawa-server",
   "version": "0.1.0",
   "type": "module",
   "scripts": {

@@ -91,7 +91,7 @@
 ## ディレクトリ構成
 
 ```
-gather-clone/
+engawa/
 ├ package.json              # ワークスペース定義（bun workspaces）
 ├ README.md
 ├ .env.example              # CLOUDFLARE_TURN_TOKEN_ID, CLOUDFLARE_TURN_TOKEN_SECRET
