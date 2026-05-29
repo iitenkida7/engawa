@@ -79,6 +79,9 @@
         padding: 8px 14px; border-radius: 8px; border: 1px solid #3a4050;
         background: #2a2f3a; color: inherit; font-size: 13px; cursor: pointer;
         display: flex; align-items: center; gap: 6px;
+        /* Keep buttons a fixed size: never shrink or wrap their label, so a
+           narrow viewport can't squeeze them into tall, uneven shapes. */
+        flex-shrink: 0; white-space: nowrap;
       }
       #toolbar button.active { background: #4f8cff; border-color: #4f8cff; color: white; }
       #toolbar button:hover { background: #353a47; }
@@ -87,7 +90,7 @@
       #toolbar button.recording:hover { background: #c82333; }
       @keyframes rec-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
 
-      #toolbar .btn-group { position: relative; display: flex; gap: 0; }
+      #toolbar .btn-group { position: relative; display: flex; gap: 0; flex-shrink: 0; }
       #toolbar .btn-group > #btn-mic,
       #toolbar .btn-group > #btn-cam {
         border-top-right-radius: 0; border-bottom-right-radius: 0;
