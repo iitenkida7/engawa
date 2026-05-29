@@ -76,6 +76,21 @@ function destroySpeakingDetector(det: SpeakingDetector) {
 
 type PanelMode = 'pip' | 'side' | 'full';
 
+// Keeps a camera panel's --cam-aspect in sync with its live video dimensions,
+// so the aspect-locked PiP window matches the actual camera (and re-adjusts
+// when the device changes). No-op until the video reports real dimensions.
+function bindCamAspect(panel: HTMLElement, video: HTMLVideoElement) {
+  const update = () => {
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      panel.style.setProperty('--cam-aspect', `${video.videoWidth} / ${video.videoHeight}`);
+    }
+  };
+  // loadedmetadata: first frame sized; resize: intrinsic size changed (device switch).
+  video.addEventListener('loadedmetadata', update);
+  video.addEventListener('resize', update);
+  update();
+}
+
 // The pip/side/full toggle shown in every panel header. Markup matches the
 // static .stage-controls block in index.html so CSS is shared.
 function createModeControls(): HTMLDivElement {
@@ -236,6 +251,7 @@ export class Game {
     setupPanelModes(this.selfPreviewEl, {
       onActivate: () => bringToFront(this.selfPreviewEl),
     });
+    bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
   }
 
   private joinedName = '';
@@ -820,6 +836,8 @@ export class Game {
     video.playsInline = true;
     video.style.display = 'none';
     body.appendChild(video);
+    // Lock the floating window to this camera's aspect ratio.
+    bindCamAspect(container, video);
 
     const placeholder = document.createElement('div');
     placeholder.className = 'no-video';
