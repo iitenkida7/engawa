@@ -166,23 +166,6 @@ export class CanvasRenderer {
       ctx.stroke();
     }
 
-    // Mute icon (top-left of avatar)
-    if (p.isMuted && !p.isSelf) {
-      const mx = p.x - PLAYER_RADIUS * 0.65;
-      const my = p.y - PLAYER_RADIUS * 0.65;
-      ctx.beginPath();
-      ctx.arc(mx, my, 6, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(220,53,69,0.9)';
-      ctx.fill();
-      // Draw a small slash line for mute
-      ctx.beginPath();
-      ctx.moveTo(mx - 3, my - 3);
-      ctx.lineTo(mx + 3, my + 3);
-      ctx.strokeStyle = 'white';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-
     // name label
     ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     const label = p.name + (p.isSharingScreen ? '  🖥' : '');
