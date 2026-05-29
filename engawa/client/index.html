@@ -168,10 +168,11 @@
         background: #000;
       }
 
-      #self-preview { z-index: 5; }
-      /* Floating (PiP) size/placement; side/full modes are governed by the
-         shared .panel.mode-side / .mode-full rules below. */
-      #self-preview.mode-pip {
+      /* Default (initial) placement. The header preset buttons set explicit
+         left/top/width via inline styles, and dragging/resizing override from
+         there — presets never lock the window. */
+      #self-preview {
+        z-index: 5;
         bottom: 80px; right: 16px;
         width: 180px;
       }
@@ -180,22 +181,22 @@
         transform: scaleX(-1);
       }
 
-      .remote-tile.mode-pip {
+      .remote-tile {
         width: 180px;
       }
 
-      /* Camera windows (tiles + self preview) lock to the camera's aspect
-         ratio while floating: only the width is resizable and the height
-         follows the live video's --cam-aspect, so the face is never cropped.
-         --cam-aspect is updated from the real video dimensions in game.ts;
-         4/3 matches the requested 320x240 capture as a fallback. */
-      .remote-tile.mode-pip,
-      #self-preview.mode-pip {
+      /* Camera windows (tiles + self preview) stay locked to the camera's
+         aspect ratio: only the width is resizable and the height follows the
+         live video's --cam-aspect, so the face is never cropped. --cam-aspect
+         is updated from the real video dimensions in game.ts; 4/3 matches the
+         requested 320x240 capture as a fallback. */
+      .remote-tile,
+      #self-preview {
         height: auto;
         resize: horizontal;
       }
-      .remote-tile.mode-pip .panel-body,
-      #self-preview.mode-pip .panel-body {
+      .remote-tile .panel-body,
+      #self-preview .panel-body {
         flex: none;
         aspect-ratio: var(--cam-aspect, 4 / 3);
       }
@@ -230,6 +231,10 @@
       #screenshare-stage {
         display: none;
         z-index: 6;
+        /* Default floating placement; presets/drag/resize override inline. */
+        left: 16px; bottom: 80px;
+        width: 420px; height: 280px;
+        min-width: 240px; min-height: 180px;
       }
       #screenshare-stage.visible { display: flex; }
       /* Screenshare contains a whole desktop, so letterbox it instead of crop. */
@@ -243,29 +248,6 @@
         line-height: 1;
       }
       .stage-controls button:hover { background: rgba(255,255,255,0.18); }
-      .stage-controls button.active { background: #4f8cff; color: white; }
-
-      /* Screenshare floating (PiP) size — larger than a camera tile. */
-      #screenshare-stage.mode-pip {
-        bottom: 80px; left: 16px;
-        width: 420px; height: 280px;
-        min-width: 240px; min-height: 180px;
-      }
-
-      /* ===== Shared panel mode rules (any .panel) =====
-         pip = the element's own floating size above; side/full pin the panel to
-         a screen region. Inline left/top from dragging are cleared by setMode
-         before these apply. */
-      .panel.mode-side {
-        top: 12px; right: 12px; bottom: 80px; left: auto;
-        width: 40%; height: auto; min-width: 300px;
-        resize: none;
-      }
-      .panel.mode-full {
-        top: 12px; right: 12px; bottom: 80px; left: 12px;
-        width: auto; height: auto;
-        resize: none;
-      }
 
       .hidden { display: none !important; }
     </style>
@@ -293,11 +275,11 @@
         <button id="btn-status" title="ステータス">🟢 オンライン</button>
       </div>
       <div id="remote-videos"></div>
-      <div id="self-preview" class="panel mode-pip hidden">
+      <div id="self-preview" class="panel hidden">
         <div class="panel-header" id="self-preview-header">
           <span class="label" id="self-preview-label">あなた</span>
           <div class="stage-controls">
-            <button data-mode="pip" class="active" title="小窓">🪟</button>
+            <button data-mode="pip" title="小窓">🪟</button>
             <button data-mode="side" title="サイドパネル">◧</button>
             <button data-mode="full" title="全画面">⬜</button>
           </div>
@@ -306,11 +288,11 @@
           <video id="self-video" autoplay muted playsinline></video>
         </div>
       </div>
-      <div id="screenshare-stage" class="panel mode-pip">
+      <div id="screenshare-stage" class="panel">
         <div class="panel-header" id="stage-header">
           <span class="label" id="screenshare-label"></span>
           <div class="stage-controls">
-            <button data-mode="pip" class="active" title="小窓">🪟</button>
+            <button data-mode="pip" title="小窓">🪟</button>
             <button data-mode="side" title="サイドパネル">◧</button>
             <button data-mode="full" title="全画面">⬜</button>
           </div>

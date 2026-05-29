@@ -74,7 +74,71 @@ function destroySpeakingDetector(det: SpeakingDetector) {
   void det.ctx.close();
 }
 
-type PanelMode = 'pip' | 'side' | 'full';
+type PanelPreset = 'pip' | 'side' | 'full';
+
+// Layout margins used when computing presets (px).
+const PANEL_MARGIN = 12;
+// Space reserved at the bottom for the toolbar, so presets never sit under it.
+const PANEL_BOTTOM_RESERVED = 80;
+
+// Reads the camera aspect ratio stored in --cam-aspect ("w / h"); falls back
+// to 4/3. Used to size aspect-locked camera windows by width.
+function readCamAspect(el: HTMLElement): number {
+  const v = getComputedStyle(el).getPropertyValue('--cam-aspect').trim();
+  const m = v.match(/([\d.]+)\s*\/\s*([\d.]+)/);
+  if (m) {
+    const r = parseFloat(m[1]) / parseFloat(m[2]);
+    if (r > 0) return r;
+  }
+  return 4 / 3;
+}
+
+// Applies a preset layout as explicit inline geometry. Presets only set an
+// initial position/size — the panel stays freely draggable and resizable
+// afterwards (nothing is locked). Aspect-locked camera windows get width only;
+// their height follows the CSS aspect-ratio.
+function applyPanelPreset(el: HTMLElement, preset: PanelPreset, aspectLocked: boolean) {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const m = PANEL_MARGIN;
+  const maxH = vh - m - PANEL_BOTTOM_RESERVED;
+
+  let left: number;
+  let top: number;
+  let width: number;
+  let height: number | null = null;
+
+  if (preset === 'pip') {
+    width = aspectLocked ? 180 : 420;
+    if (aspectLocked) {
+      left = vw - m - width;
+      top = m;
+    } else {
+      height = 280;
+      left = m;
+      top = Math.max(m, vh - PANEL_BOTTOM_RESERVED - height);
+    }
+  } else if (preset === 'side') {
+    const target = Math.max(300, Math.round(vw * 0.4));
+    width = aspectLocked ? Math.min(target, Math.round(maxH * readCamAspect(el))) : target;
+    left = vw - m - width;
+    top = m;
+    if (!aspectLocked) height = maxH;
+  } else {
+    width = aspectLocked ? Math.min(vw - m * 2, Math.round(maxH * readCamAspect(el))) : vw - m * 2;
+    left = m;
+    top = m;
+    if (!aspectLocked) height = maxH;
+  }
+
+  el.style.right = 'auto';
+  el.style.bottom = 'auto';
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+  el.style.width = `${width}px`;
+  // Aspect-locked windows derive height from width, so leave it unset.
+  el.style.height = height == null ? '' : `${height}px`;
+}
 
 // Keeps a camera panel's --cam-aspect in sync with its live video dimensions,
 // so the aspect-locked PiP window matches the actual camera (and re-adjusts
@@ -91,58 +155,42 @@ function bindCamAspect(panel: HTMLElement, video: HTMLVideoElement) {
   update();
 }
 
-// The pip/side/full toggle shown in every panel header. Markup matches the
-// static .stage-controls block in index.html so CSS is shared.
+// The pip/side/full preset buttons shown in every panel header. Markup matches
+// the static .stage-controls block in index.html so CSS is shared.
 function createModeControls(): HTMLDivElement {
   const controls = document.createElement('div');
   controls.className = 'stage-controls';
-  const modes: Array<[PanelMode, string, string]> = [
+  const presets: Array<[PanelPreset, string, string]> = [
     ['pip', '🪟', '小窓'],
     ['side', '◧', 'サイドパネル'],
     ['full', '⬜', '全画面'],
   ];
-  for (const [mode, icon, title] of modes) {
+  for (const [preset, icon, title] of presets) {
     const btn = document.createElement('button');
-    btn.dataset.mode = mode;
+    btn.dataset.mode = preset;
     btn.title = title;
     btn.textContent = icon;
-    if (mode === 'pip') btn.classList.add('active');
     controls.appendChild(btn);
   }
   return controls;
 }
 
-// Wires the mode buttons inside a panel's header. Switching mode toggles the
-// mode-* class and clears any inline drag/resize styles so the CSS mode rules
-// take over. `onPip` lets a panel restore its own floating placement (e.g. the
-// stacked camera tiles); `onActivate` fires on every switch (e.g. raise z).
+// Wires the header preset buttons. Each click applies a one-shot layout preset
+// (position + size) as inline styles; the panel remains freely draggable and
+// resizable afterwards. `aspectLocked` panels (camera windows) get width-only
+// presets. `onActivate` fires on each click (e.g. raise z-order).
 function setupPanelModes(
   el: HTMLElement,
-  opts: { onPip?: () => void; onActivate?: () => void } = {},
+  opts: { aspectLocked?: boolean; onActivate?: () => void } = {},
 ) {
-  const setMode = (mode: PanelMode) => {
-    el.classList.remove('mode-pip', 'mode-side', 'mode-full');
-    el.classList.add(`mode-${mode}`);
-    el.style.left = '';
-    el.style.top = '';
-    el.style.right = '';
-    el.style.bottom = '';
-    el.style.width = '';
-    el.style.height = '';
-    if (mode === 'pip') opts.onPip?.();
-    opts.onActivate?.();
-    el.querySelectorAll('.stage-controls button').forEach((b) =>
-      b.classList.toggle('active', (b as HTMLElement).dataset.mode === mode),
-    );
-  };
-
   const controls = el.querySelector('.stage-controls');
   // Don't let a click/drag on the buttons start a header drag.
   controls?.addEventListener('mousedown', (e) => e.stopPropagation());
   el.querySelectorAll<HTMLButtonElement>('.stage-controls button').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      setMode(btn.dataset.mode as PanelMode);
+      applyPanelPreset(el, btn.dataset.mode as PanelPreset, !!opts.aspectLocked);
+      opts.onActivate?.();
     });
   });
 }
@@ -240,15 +288,15 @@ export class Game {
     this.media.on(() => this.refreshToolbar());
     this.setupToolbar();
     this.setupScreensharePanel();
-    // Make the self-preview draggable/resizable by its header (PiP mode only,
-    // matching the other panels). The CSS keeps its initial bottom-right
-    // placement; the first drag (or a window resize) converts it to left/top.
+    // Make the self-preview draggable/resizable by its header. The CSS keeps
+    // its initial bottom-right placement; the first drag (or a window resize)
+    // converts it to left/top.
     makeDraggable(this.selfPreviewEl, {
       handle: this.selfPreviewHeaderEl,
       onStart: () => bringToFront(this.selfPreviewEl),
-      canDrag: () => this.selfPreviewEl.classList.contains('mode-pip'),
     });
     setupPanelModes(this.selfPreviewEl, {
+      aspectLocked: true,
       onActivate: () => bringToFront(this.selfPreviewEl),
     });
     bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
@@ -815,7 +863,7 @@ export class Game {
     // Shares the .panel / .panel-header / .panel-body chrome with the
     // screenshare stage and self preview.
     const container = document.createElement('div');
-    container.className = 'panel remote-tile mode-pip';
+    container.className = 'panel remote-tile';
     container.dataset.userId = userId;
 
     const header = document.createElement('div');
@@ -844,27 +892,21 @@ export class Game {
     placeholder.innerHTML = `<span class="no-video-initials">${initials}</span><span class="no-video-name">${name}</span>`;
     body.appendChild(placeholder);
 
-    // Initial (PiP) position: stack tiles down from the top-right corner,
-    // offsetting each new tile so they don't fully overlap. Returning to PiP
-    // via the mode button restores this home slot.
+    // Initial position: stack tiles down from the top-right corner, offsetting
+    // each new tile so they don't fully overlap.
     const index = this.remoteTiles.size;
-    const applyHome = () => {
-      container.style.left = 'auto';
-      container.style.right = `${12 + index * 16}px`;
-      container.style.top = `${12 + index * 16}px`;
-      container.style.bottom = 'auto';
-    };
-    applyHome();
+    container.style.left = 'auto';
+    container.style.right = `${12 + index * 16}px`;
+    container.style.top = `${12 + index * 16}px`;
 
     this.remoteVideosEl.appendChild(container);
-    // Drag by the header only, PiP mode only (matches the other panels).
+    // Drag by the header only (matches the other panels).
     const cleanupDrag = makeDraggable(container, {
       handle: header,
       onStart: () => bringToFront(container),
-      canDrag: () => container.classList.contains('mode-pip'),
     });
     setupPanelModes(container, {
-      onPip: applyHome,
+      aspectLocked: true,
       onActivate: () => bringToFront(container),
     });
     return { container, video, placeholder, label, hasCam: false, cleanupDrag };
@@ -928,16 +970,11 @@ export class Game {
     const stage = this.screenshareStageEl;
     const header = document.getElementById('stage-header')!;
 
-    // Mode switching is shared with the camera tiles and self preview.
+    // Preset buttons are shared with the camera tiles and self preview.
     setupPanelModes(stage);
 
-    // Drag (PiP mode only). Reuses the shared helper; the PiP-only constraint
-    // and edge-anchor clearing are preserved by the canDrag guard and the
-    // helper's left/top + right/bottom:auto behaviour.
-    makeDraggable(stage, {
-      handle: header,
-      canDrag: () => stage.classList.contains('mode-pip'),
-    });
+    // Always draggable by its header; presets only set an initial layout.
+    makeDraggable(stage, { handle: header });
   }
 }
 
