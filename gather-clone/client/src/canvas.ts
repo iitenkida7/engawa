@@ -153,12 +153,41 @@ export class CanvasRenderer {
     ctx.textBaseline = 'middle';
     ctx.fillText(p.initials(), p.x, p.y);
 
+    // Status dot (top-right of avatar)
+    if (p.status && p.status !== 'online') {
+      const dotX = p.x + PLAYER_RADIUS * 0.65;
+      const dotY = p.y - PLAYER_RADIUS * 0.65;
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
+      ctx.fillStyle = p.status === 'busy' ? '#dc3545' : '#ffc107';
+      ctx.fill();
+      ctx.strokeStyle = '#1a1d24';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Mute icon (top-left of avatar)
+    if (p.isMuted && !p.isSelf) {
+      const mx = p.x - PLAYER_RADIUS * 0.65;
+      const my = p.y - PLAYER_RADIUS * 0.65;
+      ctx.beginPath();
+      ctx.arc(mx, my, 6, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(220,53,69,0.9)';
+      ctx.fill();
+      // Draw a small slash line for mute
+      ctx.beginPath();
+      ctx.moveTo(mx - 3, my - 3);
+      ctx.lineTo(mx + 3, my + 3);
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
     // name label
     ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     const label = p.name + (p.isSharingScreen ? '  🖥' : '');
     const m = ctx.measureText(label);
     const padX = 6;
-    const padY = 3;
     const lw = m.width + padX * 2;
     const lh = 18;
     const ly = p.y + PLAYER_RADIUS + 8;

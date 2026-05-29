@@ -111,6 +111,23 @@ export function createWebSocketHandler(
           break;
         }
 
+        case 'status': {
+          if (!ws.data.joined) return;
+          broadcast(
+            clients,
+            ws.data.workspace,
+            {
+              type: 'player-status',
+              userId: ws.data.userId,
+              status: msg.status,
+              isMuted: msg.isMuted,
+              isVideoOn: msg.isVideoOn,
+            },
+            ws.data.userId,
+          );
+          break;
+        }
+
         case 'move': {
           if (!ws.data.joined) return;
           const x = Math.max(0, Math.min(MAP_WIDTH, Number(msg.x) || 0));

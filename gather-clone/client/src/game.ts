@@ -13,6 +13,7 @@ import {
   PLAYER_RADIUS,
   PLAYER_SPEED,
   POSITION_SEND_INTERVAL_MS,
+  type PlayerStatus,
   type ServerMessage,
   type StreamKind,
 } from './types';
@@ -109,7 +110,12 @@ export class Game {
   private btnCam: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
+  private btnStatus: HTMLButtonElement;
   private recorder: RecorderManager;
+  private sounds = new SoundManager();
+  // Track which peers were in proximity last frame (for chime on enter/leave)
+  private inProximity = new Set<string>();
+  private myStatus: PlayerStatus = 'online';
 
   constructor(opts: { canvas: HTMLCanvasElement }) {
     this.canvas = opts.canvas;
@@ -129,6 +135,7 @@ export class Game {
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
+    this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
     this.recorder = new RecorderManager();
 
     this.net = new NetworkClient({
@@ -209,6 +216,7 @@ export class Game {
         this.hudCount.textContent = `${this.players.size} 人接続中`;
         document.getElementById('hud')?.classList.remove('hidden');
         document.getElementById('toolbar')?.classList.remove('hidden');
+        this.broadcastStatus();
         break;
       }
       case 'player-joined': {
@@ -220,6 +228,20 @@ export class Game {
       case 'player-moved': {
         const p = this.players.get(msg.userId);
         if (p) p.setTarget(msg.x, msg.y, msg.vx, msg.vy);
+        break;
+      }
+      case 'player-status': {
+        const p = this.players.get(msg.userId);
+        if (p) {
+          p.status = msg.status;
+          p.isMuted = msg.isMuted;
+          p.isVideoOn = msg.isVideoOn;
+          // Update tile mute indicator
+          const tile = this.remoteTiles.get(msg.userId);
+          if (tile) {
+            tile.container.classList.toggle('muted', msg.isMuted);
+          }
+        }
         break;
       }
       case 'player-left': {
@@ -327,21 +349,46 @@ export class Game {
       if (tile) tile.container.classList.toggle('speaking', p?.isSpeaking ?? false);
     }
 
-    // Proximity check
+    // Proximity check + chime sounds
     if (this.me) {
+      const nowInProximity = new Set<string>();
       for (const p of this.players.values()) {
         if (p.isSelf) continue;
         const dist = Math.hypot(p.x - this.me.x, p.y - this.me.y);
         const has = this.rtc.hasPeer(p.userId);
         if (!has && dist <= CONNECT_RADIUS) {
-          // Lower userId initiates to avoid double-init
           const initiator = this.myId < p.userId;
           void this.rtc.createPeer(p.userId, initiator);
         } else if (has && dist > DISCONNECT_RADIUS) {
           this.rtc.closePeer(p.userId);
         }
+        if (dist <= CONNECT_RADIUS) {
+          nowInProximity.add(p.userId);
+          if (!this.inProximity.has(p.userId)) {
+            this.sounds.enter();
+          }
+        }
       }
+      for (const id of this.inProximity) {
+        if (!nowInProximity.has(id)) {
+          this.sounds.leave();
+        }
+      }
+      this.inProximity = nowInProximity;
     }
+  }
+
+  private broadcastStatus() {
+    if (!this.me) return;
+    this.me.status = this.myStatus;
+    this.me.isMuted = !this.media.micOn;
+    this.me.isVideoOn = this.media.camOn;
+    this.net.send({
+      type: 'status',
+      status: this.myStatus,
+      isMuted: !this.media.micOn,
+      isVideoOn: this.media.camOn,
+    });
   }
 
   // ============= Media toolbar =============
@@ -364,6 +411,7 @@ export class Game {
           alert('マイクを使えません: ' + (e as Error).message);
         }
       }
+      this.broadcastStatus();
     });
     this.btnCam.addEventListener('click', async () => {
       if (this.media.camOn) {
@@ -377,6 +425,7 @@ export class Game {
           alert('カメラを使えません: ' + (e as Error).message);
         }
       }
+      this.broadcastStatus();
     });
     this.btnScreen.addEventListener('click', async () => {
       if (this.media.screenOn) {
@@ -413,6 +462,13 @@ export class Game {
       this.refreshToolbar();
     });
     this.recorder.on(() => this.refreshToolbar());
+    this.btnStatus.addEventListener('click', () => {
+      const cycle: PlayerStatus[] = ['online', 'busy', 'away'];
+      const idx = cycle.indexOf(this.myStatus);
+      this.myStatus = cycle[(idx + 1) % cycle.length];
+      this.broadcastStatus();
+      this.refreshToolbar();
+    });
     this.refreshToolbar();
   }
 
@@ -425,6 +481,8 @@ export class Game {
     this.btnScreen.textContent = this.media.screenOn ? '🖥 共有中' : '🖥 画面共有';
     this.btnRec.classList.toggle('recording', this.recorder.recording);
     this.btnRec.textContent = this.recorder.recording ? '⏹ 録画停止' : '⏺ 録画';
+    const statusLabel: Record<PlayerStatus, string> = { online: '🟢 オンライン', busy: '🔴 取り込み中', away: '🟡 離席中' };
+    this.btnStatus.textContent = statusLabel[this.myStatus];
     this.refreshSelfPreview();
   }
 

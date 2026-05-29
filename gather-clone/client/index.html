@@ -140,6 +140,12 @@
         position: absolute; top: 4px; right: 4px;
         background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 11px;
       }
+      .remote-tile.muted::after {
+        content: '🔇';
+        position: absolute; top: 6px; right: 6px;
+        background: rgba(220,53,69,0.85); border-radius: 4px;
+        padding: 2px 5px; font-size: 11px; line-height: 1;
+      }
       .remote-tile .no-video {
         width: 180px; height: 135px;
         display: flex; flex-direction: column;
@@ -234,6 +240,7 @@
         <button id="btn-cam" title="カメラ">📷 カメラ</button>
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" title="録画">⏺ 録画</button>
+        <button id="btn-status" title="ステータス">🟢 オンライン</button>
       </div>
       <div id="remote-videos"></div>
       <div id="self-preview" class="hidden">

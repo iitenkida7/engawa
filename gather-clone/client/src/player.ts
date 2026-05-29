@@ -1,4 +1,4 @@
-import { EXTRAP_MAX_MS, INTERP_DECAY, type Player } from './types';
+import { EXTRAP_MAX_MS, INTERP_DECAY, type Player, type PlayerStatus } from './types';
 
 export class PlayerState implements Player {
   userId: string;
@@ -20,6 +20,7 @@ export class PlayerState implements Player {
 
   color: string;
   isSelf: boolean;
+  status: PlayerStatus = 'online';
   isSpeaking = false;
   isMuted = false;
   isVideoOn = false;
