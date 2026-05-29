@@ -18,21 +18,15 @@ import {
   PLAYER_RADIUS,
   PLAYER_SPEED,
   POSITION_SEND_INTERVAL_MS,
-  type PlayerStatus,
   type ServerMessage,
   type StreamKind,
 } from './types';
 import { RecorderManager } from './recorder';
 import { WebRtcManager } from './webrtc';
-import { bringToFront, makeDraggable } from './draggable';
-import { bindCamAspect, setupPanelModes } from './panel';
-import {
-  createSpeakingDetector,
-  destroySpeakingDetector,
-  isSpeaking,
-  type SpeakingDetector,
-} from './speaking';
+import { makeDraggable } from './draggable';
+import { setupPanelModes } from './panel';
 import { RemoteParticipants } from './remote';
+import { Toolbar } from './toolbar';
 
 export class App {
   private canvas: HTMLCanvasElement;
@@ -64,26 +58,14 @@ export class App {
   private screenshareLabelEl: HTMLSpanElement;
   private currentScreenshareUserId: string | null = null;
 
-  // Speaking detection for the local user (remote ones live in participants).
-  private localSpeakingDetector: SpeakingDetector | null = null;
-
-  private selfPreviewEl: HTMLDivElement;
-  private selfPreviewHeaderEl: HTMLDivElement;
-  private selfPreviewLabelEl: HTMLSpanElement;
-  private selfVideoEl: HTMLVideoElement;
-
   private hudName: HTMLElement;
   private hudCount: HTMLElement;
-  private btnMic: HTMLButtonElement;
-  private btnCam: HTMLButtonElement;
-  private btnScreen: HTMLButtonElement;
-  private btnRec: HTMLButtonElement;
-  private btnStatus: HTMLButtonElement;
   private recorder: RecorderManager;
+  // Media toolbar, device menus, local speaking detector and self preview.
+  private toolbar!: Toolbar;
   private sounds = new SoundManager();
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
-  private myStatus: PlayerStatus = 'online';
 
   constructor(opts: { canvas: HTMLCanvasElement }) {
     this.canvas = opts.canvas;
@@ -95,17 +77,8 @@ export class App {
     this.screenshareStageEl = document.getElementById('screenshare-stage') as HTMLDivElement;
     this.screenshareVideoEl = document.getElementById('screenshare-video') as HTMLVideoElement;
     this.screenshareLabelEl = document.getElementById('screenshare-label') as HTMLSpanElement;
-    this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
-    this.selfPreviewHeaderEl = document.getElementById('self-preview-header') as HTMLDivElement;
-    this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
-    this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
     this.hudName = document.getElementById('hud-name')!;
     this.hudCount = document.getElementById('hud-count')!;
-    this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
-    this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
-    this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
-    this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
-    this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
     this.recorder = new RecorderManager();
     this.participants = new RemoteParticipants({
       container: this.remoteVideosEl,
@@ -128,21 +101,29 @@ export class App {
       onPeerClosed: (userId) => this.participants.remove(userId),
     });
 
-    this.media.on(() => this.refreshToolbar());
-    this.setupToolbar();
+    this.toolbar = new Toolbar({
+      media: this.media,
+      rtc: this.rtc,
+      recorder: this.recorder,
+      participants: this.participants,
+      onLocalStatus: (status, isMuted, isVideoOn) => {
+        if (this.me) {
+          this.me.status = status;
+          this.me.isMuted = isMuted;
+          this.me.isVideoOn = isVideoOn;
+        }
+        this.net.send({ type: 'status', status, isMuted, isVideoOn });
+      },
+      onScreenShareStart: (stream) => {
+        if (this.me) this.me.isSharingScreen = true;
+        this.showScreenshareStage(this.myId, stream);
+      },
+      onScreenShareStop: () => {
+        if (this.me) this.me.isSharingScreen = false;
+        this.clearScreenshareStage();
+      },
+    });
     this.setupScreensharePanel();
-    // Make the self-preview draggable/resizable by its header. The CSS keeps
-    // its initial bottom-right placement; the first drag (or a window resize)
-    // converts it to left/top.
-    makeDraggable(this.selfPreviewEl, {
-      handle: this.selfPreviewHeaderEl,
-      onStart: () => bringToFront(this.selfPreviewEl),
-    });
-    setupPanelModes(this.selfPreviewEl, {
-      aspectLocked: true,
-      onActivate: () => bringToFront(this.selfPreviewEl),
-    });
-    bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
 
     // Double-click the map to walk to that point (A* around walls, 2× speed).
     this.canvas.addEventListener('dblclick', (e) => this.onCanvasDblClick(e));
@@ -215,11 +196,11 @@ export class App {
           this.players.set(p.userId, new PlayerState(p, false));
         }
         this.hudName.textContent = this.joinedName;
-        this.selfPreviewLabelEl.textContent = this.joinedName || 'あなた';
+        this.toolbar.setSelfName(this.joinedName);
         this.hudCount.textContent = `${this.players.size} 人接続中`;
         document.getElementById('hud')?.classList.remove('hidden');
         document.getElementById('toolbar')?.classList.remove('hidden');
-        this.broadcastStatus();
+        this.toolbar.broadcastStatus();
         break;
       }
       case 'player-joined': {
@@ -333,10 +314,8 @@ export class App {
       }
     }
 
-    // Speaking detection
-    if (this.me && this.localSpeakingDetector) {
-      this.me.isSpeaking = isSpeaking(this.localSpeakingDetector);
-    }
+    // Speaking detection: local mic detector lives in the toolbar.
+    if (this.me) this.me.isSpeaking = this.toolbar.localSpeaking();
     this.participants.updateSpeaking((userId, speaking) => {
       const p = this.players.get(userId);
       if (p) p.isSpeaking = speaking;
@@ -407,233 +386,6 @@ export class App {
       return { vx: 0, vy: 0 };
     }
     return { vx, vy };
-  }
-
-  private broadcastStatus() {
-    if (!this.me) return;
-    this.me.status = this.myStatus;
-    this.me.isMuted = !this.media.micOn;
-    this.me.isVideoOn = this.media.camOn;
-    this.net.send({
-      type: 'status',
-      status: this.myStatus,
-      isMuted: !this.media.micOn,
-      isVideoOn: this.media.camOn,
-    });
-  }
-
-  // ============= Media toolbar =============
-  private setupToolbar() {
-    this.btnMic.addEventListener('click', async () => {
-      if (this.media.micOn) {
-        this.stopMic();
-      } else {
-        await this.startMic();
-      }
-      this.broadcastStatus();
-    });
-    this.btnCam.addEventListener('click', async () => {
-      if (this.media.camOn) {
-        this.stopCam();
-      } else {
-        await this.startCam();
-      }
-      this.broadcastStatus();
-    });
-    this.setupDeviceMenus();
-    this.btnScreen.addEventListener('click', async () => {
-      if (this.media.screenOn) {
-        const old = this.media.disableScreen();
-        if (old) this.rtc.removeLocalStream(old);
-        if (this.me) this.me.isSharingScreen = false;
-        this.clearScreenshareStage();
-      } else {
-        try {
-          const stream = await this.media.enableScreen();
-          this.rtc.addLocalStream(stream, 'screen');
-          if (this.me) this.me.isSharingScreen = true;
-          this.showScreenshareStage(this.myId, stream);
-        } catch (e) {
-          alert('画面共有を開始できません: ' + (e as Error).message);
-        }
-      }
-    });
-    this.btnRec.addEventListener('click', () => {
-      if (this.recorder.recording) {
-        this.recorder.stop();
-      } else {
-        // Collect all active audio streams (local mic + remote mics)
-        const audioStreams: MediaStream[] = [];
-        if (this.media.micStream) audioStreams.push(this.media.micStream);
-        audioStreams.push(...this.participants.audioStreams());
-        // Use cam or screen as video source (prefer screen if active)
-        const videoStream = this.media.screenStream ?? this.media.camStream ?? undefined;
-        this.recorder.start(audioStreams, videoStream);
-      }
-      this.refreshToolbar();
-    });
-    this.recorder.on(() => this.refreshToolbar());
-    this.btnStatus.addEventListener('click', () => {
-      const cycle: PlayerStatus[] = ['online', 'busy', 'away'];
-      const idx = cycle.indexOf(this.myStatus);
-      this.myStatus = cycle[(idx + 1) % cycle.length];
-      this.broadcastStatus();
-      this.refreshToolbar();
-    });
-    this.refreshToolbar();
-  }
-
-  private refreshToolbar() {
-    this.btnMic.classList.toggle('active', this.media.micOn);
-    this.btnMic.textContent = this.media.micOn ? '🎤 マイク ON' : '🎤 マイク';
-    this.btnCam.classList.toggle('active', this.media.camOn);
-    this.btnCam.textContent = this.media.camOn ? '📷 カメラ ON' : '📷 カメラ';
-    this.btnScreen.classList.toggle('active', this.media.screenOn);
-    this.btnScreen.textContent = this.media.screenOn ? '🖥 共有中' : '🖥 画面共有';
-    this.btnRec.classList.toggle('recording', this.recorder.recording);
-    this.btnRec.textContent = this.recorder.recording ? '⏹ 録画停止' : '⏺ 録画';
-    const statusLabel: Record<PlayerStatus, string> = { online: '🟢 オンライン', busy: '🔴 取り込み中', away: '🟡 離席中' };
-    this.btnStatus.textContent = statusLabel[this.myStatus];
-    this.refreshSelfPreview();
-  }
-
-  // ---- Mic/cam enable & disable flows (shared by toolbar and device switch) ----
-  private async startMic() {
-    try {
-      const stream = await this.media.enableMic();
-      this.rtc.addLocalStream(stream, 'mic');
-      this.localSpeakingDetector = createSpeakingDetector(stream);
-    } catch (e) {
-      alert('マイクを使えません: ' + (e as Error).message);
-    }
-  }
-  private stopMic() {
-    const old = this.media.disableMic();
-    if (old) this.rtc.removeLocalStream(old);
-    if (this.localSpeakingDetector) {
-      destroySpeakingDetector(this.localSpeakingDetector);
-      this.localSpeakingDetector = null;
-    }
-    if (this.me) this.me.isSpeaking = false;
-  }
-  private async startCam() {
-    try {
-      const stream = await this.media.enableCam();
-      this.rtc.addLocalStream(stream, 'cam');
-    } catch (e) {
-      alert('カメラを使えません: ' + (e as Error).message);
-    }
-  }
-  private stopCam() {
-    const old = this.media.disableCam();
-    if (old) this.rtc.removeLocalStream(old);
-  }
-
-  // ============= Device selection =============
-  private setupDeviceMenus() {
-    const micMenu = document.getElementById('mic-menu') as HTMLDivElement;
-    const camMenu = document.getElementById('cam-menu') as HTMLDivElement;
-    const btnMicDevices = document.getElementById('btn-mic-devices') as HTMLButtonElement;
-    const btnCamDevices = document.getElementById('btn-cam-devices') as HTMLButtonElement;
-
-    const closeMenus = () => {
-      micMenu.classList.add('hidden');
-      camMenu.classList.add('hidden');
-    };
-    document.addEventListener('click', (e) => {
-      const t = e.target as Node;
-      if (!micMenu.contains(t) && t !== btnMicDevices &&
-          !camMenu.contains(t) && t !== btnCamDevices) {
-        closeMenus();
-      }
-    });
-
-    btnMicDevices.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const open = micMenu.classList.contains('hidden');
-      closeMenus();
-      if (open) {
-        await this.populateDeviceMenu(micMenu, await this.media.listMics(), this.media.selectedMicId,
-          (id) => this.switchMic(id));
-        micMenu.classList.remove('hidden');
-      }
-    });
-    btnCamDevices.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const open = camMenu.classList.contains('hidden');
-      closeMenus();
-      if (open) {
-        await this.populateDeviceMenu(camMenu, await this.media.listCams(), this.media.selectedCamId,
-          (id) => this.switchCam(id));
-        camMenu.classList.remove('hidden');
-      }
-    });
-  }
-
-  private async populateDeviceMenu(
-    menu: HTMLDivElement,
-    devices: MediaDeviceInfo[],
-    selectedId: string | null,
-    onPick: (deviceId: string) => void,
-  ) {
-    menu.replaceChildren();
-    if (devices.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'device-empty';
-      empty.textContent = 'デバイスが見つかりません';
-      menu.appendChild(empty);
-      return;
-    }
-    devices.forEach((d, i) => {
-      const item = document.createElement('button');
-      item.className = 'device-item';
-      // The first listed device represents the browser default when nothing
-      // has been explicitly selected.
-      const isSelected = d.deviceId === selectedId || (!selectedId && i === 0);
-      if (isSelected) item.classList.add('selected');
-      item.textContent = (isSelected ? '✓ ' : '') + (d.label || `デバイス ${i + 1}`);
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        menu.classList.add('hidden');
-        onPick(d.deviceId);
-      });
-      menu.appendChild(item);
-    });
-  }
-
-  private async switchMic(deviceId: string) {
-    if (this.media.selectedMicId === deviceId) return;
-    this.media.selectedMicId = deviceId;
-    if (!this.media.micOn) return;
-    // Re-acquire from the new device, swapping the live RTC stream.
-    this.stopMic();
-    await this.startMic();
-    this.broadcastStatus();
-  }
-
-  private async switchCam(deviceId: string) {
-    if (this.media.selectedCamId === deviceId) return;
-    this.media.selectedCamId = deviceId;
-    if (!this.media.camOn) return;
-    this.stopCam();
-    await this.startCam();
-    this.broadcastStatus();
-  }
-
-  private refreshSelfPreview() {
-    const stream = this.media.camStream;
-    if (stream) {
-      if (this.selfVideoEl.srcObject !== stream) {
-        this.selfVideoEl.srcObject = stream;
-        this.selfVideoEl.play().catch(() => {
-          /* autoplay should already be allowed after the join click */
-        });
-      }
-      this.selfPreviewEl.classList.remove('hidden');
-    } else {
-      try { this.selfVideoEl.srcObject = null; } catch { /* noop */ }
-      this.selfPreviewEl.classList.add('hidden');
-    }
   }
 
   // ============= Remote streams =============
