@@ -18,6 +18,10 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
+    // Served behind Caddy at https://engawa.localhost — allow that Host and
+    // point the HMR websocket at Caddy's TLS port so HMR works over wss.
+    allowedHosts: ['engawa.localhost'],
+    hmr: { clientPort: 443 },
     proxy: {
       '/api': { target, changeOrigin: true },
       // http-proxy needs http(s) target even for ws upgrades; ws://… target

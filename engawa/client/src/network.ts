@@ -17,13 +17,9 @@ export class NetworkClient {
     this.onClose = opts.onClose;
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    // In dev, Vite (http-proxy) does not correctly relay Bun's 101 upgrade
-    // response, so connect to the Bun server directly. In prod the same Bun
-    // server hosts the static assets, so reuse window.location.host.
-    const wsHost = import.meta.env?.DEV
-      ? `${window.location.hostname}:${import.meta.env?.VITE_WS_PORT ?? '3000'}`
-      : window.location.host;
-    this.url = `${proto}://${wsHost}/ws`;
+    // Both dev (Caddy at https://engawa.localhost) and prod front /ws on the
+    // same origin and relay the WebSocket upgrade, so reuse the page host.
+    this.url = `${proto}://${window.location.host}/ws`;
   }
 
   connect() {
