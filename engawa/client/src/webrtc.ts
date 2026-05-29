@@ -87,9 +87,6 @@ export type WebRtcEvents = {
   onRemoteStream: (userId: string, stream: MediaStream, kind: StreamKind) => void;
   onRemoteStreamRemoved: (userId: string, streamId: string) => void;
   onSignal: (toUserId: string, data: unknown) => void;
-  // Retained for source-compatibility with callers; the slot-based model no
-  // longer needs out-of-band kind announcements, so this is never invoked.
-  onStreamMeta: (toUserId: string, streamId: string, kind: StreamKind | 'removed') => void;
   onPeerClosed: (userId: string) => void;
 };
 
@@ -251,12 +248,6 @@ export class WebRtcManager {
     } catch (err) {
       console.error('[rtc] signal error', err);
     }
-  }
-
-  // No-op retained for source-compatibility. Stream kinds are now derived from
-  // the fixed transceiver slot, so out-of-band stream-meta is no longer used.
-  applyRemoteStreamMeta(_remoteUserId: string, _streamId: string, _kind: StreamKind | 'removed') {
-    /* intentionally empty — see SLOT_KINDS */
   }
 
   closePeer(remoteUserId: string) {
