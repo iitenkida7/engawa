@@ -74,6 +74,79 @@ function destroySpeakingDetector(det: SpeakingDetector) {
   void det.ctx.close();
 }
 
+type PanelMode = 'pip' | 'side' | 'full';
+
+// Keeps a camera panel's --cam-aspect in sync with its live video dimensions,
+// so the aspect-locked PiP window matches the actual camera (and re-adjusts
+// when the device changes). No-op until the video reports real dimensions.
+function bindCamAspect(panel: HTMLElement, video: HTMLVideoElement) {
+  const update = () => {
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      panel.style.setProperty('--cam-aspect', `${video.videoWidth} / ${video.videoHeight}`);
+    }
+  };
+  // loadedmetadata: first frame sized; resize: intrinsic size changed (device switch).
+  video.addEventListener('loadedmetadata', update);
+  video.addEventListener('resize', update);
+  update();
+}
+
+// The pip/side/full toggle shown in every panel header. Markup matches the
+// static .stage-controls block in index.html so CSS is shared.
+function createModeControls(): HTMLDivElement {
+  const controls = document.createElement('div');
+  controls.className = 'stage-controls';
+  const modes: Array<[PanelMode, string, string]> = [
+    ['pip', '🪟', '小窓'],
+    ['side', '◧', 'サイドパネル'],
+    ['full', '⬜', '全画面'],
+  ];
+  for (const [mode, icon, title] of modes) {
+    const btn = document.createElement('button');
+    btn.dataset.mode = mode;
+    btn.title = title;
+    btn.textContent = icon;
+    if (mode === 'pip') btn.classList.add('active');
+    controls.appendChild(btn);
+  }
+  return controls;
+}
+
+// Wires the mode buttons inside a panel's header. Switching mode toggles the
+// mode-* class and clears any inline drag/resize styles so the CSS mode rules
+// take over. `onPip` lets a panel restore its own floating placement (e.g. the
+// stacked camera tiles); `onActivate` fires on every switch (e.g. raise z).
+function setupPanelModes(
+  el: HTMLElement,
+  opts: { onPip?: () => void; onActivate?: () => void } = {},
+) {
+  const setMode = (mode: PanelMode) => {
+    el.classList.remove('mode-pip', 'mode-side', 'mode-full');
+    el.classList.add(`mode-${mode}`);
+    el.style.left = '';
+    el.style.top = '';
+    el.style.right = '';
+    el.style.bottom = '';
+    el.style.width = '';
+    el.style.height = '';
+    if (mode === 'pip') opts.onPip?.();
+    opts.onActivate?.();
+    el.querySelectorAll('.stage-controls button').forEach((b) =>
+      b.classList.toggle('active', (b as HTMLElement).dataset.mode === mode),
+    );
+  };
+
+  const controls = el.querySelector('.stage-controls');
+  // Don't let a click/drag on the buttons start a header drag.
+  controls?.addEventListener('mousedown', (e) => e.stopPropagation());
+  el.querySelectorAll<HTMLButtonElement>('.stage-controls button').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setMode(btn.dataset.mode as PanelMode);
+    });
+  });
+}
+
 export class Game {
   private canvas: HTMLCanvasElement;
   private renderer: CanvasRenderer;
@@ -167,13 +240,18 @@ export class Game {
     this.media.on(() => this.refreshToolbar());
     this.setupToolbar();
     this.setupScreensharePanel();
-    // Make the self-preview draggable/resizable by its header. The CSS keeps
-    // its initial bottom-right placement; the first drag (or a window resize)
-    // converts it to left/top.
+    // Make the self-preview draggable/resizable by its header (PiP mode only,
+    // matching the other panels). The CSS keeps its initial bottom-right
+    // placement; the first drag (or a window resize) converts it to left/top.
     makeDraggable(this.selfPreviewEl, {
       handle: this.selfPreviewHeaderEl,
       onStart: () => bringToFront(this.selfPreviewEl),
+      canDrag: () => this.selfPreviewEl.classList.contains('mode-pip'),
     });
+    setupPanelModes(this.selfPreviewEl, {
+      onActivate: () => bringToFront(this.selfPreviewEl),
+    });
+    bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
   }
 
   private joinedName = '';
@@ -737,7 +815,7 @@ export class Game {
     // Shares the .panel / .panel-header / .panel-body chrome with the
     // screenshare stage and self preview.
     const container = document.createElement('div');
-    container.className = 'panel remote-tile';
+    container.className = 'panel remote-tile mode-pip';
     container.dataset.userId = userId;
 
     const header = document.createElement('div');
@@ -746,6 +824,7 @@ export class Game {
     label.className = 'label';
     label.textContent = name;
     header.appendChild(label);
+    header.appendChild(createModeControls());
     container.appendChild(header);
 
     const body = document.createElement('div');
@@ -757,24 +836,36 @@ export class Game {
     video.playsInline = true;
     video.style.display = 'none';
     body.appendChild(video);
+    // Lock the floating window to this camera's aspect ratio.
+    bindCamAspect(container, video);
 
     const placeholder = document.createElement('div');
     placeholder.className = 'no-video';
     placeholder.innerHTML = `<span class="no-video-initials">${initials}</span><span class="no-video-name">${name}</span>`;
     body.appendChild(placeholder);
 
-    // Initial position: stack tiles down from the top-right corner, offsetting
-    // each new tile so they don't fully overlap.
+    // Initial (PiP) position: stack tiles down from the top-right corner,
+    // offsetting each new tile so they don't fully overlap. Returning to PiP
+    // via the mode button restores this home slot.
     const index = this.remoteTiles.size;
-    container.style.left = 'auto';
-    container.style.right = `${12 + index * 16}px`;
-    container.style.top = `${12 + index * 16}px`;
+    const applyHome = () => {
+      container.style.left = 'auto';
+      container.style.right = `${12 + index * 16}px`;
+      container.style.top = `${12 + index * 16}px`;
+      container.style.bottom = 'auto';
+    };
+    applyHome();
 
     this.remoteVideosEl.appendChild(container);
-    // Drag by the header only (matches the screenshare stage behaviour).
+    // Drag by the header only, PiP mode only (matches the other panels).
     const cleanupDrag = makeDraggable(container, {
       handle: header,
       onStart: () => bringToFront(container),
+      canDrag: () => container.classList.contains('mode-pip'),
+    });
+    setupPanelModes(container, {
+      onPip: applyHome,
+      onActivate: () => bringToFront(container),
     });
     return { container, video, placeholder, label, hasCam: false, cleanupDrag };
   }
@@ -837,25 +928,8 @@ export class Game {
     const stage = this.screenshareStageEl;
     const header = document.getElementById('stage-header')!;
 
-    // Mode switching
-    const setMode = (mode: string) => {
-      stage.classList.remove('mode-pip', 'mode-side', 'mode-full');
-      stage.classList.add(`mode-${mode}`);
-      // Reset inline styles so CSS mode defaults apply
-      stage.style.left = '';
-      stage.style.top = '';
-      stage.style.right = '';
-      stage.style.bottom = '';
-      stage.style.width = '';
-      stage.style.height = '';
-      stage.querySelectorAll('.stage-controls button').forEach((b) =>
-        b.classList.toggle('active', (b as HTMLElement).dataset.mode === mode),
-      );
-    };
-
-    stage.querySelectorAll<HTMLButtonElement>('.stage-controls button').forEach((btn) => {
-      btn.addEventListener('click', () => setMode(btn.dataset.mode!));
-    });
+    // Mode switching is shared with the camera tiles and self preview.
+    setupPanelModes(stage);
 
     // Drag (PiP mode only). Reuses the shared helper; the PiP-only constraint
     // and edge-anchor clearing are preserved by the canDrag guard and the
