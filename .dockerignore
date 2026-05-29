@@ -1,0 +1,12 @@
+# Keep the build context small and reproducible: never ship local installs or
+# build artifacts; the image rebuilds them from source.
+**/node_modules
+**/dist
+engawa/server/public
+.git
+.github
+.claude
+*.log
+.env
+Caddyfile
+docker-compose.yml

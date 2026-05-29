@@ -197,6 +197,27 @@ WORKSPACE_PASSWORDS=
 
 ---
 
+## 🐳 本番デプロイ（コンテナ）
+
+本番用の **host 非依存なコンテナイメージ** を同梱しています（`Dockerfile`）。Bun サーバーがクライアントのビルド成果物を `./public` から配信し、静的ファイル・`/ws`・`/api` を**単一ポート / 同一オリジン**で提供します。
+
+```bash
+docker build -t engawa .
+docker run -p 3000:3000 \
+  -e CLOUDFLARE_TURN_TOKEN_ID=xxx -e CLOUDFLARE_TURN_TOKEN_SECRET=yyy \
+  engawa
+```
+
+`v*` タグを push すると GitHub Actions（`.github/workflows/release.yml`）が **GHCR** にイメージを公開します: `ghcr.io/<owner>/engawa`。
+
+注意点:
+
+- **TLS 終端はリバースプロキシ / プラットフォームのエッジの責務**。アプリ自身は TLS を持ちません。`fly.toml` などの**特定ホスティング向け設定は本リポジトリに含めません**（各自の環境側で管理）。
+- ⚠️ **必ず 1 インスタンスで動かす**。位置同期・シグナリングはインメモリの単一プロセスで、水平スケールすると別インスタンスのユーザーが見えなくなります（メディアは P2P なので台数に依存しません）。
+- TURN トークンや `WORKSPACE_PASSWORDS` はイメージに焼かず、**実行時の環境変数 / シークレット**で渡します。
+
+---
+
 ## 🧭 設計の指針（変えるときに外さないでほしい点）
 
 1. **音声 / 映像 / 画面共有は絶対にサーバーを経由しない** — P2P、または TURN 経由のみ。
