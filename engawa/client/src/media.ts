@@ -4,6 +4,9 @@ export class MediaManager {
   micStream: MediaStream | null = null;
   camStream: MediaStream | null = null;
   screenStream: MediaStream | null = null;
+  // Currently selected input devices (null = browser default).
+  selectedMicId: string | null = null;
+  selectedCamId: string | null = null;
   private listeners = new Set<MediaListener>();
 
   on(fn: MediaListener) {
@@ -24,6 +27,18 @@ export class MediaManager {
     return !!this.screenStream;
   }
 
+  // Enumerate available audio/video input devices. Labels are only populated
+  // after the user has granted permission for that kind of device at least
+  // once, so callers should refresh the list after enabling mic/cam.
+  async listMics(): Promise<MediaDeviceInfo[]> {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((d) => d.kind === 'audioinput');
+  }
+  async listCams(): Promise<MediaDeviceInfo[]> {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((d) => d.kind === 'videoinput');
+  }
+
   async enableMic() {
     if (this.micStream) return this.micStream;
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -36,6 +51,7 @@ export class MediaManager {
         // Chrome respects this; Firefox/Safari currently ignore it but it
         // does no harm.
         latency: { ideal: 0.01 },
+        ...(this.selectedMicId ? { deviceId: { exact: this.selectedMicId } } : {}),
       } as MediaTrackConstraints,
     });
     this.micStream = stream;
@@ -60,6 +76,7 @@ export class MediaManager {
         height: { ideal: 240 },
         // Higher fps target keeps per-frame interval short → less wait.
         frameRate: { ideal: 30, max: 30 },
+        ...(this.selectedCamId ? { deviceId: { exact: this.selectedCamId } } : {}),
       },
     });
     for (const t of stream.getVideoTracks()) {

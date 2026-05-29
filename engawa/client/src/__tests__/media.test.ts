@@ -23,11 +23,12 @@ function makeStream(tracks: ReturnType<typeof makeTrack>[]) {
     getTracks: () => tracks,
     getVideoTracks: () => tracks.filter((t) => t.kind === 'video'),
     getAudioTracks: () => tracks.filter((t) => t.kind === 'audio'),
-  };
+  } as unknown as MediaStream;
 }
 
 let getUserMedia: ReturnType<typeof mock>;
 let getDisplayMedia: ReturnType<typeof mock>;
+let enumerateDevices: ReturnType<typeof mock>;
 
 // bun:test has no vi.stubGlobal; happy-dom provides `navigator`, so we define
 // a fake `mediaDevices` on it and capture the original descriptor to restore.
@@ -37,13 +38,14 @@ let originalMediaDevices: PropertyDescriptor | undefined;
 beforeEach(() => {
   getUserMedia = mock();
   getDisplayMedia = mock();
+  enumerateDevices = mock();
   originalMediaDevices = Object.getOwnPropertyDescriptor(
     globalThis.navigator,
     'mediaDevices',
   );
   hadMediaDevices = originalMediaDevices !== undefined;
   Object.defineProperty(globalThis.navigator, 'mediaDevices', {
-    value: { getUserMedia, getDisplayMedia },
+    value: { getUserMedia, getDisplayMedia, enumerateDevices },
     configurable: true,
   });
 });
@@ -130,6 +132,55 @@ describe('MediaManager cam', () => {
     m.disableCam();
     expect(track.stop).toHaveBeenCalledTimes(1);
     expect(m.camOn).toBe(false);
+  });
+});
+
+describe('MediaManager device selection', () => {
+  const devices = [
+    { kind: 'audioinput', deviceId: 'mic-a', label: 'Mic A' },
+    { kind: 'audioinput', deviceId: 'mic-b', label: 'Mic B' },
+    { kind: 'videoinput', deviceId: 'cam-a', label: 'Cam A' },
+    { kind: 'audiooutput', deviceId: 'spk-a', label: 'Speaker A' },
+  ];
+
+  it('listMics returns only audio inputs', async () => {
+    enumerateDevices.mockResolvedValue(devices);
+    const m = new MediaManager();
+    const mics = await m.listMics();
+    expect(mics.map((d) => d.deviceId)).toEqual(['mic-a', 'mic-b']);
+  });
+
+  it('listCams returns only video inputs', async () => {
+    enumerateDevices.mockResolvedValue(devices);
+    const m = new MediaManager();
+    const cams = await m.listCams();
+    expect(cams.map((d) => d.deviceId)).toEqual(['cam-a']);
+  });
+
+  it('passes the selected mic deviceId as an exact constraint', async () => {
+    getUserMedia.mockResolvedValue(makeStream([makeTrack('audio')]));
+    const m = new MediaManager();
+    m.selectedMicId = 'mic-b';
+    await m.enableMic();
+    const audio = getUserMedia.mock.calls[0][0].audio as any;
+    expect(audio.deviceId).toEqual({ exact: 'mic-b' });
+  });
+
+  it('passes the selected cam deviceId as an exact constraint', async () => {
+    getUserMedia.mockResolvedValue(makeStream([makeTrack('video')]));
+    const m = new MediaManager();
+    m.selectedCamId = 'cam-a';
+    await m.enableCam();
+    const video = getUserMedia.mock.calls[0][0].video as any;
+    expect(video.deviceId).toEqual({ exact: 'cam-a' });
+  });
+
+  it('omits the deviceId constraint when no device is selected', async () => {
+    getUserMedia.mockResolvedValue(makeStream([makeTrack('audio')]));
+    const m = new MediaManager();
+    await m.enableMic();
+    const audio = getUserMedia.mock.calls[0][0].audio as any;
+    expect(audio.deviceId).toBeUndefined();
   });
 });
 

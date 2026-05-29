@@ -20,6 +20,7 @@ import {
 } from './types';
 import { RecorderManager } from './recorder';
 import { WebRtcManager } from './webrtc';
+import { bringToFront, makeDraggable } from './draggable';
 
 type RemoteTile = {
   container: HTMLDivElement;
@@ -28,6 +29,8 @@ type RemoteTile = {
   label: HTMLSpanElement;
   camStreamId?: string;
   hasCam: boolean;
+  // Removes the drag listeners when the tile is destroyed.
+  cleanupDrag: () => void;
 };
 
 type RemoteAudio = {
@@ -43,7 +46,7 @@ type SpeakingDetector = {
   ctx: AudioContext;
   analyser: AnalyserNode;
   source: MediaStreamAudioSourceNode;
-  buf: Uint8Array;
+  buf: Uint8Array<ArrayBuffer>;
 };
 
 function createSpeakingDetector(stream: MediaStream): SpeakingDetector | null {
@@ -103,6 +106,8 @@ export class Game {
   private remoteSpeakingDetectors = new Map<string, SpeakingDetector>();
 
   private selfPreviewEl: HTMLDivElement;
+  private selfPreviewHeaderEl: HTMLDivElement;
+  private selfPreviewLabelEl: HTMLSpanElement;
   private selfVideoEl: HTMLVideoElement;
 
   private hudName: HTMLElement;
@@ -129,6 +134,8 @@ export class Game {
     this.screenshareVideoEl = document.getElementById('screenshare-video') as HTMLVideoElement;
     this.screenshareLabelEl = document.getElementById('screenshare-label') as HTMLSpanElement;
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
+    this.selfPreviewHeaderEl = document.getElementById('self-preview-header') as HTMLDivElement;
+    this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
     this.hudName = document.getElementById('hud-name')!;
     this.hudCount = document.getElementById('hud-count')!;
@@ -160,6 +167,13 @@ export class Game {
     this.media.on(() => this.refreshToolbar());
     this.setupToolbar();
     this.setupScreensharePanel();
+    // Make the self-preview draggable/resizable by its header. The CSS keeps
+    // its initial bottom-right placement; the first drag (or a window resize)
+    // converts it to left/top.
+    makeDraggable(this.selfPreviewEl, {
+      handle: this.selfPreviewHeaderEl,
+      onStart: () => bringToFront(this.selfPreviewEl),
+    });
   }
 
   private joinedName = '';
@@ -214,6 +228,7 @@ export class Game {
           this.players.set(p.userId, new PlayerState(p, false));
         }
         this.hudName.textContent = this.joinedName;
+        this.selfPreviewLabelEl.textContent = this.joinedName || 'あなた';
         this.hudCount.textContent = `${this.players.size} 人接続中`;
         document.getElementById('hud')?.classList.remove('hidden');
         document.getElementById('toolbar')?.classList.remove('hidden');
@@ -394,38 +409,21 @@ export class Game {
   private setupToolbar() {
     this.btnMic.addEventListener('click', async () => {
       if (this.media.micOn) {
-        const old = this.media.disableMic();
-        if (old) this.rtc.removeLocalStream(old);
-        if (this.localSpeakingDetector) {
-          destroySpeakingDetector(this.localSpeakingDetector);
-          this.localSpeakingDetector = null;
-        }
-        if (this.me) this.me.isSpeaking = false;
+        this.stopMic();
       } else {
-        try {
-          const stream = await this.media.enableMic();
-          this.rtc.addLocalStream(stream, 'mic');
-          this.localSpeakingDetector = createSpeakingDetector(stream);
-        } catch (e) {
-          alert('マイクを使えません: ' + (e as Error).message);
-        }
+        await this.startMic();
       }
       this.broadcastStatus();
     });
     this.btnCam.addEventListener('click', async () => {
       if (this.media.camOn) {
-        const old = this.media.disableCam();
-        if (old) this.rtc.removeLocalStream(old);
+        this.stopCam();
       } else {
-        try {
-          const stream = await this.media.enableCam();
-          this.rtc.addLocalStream(stream, 'cam');
-        } catch (e) {
-          alert('カメラを使えません: ' + (e as Error).message);
-        }
+        await this.startCam();
       }
       this.broadcastStatus();
     });
+    this.setupDeviceMenus();
     this.btnScreen.addEventListener('click', async () => {
       if (this.media.screenOn) {
         const old = this.media.disableScreen();
@@ -483,6 +481,129 @@ export class Game {
     const statusLabel: Record<PlayerStatus, string> = { online: '🟢 オンライン', busy: '🔴 取り込み中', away: '🟡 離席中' };
     this.btnStatus.textContent = statusLabel[this.myStatus];
     this.refreshSelfPreview();
+  }
+
+  // ---- Mic/cam enable & disable flows (shared by toolbar and device switch) ----
+  private async startMic() {
+    try {
+      const stream = await this.media.enableMic();
+      this.rtc.addLocalStream(stream, 'mic');
+      this.localSpeakingDetector = createSpeakingDetector(stream);
+    } catch (e) {
+      alert('マイクを使えません: ' + (e as Error).message);
+    }
+  }
+  private stopMic() {
+    const old = this.media.disableMic();
+    if (old) this.rtc.removeLocalStream(old);
+    if (this.localSpeakingDetector) {
+      destroySpeakingDetector(this.localSpeakingDetector);
+      this.localSpeakingDetector = null;
+    }
+    if (this.me) this.me.isSpeaking = false;
+  }
+  private async startCam() {
+    try {
+      const stream = await this.media.enableCam();
+      this.rtc.addLocalStream(stream, 'cam');
+    } catch (e) {
+      alert('カメラを使えません: ' + (e as Error).message);
+    }
+  }
+  private stopCam() {
+    const old = this.media.disableCam();
+    if (old) this.rtc.removeLocalStream(old);
+  }
+
+  // ============= Device selection =============
+  private setupDeviceMenus() {
+    const micMenu = document.getElementById('mic-menu') as HTMLDivElement;
+    const camMenu = document.getElementById('cam-menu') as HTMLDivElement;
+    const btnMicDevices = document.getElementById('btn-mic-devices') as HTMLButtonElement;
+    const btnCamDevices = document.getElementById('btn-cam-devices') as HTMLButtonElement;
+
+    const closeMenus = () => {
+      micMenu.classList.add('hidden');
+      camMenu.classList.add('hidden');
+    };
+    document.addEventListener('click', (e) => {
+      const t = e.target as Node;
+      if (!micMenu.contains(t) && t !== btnMicDevices &&
+          !camMenu.contains(t) && t !== btnCamDevices) {
+        closeMenus();
+      }
+    });
+
+    btnMicDevices.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const open = micMenu.classList.contains('hidden');
+      closeMenus();
+      if (open) {
+        await this.populateDeviceMenu(micMenu, await this.media.listMics(), this.media.selectedMicId,
+          (id) => this.switchMic(id));
+        micMenu.classList.remove('hidden');
+      }
+    });
+    btnCamDevices.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const open = camMenu.classList.contains('hidden');
+      closeMenus();
+      if (open) {
+        await this.populateDeviceMenu(camMenu, await this.media.listCams(), this.media.selectedCamId,
+          (id) => this.switchCam(id));
+        camMenu.classList.remove('hidden');
+      }
+    });
+  }
+
+  private async populateDeviceMenu(
+    menu: HTMLDivElement,
+    devices: MediaDeviceInfo[],
+    selectedId: string | null,
+    onPick: (deviceId: string) => void,
+  ) {
+    menu.replaceChildren();
+    if (devices.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'device-empty';
+      empty.textContent = 'デバイスが見つかりません';
+      menu.appendChild(empty);
+      return;
+    }
+    devices.forEach((d, i) => {
+      const item = document.createElement('button');
+      item.className = 'device-item';
+      // The first listed device represents the browser default when nothing
+      // has been explicitly selected.
+      const isSelected = d.deviceId === selectedId || (!selectedId && i === 0);
+      if (isSelected) item.classList.add('selected');
+      item.textContent = (isSelected ? '✓ ' : '') + (d.label || `デバイス ${i + 1}`);
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.classList.add('hidden');
+        onPick(d.deviceId);
+      });
+      menu.appendChild(item);
+    });
+  }
+
+  private async switchMic(deviceId: string) {
+    if (this.media.selectedMicId === deviceId) return;
+    this.media.selectedMicId = deviceId;
+    if (!this.media.micOn) return;
+    // Re-acquire from the new device, swapping the live RTC stream.
+    this.stopMic();
+    await this.startMic();
+    this.broadcastStatus();
+  }
+
+  private async switchCam(deviceId: string) {
+    if (this.media.selectedCamId === deviceId) return;
+    this.media.selectedCamId = deviceId;
+    if (!this.media.camOn) return;
+    this.stopCam();
+    await this.startCam();
+    this.broadcastStatus();
   }
 
   private refreshSelfPreview() {
@@ -557,6 +678,7 @@ export class Game {
       // If no cam either, remove the tile entirely
       const tile = this.remoteTiles.get(userId);
       if (tile && !tile.hasCam) {
+        tile.cleanupDrag();
         tile.container.remove();
         this.remoteTiles.delete(userId);
       }
@@ -571,6 +693,7 @@ export class Game {
         tile.video.style.display = 'none';
         tile.placeholder.style.display = '';
       } else {
+        tile.cleanupDrag();
         tile.container.remove();
         this.remoteTiles.delete(userId);
       }
@@ -606,35 +729,60 @@ export class Game {
   }
 
   private createRemoteTile(userId: string): RemoteTile {
+    const p = this.players.get(userId);
+    const name = p?.name || userId.slice(0, 6);
+    const initials = p ? p.initials() : name.slice(0, 2).toUpperCase();
+
+    // Panel shell: header bar (grab handle + name) + body (video / no-video).
+    // Shares the .panel / .panel-header / .panel-body chrome with the
+    // screenshare stage and self preview.
     const container = document.createElement('div');
-    container.className = 'remote-tile';
+    container.className = 'panel remote-tile';
     container.dataset.userId = userId;
+
+    const header = document.createElement('div');
+    header.className = 'panel-header';
+    const label = document.createElement('span');
+    label.className = 'label';
+    label.textContent = name;
+    header.appendChild(label);
+    container.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'panel-body';
+    container.appendChild(body);
 
     const video = document.createElement('video');
     video.autoplay = true;
     video.playsInline = true;
-    container.appendChild(video);
+    video.style.display = 'none';
+    body.appendChild(video);
 
     const placeholder = document.createElement('div');
     placeholder.className = 'no-video';
-    const p = this.players.get(userId);
-    const name = p?.name || userId.slice(0, 6);
-    const initials = p ? p.initials() : name.slice(0, 2).toUpperCase();
     placeholder.innerHTML = `<span class="no-video-initials">${initials}</span><span class="no-video-name">${name}</span>`;
-    container.appendChild(placeholder);
+    body.appendChild(placeholder);
 
-    const label = document.createElement('span');
-    label.className = 'label';
-    label.textContent = name;
-    container.appendChild(label);
+    // Initial position: stack tiles down from the top-right corner, offsetting
+    // each new tile so they don't fully overlap.
+    const index = this.remoteTiles.size;
+    container.style.left = 'auto';
+    container.style.right = `${12 + index * 16}px`;
+    container.style.top = `${12 + index * 16}px`;
 
     this.remoteVideosEl.appendChild(container);
-    return { container, video, placeholder, label, hasCam: false };
+    // Drag by the header only (matches the screenshare stage behaviour).
+    const cleanupDrag = makeDraggable(container, {
+      handle: header,
+      onStart: () => bringToFront(container),
+    });
+    return { container, video, placeholder, label, hasCam: false, cleanupDrag };
   }
 
   private removeRemoteTile(userId: string) {
     const t = this.remoteTiles.get(userId);
     if (t) {
+      t.cleanupDrag();
       try { t.video.srcObject = null; } catch { /* noop */ }
       t.container.remove();
       this.remoteTiles.delete(userId);
@@ -709,33 +857,12 @@ export class Game {
       btn.addEventListener('click', () => setMode(btn.dataset.mode!));
     });
 
-    // Drag (PiP mode only)
-    let dragging = false;
-    let offsetX = 0;
-    let offsetY = 0;
-
-    header.addEventListener('mousedown', (e) => {
-      if (!stage.classList.contains('mode-pip')) return;
-      dragging = true;
-      const rect = stage.getBoundingClientRect();
-      offsetX = e.clientX - rect.left;
-      offsetY = e.clientY - rect.top;
-      header.style.cursor = 'grabbing';
-      e.preventDefault();
-    });
-
-    window.addEventListener('mousemove', (e) => {
-      if (!dragging) return;
-      stage.style.left = `${e.clientX - offsetX}px`;
-      stage.style.top = `${e.clientY - offsetY}px`;
-      stage.style.bottom = 'auto';
-      stage.style.right = 'auto';
-    });
-
-    window.addEventListener('mouseup', () => {
-      if (!dragging) return;
-      dragging = false;
-      header.style.cursor = '';
+    // Drag (PiP mode only). Reuses the shared helper; the PiP-only constraint
+    // and edge-anchor clearing are preserved by the canDrag guard and the
+    // helper's left/top + right/bottom:auto behaviour.
+    makeDraggable(stage, {
+      handle: header,
+      canDrag: () => stage.classList.contains('mode-pip'),
     });
   }
 }
