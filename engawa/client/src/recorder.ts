@@ -92,6 +92,9 @@ export class RecorderManager {
   addAudioStream(stream: MediaStream) {
     if (!this.mixCtx || !this.mixDest) return;
     if (this.sources.has(stream.id)) return;
+    // A source node requires at least one audio track; a video-only stream
+    // would otherwise throw.
+    if (stream.getAudioTracks().length === 0) return;
     const src = this.mixCtx.createMediaStreamSource(stream);
     src.connect(this.mixDest);
     this.sources.set(stream.id, src);

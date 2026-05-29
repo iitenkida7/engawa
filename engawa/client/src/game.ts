@@ -23,6 +23,7 @@ import {
   type StreamKind,
 } from './types';
 import { RecorderManager } from './recorder';
+import { SceneCompositor } from './compositor';
 import { WebRtcManager } from './webrtc';
 import { bringToFront, makeDraggable } from './draggable';
 
@@ -247,6 +248,7 @@ export class Game {
   private btnRec: HTMLButtonElement;
   private btnStatus: HTMLButtonElement;
   private recorder: RecorderManager;
+  private compositor: SceneCompositor;
   private sounds = new SoundManager();
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
@@ -274,6 +276,7 @@ export class Game {
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
     this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
     this.recorder = new RecorderManager();
+    this.compositor = new SceneCompositor(this.canvas);
 
     this.net = new NetworkClient({
       onMessage: (m) => this.onServerMessage(m),
@@ -637,6 +640,7 @@ export class Game {
     this.btnRec.addEventListener('click', () => {
       if (this.recorder.recording) {
         this.recorder.stop();
+        this.compositor.stop();
       } else {
         // Collect all active audio streams (local mic + remote mics)
         const audioStreams: MediaStream[] = [];
@@ -645,9 +649,12 @@ export class Game {
           const stream = entry.audio.srcObject as MediaStream | null;
           if (stream) audioStreams.push(stream);
         }
-        // Use cam or screen as video source (prefer screen if active)
-        const videoStream = this.media.screenStream ?? this.media.camStream ?? undefined;
-        this.recorder.start(audioStreams, videoStream);
+        // Video source: the whole scene (floor + all panels) composited live.
+        const sceneStream = this.compositor.start();
+        this.recorder.start(audioStreams, sceneStream);
+        // If the browser rejected recording (unsupported), don't leave the
+        // compositor running with nothing consuming it.
+        if (!this.recorder.recording) this.compositor.stop();
       }
       this.refreshToolbar();
     });
