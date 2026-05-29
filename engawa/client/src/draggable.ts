@@ -32,6 +32,12 @@ export type MakeDraggableOptions = {
 const registry = new Map<HTMLElement, MakeDraggableOptions>();
 let resizeListenerAttached = false;
 
+// Viewport size captured at the last resize, so the shared handler can tell how
+// much the viewport grew on each axis. Set when the listener is attached (no
+// `window` access at module load time keeps the module importable in tests).
+let lastViewportW = 0;
+let lastViewportH = 0;
+
 // Normalizes an element positioned with `right`/`bottom` into explicit
 // `left`/`top` (px) so clamping has concrete coordinates to work with. Safe to
 // call repeatedly: once `left`/`top` are set it is a no-op for that axis.
@@ -64,6 +70,22 @@ export function clampToViewport(
   return { left: clampedLeft, top: clampedTop };
 }
 
+// Given how much the viewport grew on each axis and an element's current
+// left/top, returns the position that preserves the element's distance from the
+// right/bottom edge (i.e. the element follows the growing edge). Shrinking is
+// ignored per-axis (clamped to 0) so the existing clamp keeps handling it.
+export function followViewportGrowth(
+  left: number,
+  top: number,
+  grewX: number,
+  grewY: number,
+): { left: number; top: number } {
+  return {
+    left: left + Math.max(0, grewX),
+    top: top + Math.max(0, grewY),
+  };
+}
+
 // Re-clamps a single element to the current viewport, normalizing its
 // positioning to left/top first.
 export function clampElement(el: HTMLElement): void {
@@ -77,16 +99,33 @@ export function clampElement(el: HTMLElement): void {
 }
 
 function onWindowResize(): void {
+  const grewX = window.innerWidth - lastViewportW;
+  const grewY = window.innerHeight - lastViewportH;
+  lastViewportW = window.innerWidth;
+  lastViewportH = window.innerHeight;
   registry.forEach((options, el) => {
     // Skip elements that are currently not draggable: their position is owned
     // by CSS (e.g. screenshare side/full modes anchored via inset).
     if (options.canDrag && !options.canDrag()) return;
+    // Hidden elements have no useful geometry; leave them for clampElement.
+    if (el.offsetParent === null && el.style.position !== 'fixed') return;
+    // When the viewport grows, move the element by the same amount so it keeps
+    // its distance from the right/bottom edge instead of being left behind.
+    if (grewX > 0 || grewY > 0) {
+      normalizeToLeftTop(el);
+      const rect = el.getBoundingClientRect();
+      const { left, top } = followViewportGrowth(rect.left, rect.top, grewX, grewY);
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
+    }
     clampElement(el);
   });
 }
 
 function ensureResizeListener(): void {
   if (resizeListenerAttached) return;
+  lastViewportW = window.innerWidth;
+  lastViewportH = window.innerHeight;
   window.addEventListener('resize', onWindowResize);
   resizeListenerAttached = true;
 }
