@@ -19,6 +19,7 @@ const server = Bun.serve({
         data: {
           userId,
           name: '',
+          workspace: '',
           x: 0,
           y: 0,
           joined: false,

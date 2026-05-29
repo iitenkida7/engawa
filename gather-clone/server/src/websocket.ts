@@ -15,6 +15,7 @@ function send(ws: ServerWebSocket<WsData>, msg: ServerMessage) {
 
 function broadcast(
   clients: Map<string, ServerWebSocket<WsData>>,
+  workspace: string,
   msg: ServerMessage,
   exceptUserId?: string,
 ) {
@@ -22,6 +23,7 @@ function broadcast(
   for (const [id, c] of clients) {
     if (id === exceptUserId) continue;
     if (!c.data.joined) continue;
+    if (c.data.workspace !== workspace) continue;
     c.send(str);
   }
 }
@@ -55,6 +57,7 @@ export function createWebSocketHandler(
       switch (msg.type) {
         case 'join': {
           ws.data.name = (msg.name || 'anon').slice(0, 24);
+          ws.data.workspace = (msg.workspace || 'default').slice(0, 64);
           ws.data.x = Math.random() * MAP_WIDTH;
           ws.data.y = Math.random() * MAP_HEIGHT;
           ws.data.joined = true;
@@ -63,6 +66,7 @@ export function createWebSocketHandler(
           for (const [id, c] of clients) {
             if (id === ws.data.userId) continue;
             if (!c.data.joined) continue;
+            if (c.data.workspace !== ws.data.workspace) continue;
             existing.push(playerFromWs(c));
           }
 
@@ -74,6 +78,7 @@ export function createWebSocketHandler(
 
           broadcast(
             clients,
+            ws.data.workspace,
             { type: 'player-joined', player: playerFromWs(ws) },
             ws.data.userId,
           );
@@ -91,6 +96,7 @@ export function createWebSocketHandler(
           ws.data.y = y;
           broadcast(
             clients,
+            ws.data.workspace,
             { type: 'player-moved', userId: ws.data.userId, x, y, vx, vy },
             ws.data.userId,
           );
@@ -127,7 +133,7 @@ export function createWebSocketHandler(
     close(ws) {
       clients.delete(ws.data.userId);
       if (ws.data.joined) {
-        broadcast(clients, { type: 'player-left', userId: ws.data.userId });
+        broadcast(clients, ws.data.workspace, { type: 'player-left', userId: ws.data.userId });
       }
       console.log(`[ws] close ${ws.data.userId} (clients=${clients.size})`);
     },

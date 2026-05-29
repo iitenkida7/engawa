@@ -10,7 +10,7 @@ export type SignalData = unknown;
 export type StreamKind = 'mic' | 'cam' | 'screen';
 
 export type ClientMessage =
-  | { type: 'join'; name: string }
+  | { type: 'join'; name: string; workspace: string }
   | { type: 'move'; x: number; y: number; vx: number; vy: number }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' };
@@ -26,6 +26,7 @@ export type ServerMessage =
 export type WsData = {
   userId: string;
   name: string;
+  workspace: string;
   x: number;
   y: number;
   joined: boolean;
