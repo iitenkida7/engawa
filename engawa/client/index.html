@@ -168,17 +168,19 @@
         background: #000;
       }
 
-      #self-preview {
+      #self-preview { z-index: 5; }
+      /* Floating (PiP) size/placement; side/full modes are governed by the
+         shared .panel.mode-side / .mode-full rules below. */
+      #self-preview.mode-pip {
         bottom: 80px; right: 16px;
         width: 180px; height: 160px;
-        z-index: 5;
       }
       #self-preview .panel-body video {
         /* Mirror so motion matches the user's expectations of a mirror. */
         transform: scaleX(-1);
       }
 
-      .remote-tile {
+      .remote-tile.mode-pip {
         width: 180px; height: 160px;
       }
       .remote-tile.speaking {
@@ -227,22 +229,25 @@
       .stage-controls button:hover { background: rgba(255,255,255,0.18); }
       .stage-controls button.active { background: #4f8cff; color: white; }
 
-      /* PiP mode (default) */
+      /* Screenshare floating (PiP) size — larger than a camera tile. */
       #screenshare-stage.mode-pip {
         bottom: 80px; left: 16px;
         width: 420px; height: 280px;
-        resize: both; overflow: hidden;
         min-width: 240px; min-height: 180px;
       }
-      /* Side panel mode */
-      #screenshare-stage.mode-side {
-        top: 12px; right: 12px; bottom: 80px;
-        width: 40%; min-width: 300px;
+
+      /* ===== Shared panel mode rules (any .panel) =====
+         pip = the element's own floating size above; side/full pin the panel to
+         a screen region. Inline left/top from dragging are cleared by setMode
+         before these apply. */
+      .panel.mode-side {
+        top: 12px; right: 12px; bottom: 80px; left: auto;
+        width: 40%; height: auto; min-width: 300px;
         resize: none;
       }
-      /* Full overlay mode */
-      #screenshare-stage.mode-full {
-        inset: 12px 12px 80px 12px;
+      .panel.mode-full {
+        top: 12px; right: 12px; bottom: 80px; left: 12px;
+        width: auto; height: auto;
         resize: none;
       }
 
@@ -272,9 +277,14 @@
         <button id="btn-status" title="ステータス">🟢 オンライン</button>
       </div>
       <div id="remote-videos"></div>
-      <div id="self-preview" class="panel hidden">
+      <div id="self-preview" class="panel mode-pip hidden">
         <div class="panel-header" id="self-preview-header">
           <span class="label" id="self-preview-label">あなた</span>
+          <div class="stage-controls">
+            <button data-mode="pip" class="active" title="小窓">🪟</button>
+            <button data-mode="side" title="サイドパネル">◧</button>
+            <button data-mode="full" title="全画面">⬜</button>
+          </div>
         </div>
         <div class="panel-body">
           <video id="self-video" autoplay muted playsinline></video>
