@@ -44,7 +44,7 @@ type Options = {
 
 // Owns the remote-participant tiles/audio/detectors as one cohesive unit, so
 // the create/teardown logic lives in a single place instead of being spread
-// across the Game class.
+// across the App class.
 export class RemoteParticipants {
   private participants = new Map<string, Participant>();
   private container: HTMLDivElement;

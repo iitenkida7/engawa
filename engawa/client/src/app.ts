@@ -34,7 +34,7 @@ import {
 } from './speaking';
 import { RemoteParticipants } from './remote';
 
-export class Game {
+export class App {
   private canvas: HTMLCanvasElement;
   private renderer: CanvasRenderer;
   private input: InputManager;

@@ -1,7 +1,7 @@
 // Floating-panel helpers shared by the screenshare stage, self preview and
 // remote camera tiles: layout presets (pip / side / full), camera aspect-ratio
 // tracking, and the header preset buttons. These only touch the DOM — no app
-// state — so they live apart from the Game orchestration.
+// state — so they live apart from the App orchestration.
 
 export type PanelPreset = 'pip' | 'side' | 'full';
 
