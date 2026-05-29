@@ -1,5 +1,6 @@
 import { MAP_WIDTH, MAP_HEIGHT, PLAYER_RADIUS, CONNECT_RADIUS } from './types';
 import type { PlayerState } from './player';
+import type { Point } from './proximity';
 import {
   TILE_SIZE,
   MAP_COLS,
@@ -9,6 +10,23 @@ import {
   TILE_BORDER,
   Tile,
 } from './tilemap';
+
+/**
+ * Convert a screen/client coordinate to a world coordinate. Pure (no DOM) so
+ * the camera-offset math can be unit-tested; the camera centers on `self`,
+ * matching render()'s `camX = self.x - viewW/2`.
+ */
+export function worldFromScreen(
+  screenX: number,
+  screenY: number,
+  rect: { left: number; top: number },
+  view: { w: number; h: number },
+  self: Point | null,
+): Point {
+  const camX = self ? self.x - view.w / 2 : MAP_WIDTH / 2 - view.w / 2;
+  const camY = self ? self.y - view.h / 2 : MAP_HEIGHT / 2 - view.h / 2;
+  return { x: screenX - rect.left + camX, y: screenY - rect.top + camY };
+}
 
 export class CanvasRenderer {
   private canvas: HTMLCanvasElement;
@@ -40,7 +58,13 @@ export class CanvasRenderer {
     return this.canvas.clientHeight;
   }
 
-  render(self: PlayerState | null, players: Iterable<PlayerState>) {
+  /** Map a click position (clientX/Y) to a world coordinate. */
+  screenToWorld(clientX: number, clientY: number, self: PlayerState | null): Point {
+    const rect = this.canvas.getBoundingClientRect();
+    return worldFromScreen(clientX, clientY, rect, { w: this.viewW, h: this.viewH }, self);
+  }
+
+  render(self: PlayerState | null, players: Iterable<PlayerState>, moveTarget: Point | null = null) {
     const ctx = this.ctx;
     const w = this.viewW;
     const h = this.viewH;
@@ -108,6 +132,23 @@ export class CanvasRenderer {
       ctx.setLineDash([6, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+
+    // click-to-move destination marker (only while travelling)
+    if (moveTarget) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(moveTarget.x, moveTarget.y, 12, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(79,140,255,0.15)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(79,140,255,0.7)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(moveTarget.x, moveTarget.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(79,140,255,0.9)';
+      ctx.fill();
+      ctx.restore();
     }
 
     // players
