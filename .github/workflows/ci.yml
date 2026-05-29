@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (bun via Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Reuse the same Docker-based Makefile targets developers run locally,
+      # so CI and local runs stay identical (single source of truth).
+      - name: Install dependencies
+        run: make install
+
+      - name: Run test suites (server + client)
+        run: make test
