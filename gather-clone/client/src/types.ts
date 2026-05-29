@@ -10,12 +10,13 @@ export type SignalData = unknown;
 export type StreamKind = 'mic' | 'cam' | 'screen';
 
 export type ClientMessage =
-  | { type: 'join'; name: string; workspace: string }
+  | { type: 'join'; name: string; workspace: string; password?: string }
   | { type: 'move'; x: number; y: number; vx: number; vy: number }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' };
 
 export type ServerMessage =
+  | { type: 'auth-error'; message: string }
   | { type: 'welcome'; self: Player; players: Player[] }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }

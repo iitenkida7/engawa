@@ -139,3 +139,24 @@ function buildOfficeMap(): number[][] {
 }
 
 export const officeMap = buildOfficeMap();
+
+/** Find the nearest walkable pixel position, snapping to tile centers. */
+export function findWalkableSpawn(px: number, py: number, radius: number): { x: number; y: number } {
+  if (canOccupy(px, py, radius)) return { x: px, y: py };
+
+  // Spiral outward in tile increments to find a walkable spot
+  for (let dist = 1; dist < Math.max(MAP_COLS, MAP_ROWS); dist++) {
+    for (let dr = -dist; dr <= dist; dr++) {
+      for (let dc = -dist; dc <= dist; dc++) {
+        if (Math.abs(dr) !== dist && Math.abs(dc) !== dist) continue;
+        const col = Math.floor(px / TILE_SIZE) + dc;
+        const row = Math.floor(py / TILE_SIZE) + dr;
+        if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) continue;
+        const cx = col * TILE_SIZE + TILE_SIZE / 2;
+        const cy = row * TILE_SIZE + TILE_SIZE / 2;
+        if (canOccupy(cx, cy, radius)) return { x: cx, y: cy };
+      }
+    }
+  }
+  return { x: px, y: py };
+}

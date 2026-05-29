@@ -4,7 +4,7 @@ import { MediaManager } from './media';
 import { NetworkClient } from './network';
 import { PlayerState } from './player';
 import { SoundManager } from './sounds';
-import { canOccupy } from './tilemap';
+import { canOccupy, findWalkableSpawn } from './tilemap';
 import {
   CONNECT_RADIUS,
   DISCONNECT_RADIUS,
@@ -16,6 +16,7 @@ import {
   type ServerMessage,
   type StreamKind,
 } from './types';
+import { RecorderManager } from './recorder';
 import { WebRtcManager } from './webrtc';
 
 type RemoteTile = {
@@ -107,6 +108,8 @@ export class Game {
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
+  private btnRec: HTMLButtonElement;
+  private recorder: RecorderManager;
 
   constructor(opts: { canvas: HTMLCanvasElement }) {
     this.canvas = opts.canvas;
@@ -125,6 +128,8 @@ export class Game {
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
+    this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
+    this.recorder = new RecorderManager();
 
     this.net = new NetworkClient({
       onMessage: (m) => this.onServerMessage(m),
@@ -146,12 +151,15 @@ export class Game {
 
     this.media.on(() => this.refreshToolbar());
     this.setupToolbar();
+    this.setupScreensharePanel();
   }
 
   private joinedName = '';
+  private joinedPassword = '';
 
-  start(name: string) {
+  start(name: string, password: string) {
     this.joinedName = name;
+    this.joinedPassword = password;
     this.net.connect();
     requestAnimationFrame(this.loop);
   }
@@ -159,18 +167,39 @@ export class Game {
   private onOpen() {
     const params = new URLSearchParams(window.location.search);
     const workspace = params.get('workspace') || 'default';
-    this.net.send({ type: 'join', name: this.joinedName, workspace });
+    this.net.send({
+      type: 'join',
+      name: this.joinedName,
+      workspace,
+      ...(this.joinedPassword ? { password: this.joinedPassword } : {}),
+    });
   }
 
   private onClose() {
+    if (this.authFailed) {
+      this.authFailed = false;
+      return;
+    }
     console.warn('[ws] connection closed; will retry in 2s');
     setTimeout(() => this.net.connect(), 2000);
   }
 
+  private authFailed = false;
+
   private onServerMessage(msg: ServerMessage) {
     switch (msg.type) {
+      case 'auth-error': {
+        this.authFailed = true;
+        alert(msg.message || '認証に失敗しました');
+        // Show join overlay again so user can retry
+        document.getElementById('join-overlay')?.classList.remove('hidden');
+        break;
+      }
       case 'welcome': {
         this.myId = msg.self.userId;
+        const spawn = findWalkableSpawn(msg.self.x, msg.self.y, PLAYER_RADIUS);
+        msg.self.x = spawn.x;
+        msg.self.y = spawn.y;
         this.me = new PlayerState(msg.self, true);
         this.players.set(this.myId, this.me);
         for (const p of msg.players) {
@@ -354,16 +383,36 @@ export class Game {
         const old = this.media.disableScreen();
         if (old) this.rtc.removeLocalStream(old);
         if (this.me) this.me.isSharingScreen = false;
+        this.clearScreenshareStage();
       } else {
         try {
           const stream = await this.media.enableScreen();
           this.rtc.addLocalStream(stream, 'screen');
           if (this.me) this.me.isSharingScreen = true;
+          this.showScreenshareStage(this.myId, stream);
         } catch (e) {
           alert('画面共有を開始できません: ' + (e as Error).message);
         }
       }
     });
+    this.btnRec.addEventListener('click', () => {
+      if (this.recorder.recording) {
+        this.recorder.stop();
+      } else {
+        // Collect all active audio streams (local mic + remote mics)
+        const audioStreams: MediaStream[] = [];
+        if (this.media.micStream) audioStreams.push(this.media.micStream);
+        for (const entry of this.remoteAudios.values()) {
+          const stream = entry.audio.srcObject as MediaStream | null;
+          if (stream) audioStreams.push(stream);
+        }
+        // Use cam or screen as video source (prefer screen if active)
+        const videoStream = this.media.screenStream ?? this.media.camStream ?? undefined;
+        this.recorder.start(audioStreams, videoStream);
+      }
+      this.refreshToolbar();
+    });
+    this.recorder.on(() => this.refreshToolbar());
     this.refreshToolbar();
   }
 
@@ -374,6 +423,8 @@ export class Game {
     this.btnCam.textContent = this.media.camOn ? '📷 カメラ ON' : '📷 カメラ';
     this.btnScreen.classList.toggle('active', this.media.screenOn);
     this.btnScreen.textContent = this.media.screenOn ? '🖥 共有中' : '🖥 画面共有';
+    this.btnRec.classList.toggle('recording', this.recorder.recording);
+    this.btnRec.textContent = this.recorder.recording ? '⏹ 録画停止' : '⏺ 録画';
     this.refreshSelfPreview();
   }
 
@@ -439,6 +490,7 @@ export class Game {
       try { audio.audio.srcObject = null; } catch { /* noop */ }
       audio.audio.remove();
       this.remoteAudios.delete(userId);
+      this.recorder.removeAudioStream(streamId);
       // Clean up speaking detector
       const det = this.remoteSpeakingDetectors.get(userId);
       if (det) {
@@ -490,6 +542,10 @@ export class Game {
     entry.audio.play().catch(() => {
       // autoplay blocked: will play on user gesture
     });
+    // If recording is active, add this stream to the mix
+    if (this.recorder.recording) {
+      this.recorder.addAudioStream(stream);
+    }
   }
 
   private createRemoteTile(userId: string): RemoteTile {
@@ -545,8 +601,11 @@ export class Game {
     this.screenshareVideoEl.play().catch(() => {
       /* autoplay may be blocked */
     });
+    const isSelf = userId === this.myId;
     const p = this.players.get(userId);
-    this.screenshareLabelEl.textContent = `${p?.name || userId.slice(0, 6)} の画面`;
+    this.screenshareLabelEl.textContent = isSelf
+      ? 'あなたの画面'
+      : `${p?.name || userId.slice(0, 6)} の画面`;
     this.screenshareStageEl.classList.add('visible');
   }
 
@@ -558,6 +617,69 @@ export class Game {
       /* noop */
     }
     this.screenshareStageEl.classList.remove('visible');
+    // Reset inline drag/resize styles so CSS mode defaults apply next time
+    const el = this.screenshareStageEl;
+    el.style.left = '';
+    el.style.top = '';
+    el.style.right = '';
+    el.style.bottom = '';
+    el.style.width = '';
+    el.style.height = '';
+  }
+
+  // ============= Screenshare panel: mode switch + drag =============
+  private setupScreensharePanel() {
+    const stage = this.screenshareStageEl;
+    const header = document.getElementById('stage-header')!;
+
+    // Mode switching
+    const setMode = (mode: string) => {
+      stage.classList.remove('mode-pip', 'mode-side', 'mode-full');
+      stage.classList.add(`mode-${mode}`);
+      // Reset inline styles so CSS mode defaults apply
+      stage.style.left = '';
+      stage.style.top = '';
+      stage.style.right = '';
+      stage.style.bottom = '';
+      stage.style.width = '';
+      stage.style.height = '';
+      stage.querySelectorAll('.stage-controls button').forEach((b) =>
+        b.classList.toggle('active', (b as HTMLElement).dataset.mode === mode),
+      );
+    };
+
+    stage.querySelectorAll<HTMLButtonElement>('.stage-controls button').forEach((btn) => {
+      btn.addEventListener('click', () => setMode(btn.dataset.mode!));
+    });
+
+    // Drag (PiP mode only)
+    let dragging = false;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    header.addEventListener('mousedown', (e) => {
+      if (!stage.classList.contains('mode-pip')) return;
+      dragging = true;
+      const rect = stage.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      header.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      stage.style.left = `${e.clientX - offsetX}px`;
+      stage.style.top = `${e.clientY - offsetY}px`;
+      stage.style.bottom = 'auto';
+      stage.style.right = 'auto';
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      header.style.cursor = '';
+    });
   }
 }
 

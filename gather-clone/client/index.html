@@ -83,6 +83,9 @@
       #toolbar button.active { background: #4f8cff; border-color: #4f8cff; color: white; }
       #toolbar button:hover { background: #353a47; }
       #toolbar button.active:hover { background: #3a78f0; }
+      #toolbar button.recording { background: #dc3545; border-color: #dc3545; color: white; animation: rec-pulse 1.5s ease-in-out infinite; }
+      #toolbar button.recording:hover { background: #c82333; }
+      @keyframes rec-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
 
       #remote-videos {
         position: absolute; top: 12px; right: 12px;
@@ -156,20 +159,64 @@
       }
 
       #screenshare-stage {
-        position: absolute; inset: 12px 12px 80px 12px;
-        background: rgba(0,0,0,0.85);
+        position: absolute;
+        background: rgba(14,16,20,0.92);
+        border: 1px solid #353a47;
         border-radius: 12px;
         display: none;
-        align-items: center; justify-content: center;
-        z-index: 4;
+        flex-direction: column;
+        z-index: 6;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
       }
       #screenshare-stage.visible { display: flex; }
       #screenshare-stage video {
-        max-width: 100%; max-height: 100%;
+        flex: 1;
+        width: 100%;
+        object-fit: contain;
+        min-height: 0;
+        border-radius: 0 0 12px 12px;
+        background: #000;
       }
-      #screenshare-stage .label {
-        position: absolute; top: 8px; left: 12px;
-        background: rgba(0,0,0,0.7); padding: 4px 10px; border-radius: 6px; font-size: 12px;
+      .stage-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 6px 10px; flex-shrink: 0;
+        cursor: grab; user-select: none;
+        border-bottom: 1px solid #2a2f3a;
+      }
+      .stage-header .label {
+        font-size: 12px; color: #9da3b0;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .stage-controls { display: flex; gap: 4px; }
+      .stage-controls button {
+        background: rgba(255,255,255,0.08); border: none; color: #ccc;
+        border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 13px;
+        line-height: 1;
+      }
+      .stage-controls button:hover { background: rgba(255,255,255,0.18); }
+      .stage-controls button.active { background: #4f8cff; color: white; }
+
+      /* PiP mode (default) */
+      #screenshare-stage.mode-pip {
+        bottom: 80px; left: 16px;
+        width: 420px; height: 280px;
+        resize: both; overflow: hidden;
+        min-width: 240px; min-height: 180px;
+      }
+      /* Side panel mode */
+      #screenshare-stage.mode-side {
+        top: 12px; right: 12px; bottom: 80px;
+        width: 40%; min-width: 300px;
+      }
+      /* Full overlay mode */
+      #screenshare-stage.mode-full {
+        inset: 12px 12px 80px 12px;
+      }
+
+      /* Remote videos: resizable */
+      #remote-videos {
+        resize: vertical; overflow: auto;
+        min-height: 60px; max-height: 70vh;
       }
 
       .hidden { display: none !important; }
@@ -186,20 +233,29 @@
         <button id="btn-mic" title="マイク">🎤 マイク</button>
         <button id="btn-cam" title="カメラ">📷 カメラ</button>
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
+        <button id="btn-rec" title="録画">⏺ 録画</button>
       </div>
       <div id="remote-videos"></div>
       <div id="self-preview" class="hidden">
         <video id="self-video" autoplay muted playsinline></video>
         <span class="label">あなた</span>
       </div>
-      <div id="screenshare-stage">
-        <span class="label" id="screenshare-label"></span>
+      <div id="screenshare-stage" class="mode-pip">
+        <div class="stage-header" id="stage-header">
+          <span class="label" id="screenshare-label"></span>
+          <div class="stage-controls">
+            <button data-mode="pip" class="active" title="小窓">🪟</button>
+            <button data-mode="side" title="サイドパネル">◧</button>
+            <button data-mode="full" title="全画面">⬜</button>
+          </div>
+        </div>
         <video id="screenshare-video" autoplay playsinline></video>
       </div>
       <div id="join-overlay">
         <form class="card" id="join-form">
           <h1>gather-clone に参加</h1>
           <input id="join-name" type="text" placeholder="名前を入力" maxlength="24" autofocus required />
+          <input id="join-password" type="password" placeholder="パスワード（任意）" maxlength="64" style="margin-top: 8px;" />
           <button type="submit">入室</button>
         </form>
       </div>
