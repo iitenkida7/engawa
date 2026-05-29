@@ -5,25 +5,20 @@ import type {
   ServerMessage,
   WsData,
 } from './types';
-
-const MAP_WIDTH = 2000;
-const MAP_HEIGHT = 1500;
+import {
+  MAP_HEIGHT,
+  MAP_WIDTH,
+  clampPosition,
+  generateSpawn,
+  normalizeName,
+  normalizeWorkspace,
+  parseWorkspacePasswords,
+  verifyWorkspacePassword,
+} from './logic';
 
 // Workspace passwords from env: JSON object like {"ws1":"pass1","ws2":"pass2"}
 // If empty or not set, all workspaces are open (no auth required).
-function loadWorkspacePasswords(): Map<string, string> {
-  const raw = process.env.WORKSPACE_PASSWORDS ?? '';
-  if (!raw) return new Map();
-  try {
-    const obj = JSON.parse(raw) as Record<string, string>;
-    return new Map(Object.entries(obj));
-  } catch {
-    console.warn('[auth] WORKSPACE_PASSWORDS is not valid JSON, ignoring');
-    return new Map();
-  }
-}
-
-const workspacePasswords = loadWorkspacePasswords();
+const workspacePasswords = parseWorkspacePasswords(process.env.WORKSPACE_PASSWORDS);
 
 function send(ws: ServerWebSocket<WsData>, msg: ServerMessage) {
   ws.send(JSON.stringify(msg));
@@ -55,6 +50,7 @@ function playerFromWs(ws: ServerWebSocket<WsData>): Player {
 
 export function createWebSocketHandler(
   clients: Map<string, ServerWebSocket<WsData>>,
+  passwordTable: Map<string, string> = workspacePasswords,
 ): WebSocketHandler<WsData> {
   return {
     open(ws) {
@@ -72,19 +68,19 @@ export function createWebSocketHandler(
 
       switch (msg.type) {
         case 'join': {
-          const workspace = (msg.workspace || 'default').slice(0, 64);
-          const requiredPass = workspacePasswords.get(workspace);
-          if (requiredPass && msg.password !== requiredPass) {
+          const workspace = normalizeWorkspace(msg.workspace);
+          if (!verifyWorkspacePassword(workspace, msg.password, passwordTable)) {
             send(ws, { type: 'auth-error', message: 'パスワードが正しくありません' });
             ws.close(4001, 'auth failed');
             return;
           }
 
-          ws.data.name = (msg.name || 'anon').slice(0, 24);
+          ws.data.name = normalizeName(msg.name);
           ws.data.workspace = workspace;
           // Spawn in the open office area (center aisle, avoids walls/desks)
-          ws.data.x = 800 + Math.random() * 400;
-          ws.data.y = 400 + Math.random() * 600;
+          const spawn = generateSpawn();
+          ws.data.x = spawn.x;
+          ws.data.y = spawn.y;
           ws.data.joined = true;
 
           const existing: Player[] = [];
@@ -130,8 +126,7 @@ export function createWebSocketHandler(
 
         case 'move': {
           if (!ws.data.joined) return;
-          const x = Math.max(0, Math.min(MAP_WIDTH, Number(msg.x) || 0));
-          const y = Math.max(0, Math.min(MAP_HEIGHT, Number(msg.y) || 0));
+          const { x, y } = clampPosition(msg.x, msg.y, MAP_WIDTH, MAP_HEIGHT);
           const vx = Number(msg.vx) || 0;
           const vy = Number(msg.vy) || 0;
           ws.data.x = x;

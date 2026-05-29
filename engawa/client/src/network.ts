@@ -20,8 +20,8 @@ export class NetworkClient {
     // In dev, Vite (http-proxy) does not correctly relay Bun's 101 upgrade
     // response, so connect to the Bun server directly. In prod the same Bun
     // server hosts the static assets, so reuse window.location.host.
-    const wsHost = import.meta.env.DEV
-      ? `${window.location.hostname}:${import.meta.env.VITE_WS_PORT ?? '3000'}`
+    const wsHost = import.meta.env?.DEV
+      ? `${window.location.hostname}:${import.meta.env?.VITE_WS_PORT ?? '3000'}`
       : window.location.host;
     this.url = `${proto}://${wsHost}/ws`;
   }

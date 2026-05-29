@@ -5,6 +5,7 @@ import { NetworkClient } from './network';
 import { PlayerState } from './player';
 import { SoundManager } from './sounds';
 import { canOccupy, findWalkableSpawn } from './tilemap';
+import { isInitiator, isWithinConnectRadius, shouldConnect, shouldDisconnect } from './proximity';
 import {
   CONNECT_RADIUS,
   DISCONNECT_RADIUS,
@@ -354,15 +355,13 @@ export class Game {
       const nowInProximity = new Set<string>();
       for (const p of this.players.values()) {
         if (p.isSelf) continue;
-        const dist = Math.hypot(p.x - this.me.x, p.y - this.me.y);
         const has = this.rtc.hasPeer(p.userId);
-        if (!has && dist <= CONNECT_RADIUS) {
-          const initiator = this.myId < p.userId;
-          void this.rtc.createPeer(p.userId, initiator);
-        } else if (has && dist > DISCONNECT_RADIUS) {
+        if (shouldConnect(this.me, p, CONNECT_RADIUS, has)) {
+          void this.rtc.createPeer(p.userId, isInitiator(this.myId, p.userId));
+        } else if (shouldDisconnect(this.me, p, DISCONNECT_RADIUS, has)) {
           this.rtc.closePeer(p.userId);
         }
-        if (dist <= CONNECT_RADIUS) {
+        if (isWithinConnectRadius(this.me, p, CONNECT_RADIUS)) {
           nowInProximity.add(p.userId);
           if (!this.inProximity.has(p.userId)) {
             this.sounds.enter();
