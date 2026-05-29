@@ -3,6 +3,7 @@ import { InputManager } from './input';
 import { MediaManager } from './media';
 import { NetworkClient } from './network';
 import { PlayerState } from './player';
+import { SoundManager } from './sounds';
 import {
   CONNECT_RADIUS,
   DISCONNECT_RADIUS,
@@ -55,6 +56,9 @@ export class Game {
   private screenshareLabelEl: HTMLSpanElement;
   private currentScreenshareUserId: string | null = null;
 
+  private selfPreviewEl: HTMLDivElement;
+  private selfVideoEl: HTMLVideoElement;
+
   private hudName: HTMLElement;
   private hudCount: HTMLElement;
   private btnMic: HTMLButtonElement;
@@ -71,6 +75,8 @@ export class Game {
     this.screenshareStageEl = document.getElementById('screenshare-stage') as HTMLDivElement;
     this.screenshareVideoEl = document.getElementById('screenshare-video') as HTMLVideoElement;
     this.screenshareLabelEl = document.getElementById('screenshare-label') as HTMLSpanElement;
+    this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
+    this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
     this.hudName = document.getElementById('hud-name')!;
     this.hudCount = document.getElementById('hud-count')!;
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
@@ -302,6 +308,23 @@ export class Game {
     this.btnCam.textContent = this.media.camOn ? '📷 カメラ ON' : '📷 カメラ';
     this.btnScreen.classList.toggle('active', this.media.screenOn);
     this.btnScreen.textContent = this.media.screenOn ? '🖥 共有中' : '🖥 画面共有';
+    this.refreshSelfPreview();
+  }
+
+  private refreshSelfPreview() {
+    const stream = this.media.camStream;
+    if (stream) {
+      if (this.selfVideoEl.srcObject !== stream) {
+        this.selfVideoEl.srcObject = stream;
+        this.selfVideoEl.play().catch(() => {
+          /* autoplay should already be allowed after the join click */
+        });
+      }
+      this.selfPreviewEl.classList.remove('hidden');
+    } else {
+      try { this.selfVideoEl.srcObject = null; } catch { /* noop */ }
+      this.selfPreviewEl.classList.add('hidden');
+    }
   }
 
   // ============= Remote tiles =============

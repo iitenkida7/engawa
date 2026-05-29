@@ -90,6 +90,31 @@
         max-width: 320px;
         z-index: 5;
       }
+
+      #self-preview {
+        position: absolute; bottom: 80px; right: 16px;
+        width: 180px; height: 135px;
+        background: #0e1014;
+        border: 1px solid #353a47;
+        border-radius: 8px;
+        overflow: hidden;
+        z-index: 5;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+      }
+      #self-preview video {
+        width: 100%; height: 100%;
+        object-fit: cover;
+        /* Mirror so motion matches the user's expectations of a mirror. */
+        transform: scaleX(-1);
+        display: block;
+        background: #000;
+      }
+      #self-preview .label {
+        position: absolute; bottom: 4px; left: 6px;
+        background: rgba(0,0,0,0.65); color: white;
+        padding: 2px 6px; border-radius: 4px; font-size: 11px;
+        pointer-events: none;
+      }
       .remote-tile {
         background: #0e1014;
         border: 1px solid #353a47;
@@ -141,6 +166,10 @@
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
       </div>
       <div id="remote-videos"></div>
+      <div id="self-preview" class="hidden">
+        <video id="self-video" autoplay muted playsinline></video>
+        <span class="label">あなた</span>
+      </div>
       <div id="screenshare-stage">
         <span class="label" id="screenshare-label"></span>
         <video id="screenshare-video" autoplay playsinline></video>
