@@ -6,7 +6,11 @@ import { PlayerState } from './player';
 import { SoundManager } from './sounds';
 import { canOccupy, findWalkableSpawn } from './tilemap';
 import { isInitiator, isWithinConnectRadius, shouldConnect, shouldDisconnect } from './proximity';
+import type { Point } from './proximity';
+import { findPath } from './pathfind';
 import {
+  CLICK_MOVE_ARRIVE_THRESHOLD,
+  CLICK_MOVE_MULTIPLIER,
   CONNECT_RADIUS,
   DISCONNECT_RADIUS,
   MAP_HEIGHT,
@@ -211,6 +215,10 @@ export class Game {
   private lastSentX = 0;
   private lastSentY = 0;
 
+  // Click-to-move: remaining waypoint tile-centers and the current index.
+  private movePath: Point[] | null = null;
+  private moveIndex = 0;
+
   private remoteVideosEl: HTMLDivElement;
   private remoteTiles = new Map<string, RemoteTile>();
   // Mic audio is attached to dedicated <audio> elements so it plays even when
@@ -300,6 +308,24 @@ export class Game {
       onActivate: () => bringToFront(this.selfPreviewEl),
     });
     bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
+
+    // Double-click the map to walk to that point (A* around walls, 2× speed).
+    this.canvas.addEventListener('dblclick', (e) => this.onCanvasDblClick(e));
+  }
+
+  private onCanvasDblClick(e: MouseEvent) {
+    if (!this.me) return;
+    e.preventDefault();
+    const world = this.renderer.screenToWorld(e.clientX, e.clientY, this.me);
+    // Snap a click on a wall/desk to the nearest walkable tile.
+    const goal = findWalkableSpawn(world.x, world.y, PLAYER_RADIUS);
+    const path = findPath({ x: this.me.x, y: this.me.y }, goal);
+    if (path.length === 0) {
+      this.movePath = null;
+      return;
+    }
+    this.movePath = path;
+    this.moveIndex = 0;
   }
 
   private joinedName = '';
@@ -422,7 +448,8 @@ export class Game {
     const dt = this.lastFrameMs ? Math.min(0.1, (t - this.lastFrameMs) / 1000) : 1 / 60;
     this.lastFrameMs = t;
     this.update(dt);
-    this.renderer.render(this.me, this.players.values());
+    const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
+    this.renderer.render(this.me, this.players.values(), dest);
     requestAnimationFrame(this.loop);
   };
 
@@ -435,16 +462,16 @@ export class Game {
     let selfVy = 0;
     if (this.me) {
       const { dx, dy } = this.input.getDirection();
-      selfVx = dx * PLAYER_SPEED;
-      selfVy = dy * PLAYER_SPEED;
-      if (selfVx !== 0 || selfVy !== 0) {
-        const newX = clamp(this.me.x + selfVx * dt, PLAYER_RADIUS, MAP_WIDTH - PLAYER_RADIUS);
-        const newY = clamp(this.me.y + selfVy * dt, PLAYER_RADIUS, MAP_HEIGHT - PLAYER_RADIUS);
-        // Try each axis independently so the player slides along walls
-        if (canOccupy(newX, this.me.y, PLAYER_RADIUS)) this.me.x = newX;
-        if (canOccupy(this.me.x, newY, PLAYER_RADIUS)) this.me.y = newY;
-        this.me.targetX = this.me.x;
-        this.me.targetY = this.me.y;
+      if (dx !== 0 || dy !== 0) {
+        // Manual keyboard input cancels click-to-move and takes over.
+        this.movePath = null;
+        selfVx = dx * PLAYER_SPEED;
+        selfVy = dy * PLAYER_SPEED;
+        this.applyVelocity(selfVx, selfVy, dt);
+      } else if (this.movePath) {
+        const v = this.followPath(dt);
+        selfVx = v.vx;
+        selfVy = v.vy;
       }
     }
 
@@ -516,6 +543,46 @@ export class Game {
       }
       this.inProximity = nowInProximity;
     }
+  }
+
+  // Moves self by a velocity for one frame, sliding along walls (per-axis
+  // canOccupy). Returns whether the position actually changed.
+  private applyVelocity(vx: number, vy: number, dt: number): boolean {
+    if (!this.me || (vx === 0 && vy === 0)) return false;
+    const prevX = this.me.x;
+    const prevY = this.me.y;
+    const newX = clamp(this.me.x + vx * dt, PLAYER_RADIUS, MAP_WIDTH - PLAYER_RADIUS);
+    const newY = clamp(this.me.y + vy * dt, PLAYER_RADIUS, MAP_HEIGHT - PLAYER_RADIUS);
+    if (canOccupy(newX, this.me.y, PLAYER_RADIUS)) this.me.x = newX;
+    if (canOccupy(this.me.x, newY, PLAYER_RADIUS)) this.me.y = newY;
+    this.me.targetX = this.me.x;
+    this.me.targetY = this.me.y;
+    return this.me.x !== prevX || this.me.y !== prevY;
+  }
+
+  // Advances along the click-to-move waypoints at 2× speed. Returns the
+  // velocity applied this frame (zero on arrival) so the caller can broadcast it.
+  private followPath(dt: number): { vx: number; vy: number } {
+    if (!this.me || !this.movePath) return { vx: 0, vy: 0 };
+    const target = this.movePath[this.moveIndex];
+    const ddx = target.x - this.me.x;
+    const ddy = target.y - this.me.y;
+    const dist = Math.hypot(ddx, ddy);
+    if (dist <= CLICK_MOVE_ARRIVE_THRESHOLD) {
+      this.moveIndex++;
+      if (this.moveIndex >= this.movePath.length) this.movePath = null;
+      return { vx: 0, vy: 0 };
+    }
+    // Cap the speed so a large frame step never overshoots the waypoint.
+    const speed = Math.min(PLAYER_SPEED * CLICK_MOVE_MULTIPLIER, dist / dt);
+    const vx = (ddx / dist) * speed;
+    const vy = (ddy / dist) * speed;
+    if (!this.applyVelocity(vx, vy, dt)) {
+      // Unexpectedly blocked: abandon the route and stop.
+      this.movePath = null;
+      return { vx: 0, vy: 0 };
+    }
+    return { vx, vy };
   }
 
   private broadcastStatus() {

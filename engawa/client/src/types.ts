@@ -34,6 +34,10 @@ export const PLAYER_RADIUS = 20;
 // Pixels per second. Frame-rate independent; the per-frame delta is computed
 // with the actual dt of each frame.
 export const PLAYER_SPEED = 210;
+// Double-click (click-to-move) travels at this multiple of PLAYER_SPEED.
+export const CLICK_MOVE_MULTIPLIER = 2;
+// Distance (px) within which a click-to-move waypoint counts as reached.
+export const CLICK_MOVE_ARRIVE_THRESHOLD = 4;
 export const CONNECT_RADIUS = 200;
 export const DISCONNECT_RADIUS = 250;
 export const POSITION_SEND_INTERVAL_MS = 50;
