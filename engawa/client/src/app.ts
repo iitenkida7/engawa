@@ -96,6 +96,9 @@ export class App {
       onSignal: (toUserId, data) => {
         this.net.send({ type: 'signal', to: toUserId, data });
       },
+      onStreamMeta: (toUserId, streamId, kind) => {
+        this.net.send({ type: 'stream-meta', to: toUserId, streamId, kind });
+      },
       onRemoteStream: (userId, stream, kind) => this.attachRemoteStream(userId, stream, kind),
       onRemoteStreamRemoved: (userId, streamId) => this.detachRemoteStream(userId, streamId),
       onPeerClosed: (userId) => this.participants.remove(userId),
@@ -236,6 +239,10 @@ export class App {
       }
       case 'signal': {
         this.handleSignal(msg.from, msg.data);
+        break;
+      }
+      case 'stream-meta': {
+        this.rtc.applyRemoteStreamMeta(msg.from, msg.streamId, msg.kind);
         break;
       }
     }

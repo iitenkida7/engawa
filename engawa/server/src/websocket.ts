@@ -151,6 +151,19 @@ export function createWebSocketHandler(
           });
           break;
         }
+
+        case 'stream-meta': {
+          if (!ws.data.joined) return;
+          const target = clients.get(msg.to);
+          if (!target || !target.data.joined) return;
+          send(target, {
+            type: 'stream-meta',
+            from: ws.data.userId,
+            streamId: msg.streamId,
+            kind: msg.kind,
+          });
+          break;
+        }
       }
     },
 

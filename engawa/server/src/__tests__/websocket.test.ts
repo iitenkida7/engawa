@@ -279,7 +279,7 @@ describe('createWebSocketHandler — signal (targeted relay)', () => {
   });
 });
 
-describe('createWebSocketHandler — status', () => {
+describe('createWebSocketHandler — status & stream-meta', () => {
   let clients: Map<string, ServerWebSocket<WsData>>;
   let handler: ReturnType<typeof createWebSocketHandler>;
 
@@ -302,6 +302,22 @@ describe('createWebSocketHandler — status', () => {
       status: 'busy',
       isMuted: true,
       isVideoOn: false,
+    });
+  });
+
+  test('relays stream-meta only to the named target', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const target = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(target);
+
+    deliver(handler, sender, { type: 'stream-meta', to: target.data.userId, streamId: 's1', kind: 'cam' });
+
+    expect(target.sent).toContainEqual({
+      type: 'stream-meta',
+      from: sender.data.userId,
+      streamId: 's1',
+      kind: 'cam',
     });
   });
 });
