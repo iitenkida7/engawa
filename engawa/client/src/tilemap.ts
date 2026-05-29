@@ -11,7 +11,7 @@ export const Tile = {
   PLANT: 5,
 } as const;
 
-export const SOLID = new Set([Tile.WALL, Tile.DESK, Tile.PLANT]);
+export const SOLID = new Set<number>([Tile.WALL, Tile.DESK, Tile.PLANT]);
 
 export const TILE_FILL: Record<number, string> = {
   [Tile.FLOOR]: '#2e3440',

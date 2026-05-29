@@ -24,5 +24,8 @@ jobs:
       - name: Install dependencies
         run: make install
 
+      - name: Build (type-check + bundle the client)
+        run: make build
+
       - name: Run test suites (server + client)
         run: make test

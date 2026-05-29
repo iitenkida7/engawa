@@ -87,111 +87,136 @@
       #toolbar button.recording:hover { background: #c82333; }
       @keyframes rec-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
 
+      #toolbar .btn-group { position: relative; display: flex; gap: 0; }
+      #toolbar .btn-group > #btn-mic,
+      #toolbar .btn-group > #btn-cam {
+        border-top-right-radius: 0; border-bottom-right-radius: 0;
+        border-right: none;
+      }
+      #toolbar .btn-caret {
+        padding: 8px 8px; font-size: 11px;
+        border-top-left-radius: 0; border-bottom-left-radius: 0;
+      }
+      .device-menu {
+        position: absolute; bottom: calc(100% + 6px); left: 0;
+        min-width: 200px; max-width: 320px;
+        background: rgba(28, 32, 40, 0.98);
+        border: 1px solid #3a4050; border-radius: 8px;
+        padding: 4px; z-index: 20;
+        box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+        display: flex; flex-direction: column; gap: 2px;
+      }
+      .device-menu .device-item {
+        width: 100%; text-align: left;
+        padding: 7px 10px; border-radius: 6px; border: 0;
+        background: transparent; color: #e6e8ee; font-size: 12px; cursor: pointer;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .device-menu .device-item:hover { background: #353a47; }
+      .device-menu .device-item.selected { color: #4f8cff; font-weight: 600; }
+      .device-menu .device-empty { padding: 8px 10px; font-size: 12px; color: #9da3b0; }
+
+      /* Full-viewport overlay that only acts as a positioning context for the
+         draggable tiles. It must not capture pointer events itself, so it never
+         blocks canvas interaction; each tile re-enables pointer events. */
       #remote-videos {
-        position: absolute; top: 12px; right: 12px;
-        display: flex; flex-direction: column; gap: 8px;
-        max-width: 320px;
+        position: absolute; inset: 0;
         z-index: 5;
+        pointer-events: none;
+      }
+
+      /* ===== Shared panel chrome =====
+         Single source of truth for the "header bar + body" panels used by the
+         screenshare stage, every camera tile, and the self preview. */
+      .panel {
+        position: absolute;
+        background: rgba(14,16,20,0.92);
+        border: 1px solid #353a47;
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        resize: both;
+        min-width: 160px; min-height: 120px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        pointer-events: auto;
+        transition: border-color 0.15s ease;
+      }
+      .panel-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 6px 10px; flex-shrink: 0;
+        cursor: grab; user-select: none;
+        border-bottom: 1px solid #2a2f3a;
+        background: rgba(0,0,0,0.25);
+      }
+      .panel-header .label {
+        font-size: 12px; color: #9da3b0;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .panel-body {
+        flex: 1;
+        position: relative;
+        min-height: 0;
+        width: 100%;
+        background: #000;
+        overflow: hidden;
+      }
+      .panel-body video {
+        display: block;
+        width: 100%; height: 100%;
+        object-fit: cover;
+        background: #000;
       }
 
       #self-preview {
-        position: absolute; bottom: 80px; right: 16px;
-        width: 180px; height: 135px;
-        background: #0e1014;
-        border: 1px solid #353a47;
-        border-radius: 8px;
-        overflow: hidden;
+        bottom: 80px; right: 16px;
+        width: 180px; height: 160px;
         z-index: 5;
-        box-shadow: 0 4px 18px rgba(0,0,0,0.4);
       }
-      #self-preview video {
-        width: 100%; height: 100%;
-        object-fit: cover;
+      #self-preview .panel-body video {
         /* Mirror so motion matches the user's expectations of a mirror. */
         transform: scaleX(-1);
-        display: block;
-        background: #000;
       }
-      #self-preview .label {
-        position: absolute; bottom: 4px; left: 6px;
-        background: rgba(0,0,0,0.65); color: white;
-        padding: 2px 6px; border-radius: 4px; font-size: 11px;
-        pointer-events: none;
-      }
+
       .remote-tile {
-        background: #0e1014;
-        border: 2px solid #353a47;
-        border-radius: 8px;
-        overflow: hidden;
-        position: relative;
-        transition: border-color 0.15s ease;
+        width: 180px; height: 160px;
       }
       .remote-tile.speaking {
         border-color: rgba(80,220,120,0.9);
         box-shadow: 0 0 10px rgba(80,220,120,0.3);
       }
-      .remote-tile video { display: block; width: 100%; max-height: 180px; background: #000; }
-      .remote-tile .label {
-        position: absolute; bottom: 4px; left: 6px;
-        background: rgba(0,0,0,0.65); color: white;
-        padding: 2px 6px; border-radius: 4px; font-size: 11px;
-      }
-      .remote-tile .icon-mute {
-        position: absolute; top: 4px; right: 4px;
-        background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 11px;
-      }
-      .remote-tile.muted::after {
+      .remote-tile.muted .panel-body::after {
         content: '🔇';
         position: absolute; top: 6px; right: 6px;
         background: rgba(220,53,69,0.85); border-radius: 4px;
         padding: 2px 5px; font-size: 11px; line-height: 1;
       }
-      .remote-tile .no-video {
-        width: 180px; height: 135px;
+      .panel-body .no-video {
+        position: absolute; inset: 0;
         display: flex; flex-direction: column;
         align-items: center; justify-content: center;
         background: #1a1d24;
       }
-      .remote-tile .no-video-initials {
+      .panel-body .no-video-initials {
         width: 48px; height: 48px;
         border-radius: 50%;
         background: #3a4050;
         display: flex; align-items: center; justify-content: center;
         font-size: 18px; font-weight: bold; color: #e6e8ee;
       }
-      .remote-tile .no-video-name {
+      .panel-body .no-video-name {
         margin-top: 8px;
         font-size: 12px; color: #9da3b0;
       }
 
       #screenshare-stage {
-        position: absolute;
-        background: rgba(14,16,20,0.92);
-        border: 1px solid #353a47;
-        border-radius: 12px;
         display: none;
-        flex-direction: column;
         z-index: 6;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
       }
       #screenshare-stage.visible { display: flex; }
-      #screenshare-stage video {
-        flex: 1;
-        width: 100%;
+      /* Screenshare contains a whole desktop, so letterbox it instead of crop. */
+      #screenshare-stage .panel-body video {
         object-fit: contain;
-        min-height: 0;
-        border-radius: 0 0 12px 12px;
-        background: #000;
-      }
-      .stage-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 6px 10px; flex-shrink: 0;
-        cursor: grab; user-select: none;
-        border-bottom: 1px solid #2a2f3a;
-      }
-      .stage-header .label {
-        font-size: 12px; color: #9da3b0;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       }
       .stage-controls { display: flex; gap: 4px; }
       .stage-controls button {
@@ -213,16 +238,12 @@
       #screenshare-stage.mode-side {
         top: 12px; right: 12px; bottom: 80px;
         width: 40%; min-width: 300px;
+        resize: none;
       }
       /* Full overlay mode */
       #screenshare-stage.mode-full {
         inset: 12px 12px 80px 12px;
-      }
-
-      /* Remote videos: resizable */
-      #remote-videos {
-        resize: vertical; overflow: auto;
-        min-height: 60px; max-height: 70vh;
+        resize: none;
       }
 
       .hidden { display: none !important; }
@@ -236,19 +257,31 @@
         <span id="hud-count">0 人接続中</span>
       </div>
       <div id="toolbar" class="hidden">
-        <button id="btn-mic" title="マイク">🎤 マイク</button>
-        <button id="btn-cam" title="カメラ">📷 カメラ</button>
+        <div class="btn-group">
+          <button id="btn-mic" title="マイク">🎤 マイク</button>
+          <button id="btn-mic-devices" class="btn-caret" title="マイクを選択">▾</button>
+          <div id="mic-menu" class="device-menu hidden"></div>
+        </div>
+        <div class="btn-group">
+          <button id="btn-cam" title="カメラ">📷 カメラ</button>
+          <button id="btn-cam-devices" class="btn-caret" title="カメラを選択">▾</button>
+          <div id="cam-menu" class="device-menu hidden"></div>
+        </div>
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" title="録画">⏺ 録画</button>
         <button id="btn-status" title="ステータス">🟢 オンライン</button>
       </div>
       <div id="remote-videos"></div>
-      <div id="self-preview" class="hidden">
-        <video id="self-video" autoplay muted playsinline></video>
-        <span class="label">あなた</span>
+      <div id="self-preview" class="panel hidden">
+        <div class="panel-header" id="self-preview-header">
+          <span class="label" id="self-preview-label">あなた</span>
+        </div>
+        <div class="panel-body">
+          <video id="self-video" autoplay muted playsinline></video>
+        </div>
       </div>
-      <div id="screenshare-stage" class="mode-pip">
-        <div class="stage-header" id="stage-header">
+      <div id="screenshare-stage" class="panel mode-pip">
+        <div class="panel-header" id="stage-header">
           <span class="label" id="screenshare-label"></span>
           <div class="stage-controls">
             <button data-mode="pip" class="active" title="小窓">🪟</button>
@@ -256,7 +289,9 @@
             <button data-mode="full" title="全画面">⬜</button>
           </div>
         </div>
-        <video id="screenshare-video" autoplay playsinline></video>
+        <div class="panel-body">
+          <video id="screenshare-video" autoplay playsinline></video>
+        </div>
       </div>
       <div id="join-overlay">
         <form class="card" id="join-form">
