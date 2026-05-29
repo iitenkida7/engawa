@@ -63,46 +63,35 @@ async function tuneSenders(pc: RTCPeerConnection) {
   }
 }
 
-// Fixed media slots negotiated up-front for every peer. Both sides create the
-// same three sendrecv transceivers in this order, so the m-line layout is
-// symmetric and either side can start/stop sending a given kind later via
-// replaceTrack — no renegotiation, and crucially no dependency on who is the
-// offer initiator. (simple-peer only lets the initiator renegotiate, so the
-// old addStream-after-connect path silently failed for the non-initiator.)
-const SLOT_KINDS = ['mic', 'cam', 'screen'] as const;
-
 type PeerEntry = {
   peer: PeerInstance;
   remoteUserId: string;
   initiator: boolean;
   ready: boolean;
-  // The three pre-created transceivers, one per StreamKind.
-  tx: Record<StreamKind, RTCRtpTransceiver>;
-  // One stable MediaStream per kind wrapping the remote receiver track, so the
-  // UI sees a consistent stream.id across mute/unmute toggles.
-  remoteStreams: Partial<Record<StreamKind, MediaStream>>;
+  // streamId → kind map for incoming streams (populated via stream-meta WS msgs)
+  remoteStreamKinds: Map<string, StreamKind>;
+  // streamId → kind map for our own outgoing streams (so we can re-announce on
+  // reconnect/renegotiation).
+  localStreamKinds: Map<string, StreamKind>;
 };
 
 export type WebRtcEvents = {
   onRemoteStream: (userId: string, stream: MediaStream, kind: StreamKind) => void;
   onRemoteStreamRemoved: (userId: string, streamId: string) => void;
   onSignal: (toUserId: string, data: unknown) => void;
-  // Retained for source-compatibility with callers; the slot-based model no
-  // longer needs out-of-band kind announcements, so this is never invoked.
   onStreamMeta: (toUserId: string, streamId: string, kind: StreamKind | 'removed') => void;
   onPeerClosed: (userId: string) => void;
 };
-
-function trackOf(stream: MediaStream, kind: StreamKind): MediaStreamTrack | null {
-  const tracks = kind === 'mic' ? stream.getAudioTracks() : stream.getVideoTracks();
-  return tracks[0] ?? null;
-}
 
 export class WebRtcManager {
   private peers = new Map<string, PeerEntry>();
   private iceServers: RTCIceServer[] | null = null;
   private media: MediaManager;
   private events: WebRtcEvents;
+
+  // Pending stream-meta announcements that arrived before the corresponding
+  // 'stream' / 'track' event on the peer.
+  private pendingMeta = new Map<string, Map<string, StreamKind>>();
 
   constructor(media: MediaManager, events: WebRtcEvents) {
     this.media = media;
@@ -131,58 +120,66 @@ export class WebRtcManager {
 
     const iceServers = await this.ensureIceServers();
 
-    // Create the peer with NO up-front stream: we manage media exclusively via
-    // pre-created transceivers + replaceTrack (see SLOT_KINDS).
+    // Bundle whatever local streams we already have so the peer is created with
+    // them from the start. We do NOT auto-request permissions here — the user
+    // decides via the toolbar buttons.
+    const initialStreams: { stream: MediaStream; kind: StreamKind }[] = [];
+    const micStream = this.media.micStream;
+    if (micStream) initialStreams.push({ stream: micStream, kind: 'mic' });
+    const camStream = this.media.camStream;
+    if (camStream) initialStreams.push({ stream: camStream, kind: 'cam' });
+    const screenStream = this.media.screenStream;
+    if (screenStream) initialStreams.push({ stream: screenStream, kind: 'screen' });
+
     const peer = new SimplePeer({
       initiator,
       trickle: true,
       config: { iceServers },
+      // simple-peer accepts one stream up-front; we add the rest via addStream.
+      stream: initialStreams[0]?.stream,
       // Low-latency Opus tuning is applied during offer/answer.
       sdpTransform: transformSdpForLowLatency,
     });
-
-    const pc = getPc(peer);
-    if (!pc) throw new Error('[rtc] simple-peer did not expose an RTCPeerConnection');
-
-    // Pre-create the fixed sendrecv slots synchronously, before simple-peer's
-    // first offer is generated, so every connection negotiates audio+video+
-    // video m-lines regardless of which side has media yet.
-    const tx = {
-      mic: pc.addTransceiver('audio', { direction: 'sendrecv' }),
-      cam: pc.addTransceiver('video', { direction: 'sendrecv' }),
-      screen: pc.addTransceiver('video', { direction: 'sendrecv' }),
-    } as Record<StreamKind, RTCRtpTransceiver>;
 
     const entry: PeerEntry = {
       peer,
       remoteUserId,
       initiator,
       ready: false,
-      tx,
-      remoteStreams: {},
+      remoteStreamKinds: new Map(),
+      localStreamKinds: new Map(),
     };
     this.peers.set(remoteUserId, entry);
 
-    // Attach whatever local media is already live to its slot. We do NOT
-    // auto-request permissions here — the user decides via the toolbar buttons.
-    const live: Partial<Record<StreamKind, MediaStream | null>> = {
-      mic: this.media.micStream,
-      cam: this.media.camStream,
-      screen: this.media.screenStream,
-    };
-    for (const kind of SLOT_KINDS) {
-      const stream = live[kind];
-      if (!stream) continue;
-      const track = trackOf(stream, kind);
-      if (track) {
-        try {
-          void tx[kind].sender.replaceTrack(track);
-        } catch (err) {
-          console.warn('[rtc] replaceTrack (initial) failed', err);
-        }
+    // Wire the stream→kind map for the initial stream(s).
+    for (const { stream, kind } of initialStreams) {
+      entry.localStreamKinds.set(stream.id, kind);
+      this.events.onStreamMeta(remoteUserId, stream.id, kind);
+    }
+    // Anything beyond the first must be added explicitly.
+    for (const { stream } of initialStreams.slice(1)) {
+      try {
+        peer.addStream(stream);
+      } catch (err) {
+        console.warn('[rtc] addStream failed', err);
       }
     }
-    queueMicrotask(() => void tuneSenders(pc));
+
+    if (initialStreams.length > 0) {
+      // Senders exist synchronously after addStream; tune them on the next
+      // microtask once simple-peer is done wiring transceivers.
+      queueMicrotask(() => {
+        const pc = getPc(peer);
+        if (pc) void tuneSenders(pc);
+      });
+    }
+
+    // Apply any stream-meta that arrived before the peer existed.
+    const pending = this.pendingMeta.get(remoteUserId);
+    if (pending) {
+      for (const [streamId, kind] of pending) entry.remoteStreamKinds.set(streamId, kind);
+      this.pendingMeta.delete(remoteUserId);
+    }
 
     peer.on('signal', (data) => {
       this.events.onSignal(remoteUserId, data);
@@ -190,38 +187,28 @@ export class WebRtcManager {
 
     peer.on('connect', () => {
       entry.ready = true;
-      tuneReceivers(pc);
-      void tuneSenders(pc);
+      const pc = getPc(peer);
+      if (pc) {
+        tuneReceivers(pc);
+        void tuneSenders(pc);
+      }
     });
 
-    // A 'track' fires once per inbound slot during the initial negotiation
-    // (even while muted). From then on the same track toggles mute/unmute as
-    // the remote calls replaceTrack(track|null); we surface those as
-    // stream add/remove so the UI shows a tile only when media is flowing.
-    peer.on('track', (track) => {
-      const kind = this.kindOfRemoteTrack(entry, track);
-      if (!kind) return;
+    const handleIncoming = (stream: MediaStream) => {
+      const kind = entry.remoteStreamKinds.get(stream.id) ?? inferKind(stream);
+      this.events.onRemoteStream(remoteUserId, stream, kind);
+    };
 
-      let stream = entry.remoteStreams[kind];
-      if (!stream) {
-        stream = new MediaStream();
-        entry.remoteStreams[kind] = stream;
-      }
-      if (!stream.getTracks().includes(track)) {
-        for (const t of stream.getTracks()) stream.removeTrack(t);
-        stream.addTrack(track);
-      }
-      const ms = stream;
+    peer.on('stream', handleIncoming);
 
-      const present = () => this.events.onRemoteStream(remoteUserId, ms, kind);
-      const absent = () => this.events.onRemoteStreamRemoved(remoteUserId, ms.id);
-
-      if (!track.muted) present();
-      track.addEventListener('unmute', present);
-      track.addEventListener('mute', absent);
-      track.addEventListener('ended', absent);
-
-      tuneReceivers(pc);
+    // Track end → tell UI to drop this stream's tile/stage.
+    peer.on('track', (track, stream) => {
+      track.addEventListener('ended', () => {
+        this.events.onRemoteStreamRemoved(remoteUserId, stream.id);
+      });
+      // New incoming transceiver — re-apply receiver hints.
+      const pc = getPc(peer);
+      if (pc) tuneReceivers(pc);
     });
 
     peer.on('error', (err) => {
@@ -235,14 +222,6 @@ export class WebRtcManager {
     return entry;
   }
 
-  // Map an inbound remote track back to its slot kind by identity.
-  private kindOfRemoteTrack(entry: PeerEntry, track: MediaStreamTrack): StreamKind | null {
-    for (const kind of SLOT_KINDS) {
-      if (entry.tx[kind].receiver.track === track) return kind;
-    }
-    return null;
-  }
-
   signal(remoteUserId: string, data: unknown) {
     const entry = this.peers.get(remoteUserId);
     if (!entry) return;
@@ -253,10 +232,24 @@ export class WebRtcManager {
     }
   }
 
-  // No-op retained for source-compatibility. Stream kinds are now derived from
-  // the fixed transceiver slot, so out-of-band stream-meta is no longer used.
-  applyRemoteStreamMeta(_remoteUserId: string, _streamId: string, _kind: StreamKind | 'removed') {
-    /* intentionally empty — see SLOT_KINDS */
+  applyRemoteStreamMeta(remoteUserId: string, streamId: string, kind: StreamKind | 'removed') {
+    if (kind === 'removed') {
+      const entry = this.peers.get(remoteUserId);
+      entry?.remoteStreamKinds.delete(streamId);
+      this.events.onRemoteStreamRemoved(remoteUserId, streamId);
+      return;
+    }
+    const entry = this.peers.get(remoteUserId);
+    if (entry) {
+      entry.remoteStreamKinds.set(streamId, kind);
+    } else {
+      let pending = this.pendingMeta.get(remoteUserId);
+      if (!pending) {
+        pending = new Map();
+        this.pendingMeta.set(remoteUserId, pending);
+      }
+      pending.set(streamId, kind);
+    }
   }
 
   closePeer(remoteUserId: string) {
@@ -277,41 +270,45 @@ export class WebRtcManager {
   private cleanupPeer(remoteUserId: string) {
     if (!this.peers.has(remoteUserId)) return;
     this.peers.delete(remoteUserId);
+    this.pendingMeta.delete(remoteUserId);
     this.events.onPeerClosed(remoteUserId);
   }
 
-  // Start sending a local stream of the given kind to every connected peer by
-  // swapping its track into the pre-negotiated slot. replaceTrack needs no
-  // renegotiation, so this works for initiator and non-initiator alike.
+  // Add a new local stream of the given kind to every connected peer.
   addLocalStream(stream: MediaStream, kind: StreamKind) {
-    const track = trackOf(stream, kind);
     for (const entry of this.peers.values()) {
+      entry.localStreamKinds.set(stream.id, kind);
+      this.events.onStreamMeta(entry.remoteUserId, stream.id, kind);
       try {
-        void entry.tx[kind].sender.replaceTrack(track);
+        entry.peer.addStream(stream);
       } catch (err) {
-        console.warn('[rtc] replaceTrack (add) failed', err);
+        console.warn('[rtc] addStream failed', err);
         continue;
       }
-      const pc = getPc(entry.peer);
-      if (pc) queueMicrotask(() => void tuneSenders(pc));
+      // Re-tune senders after the new tracks have been attached.
+      queueMicrotask(() => {
+        const pc = getPc(entry.peer);
+        if (pc) void tuneSenders(pc);
+      });
     }
   }
 
-  // Stop sending the given stream: clear whichever slot currently holds one of
-  // its tracks. (Called with the stream returned by MediaManager.disableX().)
+  // Remove a local stream from every connected peer.
   removeLocalStream(stream: MediaStream) {
-    const ids = new Set(stream.getTracks().map((t) => t.id));
     for (const entry of this.peers.values()) {
-      for (const kind of SLOT_KINDS) {
-        const sender = entry.tx[kind].sender;
-        if (sender.track && ids.has(sender.track.id)) {
-          try {
-            void sender.replaceTrack(null);
-          } catch (err) {
-            console.warn('[rtc] replaceTrack (remove) failed', err);
-          }
-        }
+      entry.localStreamKinds.delete(stream.id);
+      this.events.onStreamMeta(entry.remoteUserId, stream.id, 'removed');
+      try {
+        entry.peer.removeStream(stream);
+      } catch (err) {
+        console.warn('[rtc] removeStream failed', err);
       }
     }
   }
+}
+
+function inferKind(stream: MediaStream): StreamKind {
+  // Fallback when no meta has arrived. Streams without video are mic; with
+  // video we default to cam (screen will normally be announced via meta).
+  return stream.getVideoTracks().length === 0 ? 'mic' : 'cam';
 }
