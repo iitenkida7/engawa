@@ -4,8 +4,8 @@ import { MediaManager } from './media';
 import { NetworkClient } from './network';
 import { PlayerState } from './player';
 import { SoundManager } from './sounds';
-import { canOccupy, findWalkableSpawn } from './tilemap';
-import { isInitiator, isWithinConnectRadius, shouldConnect, shouldDisconnect } from './proximity';
+import { canOccupy, findWalkableSpawn, zoneAt } from './tilemap';
+import { inCallRange, isInitiator, shouldConnect, shouldDisconnect } from './proximity';
 import type { Point } from './proximity';
 import { findPath } from './pathfind';
 import {
@@ -523,16 +523,22 @@ export class Game {
 
     // Proximity check + chime sounds
     if (this.me) {
+      // Meeting rooms are isolated bubbles: inside a room, zone membership
+      // decides the call (everyone in the same room, nobody outside); outside,
+      // the usual proximity radius applies. Both ends compute zones from the
+      // already-synced positions, so the decision stays symmetric.
+      const myZoneId = zoneAt(this.me.x, this.me.y)?.id ?? null;
       const nowInProximity = new Set<string>();
       for (const p of this.players.values()) {
         if (p.isSelf) continue;
+        const otherZoneId = zoneAt(p.x, p.y)?.id ?? null;
         const has = this.rtc.hasPeer(p.userId);
-        if (shouldConnect(this.me, p, CONNECT_RADIUS, has)) {
+        if (shouldConnect(this.me, p, CONNECT_RADIUS, has, myZoneId, otherZoneId)) {
           void this.rtc.createPeer(p.userId, isInitiator(this.myId, p.userId));
-        } else if (shouldDisconnect(this.me, p, DISCONNECT_RADIUS, has)) {
+        } else if (shouldDisconnect(this.me, p, DISCONNECT_RADIUS, has, myZoneId, otherZoneId)) {
           this.rtc.closePeer(p.userId);
         }
-        if (isWithinConnectRadius(this.me, p, CONNECT_RADIUS)) {
+        if (inCallRange(this.me, p, CONNECT_RADIUS, myZoneId, otherZoneId)) {
           nowInProximity.add(p.userId);
           if (!this.inProximity.has(p.userId)) {
             this.sounds.enter();

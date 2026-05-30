@@ -9,6 +9,8 @@ import {
   TILE_FILL,
   TILE_BORDER,
   Tile,
+  ZONES,
+  zoneAt,
 } from './tilemap';
 
 /**
@@ -121,8 +123,15 @@ export class CanvasRenderer {
     ctx.lineWidth = 2;
     ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
-    // self proximity ring
-    if (self) {
+    // Meeting-room zones: frame + name label, highlighted while self is inside.
+    const selfZone = self ? zoneAt(self.x, self.y) : null;
+    for (const zone of ZONES) {
+      this.drawZone(ctx, zone, selfZone?.id === zone.id);
+    }
+
+    // Self proximity ring — hidden inside a meeting room, where the call is
+    // governed by room membership (everyone in / nobody out), not radius.
+    if (self && !selfZone) {
       ctx.beginPath();
       ctx.arc(self.x, self.y, CONNECT_RADIUS, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(79,140,255,0.08)';
@@ -157,6 +166,29 @@ export class CanvasRenderer {
       this.drawPlayer(ctx, p);
     }
 
+    ctx.restore();
+  }
+
+  private drawZone(ctx: CanvasRenderingContext2D, zone: { name: string; x: number; y: number; w: number; h: number }, active: boolean) {
+    // Frame: brighter when self is inside so "in this room" is obvious.
+    ctx.save();
+    ctx.strokeStyle = active ? 'rgba(79,140,255,0.9)' : 'rgba(79,140,255,0.4)';
+    ctx.lineWidth = active ? 3 : 2;
+    ctx.strokeRect(zone.x + 1, zone.y + 1, zone.w - 2, zone.h - 2);
+
+    // Name label, top-left inside the frame.
+    ctx.font = 'bold 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const label = `🚪 ${zone.name}`;
+    const m = ctx.measureText(label);
+    const padX = 6;
+    const lh = 20;
+    ctx.fillStyle = active ? 'rgba(79,140,255,0.9)' : 'rgba(20,23,30,0.8)';
+    this.roundRect(ctx, zone.x + 4, zone.y + 4, m.width + padX * 2, lh, 4);
+    ctx.fill();
+    ctx.fillStyle = 'white';
+    ctx.fillText(label, zone.x + 4 + padX, zone.y + 4 + 4);
     ctx.restore();
   }
 

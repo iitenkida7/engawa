@@ -140,6 +140,75 @@ function buildOfficeMap(): number[][] {
 
 export const officeMap = buildOfficeMap();
 
+/**
+ * Named meeting-room zone. Rooms act as isolated call bubbles: everyone inside
+ * the same zone is connected regardless of distance, and audio/video never
+ * leaks to/from people outside (see proximity.ts). The pixel rect is the
+ * bounding box of the room's tiles, used only for drawing the frame/label.
+ */
+export type Zone = { id: string; name: string; x: number; y: number; w: number; h: number };
+
+/**
+ * Derive zones from the map by flood-filling contiguous MEETING tiles into
+ * connected components. The room coordinates live in exactly one place
+ * (buildOfficeMap): adding or moving a MEETING room needs no edits here — only
+ * the display names are assigned, in left-to-right / top-to-bottom order.
+ */
+function buildZones(): { zones: Zone[]; grid: number[][] } {
+  const grid: number[][] = officeMap.map((row) => row.map(() => -1));
+  const zones: Zone[] = [];
+
+  for (let r = 0; r < MAP_ROWS; r++) {
+    for (let c = 0; c < MAP_COLS; c++) {
+      if (officeMap[r][c] !== Tile.MEETING || grid[r][c] !== -1) continue;
+
+      const idx = zones.length;
+      let minC = c, maxC = c, minR = r, maxR = r;
+      const stack: [number, number][] = [[r, c]];
+      grid[r][c] = idx;
+      while (stack.length) {
+        const [rr, cc] = stack.pop()!;
+        if (cc < minC) minC = cc;
+        if (cc > maxC) maxC = cc;
+        if (rr < minR) minR = rr;
+        if (rr > maxR) maxR = rr;
+        for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+          const nr = rr + dr;
+          const nc = cc + dc;
+          if (nr < 0 || nr >= MAP_ROWS || nc < 0 || nc >= MAP_COLS) continue;
+          if (officeMap[nr][nc] !== Tile.MEETING || grid[nr][nc] !== -1) continue;
+          grid[nr][nc] = idx;
+          stack.push([nr, nc]);
+        }
+      }
+
+      zones.push({
+        id: `meeting-${idx + 1}`,
+        name: `会議室${String.fromCharCode(65 + idx)}`,
+        x: minC * TILE_SIZE,
+        y: minR * TILE_SIZE,
+        w: (maxC - minC + 1) * TILE_SIZE,
+        h: (maxR - minR + 1) * TILE_SIZE,
+      });
+    }
+  }
+
+  return { zones, grid };
+}
+
+const { zones: zonesList, grid: zoneGrid } = buildZones();
+
+export const ZONES: Zone[] = zonesList;
+
+/** Return the zone containing pixel (px, py), or null when outside every zone. */
+export function zoneAt(px: number, py: number): Zone | null {
+  const col = Math.floor(px / TILE_SIZE);
+  const row = Math.floor(py / TILE_SIZE);
+  if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) return null;
+  const idx = zoneGrid[row][col];
+  return idx === -1 ? null : ZONES[idx];
+}
+
 /** Find the nearest walkable pixel position, snapping to tile centers. */
 export function findWalkableSpawn(px: number, py: number, radius: number): { x: number; y: number } {
   if (canOccupy(px, py, radius)) return { x: px, y: py };

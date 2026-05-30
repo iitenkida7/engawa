@@ -9,6 +9,8 @@ import {
   SOLID,
   TILE_SIZE,
   Tile,
+  ZONES,
+  zoneAt,
 } from '../tilemap';
 
 // Pixel coordinate of the center of tile (col, row).
@@ -83,5 +85,46 @@ describe('findWalkableSpawn', () => {
     // Snapped to a tile center.
     expect((spawn.x - TILE_SIZE / 2) % TILE_SIZE).toBe(0);
     expect((spawn.y - TILE_SIZE / 2) % TILE_SIZE).toBe(0);
+  });
+});
+
+describe('ZONES / zoneAt (meeting-room zones)', () => {
+  it('derives exactly the two MEETING rooms from the map', () => {
+    expect(ZONES).toHaveLength(2);
+  });
+
+  it('assigns a zone to every MEETING tile and none to other tiles', () => {
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        const z = zoneAt(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2);
+        if (officeMap[r][c] === Tile.MEETING) {
+          expect(z).not.toBeNull();
+        } else {
+          expect(z).toBeNull();
+        }
+      }
+    }
+  });
+
+  it('groups each room into a single distinct zone (the two rooms differ)', () => {
+    // First MEETING tile in each room, scanning left-to-right / top-to-bottom.
+    const meetingTiles: { col: number; row: number }[] = [];
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        if (officeMap[r][c] === Tile.MEETING) meetingTiles.push({ col: c, row: r });
+      }
+    }
+    const leftmost = meetingTiles[0];
+    const rightmost = meetingTiles[meetingTiles.length - 1];
+    const left = zoneAt(leftmost.col * TILE_SIZE + 1, leftmost.row * TILE_SIZE + 1);
+    const right = zoneAt(rightmost.col * TILE_SIZE + 1, rightmost.row * TILE_SIZE + 1);
+    expect(left).not.toBeNull();
+    expect(right).not.toBeNull();
+    expect(left!.id).not.toBe(right!.id);
+  });
+
+  it('returns null outside the map bounds', () => {
+    expect(zoneAt(-10, -10)).toBeNull();
+    expect(zoneAt(MAP_COLS * TILE_SIZE + 10, 0)).toBeNull();
   });
 });
