@@ -214,20 +214,21 @@ docker run -p 3000:3000 \
 
 `v*` タグを push すると GitHub Actions（`.github/workflows/release.yml`）が **GHCR** にイメージを公開します: `ghcr.io/<owner>/engawa`。
 
-### Caddy 付きの本番サンプル（`docker-compose.prod.yml`）
+### Caddy 付きの本番サンプル（[`production_sample/docker_compose/`](./production_sample/docker_compose/)）
 
-VPS などにそのまま置いて動かせるサンプルを同梱しています。**Caddy が Let's Encrypt で HTTPS を自動終端**し、GHCR の公開イメージへリバースプロキシします。
+VPS などにそのまま置いて動かせるサンプルを [`production_sample/docker_compose/`](./production_sample/docker_compose/) に同梱しています。**Caddy が Let's Encrypt で HTTPS を自動終端**し、GHCR の公開イメージへリバースプロキシします。
 
 ```bash
 # 実ドメインが解決でき、80/443 がインターネットから到達できるホストで:
-cp .env.prod.example .env   # ENGAWA_DOMAIN / ACME_EMAIL / TURN などを設定
-docker compose -f docker-compose.prod.yml up -d
+cd production_sample/docker_compose
+cp .env.example .env   # ENGAWA_DOMAIN / ACME_EMAIL / TURN などを設定
+docker compose up -d
 ```
 
 - `ENGAWA_DOMAIN` の DNS を当ホストに向け、ポート **80/443** を開けておくと、Caddy が証明書を自動取得・更新します。
 - イメージは `ENGAWA_IMAGE` で指定（既定 `ghcr.io/iitenkida7/engawa:latest`）。本番では `:vX.Y.Z` のように**バージョンタグを固定**するのを推奨。
 - server コンテナはホストにポート公開せず、**Caddy 経由のみ**で到達します（単一オリジンで static・`/ws`・`/api` を配信）。
-- 開発用の `docker-compose.yml` / `Caddyfile`（`tls internal` / `engawa.localhost`）とは別物です。
+- 詳しい前提・構成は [`production_sample/docker_compose/README.md`](./production_sample/docker_compose/README.md) を参照。開発用の `docker-compose.yml` / `Caddyfile`（リポジトリ最上位。`tls internal` / `engawa.localhost`）とは別物です。
 
 注意点:
 

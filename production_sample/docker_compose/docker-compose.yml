@@ -1,7 +1,8 @@
-# Production sample. Copy onto a host (e.g. a VPS), set the env, and run:
+# Production sample. Copy this directory onto a host (e.g. a VPS) and run, from
+# inside it:
 #
-#   cp .env.prod.example .env   # set ENGAWA_DOMAIN / ACME_EMAIL / TURN / ...
-#   docker compose -f docker-compose.prod.yml up -d
+#   cp .env.example .env   # set ENGAWA_DOMAIN / ACME_EMAIL / TURN / ...
+#   docker compose up -d
 #
 # Caddy terminates HTTPS (Let's Encrypt, automatic) and reverse-proxies a single
 # upstream: the engawa image pulled from GHCR serves the built client + /ws +
@@ -20,7 +21,7 @@ services:
       - "443:443"
       - "443:443/udp" # HTTP/3 (QUIC)
     volumes:
-      - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data # persists issued certs across restarts (avoid ACME rate limits)
       - caddy_config:/config
     environment:
