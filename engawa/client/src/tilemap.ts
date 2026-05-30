@@ -62,13 +62,17 @@ function buildOfficeMap(): number[][] {
   fill(0, 0, 1, MAP_ROWS, Tile.WALL);
   fill(MAP_COLS - 1, 0, 1, MAP_ROWS, Tile.WALL);
 
-  // ── Top section (rows 1-4): offices + lounge ──
+  // ── Top section (rows 1-4): meeting rooms (offices + lounge) ──
+  // These three walled-off rooms are MEETING tiles so they become isolated
+  // call bubbles (see ZONES / zoneAt). The interior is filled with MEETING
+  // before desks/plants are stamped back on top.
 
   // Office 1 (cols 1-6)
   fill(7, 0, 1, 6, Tile.WALL);
   fill(0, 5, 8, 1, Tile.WALL);
   m[5][3] = Tile.FLOOR;
   m[5][4] = Tile.FLOOR;
+  fill(1, 1, 6, 4, Tile.MEETING);
   fill(3, 2, 2, 2, Tile.DESK);
 
   // Office 2 (cols 8-13)
@@ -76,6 +80,7 @@ function buildOfficeMap(): number[][] {
   fill(8, 5, 7, 1, Tile.WALL);
   m[5][10] = Tile.FLOOR;
   m[5][11] = Tile.FLOOR;
+  fill(8, 1, 6, 4, Tile.MEETING);
   fill(10, 2, 2, 2, Tile.DESK);
 
   // Lounge (cols 29-38)
@@ -83,7 +88,7 @@ function buildOfficeMap(): number[][] {
   fill(28, 5, 12, 1, Tile.WALL);
   m[5][32] = Tile.FLOOR;
   m[5][33] = Tile.FLOOR;
-  fill(29, 1, 10, 4, Tile.LOUNGE);
+  fill(29, 1, 10, 4, Tile.MEETING);
   fill(31, 2, 4, 1, Tile.DESK);
   m[2][37] = Tile.PLANT;
 

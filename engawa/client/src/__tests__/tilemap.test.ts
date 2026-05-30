@@ -89,8 +89,18 @@ describe('findWalkableSpawn', () => {
 });
 
 describe('ZONES / zoneAt (meeting-room zones)', () => {
-  it('derives exactly the two MEETING rooms from the map', () => {
-    expect(ZONES).toHaveLength(2);
+  // One interior tile per walled-off MEETING room: the 3 top rooms
+  // (offices + lounge) and the 2 bottom meeting rooms.
+  const roomSamples: { col: number; row: number }[] = [
+    { col: 1, row: 1 }, // office 1
+    { col: 8, row: 1 }, // office 2
+    { col: 29, row: 1 }, // lounge
+    { col: 1, row: 24 }, // meeting room 1
+    { col: 27, row: 24 }, // meeting room 2
+  ];
+
+  it('derives one zone per walled-off MEETING room', () => {
+    expect(ZONES).toHaveLength(roomSamples.length);
   });
 
   it('assigns a zone to every MEETING tile and none to other tiles', () => {
@@ -106,21 +116,14 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     }
   });
 
-  it('groups each room into a single distinct zone (the two rooms differ)', () => {
-    // First MEETING tile in each room, scanning left-to-right / top-to-bottom.
-    const meetingTiles: { col: number; row: number }[] = [];
-    for (let r = 0; r < MAP_ROWS; r++) {
-      for (let c = 0; c < MAP_COLS; c++) {
-        if (officeMap[r][c] === Tile.MEETING) meetingTiles.push({ col: c, row: r });
-      }
-    }
-    const leftmost = meetingTiles[0];
-    const rightmost = meetingTiles[meetingTiles.length - 1];
-    const left = zoneAt(leftmost.col * TILE_SIZE + 1, leftmost.row * TILE_SIZE + 1);
-    const right = zoneAt(rightmost.col * TILE_SIZE + 1, rightmost.row * TILE_SIZE + 1);
-    expect(left).not.toBeNull();
-    expect(right).not.toBeNull();
-    expect(left!.id).not.toBe(right!.id);
+  it('groups each room into a single distinct zone', () => {
+    const ids = roomSamples.map((s) => {
+      const z = zoneAt(s.col * TILE_SIZE + TILE_SIZE / 2, s.row * TILE_SIZE + TILE_SIZE / 2);
+      expect(z).not.toBeNull();
+      return z!.id;
+    });
+    // Every sampled room maps to a different zone (no room is merged with another).
+    expect(new Set(ids).size).toBe(roomSamples.length);
   });
 
   it('returns null outside the map bounds', () => {
