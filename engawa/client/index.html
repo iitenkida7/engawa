@@ -122,6 +122,9 @@
       .device-menu .device-item:hover { background: #353a47; }
       .device-menu .device-item.selected { color: #4f8cff; font-weight: 600; }
       .device-menu .device-empty { padding: 8px 10px; font-size: 12px; color: #9da3b0; }
+      /* The status menu sits on the toolbar's right edge, so anchor it right to
+         keep it from overflowing past the viewport. */
+      #status-menu { left: auto; right: 0; min-width: 160px; }
 
       /* Full-viewport overlay that only acts as a positioning context for the
          draggable tiles. It must not capture pointer events itself, so it never
@@ -280,7 +283,10 @@
         </div>
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" title="録画">⏺ 録画</button>
-        <button id="btn-status" title="ステータス">🟢 オンライン</button>
+        <div class="btn-group">
+          <button id="btn-status" title="ステータス">🟢 オンライン</button>
+          <div id="status-menu" class="device-menu hidden"></div>
+        </div>
       </div>
       <div id="remote-videos"></div>
       <div id="self-preview" class="panel hidden">

@@ -254,6 +254,11 @@ export class Game {
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
   private myStatus: PlayerStatus = 'online';
+  // Selectable statuses, in menu order, with their toolbar labels.
+  private readonly statusOrder: PlayerStatus[] = ['online', 'busy', 'away', 'meeting', 'break'];
+  private readonly statusLabels: Record<PlayerStatus, string> = {
+    online: '🟢 オンライン', busy: '🔴 取り込み中', away: '🟡 離席中', meeting: '🤝 商談中', break: '☕ 休憩中',
+  };
 
   constructor(opts: { canvas: HTMLCanvasElement }) {
     this.canvas = opts.canvas;
@@ -666,13 +671,6 @@ export class Game {
       this.refreshToolbar();
     });
     this.recorder.on(() => this.refreshToolbar());
-    this.btnStatus.addEventListener('click', () => {
-      const cycle: PlayerStatus[] = ['online', 'busy', 'away', 'meeting', 'break'];
-      const idx = cycle.indexOf(this.myStatus);
-      this.myStatus = cycle[(idx + 1) % cycle.length];
-      this.broadcastStatus();
-      this.refreshToolbar();
-    });
     this.refreshToolbar();
   }
 
@@ -685,8 +683,7 @@ export class Game {
     this.btnScreen.textContent = this.media.screenOn ? '🖥 共有中' : '🖥 画面共有';
     this.btnRec.classList.toggle('recording', this.recorder.recording);
     this.btnRec.textContent = this.recorder.recording ? '⏹ 録画停止' : '⏺ 録画';
-    const statusLabel: Record<PlayerStatus, string> = { online: '🟢 オンライン', busy: '🔴 取り込み中', away: '🟡 離席中', meeting: '🤝 商談中', break: '☕ 休憩中' };
-    this.btnStatus.textContent = statusLabel[this.myStatus];
+    this.btnStatus.textContent = this.statusLabels[this.myStatus];
     this.refreshSelfPreview();
   }
 
@@ -726,18 +723,31 @@ export class Game {
   private setupDeviceMenus() {
     const micMenu = document.getElementById('mic-menu') as HTMLDivElement;
     const camMenu = document.getElementById('cam-menu') as HTMLDivElement;
+    const statusMenu = document.getElementById('status-menu') as HTMLDivElement;
     const btnMicDevices = document.getElementById('btn-mic-devices') as HTMLButtonElement;
     const btnCamDevices = document.getElementById('btn-cam-devices') as HTMLButtonElement;
 
     const closeMenus = () => {
       micMenu.classList.add('hidden');
       camMenu.classList.add('hidden');
+      statusMenu.classList.add('hidden');
     };
     document.addEventListener('click', (e) => {
       const t = e.target as Node;
       if (!micMenu.contains(t) && t !== btnMicDevices &&
-          !camMenu.contains(t) && t !== btnCamDevices) {
+          !camMenu.contains(t) && t !== btnCamDevices &&
+          !statusMenu.contains(t) && t !== this.btnStatus) {
         closeMenus();
+      }
+    });
+
+    this.btnStatus.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = statusMenu.classList.contains('hidden');
+      closeMenus();
+      if (open) {
+        this.populateStatusMenu(statusMenu);
+        statusMenu.classList.remove('hidden');
       }
     });
 
@@ -792,6 +802,32 @@ export class Game {
       });
       menu.appendChild(item);
     });
+  }
+
+  // Fills the status dropdown, marking the current status, mirroring the
+  // device-menu styling so the toolbar menus look and behave the same.
+  private populateStatusMenu(menu: HTMLDivElement) {
+    menu.replaceChildren();
+    for (const status of this.statusOrder) {
+      const item = document.createElement('button');
+      item.className = 'device-item';
+      const isSelected = status === this.myStatus;
+      if (isSelected) item.classList.add('selected');
+      item.textContent = (isSelected ? '✓ ' : '') + this.statusLabels[status];
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.classList.add('hidden');
+        this.setStatus(status);
+      });
+      menu.appendChild(item);
+    }
+  }
+
+  private setStatus(status: PlayerStatus) {
+    if (this.myStatus === status) return;
+    this.myStatus = status;
+    this.broadcastStatus();
+    this.refreshToolbar();
   }
 
   private async switchMic(deviceId: string) {
