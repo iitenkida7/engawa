@@ -153,7 +153,11 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.
 engawa/
 ├ client/                # Vite + TypeScript フロントエンド
 │  └ src/
-│     ├ game.ts          # メインゲームループ・UI 管理
+│     ├ app.ts           # トップレベルのオーケストレータ（ゲームループ・各サブシステムの配線）
+│     ├ toolbar.ts       # マイク / カメラ / 画面共有 / 録画ボタンと各種メニュー
+│     ├ remote-media.ts  # リモートのビデオ / 音声 / 画面共有タイルの DOM 管理
+│     ├ panels.ts        # フローティングパネルの配置
+│     ├ speaking.ts      # 発話検出
 │     ├ canvas.ts        # Canvas 描画
 │     ├ player.ts        # プレイヤー状態
 │     ├ media.ts         # マイク / カメラ / 画面共有
