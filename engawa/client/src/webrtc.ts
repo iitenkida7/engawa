@@ -2,12 +2,15 @@ import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
 import type { StreamKind } from './types';
 import type { MediaManager } from './media';
 import { transformSdpForLowLatency } from './sdp';
+import { CAM_BITRATE_SPEAKING } from './cam-bitrate';
 
 // Per-kind bitrate ceilings. These are the maximum the encoder is allowed
-// to spend; the actual rate adapts down to available bandwidth.
+// to spend; the actual rate adapts down to available bandwidth. The cam value
+// is the high (speaking) ceiling — in big proximity groups the App lowers it
+// per-peer via setCamBitrate (see cam-bitrate.ts).
 const SEND_BITRATE: Record<StreamKind, number> = {
   mic: 64_000,
-  cam: 600_000,
+  cam: CAM_BITRATE_SPEAKING,
   screen: 3_000_000,
 };
 
@@ -31,8 +34,10 @@ function tuneReceivers(pc: RTCPeerConnection) {
 
 // Apply per-kind bitrate / priority / degradationPreference to every sender.
 // kind is inferred from track.kind (audio→mic) and contentHint (detail→screen,
-// else cam) — both are set at the MediaManager layer.
-async function tuneSenders(pc: RTCPeerConnection) {
+// else cam) — both are set at the MediaManager layer. `camBitrate` is the
+// current speaker-aware ceiling for camera senders (mic/screen use their fixed
+// per-kind ceiling).
+async function tuneSenders(pc: RTCPeerConnection, camBitrate: number) {
   for (const sender of pc.getSenders()) {
     const track = sender.track;
     if (!track) continue;
@@ -47,7 +52,7 @@ async function tuneSenders(pc: RTCPeerConnection) {
         networkPriority?: 'very-low' | 'low' | 'medium' | 'high';
         priority?: 'very-low' | 'low' | 'medium' | 'high';
       };
-      enc.maxBitrate = SEND_BITRATE[kind];
+      enc.maxBitrate = kind === 'cam' ? camBitrate : SEND_BITRATE[kind];
       if (kind === 'mic') {
         enc.networkPriority = 'high';
         enc.priority = 'high';
@@ -89,6 +94,11 @@ export class WebRtcManager {
   private media: MediaManager;
   private events: WebRtcEvents;
 
+  // Current camera send-bitrate ceiling applied to every peer's cam sender. The
+  // App drives this via setCamBitrate (speaker-aware; see cam-bitrate.ts);
+  // defaults to the high rate so behaviour is unchanged until the App lowers it.
+  private camBitrate = CAM_BITRATE_SPEAKING;
+
   // Pending stream-meta announcements that arrived before the corresponding
   // 'stream' / 'track' event on the peer.
   private pendingMeta = new Map<string, Map<string, StreamKind>>();
@@ -112,6 +122,24 @@ export class WebRtcManager {
 
   hasPeer(remoteUserId: string) {
     return this.peers.has(remoteUserId);
+  }
+
+  // Number of currently connected proximity peers (the mesh degree). The App
+  // feeds this to computeCamBitrate to decide whether to throttle.
+  get peerCount(): number {
+    return this.peers.size;
+  }
+
+  // Update the camera send-bitrate ceiling and re-tune every peer's cam sender.
+  // RTCRtpSender.setParameters is seamless — no renegotiation, the track keeps
+  // flowing. No-op when the value is unchanged so the App can call it freely.
+  setCamBitrate(bitrate: number) {
+    if (bitrate === this.camBitrate) return;
+    this.camBitrate = bitrate;
+    for (const entry of this.peers.values()) {
+      const pc = getPc(entry.peer);
+      if (pc) void tuneSenders(pc, this.camBitrate);
+    }
   }
 
   async createPeer(remoteUserId: string, initiator: boolean): Promise<PeerEntry> {
@@ -170,7 +198,7 @@ export class WebRtcManager {
       // microtask once simple-peer is done wiring transceivers.
       queueMicrotask(() => {
         const pc = getPc(peer);
-        if (pc) void tuneSenders(pc);
+        if (pc) void tuneSenders(pc, this.camBitrate);
       });
     }
 
@@ -190,7 +218,7 @@ export class WebRtcManager {
       const pc = getPc(peer);
       if (pc) {
         tuneReceivers(pc);
-        void tuneSenders(pc);
+        void tuneSenders(pc, this.camBitrate);
       }
     });
 
@@ -288,7 +316,7 @@ export class WebRtcManager {
       // Re-tune senders after the new tracks have been attached.
       queueMicrotask(() => {
         const pc = getPc(entry.peer);
-        if (pc) void tuneSenders(pc);
+        if (pc) void tuneSenders(pc, this.camBitrate);
       });
     }
   }
