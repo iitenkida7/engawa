@@ -15,32 +15,75 @@ export function isWithinConnectRadius(a: Point, other: Point, radius: number): b
 }
 
 /**
+ * Meeting-room isolation rule. When either player is inside a meeting room the
+ * call is decided purely by zone membership — connected iff both are in the
+ * *same* room — so audio/video neither leaks out of a room nor in from outside.
+ * Returns null when both are outside every room, signalling the caller to fall
+ * back to proximity (radius) rules.
+ *
+ * A zone id is the `Zone.id` of the room a player stands in, or null when out.
+ */
+export function zoneConnection(
+  myZoneId: string | null,
+  otherZoneId: string | null,
+): boolean | null {
+  if (myZoneId !== null || otherZoneId !== null) {
+    return myZoneId !== null && myZoneId === otherZoneId;
+  }
+  return null;
+}
+
+/**
+ * True when `me` and `other` should currently be in a call — the single source
+ * of truth shared by connect/disconnect and the proximity chime/ring. Inside a
+ * room, zone membership decides; outside, the given radius decides.
+ */
+export function inCallRange(
+  me: Point,
+  other: Point,
+  radius: number,
+  myZoneId: string | null = null,
+  otherZoneId: string | null = null,
+): boolean {
+  const zone = zoneConnection(myZoneId, otherZoneId);
+  if (zone !== null) return zone;
+  return isWithinConnectRadius(me, other, radius);
+}
+
+/**
  * Decide whether `me` should open a new peer connection to `other`.
- * Mirrors the game-loop rule: connect when no peer exists yet and the other
- * player is inside `connectRadius`.
+ * Connect when no peer exists yet and the two should be in a call: same meeting
+ * room, or — when both are outside any room — inside `connectRadius`.
  */
 export function shouldConnect(
   me: Point,
   other: Point,
   connectRadius: number,
   hasPeer: boolean,
+  myZoneId: string | null = null,
+  otherZoneId: string | null = null,
 ): boolean {
-  return !hasPeer && isWithinConnectRadius(me, other, connectRadius);
+  return !hasPeer && inCallRange(me, other, connectRadius, myZoneId, otherZoneId);
 }
 
 /**
  * Decide whether `me` should tear down an existing peer to `other`.
- * Mirrors the game-loop rule: disconnect when a peer exists and the other
- * player has drifted beyond `disconnectRadius`. The hysteresis gap between
- * connect/disconnect radii prevents flapping at the boundary.
+ * Disconnect when a peer exists but the two should no longer be in a call.
+ * Outside any room the `disconnectRadius` hysteresis gap prevents flapping at
+ * the boundary; entering/leaving a room switches immediately (no hysteresis).
  */
 export function shouldDisconnect(
   me: Point,
   other: Point,
   disconnectRadius: number,
   hasPeer: boolean,
+  myZoneId: string | null = null,
+  otherZoneId: string | null = null,
 ): boolean {
-  return hasPeer && distance(me, other) > disconnectRadius;
+  if (!hasPeer) return false;
+  const zone = zoneConnection(myZoneId, otherZoneId);
+  if (zone !== null) return !zone;
+  return distance(me, other) > disconnectRadius;
 }
 
 /**
