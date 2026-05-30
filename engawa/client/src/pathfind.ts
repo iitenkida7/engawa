@@ -4,7 +4,7 @@
 
 import type { Point } from './proximity';
 import { TILE_SIZE, MAP_COLS, MAP_ROWS, canOccupy } from './tilemap';
-import { PLAYER_RADIUS } from './types';
+import { COLLISION_RADIUS } from './types';
 
 export type TileWalkable = (col: number, row: number) => boolean;
 
@@ -13,7 +13,7 @@ export function defaultTileWalkable(col: number, row: number): boolean {
   if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) return false;
   const cx = col * TILE_SIZE + TILE_SIZE / 2;
   const cy = row * TILE_SIZE + TILE_SIZE / 2;
-  return canOccupy(cx, cy, PLAYER_RADIUS);
+  return canOccupy(cx, cy, COLLISION_RADIUS);
 }
 
 function tileCenter(col: number, row: number): Point {

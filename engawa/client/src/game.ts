@@ -13,6 +13,7 @@ import {
   CLICK_MOVE_MULTIPLIER,
   CONNECT_RADIUS,
   DISCONNECT_RADIUS,
+  COLLISION_RADIUS,
   MAP_HEIGHT,
   MAP_WIDTH,
   PLAYER_RADIUS,
@@ -562,8 +563,8 @@ export class Game {
     const prevY = this.me.y;
     const newX = clamp(this.me.x + vx * dt, PLAYER_RADIUS, MAP_WIDTH - PLAYER_RADIUS);
     const newY = clamp(this.me.y + vy * dt, PLAYER_RADIUS, MAP_HEIGHT - PLAYER_RADIUS);
-    if (canOccupy(newX, this.me.y, PLAYER_RADIUS)) this.me.x = newX;
-    if (canOccupy(this.me.x, newY, PLAYER_RADIUS)) this.me.y = newY;
+    if (canOccupy(newX, this.me.y, COLLISION_RADIUS)) this.me.x = newX;
+    if (canOccupy(this.me.x, newY, COLLISION_RADIUS)) this.me.y = newY;
     this.me.targetX = this.me.x;
     this.me.targetY = this.me.y;
     return this.me.x !== prevX || this.me.y !== prevY;

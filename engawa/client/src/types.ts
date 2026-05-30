@@ -31,6 +31,10 @@ export type ServerMessage =
 export const MAP_WIDTH = 2000;
 export const MAP_HEIGHT = 1500;
 export const PLAYER_RADIUS = 20;
+// Collision uses a smaller radius than the drawn avatar so squeezing between
+// solid tiles is forgiving: a one-tile (50px) gap leaves an 18px window for the
+// center instead of 10px. The avatar still renders at PLAYER_RADIUS.
+export const COLLISION_RADIUS = 16;
 // Pixels per second. Frame-rate independent; the per-frame delta is computed
 // with the actual dt of each frame.
 export const PLAYER_SPEED = 210;
