@@ -259,7 +259,8 @@ export class RemoteMediaView {
     body.appendChild(placeholder);
 
     // Initial position: stack tiles down from the top-right corner, offsetting
-    // each new tile so they don't fully overlap.
+    // each new tile so they don't fully overlap. The top-left is reserved for
+    // the roster panel; tiles are draggable anywhere afterward.
     const index = this.remoteTiles.size;
     container.style.left = 'auto';
     container.style.right = `${12 + index * 16}px`;
