@@ -4,10 +4,10 @@ import type { MediaManager } from './media';
 import { transformSdp } from './sdp';
 import {
   computeCamEncoding,
-  computeScreenBitrate,
+  computeScreenEncoding,
   computeScreenScale,
-  SCREEN_MAX_FRAMERATE,
   type CamEncoding,
+  type ScreenEncoding,
 } from './cam-bitrate';
 import {
   summarizeRtcStats,
@@ -18,7 +18,7 @@ import {
 
 // Fixed mic send-bitrate ceiling (bps). The encoder still adapts down to the
 // available bandwidth. Camera and screen ceilings are dynamic and live in the
-// per-instance send policy (see cam-bitrate.ts / setCamEncoding / setScreenBitrate).
+// per-instance send policy (see cam-bitrate.ts / setCamEncoding / setScreenEncoding).
 const MIC_BITRATE = 64_000;
 
 function getPc(peer: PeerInstance): RTCPeerConnection | undefined {
@@ -43,9 +43,11 @@ function tuneReceivers(pc: RTCPeerConnection) {
 // Apply per-kind encoding ceilings / priority / degradationPreference to every
 // sender. kind is inferred from track.kind (audio→mic) and contentHint
 // (detail→screen, else cam) — both set at the MediaManager layer. `camEnc` is
-// the current speaker-aware camera ceiling (bitrate + framerate + resolution
-// downscale); `screenBitrate` is the peer-count-aware screen ceiling.
-async function tuneSenders(pc: RTCPeerConnection, camEnc: CamEncoding, screenBitrate: number) {
+// the speaker-aware camera ceiling; `screenEnc` is the peer-count-aware screen
+// ceiling (bitrate + framerate + longest-edge resolution cap). Both are read
+// live by the caller (see retunePeer) so a late-resolving setParameters never
+// writes a stale ceiling.
+async function tuneSenders(pc: RTCPeerConnection, camEnc: CamEncoding, screenEnc: ScreenEncoding) {
   for (const sender of pc.getSenders()) {
     const track = sender.track;
     if (!track) continue;
@@ -66,15 +68,16 @@ async function tuneSenders(pc: RTCPeerConnection, camEnc: CamEncoding, screenBit
         enc.scaleResolutionDownBy = camEnc.scaleResolutionDownBy;
         params.degradationPreference = 'balanced';
       } else if (kind === 'screen') {
-        enc.maxBitrate = screenBitrate;
-        // Cap the encoded resolution to FHD-class and the framerate, so a 4K /
-        // ultrawide share doesn't saturate the CPU when encoded once per peer
-        // (encode cost ~scales with pixels × fps). getSettings() reports the
-        // live capture size; computeScreenScale returns 1 (no scaling) when it
-        // is unknown or already within the cap.
+        enc.maxBitrate = screenEnc.maxBitrate;
+        // Cap the encoded resolution (longest edge) and framerate so the share
+        // doesn't saturate the CPU when encoded once per peer in the mesh
+        // (encode cost ~scales with pixels × fps × peers). Big clusters drop to
+        // 720p-class / lower fps. getSettings() reports the live capture size;
+        // computeScreenScale returns 1 (no scaling) when it is unknown or
+        // already within the cap.
         const s = track.getSettings();
-        enc.scaleResolutionDownBy = computeScreenScale(s.width ?? 0, s.height ?? 0);
-        enc.maxFramerate = SCREEN_MAX_FRAMERATE;
+        enc.scaleResolutionDownBy = computeScreenScale(s.width ?? 0, s.height ?? 0, screenEnc.maxLongEdge);
+        enc.maxFramerate = screenEnc.maxFramerate;
         // contentHint='detail' optimizes for crisp text/UI, so under congestion
         // keep the (capped) resolution and drop framerate instead — the opposite
         // of maintain-framerate, which would blur the very text we want sharp.
@@ -101,6 +104,10 @@ type PeerEntry = {
   // streamId → kind map for our own outgoing streams (so we can re-announce on
   // reconnect/renegotiation).
   localStreamKinds: Map<string, StreamKind>;
+  // Serializes setParameters re-tunes for this peer: each re-tune is chained
+  // after the previous one so concurrent tunes can't race and leave a stale
+  // ceiling applied (the last-enqueued tune runs last and reads live values).
+  tuneChain: Promise<void>;
 };
 
 export type WebRtcEvents = {
@@ -118,11 +125,11 @@ export class WebRtcManager {
   private events: WebRtcEvents;
 
   // Current send policy applied to every peer. The App drives these each frame
-  // (camEnc is speaker-aware, screenBitrate is peer-count-aware; see
-  // cam-bitrate.ts). Defaults to the small-group/high-quality values so
-  // behaviour is unchanged until the App throttles.
+  // (camEnc is speaker-aware, screenEnc is peer-count-aware; see cam-bitrate.ts).
+  // Defaults to the small-group/high-quality values so behaviour is unchanged
+  // until the App throttles.
   private camEnc: CamEncoding = computeCamEncoding(0, false);
-  private screenBitrate = computeScreenBitrate(0);
+  private screenEnc: ScreenEncoding = computeScreenEncoding(0);
 
   // Pending stream-meta announcements that arrived before the corresponding
   // 'stream' / 'track' event on the peer.
@@ -153,7 +160,7 @@ export class WebRtcManager {
   }
 
   // Number of currently connected proximity peers (the mesh degree). The App
-  // feeds this to computeCamEncoding / computeScreenBitrate to decide throttling.
+  // feeds this to computeCamEncoding / computeScreenEncoding to decide throttling.
   get peerCount(): number {
     return this.peers.size;
   }
@@ -173,19 +180,36 @@ export class WebRtcManager {
     this.retuneAll();
   }
 
-  // Update the screen-share send-bitrate ceiling and re-tune every peer's screen
-  // sender. No-op when unchanged so the App can call it every frame.
-  setScreenBitrate(bitrate: number) {
-    if (bitrate === this.screenBitrate) return;
-    this.screenBitrate = bitrate;
+  // Update the screen-share encoding ceiling (bitrate + framerate + resolution
+  // cap) and re-tune every peer's screen sender. No-op when unchanged so the App
+  // can call it every frame.
+  setScreenEncoding(enc: ScreenEncoding) {
+    if (
+      enc.maxBitrate === this.screenEnc.maxBitrate &&
+      enc.maxFramerate === this.screenEnc.maxFramerate &&
+      enc.maxLongEdge === this.screenEnc.maxLongEdge
+    ) {
+      return;
+    }
+    this.screenEnc = enc;
     this.retuneAll();
   }
 
   private retuneAll() {
-    for (const entry of this.peers.values()) {
+    for (const entry of this.peers.values()) this.retunePeer(entry);
+  }
+
+  // Queue a sender re-tune for one peer, serialized after any in-flight tune for
+  // the same peer. tuneSenders reads the live camEnc/screenEnc, so whichever
+  // tune runs last applies the current ceilings — concurrent calls can't leave a
+  // stale value applied.
+  private retunePeer(entry: PeerEntry) {
+    entry.tuneChain = entry.tuneChain.then(() => {
       const pc = getPc(entry.peer);
-      if (pc) void tuneSenders(pc, this.camEnc, this.screenBitrate);
-    }
+      return pc ? tuneSenders(pc, this.camEnc, this.screenEnc) : undefined;
+    }).catch((err) => {
+      console.warn('[rtc] retune failed', err);
+    });
   }
 
   // Poll getStats() on every peer and return the per-second diff vs the previous
@@ -247,6 +271,7 @@ export class WebRtcManager {
       ready: false,
       remoteStreamKinds: new Map(),
       localStreamKinds: new Map(),
+      tuneChain: Promise.resolve(),
     };
     this.peers.set(remoteUserId, entry);
 
@@ -267,10 +292,7 @@ export class WebRtcManager {
     if (initialStreams.length > 0) {
       // Senders exist synchronously after addStream; tune them on the next
       // microtask once simple-peer is done wiring transceivers.
-      queueMicrotask(() => {
-        const pc = getPc(peer);
-        if (pc) void tuneSenders(pc, this.camEnc, this.screenBitrate);
-      });
+      queueMicrotask(() => this.retunePeer(entry));
     }
 
     // Apply any stream-meta that arrived before the peer existed.
@@ -287,10 +309,8 @@ export class WebRtcManager {
     peer.on('connect', () => {
       entry.ready = true;
       const pc = getPc(peer);
-      if (pc) {
-        tuneReceivers(pc);
-        void tuneSenders(pc, this.camEnc, this.screenBitrate);
-      }
+      if (pc) tuneReceivers(pc);
+      this.retunePeer(entry);
     });
 
     const handleIncoming = (stream: MediaStream) => {
@@ -386,10 +406,7 @@ export class WebRtcManager {
         continue;
       }
       // Re-tune senders after the new tracks have been attached.
-      queueMicrotask(() => {
-        const pc = getPc(entry.peer);
-        if (pc) void tuneSenders(pc, this.camEnc, this.screenBitrate);
-      });
+      queueMicrotask(() => this.retunePeer(entry));
     }
   }
 

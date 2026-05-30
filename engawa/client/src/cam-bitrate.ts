@@ -32,30 +32,63 @@ export const CAM_FPS_QUIET = 15;
 export const CAM_SCALE_SPEAKING = 1;
 export const CAM_SCALE_QUIET = 2;
 
+// Screen-share is the mesh scaling wall: it must reach every one of the N-1
+// peers, so the sharer encodes it N-1 times and that encode cost is what
+// saturates the CPU past ~10 peers (measured: FHD VP9 ~55ms/frame; fps alone
+// can't fix it — the per-frame cost must drop). We tier the screen encoding by
+// peer count, all via seamless setParameters (no renegotiation):
+//   - <3 peers (small): full 3 Mbps / 15fps / FHD.
+//   - 3-7 peers (mid): drop the bitrate ceiling (3 Mbps × N is the biggest
+//     uplink hog) but keep FHD/15fps so text stays crisp.
+//   - >=8 peers (large): also drop framerate and downscale to 720p-class — this
+//     cuts the per-frame encode cost (~pixels × fps) enough to keep a big
+//     cluster afloat, at the cost of some text sharpness.
+export const SCREEN_LARGE_MIN_PEERS = 8;
+
 // Screen send-bitrate ceilings (bps). High is the unconstrained share quality;
-// throttled is used once the group passes CAM_THROTTLE_MIN_PEERS so the
-// per-peer × N uplink stays bounded while slides/text remain legible.
+// throttled keeps the per-peer × N uplink bounded once the group grows.
 export const SCREEN_BITRATE_HIGH = 3_000_000;
 export const SCREEN_BITRATE_THROTTLED = 1_500_000;
 
-// Screen-share encode ceilings, independent of peer count. Encode cost grows
-// ~with pixel count, and in the mesh that cost is paid once per peer, so an
-// uncapped 4 MP ultrawide / 4K share saturates the CPU (measured: ~150-300ms
-// encode/frame, CPU-limited). Capping the longest encoded edge to FHD tames
-// 4K/ultrawide while keeping text legible; a framerate cap claws back CPU on
-// monitors already within the resolution cap (e.g. a 16:9 1080p screen) without
-// touching resolution at all — screen content is mostly static, so 15fps is
-// barely noticeable.
-export const SCREEN_MAX_LONG_EDGE = 1920;
-export const SCREEN_MAX_FRAMERATE = 15;
+// Screen framerate ceilings. Screen content is mostly static, so 15fps is
+// barely noticeable; large clusters drop further to claw back encode CPU.
+export const SCREEN_FPS_DEFAULT = 15;
+export const SCREEN_FPS_LARGE = 10;
+
+// Longest-edge resolution caps. Encode cost ~scales with pixel count, so
+// capping the longer encoded edge bounds per-frame cost. FHD tames 4K/ultrawide
+// while keeping text legible; 720p-class is the large-cluster fallback.
+export const SCREEN_LONG_EDGE_DEFAULT = 1920;
+export const SCREEN_LONG_EDGE_LARGE = 1280;
+
+// The full per-sender encoding ceiling for a screen-share track. Mirrors
+// CamEncoding, except the resolution is expressed as a longest-edge cap
+// (maxLongEdge) that webrtc.ts turns into scaleResolutionDownBy using the live
+// capture size (computeScreenScale).
+export type ScreenEncoding = {
+  maxBitrate: number;
+  maxFramerate: number;
+  maxLongEdge: number;
+};
+
+// Pure: the screen-share encoding ceiling for the given peer count. See the
+// tier comment above SCREEN_LARGE_MIN_PEERS.
+export function computeScreenEncoding(peerCount: number): ScreenEncoding {
+  const large = peerCount >= SCREEN_LARGE_MIN_PEERS;
+  return {
+    maxBitrate: peerCount < CAM_THROTTLE_MIN_PEERS ? SCREEN_BITRATE_HIGH : SCREEN_BITRATE_THROTTLED,
+    maxFramerate: large ? SCREEN_FPS_LARGE : SCREEN_FPS_DEFAULT,
+    maxLongEdge: large ? SCREEN_LONG_EDGE_LARGE : SCREEN_LONG_EDGE_DEFAULT,
+  };
+}
 
 // Pure: the scaleResolutionDownBy needed to bring the longer source edge down to
-// `maxLongEdge` (FHD by default). Returns 1 (no scaling) when the source is
-// already within the cap or its size is unknown (0), and never upscales.
+// `maxLongEdge`. Returns 1 (no scaling) when the source is already within the
+// cap or its size is unknown (0), and never upscales.
 export function computeScreenScale(
   srcWidth: number,
   srcHeight: number,
-  maxLongEdge: number = SCREEN_MAX_LONG_EDGE,
+  maxLongEdge: number,
 ): number {
   const longEdge = Math.max(srcWidth, srcHeight);
   if (longEdge <= 0 || maxLongEdge <= 0) return 1;
@@ -90,13 +123,6 @@ export function computeCamEncoding(peerCount: number, isSpeaking: boolean): CamE
         maxFramerate: CAM_FPS_QUIET,
         scaleResolutionDownBy: CAM_SCALE_QUIET,
       };
-}
-
-// Pure: the screen-share send-bitrate ceiling for the given peer count. Small
-// groups keep the full quality; big groups drop to the throttled ceiling so the
-// 3 Mbps × N uplink does not blow up the sharer's connection.
-export function computeScreenBitrate(peerCount: number): number {
-  return peerCount < CAM_THROTTLE_MIN_PEERS ? SCREEN_BITRATE_HIGH : SCREEN_BITRATE_THROTTLED;
 }
 
 // Pure: applies the speaker hold-time. The user counts as "speaking" while the

@@ -9,10 +9,14 @@ import {
   CAM_THROTTLE_MIN_PEERS,
   SCREEN_BITRATE_HIGH,
   SCREEN_BITRATE_THROTTLED,
-  SCREEN_MAX_LONG_EDGE,
+  SCREEN_FPS_DEFAULT,
+  SCREEN_FPS_LARGE,
+  SCREEN_LARGE_MIN_PEERS,
+  SCREEN_LONG_EDGE_DEFAULT,
+  SCREEN_LONG_EDGE_LARGE,
   SPEAKER_HOLD_MS,
   computeCamEncoding,
-  computeScreenBitrate,
+  computeScreenEncoding,
   computeScreenScale,
   isHeldSpeaking,
 } from '../cam-bitrate';
@@ -54,53 +58,81 @@ describe('computeCamEncoding', () => {
   });
 });
 
-describe('computeScreenBitrate', () => {
-  it('keeps the full rate in small groups', () => {
+describe('computeScreenEncoding', () => {
+  it('keeps full bitrate / fps / FHD in small groups', () => {
     for (let n = 0; n < CAM_THROTTLE_MIN_PEERS; n++) {
-      expect(computeScreenBitrate(n)).toBe(SCREEN_BITRATE_HIGH);
+      expect(computeScreenEncoding(n)).toEqual({
+        maxBitrate: SCREEN_BITRATE_HIGH,
+        maxFramerate: SCREEN_FPS_DEFAULT,
+        maxLongEdge: SCREEN_LONG_EDGE_DEFAULT,
+      });
     }
   });
 
-  it('throttles once the group is large (peer-count only, no speaker notion)', () => {
-    expect(computeScreenBitrate(CAM_THROTTLE_MIN_PEERS)).toBe(SCREEN_BITRATE_THROTTLED);
-    expect(computeScreenBitrate(19)).toBe(SCREEN_BITRATE_THROTTLED);
+  it('throttles only the bitrate in mid-size groups (keeps FHD/full fps for text)', () => {
+    for (let n = CAM_THROTTLE_MIN_PEERS; n < SCREEN_LARGE_MIN_PEERS; n++) {
+      expect(computeScreenEncoding(n)).toEqual({
+        maxBitrate: SCREEN_BITRATE_THROTTLED,
+        maxFramerate: SCREEN_FPS_DEFAULT,
+        maxLongEdge: SCREEN_LONG_EDGE_DEFAULT,
+      });
+    }
   });
 
-  it('the throttled rate is meaningfully lower than the high rate', () => {
+  it('also drops fps and resolution in large clusters (per-frame encode cut)', () => {
+    expect(computeScreenEncoding(SCREEN_LARGE_MIN_PEERS)).toEqual({
+      maxBitrate: SCREEN_BITRATE_THROTTLED,
+      maxFramerate: SCREEN_FPS_LARGE,
+      maxLongEdge: SCREEN_LONG_EDGE_LARGE,
+    });
+    expect(computeScreenEncoding(20).maxLongEdge).toBe(SCREEN_LONG_EDGE_LARGE);
+  });
+
+  it('the large-cluster ceilings are strictly lower (more aggressive)', () => {
     expect(SCREEN_BITRATE_THROTTLED).toBeLessThan(SCREEN_BITRATE_HIGH);
+    expect(SCREEN_FPS_LARGE).toBeLessThan(SCREEN_FPS_DEFAULT);
+    expect(SCREEN_LONG_EDGE_LARGE).toBeLessThan(SCREEN_LONG_EDGE_DEFAULT);
   });
 });
 
 describe('computeScreenScale', () => {
-  it('does not scale a source already within the FHD cap', () => {
-    // 16:9 1080p monitor: longest edge 1920 == cap → no downscale.
-    expect(computeScreenScale(1920, 1080)).toBe(1);
-    // 720p is well within the cap.
-    expect(computeScreenScale(1280, 720)).toBe(1);
+  it('does not scale a source already within the cap', () => {
+    // 16:9 1080p monitor: longest edge 1920 == FHD cap → no downscale.
+    expect(computeScreenScale(1920, 1080, SCREEN_LONG_EDGE_DEFAULT)).toBe(1);
+    // 720p is well within the FHD cap.
+    expect(computeScreenScale(1280, 720, SCREEN_LONG_EDGE_DEFAULT)).toBe(1);
   });
 
   it('scales an ultrawide source down to the FHD long edge', () => {
     // 3420 wide → 3420 / 1920 ≈ 1.781 (encoded ~1920×649).
-    expect(computeScreenScale(3420, 1156)).toBeCloseTo(3420 / SCREEN_MAX_LONG_EDGE, 5);
+    expect(computeScreenScale(3420, 1156, SCREEN_LONG_EDGE_DEFAULT)).toBeCloseTo(
+      3420 / SCREEN_LONG_EDGE_DEFAULT,
+      5,
+    );
   });
 
-  it('scales a 4K source to exactly half (4K long edge is 2× FHD)', () => {
-    expect(computeScreenScale(3840, 2160)).toBe(2);
+  it('scales a 4K source to exactly half against the FHD cap', () => {
+    expect(computeScreenScale(3840, 2160, SCREEN_LONG_EDGE_DEFAULT)).toBe(2);
   });
 
   it('uses the longer edge regardless of orientation', () => {
-    expect(computeScreenScale(1156, 3420)).toBeCloseTo(3420 / SCREEN_MAX_LONG_EDGE, 5);
+    expect(computeScreenScale(1156, 3420, SCREEN_LONG_EDGE_DEFAULT)).toBeCloseTo(
+      3420 / SCREEN_LONG_EDGE_DEFAULT,
+      5,
+    );
   });
 
   it('never upscales and is safe for an unknown (0) source size', () => {
-    expect(computeScreenScale(640, 480)).toBe(1);
-    expect(computeScreenScale(0, 0)).toBe(1);
-    expect(computeScreenScale(0, 1080)).toBe(1);
+    expect(computeScreenScale(640, 480, SCREEN_LONG_EDGE_DEFAULT)).toBe(1);
+    expect(computeScreenScale(0, 0, SCREEN_LONG_EDGE_DEFAULT)).toBe(1);
+    expect(computeScreenScale(0, 1080, SCREEN_LONG_EDGE_DEFAULT)).toBe(1);
   });
 
-  it('respects a custom long-edge cap', () => {
-    // 720p cap: a 1080p monitor scales by 1.5 → 1280×720.
-    expect(computeScreenScale(1920, 1080, 1280)).toBeCloseTo(1.5, 5);
+  it('downscales harder against the 720p (large-cluster) cap', () => {
+    // 1080p monitor against the 720p cap scales by 1.5 → 1280×720.
+    expect(computeScreenScale(1920, 1080, SCREEN_LONG_EDGE_LARGE)).toBeCloseTo(1.5, 5);
+    // An FHD-capped share is already small; the 720p cap still bites.
+    expect(computeScreenScale(1920, 649, SCREEN_LONG_EDGE_LARGE)).toBeCloseTo(1.5, 5);
   });
 });
 

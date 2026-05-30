@@ -8,7 +8,7 @@ import { canOccupy, findWalkableSpawn, zoneAt } from './tilemap';
 import { inCallRange, isInitiator, shouldConnect, shouldDisconnect } from './proximity';
 import type { Point } from './proximity';
 import { findPath } from './pathfind';
-import { computeCamEncoding, computeScreenBitrate, isHeldSpeaking } from './cam-bitrate';
+import { computeCamEncoding, computeScreenEncoding, isHeldSpeaking } from './cam-bitrate';
 import { formatRtcRates } from './rtcstats';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
@@ -469,7 +469,7 @@ export class App {
     const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
     const peerCount = this.rtc.peerCount;
     this.rtc.setCamEncoding(computeCamEncoding(peerCount, speaking));
-    this.rtc.setScreenBitrate(computeScreenBitrate(peerCount));
+    this.rtc.setScreenEncoding(computeScreenEncoding(peerCount));
   }
 
   // Moves self by a velocity for one frame, sliding along walls (per-axis
