@@ -4,6 +4,7 @@ import {
   MAP_WIDTH,
   clampPosition,
   generateSpawn,
+  normalizeIceServers,
   normalizeName,
   normalizeWorkspace,
   parseWorkspacePasswords,
@@ -134,5 +135,28 @@ describe('generateSpawn', () => {
       expect(y).toBeGreaterThanOrEqual(400);
       expect(y).toBeLessThan(1000);
     }
+  });
+});
+
+describe('normalizeIceServers', () => {
+  test('wraps a single Cloudflare object in a one-element array', () => {
+    // Cloudflare's credentials endpoint returns one object, not an array.
+    const cf = {
+      urls: ['stun:stun.cloudflare.com:3478', 'turn:turn.cloudflare.com:3478?transport=udp'],
+      username: 'user',
+      credential: 'pass',
+    };
+    expect(normalizeIceServers(cf)).toEqual([cf]);
+  });
+
+  test('passes an array through unchanged', () => {
+    const arr = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+    expect(normalizeIceServers(arr)).toBe(arr);
+  });
+
+  test('yields an empty array for null/undefined/primitive input', () => {
+    expect(normalizeIceServers(null)).toEqual([]);
+    expect(normalizeIceServers(undefined)).toEqual([]);
+    expect(normalizeIceServers('stun:foo')).toEqual([]);
   });
 });

@@ -77,3 +77,17 @@ export function generateSpawn(rand: () => number = Math.random): { x: number; y:
     y: 400 + rand() * 600,
   };
 }
+
+/**
+ * Normalize an `iceServers` value into the array shape RTCPeerConnection
+ * requires. Cloudflare's credentials endpoint returns a single object
+ * ({ urls, username, credential }), but the browser rejects a non-array
+ * `iceServers` ("must have a callable @@iterator property"), so a bare object
+ * is wrapped in a one-element array. Arrays pass through unchanged; anything
+ * else (null/undefined/primitive) yields an empty array.
+ */
+export function normalizeIceServers(iceServers: unknown): unknown[] {
+  if (Array.isArray(iceServers)) return iceServers;
+  if (iceServers && typeof iceServers === 'object') return [iceServers];
+  return [];
+}
