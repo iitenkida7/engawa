@@ -3,3 +3,6 @@
 
 # Local env (read by docker compose at the repo root) — never commit secrets
 .env
+
+# macOS
+.DS_Store
