@@ -666,7 +666,7 @@ export class Game {
     });
     this.recorder.on(() => this.refreshToolbar());
     this.btnStatus.addEventListener('click', () => {
-      const cycle: PlayerStatus[] = ['online', 'busy', 'away'];
+      const cycle: PlayerStatus[] = ['online', 'busy', 'away', 'meeting', 'break'];
       const idx = cycle.indexOf(this.myStatus);
       this.myStatus = cycle[(idx + 1) % cycle.length];
       this.broadcastStatus();
@@ -684,7 +684,7 @@ export class Game {
     this.btnScreen.textContent = this.media.screenOn ? '🖥 共有中' : '🖥 画面共有';
     this.btnRec.classList.toggle('recording', this.recorder.recording);
     this.btnRec.textContent = this.recorder.recording ? '⏹ 録画停止' : '⏺ 録画';
-    const statusLabel: Record<PlayerStatus, string> = { online: '🟢 オンライン', busy: '🔴 取り込み中', away: '🟡 離席中' };
+    const statusLabel: Record<PlayerStatus, string> = { online: '🟢 オンライン', busy: '🔴 取り込み中', away: '🟡 離席中', meeting: '🤝 商談中', break: '☕ 休憩中' };
     this.btnStatus.textContent = statusLabel[this.myStatus];
     this.refreshSelfPreview();
   }

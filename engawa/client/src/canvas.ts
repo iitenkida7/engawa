@@ -232,7 +232,10 @@ export class CanvasRenderer {
       const dotY = p.y - PLAYER_RADIUS * 0.65;
       ctx.beginPath();
       ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
-      ctx.fillStyle = p.status === 'busy' ? '#dc3545' : '#ffc107';
+      const dotColors: Record<string, string> = {
+        busy: '#dc3545', away: '#ffc107', meeting: '#a855f7', break: '#3498db',
+      };
+      ctx.fillStyle = dotColors[p.status] ?? '#ffc107';
       ctx.fill();
       ctx.strokeStyle = '#1a1d24';
       ctx.lineWidth = 2;
