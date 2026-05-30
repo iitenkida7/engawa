@@ -1,3 +1,5 @@
+import { normalizeIceServers } from './logic';
+
 const FALLBACK_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -31,7 +33,9 @@ export async function getTurnCredentials() {
 
     const data = (await res.json()) as { iceServers?: unknown };
     if (!data.iceServers) return FALLBACK_ICE_SERVERS;
-    return data.iceServers;
+    // Cloudflare returns `iceServers` as a single object; RTCPeerConnection
+    // requires an array, so normalize before handing it to the client.
+    return normalizeIceServers(data.iceServers);
   } catch (err) {
     console.error('TURN credential fetch error:', err);
     return FALLBACK_ICE_SERVERS;
