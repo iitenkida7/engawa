@@ -28,6 +28,7 @@ import { WebRtcManager } from './webrtc';
 import { RemoteMediaView } from './remote-media';
 import { RosterPanel } from './roster';
 import { ToolbarController } from './toolbar';
+import { ReloadBanner, evaluateBoot } from './reload';
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
@@ -68,6 +69,12 @@ export class App {
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
   private myStatus: PlayerStatus = 'online';
+
+  // The server's boot id from the first welcome. A different id on a later
+  // welcome (after a reconnect) means the server restarted/redeployed — see the
+  // welcome handler and reload.ts.
+  private serverBootId: string | null = null;
+  private reloadBanner = new ReloadBanner();
 
   constructor(opts: { canvas: HTMLCanvasElement }) {
     this.canvas = opts.canvas;
@@ -215,6 +222,17 @@ export class App {
         break;
       }
       case 'welcome': {
+        // A changed boot id across reconnects means the server restarted or was
+        // redeployed: its in-memory peer map was wiped, so handling this welcome
+        // as usual would leave stale ghost avatars on other clients. Reload
+        // instead — that resets everyone to a clean state and picks up the new
+        // bundle (reload.ts explains the ghost mechanism).
+        const boot = evaluateBoot(this.serverBootId, msg.bootId);
+        this.serverBootId = boot.bootId;
+        if (boot.reload) {
+          this.reloadBanner.show();
+          break;
+        }
         this.myId = msg.self.userId;
         const spawn = findWalkableSpawn(msg.self.x, msg.self.y, PLAYER_RADIUS);
         msg.self.x = spawn.x;

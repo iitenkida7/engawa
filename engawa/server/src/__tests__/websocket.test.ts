@@ -115,6 +115,17 @@ describe('createWebSocketHandler — join', () => {
     expect(welcome.players[0]).toMatchObject({ userId: existing.data.userId, name: 'Bob', x: 10, y: 20 });
   });
 
+  test('stamps the welcome with the server boot id', () => {
+    const handler = createWebSocketHandler(clients, undefined, 'boot-xyz');
+    const joiner = makeWs();
+    handler.open!(joiner);
+    deliver(handler, joiner, { type: 'join', name: 'Alice', workspace: 'ws1' });
+
+    const welcome = joiner.sent.find((m) => m.type === 'welcome');
+    if (welcome?.type !== 'welcome') throw new Error('expected welcome');
+    expect(welcome.bootId).toBe('boot-xyz');
+  });
+
   test('excludes peers from other workspaces and unjoined peers from the welcome list', () => {
     const handler = createWebSocketHandler(clients);
     const otherWs = makeWs({ workspace: 'ws2', joined: true, name: 'Other' });

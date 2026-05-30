@@ -20,7 +20,7 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'auth-error'; message: string }
-  | { type: 'welcome'; self: Player; players: Player[] }
+  | { type: 'welcome'; self: Player; players: Player[]; bootId: string }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
   | { type: 'player-status'; userId: string; status: PlayerStatus; isMuted: boolean; isVideoOn: boolean }

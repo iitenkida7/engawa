@@ -6,6 +6,13 @@ import type { WsData } from './types';
 const clients = new Map<string, ServerWebSocket<WsData>>();
 const PUBLIC_DIR = './public';
 
+// Unique per process start. Sent to clients in `welcome`; when a client sees a
+// different boot id after an automatic reconnect, it knows the server restarted
+// or was redeployed and fully reloads — clearing stale ghost avatars (the old
+// in-memory peer map is gone, so leftover userIds never get a player-left) and
+// picking up the new client bundle.
+const BOOT_ID = crypto.randomUUID();
+
 const server = Bun.serve({
   port: Number(process.env.PORT ?? 3000),
   hostname: '0.0.0.0',
@@ -53,7 +60,7 @@ const server = Bun.serve({
     return new Response('Not Found', { status: 404 });
   },
 
-  websocket: createWebSocketHandler(clients),
+  websocket: createWebSocketHandler(clients, undefined, BOOT_ID),
 });
 
 console.log(`Server running on http://${server.hostname}:${server.port}`);
