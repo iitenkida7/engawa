@@ -69,9 +69,6 @@ export class App {
   private inProximity = new Set<string>();
   private myStatus: PlayerStatus = 'online';
 
-  private hudName: HTMLElement;
-  private hudCount: HTMLElement;
-
   constructor(opts: { canvas: HTMLCanvasElement }) {
     this.canvas = opts.canvas;
     this.renderer = new CanvasRenderer(this.canvas);
@@ -79,9 +76,6 @@ export class App {
     this.media = new MediaManager();
     this.recorder = new RecorderManager();
     this.compositor = new SceneCompositor(this.canvas);
-
-    this.hudName = document.getElementById('hud-name')!;
-    this.hudCount = document.getElementById('hud-count')!;
 
     this.view = new RemoteMediaView({
       players: this.players,
@@ -230,10 +224,7 @@ export class App {
         for (const p of msg.players) {
           this.players.set(p.userId, new PlayerState(p, false));
         }
-        this.hudName.textContent = this.joinedName;
         this.view.setSelfName(this.joinedName);
-        this.hudCount.textContent = `${this.players.size} 人接続中`;
-        document.getElementById('hud')?.classList.remove('hidden');
         document.getElementById('toolbar')?.classList.remove('hidden');
         this.roster.show();
         this.broadcastStatus();
@@ -242,7 +233,6 @@ export class App {
       case 'player-joined': {
         if (msg.player.userId === this.myId) break;
         this.players.set(msg.player.userId, new PlayerState(msg.player, false));
-        this.hudCount.textContent = `${this.players.size} 人接続中`;
         break;
       }
       case 'player-moved': {
@@ -268,7 +258,6 @@ export class App {
         if (this.view.isShowingScreenshareFor(msg.userId)) {
           this.view.clearScreenshare();
         }
-        this.hudCount.textContent = `${this.players.size} 人接続中`;
         break;
       }
       case 'signal': {
