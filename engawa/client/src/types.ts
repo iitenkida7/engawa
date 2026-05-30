@@ -56,3 +56,10 @@ export const POSITION_SEND_INTERVAL_MS = 50;
 export const INTERP_DECAY = 40;
 // Cap how far into the future we extrapolate when the network goes silent.
 export const EXTRAP_MAX_MS = 200;
+// Map zoom is zoom-OUT only: ZOOM_MAX (1.0) is the default 1:1 view, smaller
+// values pull the camera back to survey more of the office. The toolbar +/-
+// buttons step multiplicatively by ZOOM_STEP, clamped to [ZOOM_MIN, ZOOM_MAX].
+// self stays centered; only the scale changes.
+export const ZOOM_MIN = 0.5;
+export const ZOOM_MAX = 1.0;
+export const ZOOM_STEP = 1.2;
