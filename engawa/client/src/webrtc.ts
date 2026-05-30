@@ -1,7 +1,7 @@
 import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
 import type { StreamKind } from './types';
 import type { MediaManager } from './media';
-import { transformSdpForLowLatency } from './sdp';
+import { transformSdp } from './sdp';
 import { CAM_BITRATE_SPEAKING } from './cam-bitrate';
 
 // Per-kind bitrate ceilings. These are the maximum the encoder is allowed
@@ -165,8 +165,9 @@ export class WebRtcManager {
       config: { iceServers },
       // simple-peer accepts one stream up-front; we add the rest via addStream.
       stream: initialStreams[0]?.stream,
-      // Low-latency Opus tuning is applied during offer/answer.
-      sdpTransform: transformSdpForLowLatency,
+      // Applied to every offer/answer: low-latency Opus (audio) + VP9-preferred
+      // codec ordering (video).
+      sdpTransform: transformSdp,
     });
 
     const entry: PeerEntry = {
