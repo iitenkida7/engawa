@@ -9,7 +9,7 @@ export type SignalData = unknown;
 
 export type StreamKind = 'mic' | 'cam' | 'screen';
 
-export type PlayerStatus = 'online' | 'busy' | 'away';
+export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
 
 export type ClientMessage =
   | { type: 'join'; name: string; workspace: string; password?: string }
