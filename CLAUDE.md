@@ -94,7 +94,9 @@ docker compose run --rm --no-deps server bun test -t 'verifyWorkspacePassword'
 - `types.ts` — `WsData`（接続ごとの状態）, `ClientMessage` / `ServerMessage`。
 
 ### クライアント（`engawa/client/src/`）
-`game.ts` が中心のオーケストレータ（ゲームループ + UI）で、責務ごとのモジュールを束ねる:
+`app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・移動・近接判定・
+サーバーメッセージのルーティング・各サブシステムの配線を担う。サブシステム同士は直接参照せず
+App が仲介する（既存の Manager-callback パターン）。責務ごとのモジュールを束ねる:
 - `network.ts` — WebSocket。**dev では Vite プロキシが Bun の 101 升級を正しく中継できない**ため
   Bun サーバーへ直結し、prod では `window.location.host` を使う（コード中コメント参照）。
 - `webrtc.ts` — simple-peer のラッパ。kind（mic/cam/screen）ごとの送信ビットレート上限、
@@ -102,14 +104,21 @@ docker compose run --rm --no-deps server bun test -t 'verifyWorkspacePassword'
 - `sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=10, in-band FEC など）。
 - `media.ts` — マイク/カメラ/画面共有ストリーム管理。`recorder.ts` — ブラウザ内録画。
 - `proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、
-  どちらが initiator かの決定）。テスト容易性のため `game.ts` から切り出している。
+  どちらが initiator かの決定）。テスト容易性のため `app.ts` から切り出している。
+- `toolbar.ts`（`ToolbarController`）— マイク/カメラ/画面共有/録画ボタンとデバイス/ステータスメニュー。
+  サブシステムをまたぐ変更はコールバックで App に戻す。
+- `remote-media.ts`（`RemoteMediaView`）— リモートのビデオタイル/マイク音声/画面共有ステージ/
+  自分のプレビューの DOM 管理。発話検出器を保持する。
+- `panels.ts` — フローティングパネルのプリセットと純粋関数 `computePanelPreset()`。
+  `speaking.ts` — `SpeakingDetector` と純粋なしきい値判定 `isLoud()`。
 - `tilemap.ts` — オフィスのタイルマップと `canOccupy`（衝突判定）。`pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
 - `canvas.ts` — Canvas 2D 描画。`input.ts` — キー入力。`player.ts` — プレイヤー状態。
-  `draggable.ts` — ビデオ/画面共有パネルのドラッグ。`sounds.ts` — 効果音。
+  `draggable.ts` — ビデオ/画面共有パネルのドラッグ。`compositor.ts` — 録画用の映像合成。`sounds.ts` — 効果音。
 - `types.ts` — クライアント側の共有定数/型。`main.ts` — エントリ。
 
 **「純粋ロジックをモジュールに切り出してテストする」パターン**が server(`logic.ts`)/client(`proximity.ts`,
-`pathfind.ts`, `sdp.ts`) の両方で採られている。挙動を変えずにテストしやすくするのが目的なので、
+`pathfind.ts`, `sdp.ts`, `speaking.ts` の `isLoud()`, `panels.ts` の `computePanelPreset()`) の両方で
+採られている。挙動を変えずにテストしやすくするのが目的なので、
 ロジックを触るときはこの分離を保ち、対応するテストも更新する。
 
 ## 設計の指針（変えるときに外さない不変条件）
