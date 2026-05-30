@@ -46,17 +46,11 @@ type RosterRow = {
   dot: HTMLSpanElement;
   name: HTMLSpanElement;
   status: HTMLSpanElement;
-  mic: HTMLSpanElement;
-  cam: HTMLSpanElement;
-  screen: HTMLSpanElement;
   // Last-rendered values, so per-frame syncs skip redundant DOM writes.
   cache: {
     name?: string;
     color?: string;
     status?: PlayerStatus;
-    muted?: boolean;
-    cam?: boolean;
-    screen?: boolean;
     speaking?: boolean;
     self?: boolean;
     focused?: boolean;
@@ -183,17 +177,7 @@ export class RosterPanel {
     const status = document.createElement('span');
     status.className = 'roster-status';
 
-    const icons = document.createElement('span');
-    icons.className = 'roster-icons';
-    const mic = document.createElement('span');
-    mic.className = 'roster-icon roster-mic';
-    const cam = document.createElement('span');
-    cam.className = 'roster-icon roster-cam';
-    const screen = document.createElement('span');
-    screen.className = 'roster-icon roster-screen';
-    icons.append(mic, cam, screen);
-
-    el.append(dot, name, status, icons);
+    el.append(dot, name, status);
 
     // Self can't walk to itself, so no → button on its own row.
     if (!p.isSelf) {
@@ -213,7 +197,7 @@ export class RosterPanel {
     // map — a light, non-destructive action; moving requires the explicit →.
     el.addEventListener('click', () => this.onFocus(p.userId));
 
-    return { el, dot, name, status, mic, cam, screen, cache: {} };
+    return { el, dot, name, status, cache: {} };
   }
 
   private syncRow(row: RosterRow, p: PlayerState, focused: boolean) {
@@ -229,19 +213,6 @@ export class RosterPanel {
     if (c.status !== p.status) {
       row.status.textContent = ROSTER_STATUS_EMOJI[p.status] ?? '';
       c.status = p.status;
-    }
-    if (c.muted !== p.isMuted) {
-      row.mic.textContent = p.isMuted ? '🔇' : '🎤';
-      row.mic.classList.toggle('off', p.isMuted);
-      c.muted = p.isMuted;
-    }
-    if (c.cam !== p.isVideoOn) {
-      row.cam.textContent = p.isVideoOn ? '📷' : '';
-      c.cam = p.isVideoOn;
-    }
-    if (c.screen !== p.isSharingScreen) {
-      row.screen.textContent = p.isSharingScreen ? '🖥' : '';
-      c.screen = p.isSharingScreen;
     }
     if (c.speaking !== p.isSpeaking) {
       row.el.classList.toggle('speaking', p.isSpeaking);
