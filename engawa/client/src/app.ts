@@ -137,15 +137,13 @@ export class App {
   }
 
   // Wire the toolbar zoom controls to the renderer (a pure view concern App
-  // owns). [🔍+] [ 100% ] [🔍−]: the buttons step the zoom, the middle readout
-  // resets to 1:1, and each refresh syncs the label + disables a button at its
-  // limit. Zoom is a light, instantly-reversible action, so single-click is fine.
+  // owns). [🔍+] [🔍−] step the zoom; each refresh disables a button once it
+  // hits its limit. Zoom is a light, instantly-reversible action, so
+  // single-click is fine.
   private setupZoomControls() {
     const zoomIn = document.getElementById('btn-zoom-in') as HTMLButtonElement;
     const zoomOut = document.getElementById('btn-zoom-out') as HTMLButtonElement;
-    const level = document.getElementById('btn-zoom-level') as HTMLButtonElement;
     const refresh = () => {
-      level.textContent = `${this.renderer.zoomPercent}%`;
       zoomIn.disabled = !this.renderer.canZoomIn;
       zoomOut.disabled = !this.renderer.canZoomOut;
     };
@@ -155,10 +153,6 @@ export class App {
     });
     zoomOut.addEventListener('click', () => {
       this.renderer.zoomOut();
-      refresh();
-    });
-    level.addEventListener('click', () => {
-      this.renderer.resetZoom();
       refresh();
     });
     refresh();

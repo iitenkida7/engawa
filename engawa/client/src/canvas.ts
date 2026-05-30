@@ -107,13 +107,6 @@ export class CanvasRenderer {
     return this.canvas.clientHeight;
   }
 
-  get zoom() {
-    return this.zoomLevel;
-  }
-  /** Current zoom as a whole-number percentage, for the toolbar readout. */
-  get zoomPercent() {
-    return Math.round(this.zoomLevel * 100);
-  }
   get canZoomIn() {
     return this.zoomLevel < ZOOM_MAX;
   }
@@ -126,10 +119,6 @@ export class CanvasRenderer {
   }
   zoomIn() {
     this.setZoom(this.zoomLevel * ZOOM_STEP);
-  }
-  /** Snap back to the default 1:1 view. */
-  resetZoom() {
-    this.setZoom(ZOOM_MAX);
   }
   private setZoom(z: number) {
     this.zoomLevel = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
