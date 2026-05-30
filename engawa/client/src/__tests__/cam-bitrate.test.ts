@@ -2,33 +2,137 @@ import { describe, expect, it } from 'bun:test';
 import {
   CAM_BITRATE_QUIET,
   CAM_BITRATE_SPEAKING,
+  CAM_FPS_QUIET,
+  CAM_FPS_SPEAKING,
+  CAM_SCALE_QUIET,
+  CAM_SCALE_SPEAKING,
   CAM_THROTTLE_MIN_PEERS,
+  SCREEN_BITRATE_HIGH,
+  SCREEN_BITRATE_THROTTLED,
+  SCREEN_FPS_DEFAULT,
+  SCREEN_FPS_LARGE,
+  SCREEN_LARGE_MIN_PEERS,
+  SCREEN_LONG_EDGE_DEFAULT,
+  SCREEN_LONG_EDGE_LARGE,
   SPEAKER_HOLD_MS,
-  computeCamBitrate,
+  computeCamEncoding,
+  computeScreenEncoding,
+  computeScreenScale,
   isHeldSpeaking,
 } from '../cam-bitrate';
 
-describe('computeCamBitrate', () => {
-  it('keeps the high rate in small groups regardless of speaking', () => {
+describe('computeCamEncoding', () => {
+  const HIGH = {
+    maxBitrate: CAM_BITRATE_SPEAKING,
+    maxFramerate: CAM_FPS_SPEAKING,
+    scaleResolutionDownBy: CAM_SCALE_SPEAKING,
+  };
+  const QUIET = {
+    maxBitrate: CAM_BITRATE_QUIET,
+    maxFramerate: CAM_FPS_QUIET,
+    scaleResolutionDownBy: CAM_SCALE_QUIET,
+  };
+
+  it('keeps the high encoding in small groups regardless of speaking', () => {
     // At or below the threshold the throttle never kicks in.
     for (let n = 0; n < CAM_THROTTLE_MIN_PEERS; n++) {
-      expect(computeCamBitrate(n, false)).toBe(CAM_BITRATE_SPEAKING);
-      expect(computeCamBitrate(n, true)).toBe(CAM_BITRATE_SPEAKING);
+      expect(computeCamEncoding(n, false)).toEqual(HIGH);
+      expect(computeCamEncoding(n, true)).toEqual(HIGH);
     }
   });
 
-  it('throttles non-speakers once the group is large', () => {
-    expect(computeCamBitrate(CAM_THROTTLE_MIN_PEERS, false)).toBe(CAM_BITRATE_QUIET);
-    expect(computeCamBitrate(19, false)).toBe(CAM_BITRATE_QUIET);
+  it('throttles non-speakers (bitrate + fps + resolution) once the group is large', () => {
+    expect(computeCamEncoding(CAM_THROTTLE_MIN_PEERS, false)).toEqual(QUIET);
+    expect(computeCamEncoding(19, false)).toEqual(QUIET);
   });
 
-  it('keeps speakers at the high rate even in a large group', () => {
-    expect(computeCamBitrate(CAM_THROTTLE_MIN_PEERS, true)).toBe(CAM_BITRATE_SPEAKING);
-    expect(computeCamBitrate(19, true)).toBe(CAM_BITRATE_SPEAKING);
+  it('keeps speakers at the high encoding even in a large group', () => {
+    expect(computeCamEncoding(CAM_THROTTLE_MIN_PEERS, true)).toEqual(HIGH);
+    expect(computeCamEncoding(19, true)).toEqual(HIGH);
   });
 
-  it('the quiet rate is meaningfully lower than the speaking rate', () => {
+  it('the quiet encoding is meaningfully lighter than the speaking one', () => {
     expect(CAM_BITRATE_QUIET).toBeLessThan(CAM_BITRATE_SPEAKING);
+    expect(CAM_FPS_QUIET).toBeLessThan(CAM_FPS_SPEAKING);
+    expect(CAM_SCALE_QUIET).toBeGreaterThan(CAM_SCALE_SPEAKING);
+  });
+});
+
+describe('computeScreenEncoding', () => {
+  it('keeps full bitrate / fps / FHD in small groups', () => {
+    for (let n = 0; n < CAM_THROTTLE_MIN_PEERS; n++) {
+      expect(computeScreenEncoding(n)).toEqual({
+        maxBitrate: SCREEN_BITRATE_HIGH,
+        maxFramerate: SCREEN_FPS_DEFAULT,
+        maxLongEdge: SCREEN_LONG_EDGE_DEFAULT,
+      });
+    }
+  });
+
+  it('throttles only the bitrate in mid-size groups (keeps FHD/full fps for text)', () => {
+    for (let n = CAM_THROTTLE_MIN_PEERS; n < SCREEN_LARGE_MIN_PEERS; n++) {
+      expect(computeScreenEncoding(n)).toEqual({
+        maxBitrate: SCREEN_BITRATE_THROTTLED,
+        maxFramerate: SCREEN_FPS_DEFAULT,
+        maxLongEdge: SCREEN_LONG_EDGE_DEFAULT,
+      });
+    }
+  });
+
+  it('also drops fps and resolution in large clusters (per-frame encode cut)', () => {
+    expect(computeScreenEncoding(SCREEN_LARGE_MIN_PEERS)).toEqual({
+      maxBitrate: SCREEN_BITRATE_THROTTLED,
+      maxFramerate: SCREEN_FPS_LARGE,
+      maxLongEdge: SCREEN_LONG_EDGE_LARGE,
+    });
+    expect(computeScreenEncoding(20).maxLongEdge).toBe(SCREEN_LONG_EDGE_LARGE);
+  });
+
+  it('the large-cluster ceilings are strictly lower (more aggressive)', () => {
+    expect(SCREEN_BITRATE_THROTTLED).toBeLessThan(SCREEN_BITRATE_HIGH);
+    expect(SCREEN_FPS_LARGE).toBeLessThan(SCREEN_FPS_DEFAULT);
+    expect(SCREEN_LONG_EDGE_LARGE).toBeLessThan(SCREEN_LONG_EDGE_DEFAULT);
+  });
+});
+
+describe('computeScreenScale', () => {
+  it('does not scale a source already within the cap', () => {
+    // 16:9 1080p monitor: longest edge 1920 == FHD cap → no downscale.
+    expect(computeScreenScale(1920, 1080, SCREEN_LONG_EDGE_DEFAULT)).toBe(1);
+    // 720p is well within the FHD cap.
+    expect(computeScreenScale(1280, 720, SCREEN_LONG_EDGE_DEFAULT)).toBe(1);
+  });
+
+  it('scales an ultrawide source down to the FHD long edge', () => {
+    // 3420 wide → 3420 / 1920 ≈ 1.781 (encoded ~1920×649).
+    expect(computeScreenScale(3420, 1156, SCREEN_LONG_EDGE_DEFAULT)).toBeCloseTo(
+      3420 / SCREEN_LONG_EDGE_DEFAULT,
+      5,
+    );
+  });
+
+  it('scales a 4K source to exactly half against the FHD cap', () => {
+    expect(computeScreenScale(3840, 2160, SCREEN_LONG_EDGE_DEFAULT)).toBe(2);
+  });
+
+  it('uses the longer edge regardless of orientation', () => {
+    expect(computeScreenScale(1156, 3420, SCREEN_LONG_EDGE_DEFAULT)).toBeCloseTo(
+      3420 / SCREEN_LONG_EDGE_DEFAULT,
+      5,
+    );
+  });
+
+  it('never upscales and is safe for an unknown (0) source size', () => {
+    expect(computeScreenScale(640, 480, SCREEN_LONG_EDGE_DEFAULT)).toBe(1);
+    expect(computeScreenScale(0, 0, SCREEN_LONG_EDGE_DEFAULT)).toBe(1);
+    expect(computeScreenScale(0, 1080, SCREEN_LONG_EDGE_DEFAULT)).toBe(1);
+  });
+
+  it('downscales harder against the 720p (large-cluster) cap', () => {
+    // 1080p monitor against the 720p cap scales by 1.5 → 1280×720.
+    expect(computeScreenScale(1920, 1080, SCREEN_LONG_EDGE_LARGE)).toBeCloseTo(1.5, 5);
+    // An FHD-capped share is already small; the 720p cap still bites.
+    expect(computeScreenScale(1920, 649, SCREEN_LONG_EDGE_LARGE)).toBeCloseTo(1.5, 5);
   });
 });
 
