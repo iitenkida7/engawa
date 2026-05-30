@@ -37,4 +37,32 @@ describe('worldFromScreen', () => {
       y: MAP_HEIGHT / 2,
     });
   });
+
+  it('keeps self centered regardless of zoom', () => {
+    const self = { x: 1000, y: 750 };
+    expect(worldFromScreen(view.w / 2, view.h / 2, rect, view, self, 0.5)).toEqual(self);
+  });
+
+  it('scales the offset from center by 1/zoom when zoomed out', () => {
+    const self = { x: 1000, y: 750 };
+    // At 0.5× the viewport covers 2× the world, so a 100px screen offset from
+    // center maps to 200 world px from self.
+    const screen = { x: view.w / 2 + 100, y: view.h / 2 + 50 };
+    expect(worldFromScreen(screen.x, screen.y, rect, view, self, 0.5)).toEqual({
+      x: self.x + 200,
+      y: self.y + 100,
+    });
+  });
+
+  it('round-trips a click back to a known world point under zoom', () => {
+    // screen = (world - self) * zoom + center → world recovered by worldFromScreen.
+    const self = { x: 1000, y: 750 };
+    const zoom = 0.5;
+    const world = { x: 1400, y: 900 };
+    const screen = {
+      x: (world.x - self.x) * zoom + view.w / 2,
+      y: (world.y - self.y) * zoom + view.h / 2,
+    };
+    expect(worldFromScreen(screen.x, screen.y, rect, view, self, zoom)).toEqual(world);
+  });
 });

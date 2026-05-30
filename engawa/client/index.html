@@ -84,6 +84,19 @@
       #toolbar button.recording { background: #dc3545; border-color: #dc3545; color: white; animation: rec-pulse 1.5s ease-in-out infinite; }
       #toolbar button.recording:hover { background: #c82333; }
       @keyframes rec-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+      /* Disabled (e.g. zoom at its min/max): dimmed and non-interactive. */
+      #toolbar button:disabled { opacity: 0.4; cursor: default; }
+      #toolbar button:disabled:hover { background: #2a2f3a; }
+
+      /* Zoom controls: a slim [🔍+] [🔍−] pill at the toolbar's right edge. */
+      #toolbar .zoom-group > button { border-radius: 0; border-right: none; }
+      #toolbar .zoom-group > button:first-child {
+        border-top-left-radius: 8px; border-bottom-left-radius: 8px;
+      }
+      #toolbar .zoom-group > button:last-child {
+        border-top-right-radius: 8px; border-bottom-right-radius: 8px;
+        border-right: 1px solid #3a4050;
+      }
 
       #toolbar .btn-group { position: relative; display: flex; gap: 0; flex-shrink: 0; }
       #toolbar .btn-group > #btn-mic,
@@ -372,6 +385,10 @@
         <div class="btn-group">
           <button id="btn-status" title="ステータス">🟢 オンライン</button>
           <div id="status-menu" class="device-menu hidden"></div>
+        </div>
+        <div class="btn-group zoom-group">
+          <button id="btn-zoom-in" title="拡大">🔍＋</button>
+          <button id="btn-zoom-out" title="縮小">🔍−</button>
         </div>
       </div>
       <div id="remote-videos"></div>

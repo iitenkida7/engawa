@@ -139,6 +139,30 @@ export class App {
 
     // Double-click the map to walk to that point (A* around walls, 2× speed).
     this.canvas.addEventListener('dblclick', (e) => this.onCanvasDblClick(e));
+
+    this.setupZoomControls();
+  }
+
+  // Wire the toolbar zoom controls to the renderer (a pure view concern App
+  // owns). [🔍+] [🔍−] step the zoom; each refresh disables a button once it
+  // hits its limit. Zoom is a light, instantly-reversible action, so
+  // single-click is fine.
+  private setupZoomControls() {
+    const zoomIn = document.getElementById('btn-zoom-in') as HTMLButtonElement;
+    const zoomOut = document.getElementById('btn-zoom-out') as HTMLButtonElement;
+    const refresh = () => {
+      zoomIn.disabled = !this.renderer.canZoomIn;
+      zoomOut.disabled = !this.renderer.canZoomOut;
+    };
+    zoomIn.addEventListener('click', () => {
+      this.renderer.zoomIn();
+      refresh();
+    });
+    zoomOut.addEventListener('click', () => {
+      this.renderer.zoomOut();
+      refresh();
+    });
+    refresh();
   }
 
   private onCanvasDblClick(e: MouseEvent) {

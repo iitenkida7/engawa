@@ -1,4 +1,12 @@
-import { MAP_WIDTH, MAP_HEIGHT, PLAYER_RADIUS, CONNECT_RADIUS } from './types';
+import {
+  MAP_WIDTH,
+  MAP_HEIGHT,
+  PLAYER_RADIUS,
+  CONNECT_RADIUS,
+  ZOOM_MIN,
+  ZOOM_MAX,
+  ZOOM_STEP,
+} from './types';
 import type { PlayerState } from './player';
 import type { Point } from './proximity';
 import {
@@ -23,8 +31,10 @@ const STATUS_BADGE: Record<string, string> = {
 
 /**
  * Convert a screen/client coordinate to a world coordinate. Pure (no DOM) so
- * the camera-offset math can be unit-tested; the camera centers on `self`,
- * matching render()'s `camX = self.x - viewW/2`.
+ * the camera math can be unit-tested. The camera centers on `self` and applies
+ * `zoom` about that center, inverting render()'s transform
+ * (translate center → scale → translate -self): a click `d` px from the
+ * viewport center is `d / zoom` world px from self.
  */
 export function worldFromScreen(
   screenX: number,
@@ -32,10 +42,14 @@ export function worldFromScreen(
   rect: { left: number; top: number },
   view: { w: number; h: number },
   self: Point | null,
+  zoom = 1,
 ): Point {
-  const camX = self ? self.x - view.w / 2 : MAP_WIDTH / 2 - view.w / 2;
-  const camY = self ? self.y - view.h / 2 : MAP_HEIGHT / 2 - view.h / 2;
-  return { x: screenX - rect.left + camX, y: screenY - rect.top + camY };
+  const cx = self ? self.x : MAP_WIDTH / 2;
+  const cy = self ? self.y : MAP_HEIGHT / 2;
+  return {
+    x: (screenX - rect.left - view.w / 2) / zoom + cx,
+    y: (screenY - rect.top - view.h / 2) / zoom + cy,
+  };
 }
 
 export class CanvasRenderer {
@@ -51,6 +65,11 @@ export class CanvasRenderer {
   private sheet = new SpriteSheet();
   private mapCache: HTMLCanvasElement | null = null;
   private mapCacheDpr = 0;
+
+  // Zoom-out factor about the self-centered camera. ZOOM_MAX (1.0) is the
+  // default 1:1 view; smaller surveys more of the office. The map cache is
+  // viewport-independent, so zooming never invalidates it.
+  private zoomLevel = ZOOM_MAX;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -88,10 +107,34 @@ export class CanvasRenderer {
     return this.canvas.clientHeight;
   }
 
+  get canZoomIn() {
+    return this.zoomLevel < ZOOM_MAX;
+  }
+  get canZoomOut() {
+    return this.zoomLevel > ZOOM_MIN;
+  }
+  /** Step the camera out (−) / in (+) one notch, clamped to [MIN, MAX]. */
+  zoomOut() {
+    this.setZoom(this.zoomLevel / ZOOM_STEP);
+  }
+  zoomIn() {
+    this.setZoom(this.zoomLevel * ZOOM_STEP);
+  }
+  private setZoom(z: number) {
+    this.zoomLevel = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+  }
+
   /** Map a click position (clientX/Y) to a world coordinate. */
   screenToWorld(clientX: number, clientY: number, self: PlayerState | null): Point {
     const rect = this.canvas.getBoundingClientRect();
-    return worldFromScreen(clientX, clientY, rect, { w: this.viewW, h: this.viewH }, self);
+    return worldFromScreen(
+      clientX,
+      clientY,
+      rect,
+      { w: this.viewW, h: this.viewH },
+      self,
+      this.zoomLevel,
+    );
   }
 
   render(
@@ -105,12 +148,24 @@ export class CanvasRenderer {
     const h = this.viewH;
     ctx.clearRect(0, 0, w, h);
 
-    // Camera: center on self
-    const camX = self ? self.x - w / 2 : MAP_WIDTH / 2 - w / 2;
-    const camY = self ? self.y - h / 2 : MAP_HEIGHT / 2 - h / 2;
+    // Camera centers on self (or the map center before join) and zooms about it.
+    const zoom = this.zoomLevel;
+    const centerX = self ? self.x : MAP_WIDTH / 2;
+    const centerY = self ? self.y : MAP_HEIGHT / 2;
+    // World rectangle currently visible — covers more world the further we zoom
+    // out (view / zoom). Used for fallback tile culling and matches the inverse
+    // in worldFromScreen().
+    const visW = w / zoom;
+    const visH = h / zoom;
+    const camX = centerX - visW / 2;
+    const camY = centerY - visH / 2;
 
     ctx.save();
-    ctx.translate(-camX, -camY);
+    // Move origin to the viewport center, scale, then put self at the origin, so
+    // self stays centered and only the scale changes (inverse: worldFromScreen).
+    ctx.translate(w / 2, h / 2);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-centerX, -centerY);
 
     // Static map layer: one cached blit once the tilesheet has loaded; until
     // then, fall back to the procedural per-tile draw so the map is never blank.
@@ -123,7 +178,7 @@ export class CanvasRenderer {
       // passing device px here would double-scale.
       ctx.drawImage(this.mapCache as HTMLCanvasElement, 0, 0, MAP_WIDTH, MAP_HEIGHT);
     } else {
-      this.drawTilesFallback(ctx, camX, camY, w, h);
+      this.drawTilesFallback(ctx, camX, camY, visW, visH);
     }
 
     // Meeting-room zones: frame + name label, highlighted while self is inside.
