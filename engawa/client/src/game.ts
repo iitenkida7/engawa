@@ -807,6 +807,7 @@ export class Game {
   }
 
   private refreshSelfPreview() {
+    this.selfPreviewEl.classList.toggle('muted', !this.media.micOn);
     const stream = this.media.camStream;
     if (stream) {
       if (this.selfVideoEl.srcObject !== stream) {
