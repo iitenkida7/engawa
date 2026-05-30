@@ -13,6 +13,12 @@ import {
   zoneAt,
 } from './tilemap';
 
+// Emoji shown as the avatar status badge, matching the toolbar menu labels.
+// `online` has no badge.
+const STATUS_BADGE: Record<string, string> = {
+  busy: '🔴', away: '🟡', meeting: '🤝', break: '☕',
+};
+
 /**
  * Convert a screen/client coordinate to a world coordinate. Pure (no DOM) so
  * the camera-offset math can be unit-tested; the camera centers on `self`,
@@ -226,20 +232,24 @@ export class CanvasRenderer {
     ctx.textBaseline = 'middle';
     ctx.fillText(p.initials(), p.x, p.y);
 
-    // Status dot (top-right of avatar)
-    if (p.status && p.status !== 'online') {
-      const dotX = p.x + PLAYER_RADIUS * 0.65;
-      const dotY = p.y - PLAYER_RADIUS * 0.65;
+    // Status badge (top-right of avatar). Show the status emoji — matching the
+    // toolbar menu — so meeting/break read clearly, not just as a colored dot.
+    const badge = STATUS_BADGE[p.status];
+    if (badge) {
+      const bx = p.x + PLAYER_RADIUS * 0.7;
+      const by = p.y - PLAYER_RADIUS * 0.7;
+      // Chip background so the emoji stays legible over any tile.
       ctx.beginPath();
-      ctx.arc(dotX, dotY, 5, 0, Math.PI * 2);
-      const dotColors: Record<string, string> = {
-        busy: '#dc3545', away: '#ffc107', meeting: '#a855f7', break: '#3498db',
-      };
-      ctx.fillStyle = dotColors[p.status] ?? '#ffc107';
+      ctx.arc(bx, by, 9, 0, Math.PI * 2);
+      ctx.fillStyle = '#1a1d24';
       ctx.fill();
-      ctx.strokeStyle = '#1a1d24';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
+      ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(badge, bx, by + 0.5);
     }
 
     // name label
