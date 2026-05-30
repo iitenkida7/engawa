@@ -26,6 +26,7 @@ import { RecorderManager } from './recorder';
 import { SceneCompositor } from './compositor';
 import { WebRtcManager } from './webrtc';
 import { RemoteMediaView } from './remote-media';
+import { RosterPanel } from './roster';
 import { ToolbarController } from './toolbar';
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
@@ -43,6 +44,7 @@ export class App {
   private compositor: SceneCompositor;
   private view: RemoteMediaView;
   private toolbar: ToolbarController;
+  private roster: RosterPanel;
   private sounds = new SoundManager();
 
   private myId: string = '';
@@ -58,6 +60,10 @@ export class App {
   // Click-to-move: remaining waypoint tile-centers and the current index.
   private movePath: Point[] | null = null;
   private moveIndex = 0;
+
+  // The roster row the user last clicked: that avatar gets a highlight ring on
+  // the map. Cleared when the player leaves or the same row is clicked again.
+  private focusedId: string | null = null;
 
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
@@ -114,6 +120,13 @@ export class App {
       onSetStatus: (status) => this.setStatus(status),
     });
 
+    this.roster = new RosterPanel({
+      players: this.players,
+      getMyId: () => this.myId,
+      onFocus: (userId) => this.focusPlayer(userId),
+      onGoTo: (userId) => this.goToPlayer(userId),
+    });
+
     // Media changes refresh both the toolbar buttons and the self preview;
     // recorder changes only touch the toolbar.
     this.media.on(() => {
@@ -140,6 +153,30 @@ export class App {
     }
     this.movePath = path;
     this.moveIndex = 0;
+  }
+
+  // Roster row click: toggle the highlight ring on that avatar. A light,
+  // non-destructive action — it never moves self.
+  private focusPlayer(userId: string) {
+    this.focusedId = this.focusedId === userId ? null : userId;
+  }
+
+  // Roster "→" button: walk self over to a walkable tile next to that player
+  // (reusing the click-to-move A*), so getting into call range is one click.
+  private goToPlayer(userId: string) {
+    if (!this.me) return;
+    const target = this.players.get(userId);
+    if (!target || target.isSelf) return;
+    const goal = findWalkableSpawn(target.x, target.y, PLAYER_RADIUS);
+    const path = findPath({ x: this.me.x, y: this.me.y }, goal);
+    if (path.length === 0) {
+      this.movePath = null;
+      return;
+    }
+    this.movePath = path;
+    this.moveIndex = 0;
+    // Keep them highlighted while walking over so they're easy to spot.
+    this.focusedId = userId;
   }
 
   private joinedName = '';
@@ -198,6 +235,7 @@ export class App {
         this.hudCount.textContent = `${this.players.size} 人接続中`;
         document.getElementById('hud')?.classList.remove('hidden');
         document.getElementById('toolbar')?.classList.remove('hidden');
+        this.roster.show();
         this.broadcastStatus();
         break;
       }
@@ -224,6 +262,7 @@ export class App {
       }
       case 'player-left': {
         this.players.delete(msg.userId);
+        if (this.focusedId === msg.userId) this.focusedId = null;
         this.rtc.closePeer(msg.userId);
         this.view.removePeer(msg.userId);
         if (this.view.isShowingScreenshareFor(msg.userId)) {
@@ -259,7 +298,7 @@ export class App {
     this.lastFrameMs = t;
     this.update(dt);
     const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
-    this.renderer.render(this.me, this.players.values(), dest);
+    this.renderer.render(this.me, this.players.values(), dest, this.focusedId);
     requestAnimationFrame(this.loop);
   };
 
@@ -315,6 +354,9 @@ export class App {
 
     // Speaking detection (local + remote tiles) is owned by the media view.
     this.view.updateSpeaking();
+
+    // Refresh the participant roster from the (now up-to-date) players map.
+    this.roster.update(this.focusedId);
 
     // Proximity check + chime sounds
     if (this.me) {

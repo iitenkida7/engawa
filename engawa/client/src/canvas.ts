@@ -72,7 +72,12 @@ export class CanvasRenderer {
     return worldFromScreen(clientX, clientY, rect, { w: this.viewW, h: this.viewH }, self);
   }
 
-  render(self: PlayerState | null, players: Iterable<PlayerState>, moveTarget: Point | null = null) {
+  render(
+    self: PlayerState | null,
+    players: Iterable<PlayerState>,
+    moveTarget: Point | null = null,
+    highlightId: string | null = null,
+  ) {
     const ctx = this.ctx;
     const w = this.viewW;
     const h = this.viewH;
@@ -169,7 +174,7 @@ export class CanvasRenderer {
     // players
     const sortedPlayers = [...players].sort((a, b) => a.y - b.y);
     for (const p of sortedPlayers) {
-      this.drawPlayer(ctx, p);
+      this.drawPlayer(ctx, p, p.userId === highlightId);
     }
 
     ctx.restore();
@@ -198,7 +203,20 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  private drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerState) {
+  private drawPlayer(ctx: CanvasRenderingContext2D, p: PlayerState, highlighted = false) {
+    // Roster focus ring: a pulsing amber halo behind the avatar so a player
+    // picked from the participant list stands out on the map.
+    if (highlighted) {
+      const t = (Math.sin(performance.now() / 250) + 1) / 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, PLAYER_RADIUS + 8 + t * 4, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,196,0,${0.12 + t * 0.12})`;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,196,0,0.9)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
     // shadow
     ctx.beginPath();
     ctx.ellipse(p.x, p.y + PLAYER_RADIUS + 2, PLAYER_RADIUS * 0.8, 4, 0, 0, Math.PI * 2);

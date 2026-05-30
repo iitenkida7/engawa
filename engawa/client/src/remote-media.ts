@@ -258,12 +258,12 @@ export class RemoteMediaView {
     placeholder.innerHTML = `<span class="no-video-initials">${initials}</span><span class="no-video-name">${name}</span>`;
     body.appendChild(placeholder);
 
-    // Initial position: stack tiles down from the top-right corner, offsetting
-    // each new tile so they don't fully overlap.
+    // Initial position: stack tiles down from the top-left (just below the
+    // HUD), offsetting each new tile so they don't fully overlap. The top-right
+    // is reserved for the roster panel; tiles are draggable anywhere afterward.
     const index = this.remoteTiles.size;
-    container.style.left = 'auto';
-    container.style.right = `${12 + index * 16}px`;
-    container.style.top = `${12 + index * 16}px`;
+    container.style.left = `${12 + index * 16}px`;
+    container.style.top = `${56 + index * 16}px`;
 
     this.remoteVideosEl.appendChild(container);
     // Drag by the header only (matches the other panels).
