@@ -1,14 +1,17 @@
-// Aggressive low-latency Opus tuning applied during offer/answer.
+// Low-latency Opus tuning applied during offer/answer.
 //
 // Per-codec fmtp parameters (RFC 7587):
 //   minptime=10
-//     Floor for packetization. Default in Chrome is also 10ms but we set it
-//     explicitly so a peer that asked for 20ms doesn't pull us up.
+//     The RFC floor we advertise for inbound frames (Chrome's default too). It
+//     is effectively inert here: a=maxptime:20 (below) already bounds inbound
+//     framing to 20ms. We leave it at the standard 10ms rather than tightening
+//     it — keeps interop simple and does not affect the 20ms/LBRR intent.
 //   useinbandfec=1
 //     In-band FEC: each Opus frame carries redundant data for the previous
-//     frame. Single-packet loss is recovered without retransmission. Costs
-//     ~one frame of decode latency on lost packets (~10ms at ptime=10), but
-//     prevents audible dropouts over Wi-Fi / consumer ISPs.
+//     frame so single-packet loss is recovered without retransmission. Chrome
+//     only inserts the cheap LBRR redundancy for 20ms frames — at 10ms it would
+//     instead duplicate a full secondary frame (much higher overhead), so this
+//     pairs specifically with ptime=20 below.
 //   usedtx=0
 //     Disables discontinuous transmission (silence suppression). DTX causes
 //     a few-frame restart blip at the start of speech, so we keep it off.
@@ -16,11 +19,13 @@
 //     Mono. Stereo doubles bandwidth without helping voice intelligibility.
 //
 // Media-level SDP attributes (RFC 4566, separate from fmtp):
-//   a=ptime:10        target packet duration
-//   a=maxptime:10     hard cap on packet duration
+//   a=ptime:20        target packet duration
+//   a=maxptime:20     hard cap on packet duration
 //
-// Together these cap audio framing at 10ms (default is 20ms), halving the
-// packetization buffer.
+// 20ms is the WebRTC default and the sweet spot: 10ms framing has worse coding
+// efficiency, doubles the packet rate / header overhead, and (above) defeats
+// Opus LBRR FEC. The ~10ms of extra packetization latency vs 10ms framing is
+// negligible against the receiver jitter buffer and network RTT.
 const OPUS_LOW_LATENCY_FMTP = [
   'minptime=10',
   'useinbandfec=1',
@@ -29,7 +34,7 @@ const OPUS_LOW_LATENCY_FMTP = [
   'sprop-stereo=0',
 ].join(';');
 
-const PTIME_MS = 10;
+const PTIME_MS = 20;
 
 // Preferred video codec. VP9 gives roughly −30% bitrate vs VP8 at equal
 // quality; in the P2P mesh each camera/screen stream is encoded and sent per

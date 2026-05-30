@@ -101,7 +101,7 @@ App が仲介する（既存の Manager-callback パターン）。責務ごと�
   Bun サーバーへ直結し、prod では `window.location.host` を使う（コード中コメント参照）。
 - `webrtc.ts` — simple-peer のラッパ。kind（mic/cam/screen）ごとの送信ビットレート上限、
   受信ジッタバッファ下限などを調整。
-- `sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=10, in-band FEC など）。
+- `sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=20, in-band FEC など）。
 - `media.ts` — マイク/カメラ/画面共有ストリーム管理。`recorder.ts` — ブラウザ内録画。
 - `proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、
   どちらが initiator かの決定）。テスト容易性のため `app.ts` から切り出している。

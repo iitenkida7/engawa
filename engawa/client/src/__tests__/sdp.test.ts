@@ -54,21 +54,21 @@ describe('transformSdpForLowLatency', () => {
     ]);
     const lines = transformSdpForLowLatency(input).split('\r\n');
     const mIdx = lines.findIndex((l) => l.startsWith('m=audio '));
-    expect(lines[mIdx + 1]).toBe('a=ptime:10');
-    expect(lines[mIdx + 2]).toBe('a=maxptime:10');
+    expect(lines[mIdx + 1]).toBe('a=ptime:20');
+    expect(lines[mIdx + 2]).toBe('a=maxptime:20');
   });
 
   it('replaces pre-existing ptime/maxptime values', () => {
     const input = sdp([
       'm=audio 9 UDP/TLS/RTP/SAVPF 111',
       'a=rtpmap:111 opus/48000/2',
-      'a=ptime:20',
+      'a=ptime:60',
       'a=maxptime:40',
     ]);
     const out = transformSdpForLowLatency(input);
-    expect(out).toContain('a=ptime:10');
-    expect(out).toContain('a=maxptime:10');
-    expect(out).not.toContain('a=ptime:20');
+    expect(out).toContain('a=ptime:20');
+    expect(out).toContain('a=maxptime:20');
+    expect(out).not.toContain('a=ptime:60');
     expect(out).not.toContain('a=maxptime:40');
     // Exactly one of each.
     expect(out.match(/a=ptime:/g)?.length).toBe(1);
@@ -88,14 +88,14 @@ describe('transformSdpForLowLatency', () => {
     expect(lines[firstM + 1]).toBe('a=rtpmap:0 PCMU/8000');
     // Opus section should.
     const opusM = lines.indexOf('m=audio 9 UDP/TLS/RTP/SAVPF 111');
-    expect(lines[opusM + 1]).toBe('a=ptime:10');
+    expect(lines[opusM + 1]).toBe('a=ptime:20');
   });
 
   it('handles LF-only input', () => {
     const input = ['m=audio 9 UDP/TLS/RTP/SAVPF 111', 'a=rtpmap:111 opus/48000/2'].join('\n');
     const out = transformSdpForLowLatency(input);
     expect(out).toContain(`a=fmtp:111 ${EXPECTED_FMTP}`);
-    expect(out).toContain('a=ptime:10');
+    expect(out).toContain('a=ptime:20');
   });
 
   it('is idempotent: applying twice yields the same result', () => {
@@ -196,7 +196,7 @@ describe('transformSdp (combined)', () => {
     const out = transformSdp(INPUT);
     // Audio: low-latency Opus fmtp + ptime.
     expect(out).toContain(`a=fmtp:111 ${EXPECTED_FMTP}`);
-    expect(out).toContain('a=ptime:10');
+    expect(out).toContain('a=ptime:20');
     // Video: VP9 moved to the front.
     expect(out).toContain('m=video 9 UDP/TLS/RTP/SAVPF 98 96');
   });

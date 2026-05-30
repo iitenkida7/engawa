@@ -2,33 +2,70 @@ import { describe, expect, it } from 'bun:test';
 import {
   CAM_BITRATE_QUIET,
   CAM_BITRATE_SPEAKING,
+  CAM_FPS_QUIET,
+  CAM_FPS_SPEAKING,
+  CAM_SCALE_QUIET,
+  CAM_SCALE_SPEAKING,
   CAM_THROTTLE_MIN_PEERS,
+  SCREEN_BITRATE_HIGH,
+  SCREEN_BITRATE_THROTTLED,
   SPEAKER_HOLD_MS,
-  computeCamBitrate,
+  computeCamEncoding,
+  computeScreenBitrate,
   isHeldSpeaking,
 } from '../cam-bitrate';
 
-describe('computeCamBitrate', () => {
-  it('keeps the high rate in small groups regardless of speaking', () => {
+describe('computeCamEncoding', () => {
+  const HIGH = {
+    maxBitrate: CAM_BITRATE_SPEAKING,
+    maxFramerate: CAM_FPS_SPEAKING,
+    scaleResolutionDownBy: CAM_SCALE_SPEAKING,
+  };
+  const QUIET = {
+    maxBitrate: CAM_BITRATE_QUIET,
+    maxFramerate: CAM_FPS_QUIET,
+    scaleResolutionDownBy: CAM_SCALE_QUIET,
+  };
+
+  it('keeps the high encoding in small groups regardless of speaking', () => {
     // At or below the threshold the throttle never kicks in.
     for (let n = 0; n < CAM_THROTTLE_MIN_PEERS; n++) {
-      expect(computeCamBitrate(n, false)).toBe(CAM_BITRATE_SPEAKING);
-      expect(computeCamBitrate(n, true)).toBe(CAM_BITRATE_SPEAKING);
+      expect(computeCamEncoding(n, false)).toEqual(HIGH);
+      expect(computeCamEncoding(n, true)).toEqual(HIGH);
     }
   });
 
-  it('throttles non-speakers once the group is large', () => {
-    expect(computeCamBitrate(CAM_THROTTLE_MIN_PEERS, false)).toBe(CAM_BITRATE_QUIET);
-    expect(computeCamBitrate(19, false)).toBe(CAM_BITRATE_QUIET);
+  it('throttles non-speakers (bitrate + fps + resolution) once the group is large', () => {
+    expect(computeCamEncoding(CAM_THROTTLE_MIN_PEERS, false)).toEqual(QUIET);
+    expect(computeCamEncoding(19, false)).toEqual(QUIET);
   });
 
-  it('keeps speakers at the high rate even in a large group', () => {
-    expect(computeCamBitrate(CAM_THROTTLE_MIN_PEERS, true)).toBe(CAM_BITRATE_SPEAKING);
-    expect(computeCamBitrate(19, true)).toBe(CAM_BITRATE_SPEAKING);
+  it('keeps speakers at the high encoding even in a large group', () => {
+    expect(computeCamEncoding(CAM_THROTTLE_MIN_PEERS, true)).toEqual(HIGH);
+    expect(computeCamEncoding(19, true)).toEqual(HIGH);
   });
 
-  it('the quiet rate is meaningfully lower than the speaking rate', () => {
+  it('the quiet encoding is meaningfully lighter than the speaking one', () => {
     expect(CAM_BITRATE_QUIET).toBeLessThan(CAM_BITRATE_SPEAKING);
+    expect(CAM_FPS_QUIET).toBeLessThan(CAM_FPS_SPEAKING);
+    expect(CAM_SCALE_QUIET).toBeGreaterThan(CAM_SCALE_SPEAKING);
+  });
+});
+
+describe('computeScreenBitrate', () => {
+  it('keeps the full rate in small groups', () => {
+    for (let n = 0; n < CAM_THROTTLE_MIN_PEERS; n++) {
+      expect(computeScreenBitrate(n)).toBe(SCREEN_BITRATE_HIGH);
+    }
+  });
+
+  it('throttles once the group is large (peer-count only, no speaker notion)', () => {
+    expect(computeScreenBitrate(CAM_THROTTLE_MIN_PEERS)).toBe(SCREEN_BITRATE_THROTTLED);
+    expect(computeScreenBitrate(19)).toBe(SCREEN_BITRATE_THROTTLED);
+  });
+
+  it('the throttled rate is meaningfully lower than the high rate', () => {
+    expect(SCREEN_BITRATE_THROTTLED).toBeLessThan(SCREEN_BITRATE_HIGH);
   });
 });
 
