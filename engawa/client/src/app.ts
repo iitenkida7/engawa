@@ -8,6 +8,7 @@ import { canOccupy, findWalkableSpawn, zoneAt } from './tilemap';
 import { inCallRange, isInitiator, shouldConnect, shouldDisconnect } from './proximity';
 import type { Point } from './proximity';
 import { findPath } from './pathfind';
+import { CAM_BITRATE_SPEAKING, computeCamBitrate, isHeldSpeaking } from './cam-bitrate';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
   CLICK_MOVE_MULTIPLIER,
@@ -69,6 +70,13 @@ export class App {
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
   private myStatus: PlayerStatus = 'online';
+
+  // Speaker-aware camera bitrate control. `lastLoudAtMs` is the last frame our
+  // mic was loud (drives the post-speech hold); `appliedCamBitrate` is the
+  // ceiling currently pushed to the peers, so we only call setCamBitrate when it
+  // actually changes (a two-level value → naturally infrequent).
+  private lastLoudAtMs: number | null = null;
+  private appliedCamBitrate = CAM_BITRATE_SPEAKING;
 
   // The server's boot id from the first welcome. A different id on a later
   // welcome (after a reconnect) means the server restarted/redeployed — see the
@@ -386,6 +394,10 @@ export class App {
     // Speaking detection (local + remote tiles) is owned by the media view.
     this.view.updateSpeaking();
 
+    // Speaker-aware camera bitrate: in big proximity groups, lower our own
+    // camera ceiling while we are not the (recent) speaker.
+    this.updateCamBitrate(now);
+
     // Refresh the participant roster from the (now up-to-date) players map.
     this.roster.update(this.focusedId);
 
@@ -419,6 +431,24 @@ export class App {
         }
       }
       this.inProximity = nowInProximity;
+    }
+  }
+
+  // Speaker-aware camera send-bitrate control (issue #70). Each frame we read
+  // our own live speaking flag + connected peer count and compute the cam
+  // ceiling. A post-speech hold (isHeldSpeaking) keeps the high rate for a few
+  // seconds after we stop talking so the picture doesn't pulse; we only push to
+  // the senders when the ceiling actually changes. Mic off → isSpeaking is
+  // false and lastLoudAtMs never advances, so we safely count as a quiet peer.
+  private updateCamBitrate(nowMs: number) {
+    const me = this.me;
+    if (!me) return;
+    if (me.isSpeaking) this.lastLoudAtMs = nowMs;
+    const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
+    const target = computeCamBitrate(this.rtc.peerCount, speaking);
+    if (target !== this.appliedCamBitrate) {
+      this.appliedCamBitrate = target;
+      this.rtc.setCamBitrate(target);
     }
   }
 
