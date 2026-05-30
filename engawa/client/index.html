@@ -36,7 +36,7 @@
         position: absolute; inset: 0;
         display: flex; align-items: center; justify-content: center;
         background: rgba(10, 12, 16, 0.85);
-        z-index: 10;
+        z-index: 1010;
       }
       #join-overlay .card {
         background: #242832;
@@ -74,6 +74,10 @@
         background: rgba(20, 23, 30, 0.9);
         padding: 8px; border-radius: 12px;
         backdrop-filter: blur(8px);
+        /* Stay above the draggable panels (their shared counter starts at 10
+           and only climbs) so the toolbar is always clickable. The join
+           overlay sits above this as the entry gate. */
+        z-index: 1000;
       }
       #toolbar button {
         padding: 8px 14px; border-radius: 8px; border: 1px solid #3a4050;
