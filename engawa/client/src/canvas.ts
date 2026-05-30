@@ -238,18 +238,10 @@ export class CanvasRenderer {
     if (badge) {
       const bx = p.x + PLAYER_RADIUS * 0.7;
       const by = p.y - PLAYER_RADIUS * 0.7;
-      // Chip background so the emoji stays legible over any tile.
-      ctx.beginPath();
-      ctx.arc(bx, by, 9, 0, Math.PI * 2);
-      ctx.fillStyle = '#1a1d24';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(badge, bx, by + 0.5);
+      ctx.fillText(badge, bx, by);
     }
 
     // name label
