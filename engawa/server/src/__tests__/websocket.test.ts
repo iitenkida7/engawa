@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ServerWebSocket } from 'bun';
 import { createWebSocketHandler } from '../websocket';
 import type { ServerMessage, WsData } from '../types';
@@ -23,6 +23,10 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       workspace: data.workspace ?? '',
       x: data.x ?? 0,
       y: data.y ?? 0,
+      zoneId: data.zoneId ?? null,
+      sfuSessionId: data.sfuSessionId ?? null,
+      sfuTracks: data.sfuTracks ?? [],
+      groupKey: data.groupKey ?? null,
       joined: data.joined ?? false,
     } satisfies WsData,
     send(payload: string | Bun.BufferSource) {
@@ -73,7 +77,7 @@ describe('createWebSocketHandler — open/close lifecycle', () => {
     handler.open!(a);
     handler.open!(b);
 
-    handler.close!(a);
+    handler.close!(a, 1000, '');
 
     expect(clients.has(a.data.userId)).toBe(false);
     expect(b.sent).toContainEqual({ type: 'player-left', userId: a.data.userId });
@@ -85,7 +89,7 @@ describe('createWebSocketHandler — open/close lifecycle', () => {
     handler.open!(a);
     handler.open!(b);
 
-    handler.close!(a);
+    handler.close!(a, 1000, '');
 
     expect(b.sent).toHaveLength(0);
   });
@@ -373,5 +377,95 @@ describe('createWebSocketHandler — error handling', () => {
       vx: 0,
       vy: 0,
     });
+  });
+});
+
+describe('createWebSocketHandler — SFU grouping', () => {
+  let clients: Map<string, ServerWebSocket<WsData>>;
+  let handler: ReturnType<typeof createWebSocketHandler>;
+
+  beforeEach(() => {
+    // Enable SFU for this suite so group-update / sfu-peer-tracks are emitted.
+    process.env.CLOUDFLARE_REALTIME_APP_ID = 'test-app';
+    process.env.CLOUDFLARE_REALTIME_APP_TOKEN = 'test-token';
+    clients = new Map();
+    handler = createWebSocketHandler(clients);
+  });
+
+  afterEach(() => {
+    delete process.env.CLOUDFLARE_REALTIME_APP_ID;
+    delete process.env.CLOUDFLARE_REALTIME_APP_TOKEN;
+  });
+
+  // Join a client into ws1 and move it to (x, y[, zone]) so the server has a
+  // position + zone to group on.
+  const joinAt = (x: number, y: number, zoneId: string | null = null): FakeWs => {
+    const ws = makeWs();
+    handler.open!(ws);
+    deliver(handler, ws, { type: 'join', name: 'U', workspace: 'ws1' });
+    deliver(handler, ws, { type: 'move', x, y, vx: 0, vy: 0, zoneId });
+    return ws;
+  };
+
+  const lastGroupUpdate = (ws: FakeWs) =>
+    [...ws.sent].reverse().find((m) => m.type === 'group-update');
+
+  test('a meeting-room pair is told method=sfu with both members', () => {
+    const a = joinAt(500, 500, 'meeting-1');
+    const b = joinAt(600, 600, 'meeting-1');
+    const ga = lastGroupUpdate(a);
+    const gb = lastGroupUpdate(b);
+    expect(ga?.type === 'group-update' && ga.method).toBe('sfu');
+    expect(gb?.type === 'group-update' && gb.method).toBe('sfu');
+    if (ga?.type === 'group-update') {
+      expect(ga.members).toEqual([a.data.userId, b.data.userId].sort());
+    }
+  });
+
+  test('an open-floor pair stays mesh (no group-update is sent)', () => {
+    const a = joinAt(100, 100);
+    const b = joinAt(140, 100); // within CONNECT_RADIUS, but only 2 people
+    expect(a.sent.some((m) => m.type === 'group-update')).toBe(false);
+    expect(b.sent.some((m) => m.type === 'group-update')).toBe(false);
+  });
+
+  test('an open-floor cluster promotes to sfu at the 5th member', () => {
+    const ws: FakeWs[] = [];
+    for (let i = 0; i < 5; i++) ws.push(joinAt(100 + i * 10, 100));
+    for (const w of ws) {
+      const g = lastGroupUpdate(w);
+      expect(g?.type === 'group-update' && g.method).toBe('sfu');
+    }
+  });
+
+  test('sfu-publish relays the track directory to group peers', () => {
+    const a = joinAt(500, 500, 'meeting-1');
+    const b = joinAt(600, 600, 'meeting-1');
+    deliver(handler, a, {
+      type: 'sfu-publish',
+      sessionId: 'sess-a',
+      tracks: [{ kind: 'mic', trackName: 'a-mic' }],
+    });
+    const dir = b.sent.find((m) => m.type === 'sfu-peer-tracks');
+    expect(dir).toBeDefined();
+    if (dir?.type === 'sfu-peer-tracks') {
+      expect(dir.userId).toBe(a.data.userId);
+      expect(dir.sessionId).toBe('sess-a');
+      expect(dir.tracks).toEqual([{ kind: 'mic', trackName: 'a-mic' }]);
+    }
+  });
+
+  test('a late joiner learns an existing member already-published tracks', () => {
+    const a = joinAt(500, 500, 'meeting-1');
+    deliver(handler, a, {
+      type: 'sfu-publish',
+      sessionId: 'sess-a',
+      tracks: [{ kind: 'cam', trackName: 'a-cam' }],
+    });
+    const b = joinAt(550, 550, 'meeting-1');
+    const dir = b.sent.find(
+      (m) => m.type === 'sfu-peer-tracks' && m.userId === a.data.userId,
+    );
+    expect(dir).toBeDefined();
   });
 });

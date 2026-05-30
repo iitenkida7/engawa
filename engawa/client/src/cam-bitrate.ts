@@ -139,3 +139,58 @@ export function isHeldSpeaking(
   if (lastLoudAtMs === null) return false;
   return nowMs - lastLoudAtMs < holdMs;
 }
+
+// ─── SFU mode: simulcast layers + quality floor (issues #77/#78) ────────────
+//
+// Over the SFU each client sends ONE upstream regardless of how many receivers
+// there are, so the mesh's peer-count throttle does not apply. Instead we
+// guarantee a quality floor and publish the camera as a simulcast ladder, so the
+// SFU can give each receiver the layer that fits its downlink and tile size
+// (issue #78): a weak receiver pulls the low layer without dragging everyone
+// else down to it.
+
+// One simulcast encoding of the camera ladder. `rid` is the layer id carried in
+// the SDP; `scaleResolutionDownBy` divides the captured resolution; `maxBitrate`
+// caps that layer.
+export type SimulcastLayer = {
+  rid: string;
+  scaleResolutionDownBy: number;
+  maxBitrate: number;
+};
+
+// Camera simulcast ladder for SFU mode: f = full capture, h = half. The capture
+// is small (320x240, see media.ts), so two layers is the sweet spot — a third
+// quarter layer (~80x60) is too small to be useful. The full layer matches the
+// mesh "speaking" ceiling, so SFU camera quality never drops below what a small
+// mesh group already gets (the issue #77 quality floor) no matter the headcount.
+export const SFU_CAM_LAYERS: SimulcastLayer[] = [
+  { rid: 'f', scaleResolutionDownBy: 1, maxBitrate: CAM_BITRATE_SPEAKING },
+  { rid: 'h', scaleResolutionDownBy: 2, maxBitrate: CAM_BITRATE_QUIET },
+];
+
+// SFU screen share stays a single high-quality layer: screen content is text-
+// heavy so resolution matters more than per-receiver adaptation, and the SFU
+// encodes only the sender's one upstream (no mesh ×N cost). Issue #78 leaves
+// screen out of the layer split on purpose. Pinned to the mesh small-group
+// ceiling so SFU screen quality never drops below it (the issue #77 floor); the
+// SFU encodes it once, so there is no mesh ×N reason to go lower.
+export const SFU_SCREEN_MAX_BITRATE = SCREEN_BITRATE_HIGH;
+
+// The full-quality rid; the SFU's default pull layer before a tile size is known.
+export const SFU_CAM_DEFAULT_RID = 'f';
+// The half-resolution rid, requested for small tiles. Both rids must exist in
+// SFU_CAM_LAYERS (asserted in the tests).
+export const SFU_CAM_HALF_RID = 'h';
+
+// Below this rendered tile width (CSS px) a receiver requests the half layer
+// instead of full, so small thumbnails don't waste downlink (issue #78: don't
+// waste bandwidth on small tiles). The capture is 320 wide, so ~240 is a natural
+// break between "thumbnail" and "looking at it".
+export const SIMULCAST_FULL_MIN_WIDTH = 240;
+
+// Pure: the simulcast layer (rid) a receiver should request for a tile of the
+// given rendered width. Larger tiles / the screenshare-sized stage take the full
+// layer; small thumbnails take the half layer.
+export function computePreferredRid(tileWidthPx: number): string {
+  return tileWidthPx >= SIMULCAST_FULL_MIN_WIDTH ? SFU_CAM_DEFAULT_RID : SFU_CAM_HALF_RID;
+}

@@ -38,6 +38,7 @@ Slack のハドルや Gather.town のような「ちょっと話しかける」�
 | 🟢 | ステータス表示 | オンライン / 取り込み中 / 離席中 を切り替え |
 | 🔔 | 近接チャイム | 人が近づいた / 離れたときに軽い効果音 |
 | 🚪 | ワークスペース | URL の `?workspace=` で部屋を分離。任意でパスワード保護 |
+| 👥 | 大人数対応 | 会議室ゾーンや 5 人以上の集まりは自動で SFU 配信に切り替え（要 Cloudflare Realtime SFU 設定。未設定なら全員 P2P） |
 
 ---
 
@@ -111,39 +112,43 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.
 
 **サーバー**
 - [Bun](https://bun.sh/) + 標準の WebSocket（外部依存ほぼなし）
-- 役割は「位置同期」「WebRTC シグナリング中継」「TURN クレデンシャル発行」のみ
+- 役割は「位置同期」「WebRTC シグナリング中継」「グループ方式(mesh/SFU)の判定・配信」「TURN/SFU 制御のプロキシ」のみ（メディアは通さない）
 
 **クライアント**
 - TypeScript + [Vite](https://vitejs.dev/)
 - 描画は素の Canvas 2D API（UI フレームワークなし）
-- WebRTC は [simple-peer](https://github.com/feross/simple-peer)
+- WebRTC は [simple-peer](https://github.com/feross/simple-peer)（P2P メッシュ）＋ Cloudflare Realtime SFU（大人数・会議室、simulcast 多レイヤ）
 
 **インフラ**
 - STUN: Google 公開 STUN
 - TURN: Cloudflare Realtime（NAT 越えできない場合のみ経由）
+- SFU: Cloudflare Realtime SFU（会議室・大人数グループの配信。未設定ならすべて P2P メッシュ）
 
 ---
 
 ## 🏗 アーキテクチャ
 
-メディア（音声・映像・画面共有）は **P2P で直接** 流れ、サーバーを経由しません。サーバーがやるのは、出会いの仲介と位置の同期だけです。
+メディア（音声・映像・画面共有）は **engawa のサーバーを経由しません**。屋外の少人数近接は P2P メッシュ、会議室ゾーンや 5 人以上の集まりは Cloudflare Realtime SFU 経由——どちらでもメディアは自前サーバーを通りません。サーバーがやるのは、出会いの仲介・位置同期・グループ方式の判定だけです。
 
 ```
 [ブラウザA]                 [サーバー (Bun)]                 [ブラウザB]
    │  WebSocket  ←───────→  ├ 位置のブロードキャスト  ←──────→  │  WebSocket
-   │                        ├ WebRTC シグナリング中継           │
-   │                        └ /api/turn-credentials             │
-   │                           (Cloudflare の短期トークン発行)   │
+   │                        ├ WebRTC シグナリング中継（mesh）    │
+   │                        ├ グループ方式(mesh/SFU)の判定・配信  │
+   │                        ├ /api/turn-credentials             │
+   │                        └ /api/sfu/*（SFU 制御のプロキシ）    │
    │                                                            │
-   └──────  WebRTC P2P（音声 / 映像 / 画面共有）  ←─────────────┘
-            ※ NAT 越え不可のときだけ Cloudflare TURN 経由
+   ├── 屋外・少人数: WebRTC P2P メッシュ ───────────────────────┤
+   └── 会議室 / 5 人以上: Cloudflare Realtime SFU 経由 ──────────┘
+            ※ メディアは engawa を経由しない（P2P / Cloudflare のみ）
 ```
 
 ### サーバーの責務
 1. **静的ファイル配信**
 2. **位置同期** — クライアントの座標を受け取り全員にブロードキャスト
-3. **WebRTC シグナリング中継** — offer / answer / ICE candidate を相手に転送
-4. **TURN クレデンシャル発行** — Cloudflare API を叩いて短期トークンを返す（API キーはサーバーのみ保持）
+3. **WebRTC シグナリング中継** — offer / answer / ICE candidate を相手に転送（メッシュ）
+4. **グループ方式の判定・配信** — 位置と会議室ゾーンから近接グループを求め、mesh / SFU を決めて配る
+5. **TURN / SFU の発行・プロキシ** — Cloudflare API を叩いて短期トークンを返す／SFU 制御を中継（API キーはサーバーのみ保持）
 
 ---
 
@@ -161,7 +166,8 @@ engawa/
 │     ├ canvas.ts        # Canvas 描画
 │     ├ player.ts        # プレイヤー状態
 │     ├ media.ts         # マイク / カメラ / 画面共有
-│     ├ webrtc.ts        # WebRTC 接続管理
+│     ├ webrtc.ts        # WebRTC 接続管理（P2P メッシュ）
+│     ├ sfu.ts           # Cloudflare Realtime SFU 接続管理（大人数・会議室、simulcast）
 │     ├ network.ts       # WebSocket 通信
 │     ├ proximity.ts     # 近接判定（接続 / 切断のしきい値）
 │     ├ recorder.ts      # 録画
@@ -175,6 +181,7 @@ engawa/
       ├ websocket.ts     # WS メッセージハンドラ
       ├ logic.ts         # 入室・位置同期などのロジック
       ├ turn.ts          # Cloudflare TURN クレデンシャル発行
+      ├ sfu.ts           # Cloudflare Realtime SFU 制御のプロキシ
       └ types.ts         # サーバー側型定義
 ```
 
@@ -191,12 +198,17 @@ PORT=3000
 CLOUDFLARE_TURN_TOKEN_ID=
 CLOUDFLARE_TURN_TOKEN_SECRET=
 
+# Cloudflare Realtime SFU（任意 — 大人数・会議室の通話。未設定なら全員 P2P メッシュ）
+CLOUDFLARE_REALTIME_APP_ID=
+CLOUDFLARE_REALTIME_APP_TOKEN=
+
 # ワークスペースのパスワード保護（任意）
 # 例: WORKSPACE_PASSWORDS=営業部:secret123,開発部:pass456
 WORKSPACE_PASSWORDS=
 ```
 
 - **TURN** を使う場合は Cloudflare Dashboard → Realtime → TURN で Token を作成して設定します。
+- **SFU** を使う場合は Cloudflare Dashboard → Realtime → SFU で App を作成し、App ID と Token を設定します。未設定でも全機能はメッシュで動作します（大人数時のスケールのみ制限されます）。
 - **WORKSPACE_PASSWORDS** を設定すると、該当ワークスペースへの入室にパスワードが必要になります。
 
 ---
@@ -209,6 +221,7 @@ WORKSPACE_PASSWORDS=
 docker build -t engawa .
 docker run -p 3000:3000 \
   -e CLOUDFLARE_TURN_TOKEN_ID=xxx -e CLOUDFLARE_TURN_TOKEN_SECRET=yyy \
+  -e CLOUDFLARE_REALTIME_APP_ID=zzz -e CLOUDFLARE_REALTIME_APP_TOKEN=www \
   engawa
 ```
 
@@ -240,9 +253,9 @@ docker compose up -d
 
 ## 🧭 設計の指針（変えるときに外さないでほしい点）
 
-1. **音声 / 映像 / 画面共有は絶対にサーバーを経由しない** — P2P、または TURN 経由のみ。
-2. **シグナリングサーバーは状態を持たない** — DB 不要。メモリ上で完結し、再起動でリセットして良い。
-3. **Cloudflare TURN の API キーはサーバー側のみ保持** — ブラウザには短期クレデンシャルだけを渡す。
+1. **音声 / 映像 / 画面共有は絶対に engawa サーバーを経由しない** — P2P / TURN、または Cloudflare Realtime SFU 経由のみ（SFU でも自前サーバーはメディアを通さない）。
+2. **シグナリングサーバーは状態を持たない** — DB 不要。グループ情報や SFU の一時状態もメモリ上で完結し、再起動でリセットして良い。
+3. **Cloudflare の API キー（TURN / SFU とも）はサーバー側のみ保持** — ブラウザには短期クレデンシャル / プロキシ経由のアクセスだけを渡す。
 4. **HTTPS 必須**（localhost 開発を除く）。
 
 ---

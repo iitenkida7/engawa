@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from 'bun';
 import { createWebSocketHandler } from './websocket';
 import { getTurnCredentials } from './turn';
+import { isSfuEnabled, isAllowedSessionPath, proxySfuRequest } from './sfu';
 import type { WsData } from './types';
 
 const clients = new Map<string, ServerWebSocket<WsData>>();
@@ -29,6 +30,10 @@ const server = Bun.serve({
           workspace: '',
           x: 0,
           y: 0,
+          zoneId: null,
+          sfuSessionId: null,
+          sfuTracks: [],
+          groupKey: null,
           joined: false,
         } satisfies WsData,
       });
@@ -45,6 +50,32 @@ const server = Bun.serve({
 
     if (url.pathname === '/api/health') {
       return Response.json({ ok: true, clients: clients.size });
+    }
+
+    // SFU control-plane proxy: forwards to Cloudflare Realtime with the app id +
+    // token attached server-side (the browser never sees them). Signaling only —
+    // media never traverses our server. The path after /sessions is whitelisted
+    // to the documented endpoints (SSRF / traversal guard, see sfu.ts).
+    if (url.pathname.startsWith('/api/sfu/sessions')) {
+      if (!isSfuEnabled()) {
+        return Response.json(
+          { errorCode: 'sfu_disabled', errorDescription: 'SFU disabled' },
+          { status: 503 },
+        );
+      }
+      const sessionPath = url.pathname.slice('/api/sfu/sessions'.length);
+      if (!isAllowedSessionPath(sessionPath)) {
+        return new Response('Not Found', { status: 404 });
+      }
+      if (req.method !== 'POST' && req.method !== 'PUT') {
+        return new Response('Method Not Allowed', { status: 405 });
+      }
+      const body = await req.json().catch(() => undefined);
+      const result = await proxySfuRequest(req.method, sessionPath, body);
+      return Response.json(result.body, {
+        status: result.status,
+        headers: { 'Cache-Control': 'no-store' },
+      });
     }
 
     const reqPath = url.pathname === '/' ? '/index.html' : url.pathname;

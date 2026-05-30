@@ -15,6 +15,7 @@ Slack のハドルや Gather.town のような「ばったり話す」体験を�
 - **サーバー**: Bun + 標準 WebSocket（外部依存ほぼなし）
 - **クライアント**: TypeScript + Vite + Canvas 2D（UI フレームワークなし）+ simple-peer（WebRTC）
 - **STUN/TURN**: Google 公開 STUN / Cloudflare Realtime TURN（NAT 越え不可時のみ経由）
+- **SFU**: Cloudflare Realtime SFU（大人数の近接グループ・会議室ゾーンの通話。未設定なら全メッシュにフォールバック）
 
 ## リポジトリ構成の注意（重要）
 ソースコードは **リポジトリ直下ではなく `engawa/` サブディレクトリ配下** にある。
@@ -69,28 +70,39 @@ docker compose run --rm --no-deps server bun test -t 'verifyWorkspacePassword'
 新しい検証手順を足すときも Makefile 経由にする。
 
 ## アーキテクチャ（全体像）
-メディア（音声・映像・画面共有）は **P2P で直接** 流れ、サーバーを経由しない。
-サーバーは「出会いの仲介」と「位置同期」だけを行う。
+メディア（音声・映像・画面共有）は **engawa のサーバーを絶対に経由しない**。屋外の少人数近接は
+P2P メッシュ、会議室ゾーンと 5 人以上の屋外クラスタは Cloudflare Realtime SFU 経由（#77/#78）。
+どちらでもメディアは自前サーバーを通らない。サーバーは「出会いの仲介」「位置同期」「グループ方式
+（mesh/SFU）の判定・配信」「SFU 制御のプロキシ」を行う。
 
 ```
 [ブラウザA] ──WebSocket──> [Bun サーバー] <──WebSocket── [ブラウザB]
    │                       ├ 位置のブロードキャスト           │
-   │                       ├ WebRTC シグナリング中継           │
-   │                       └ /api/turn-credentials             │
-   └────────── WebRTC P2P（音声/映像/画面共有）───────────────┘
-              ※ NAT 越え不可のときだけ Cloudflare TURN 経由
+   │                       ├ WebRTC シグナリング中継（mesh）    │
+   │                       ├ グループ判定（mesh/SFU）の配信     │
+   │                       ├ /api/turn-credentials             │
+   │                       └ /api/sfu/*（SFU 制御をプロキシ）   │
+   │                                                           │
+   ├─ 屋外・少人数: WebRTC P2P メッシュ ───────────────────────┤
+   └─ 会議室 / 5 人以上: Cloudflare Realtime SFU 経由 ──────────┘
+        ※ メディアは engawa を経由しない（P2P / Cloudflare のみ）
 ```
 
 ### サーバー（`engawa/server/src/`）
 - `index.ts` — Bun.serve エントリ。ルーティングは手書き:
   `/ws`（WebSocket 升級, userId を UUID で発行）, `/api/turn-credentials`,
-  `/api/health`, それ以外は `./public` の静的配信（SPA フォールバックあり）。
-  接続中クライアントは単一の in-memory `Map<userId, ws>` で管理。
-- `websocket.ts` — WS メッセージハンドラ。入室・位置更新・シグナリング転送・退室をさばく。
-  `broadcast` は**同一 workspace かつ join 済み**のクライアントにのみ配信する。
+  `/api/sfu/*`（SFU 制御プロキシ）, `/api/health`, それ以外は `./public` の静的配信
+  （SPA フォールバックあり）。接続中クライアントは単一の in-memory `Map<userId, ws>` で管理。
+- `websocket.ts` — WS メッセージハンドラ。入室・位置更新・シグナリング転送・退室に加え、
+  **グループ方式の算出・配信（`group-update`）と SFU トラックディレクトリの中継（`sfu-publish`
+  → `sfu-peer-tracks`）** をさばく。`broadcast` は**同一 workspace かつ join 済み**のみ配信。
 - `logic.ts` — **副作用のない純粋関数**（座標クランプ、スポーン生成、名前/workspace 正規化、
-  パスワード検証/パース）。WS ハンドラから切り出してユニットテスト可能にしている。
+  パスワード検証/パース、**近接グループ判定 `computeProximityGroups`**）。グループ判定は位置＋zone
+  から連結成分を求め、会議室=常時 SFU・屋外は 5 人で SFU 昇格（一方向ラッチ）を割り当てる純粋関数。
 - `turn.ts` — Cloudflare API を叩いて短期 ICE クレデンシャルを発行。**API キーはサーバーのみ保持**。
+- `sfu.ts` — Cloudflare Realtime SFU の制御プレーン（セッション/トラック）を**プロキシ**する。
+  App ID/Token はサーバーのみ保持しブラウザに渡さない（turn.ts と同じ作法）。転送先パスはホワイト
+  リスト化（SSRF 対策）。メディアは通さずシグナリングのみ。
 - `types.ts` — `WsData`（接続ごとの状態）, `ClientMessage` / `ServerMessage`。
 
 ### クライアント（`engawa/client/src/`）
@@ -99,8 +111,13 @@ docker compose run --rm --no-deps server bun test -t 'verifyWorkspacePassword'
 App が仲介する（既存の Manager-callback パターン）。責務ごとのモジュールを束ねる:
 - `network.ts` — WebSocket。**dev では Vite プロキシが Bun の 101 升級を正しく中継できない**ため
   Bun サーバーへ直結し、prod では `window.location.host` を使う（コード中コメント参照）。
-- `webrtc.ts` — simple-peer のラッパ。kind（mic/cam/screen）ごとの送信ビットレート上限、
-  受信ジッタバッファ下限などを調整。
+- `webrtc.ts` — simple-peer のラッパ（**mesh 経路**）。kind（mic/cam/screen）ごとの送信ビットレート
+  上限、受信ジッタバッファ下限などを調整。
+- `sfu.ts`（`SfuManager`）— **SFU 経路**。単一 RTCPeerConnection で自分のトラックを push（カメラは
+  simulcast 多レイヤ）＋他者を pull。`webrtc.ts` と同じイベント面（`onRemoteStream` 等）に乗せるので
+  下流（`remote-media`・録画）は無変更。App が mesh と排他的に切り替える（`/api/sfu/*` プロキシ経由）。
+- `cam-bitrate.ts` — mesh のピア数連動ビットレート throttle に加え、**SFU の画質フロア／simulcast
+  レイヤ構成 `SFU_CAM_LAYERS`・受信タイルサイズ→レイヤ選択 `computePreferredRid`**（純粋関数）。
 - `sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=20, in-band FEC など）。
 - `media.ts` — マイク/カメラ/画面共有ストリーム管理。`recorder.ts` — ブラウザ内録画。
 - `proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、
@@ -116,21 +133,26 @@ App が仲介する（既存の Manager-callback パターン）。責務ごと�
   `draggable.ts` — ビデオ/画面共有パネルのドラッグ。`compositor.ts` — 録画用の映像合成。`sounds.ts` — 効果音。
 - `types.ts` — クライアント側の共有定数/型。`main.ts` — エントリ。
 
-**「純粋ロジックをモジュールに切り出してテストする」パターン**が server(`logic.ts`)/client(`proximity.ts`,
-`pathfind.ts`, `sdp.ts`, `speaking.ts` の `isLoud()`, `panels.ts` の `computePanelPreset()`) の両方で
-採られている。挙動を変えずにテストしやすくするのが目的なので、
-ロジックを触るときはこの分離を保ち、対応するテストも更新する。
+**「純粋ロジックをモジュールに切り出してテストする」パターン**が server(`logic.ts` の各正規化関数と
+`computeProximityGroups`)/client(`proximity.ts`, `pathfind.ts`, `sdp.ts`, `speaking.ts` の `isLoud()`,
+`panels.ts` の `computePanelPreset()`, `cam-bitrate.ts` の `computePreferredRid()`) の両方で採られている。
+挙動を変えずにテストしやすくするのが目的なので、ロジックを触るときはこの分離を保ち、対応するテストも更新する。
 
 ## 設計の指針（変えるときに外さない不変条件）
-1. **音声/映像/画面共有は絶対にサーバーを経由しない** — P2P か TURN 経由のみ。
-2. **シグナリングサーバーは状態を持たない** — DB 不要。メモリ上で完結し再起動でリセットして良い。
-3. **Cloudflare TURN の API キーはサーバー側のみ** — ブラウザには短期クレデンシャルだけ渡す。
+1. **音声/映像/画面共有は絶対に engawa サーバーを経由しない** — P2P / TURN、または Cloudflare
+   Realtime SFU 経由のみ（SFU でも自前サーバーはメディアフリー）。
+2. **シグナリングサーバーは状態を持たない** — DB 不要。グループ情報・SFU 昇格ラッチ・トラック
+   ディレクトリも**一時メモリ**で完結し、再起動でリセットして良い。
+3. **Cloudflare の API キー（TURN / SFU とも）はサーバー側のみ** — ブラウザには短期クレデンシャル、
+   または `/api/sfu/*` プロキシ経由のアクセスだけを渡す。
 4. **HTTPS 必須**（localhost 開発は例外。WebRTC は https か localhost でのみ動作）。
 5. **シンプルイズベスト** — 過度な抽象化・将来のための設計・不要な機能追加をしない。最小限の変更で目的を達成する。
 
 ## 環境変数（`.env.example` をコピーして `.env` を作成）
 - `PORT`（既定 3000）
 - `CLOUDFLARE_TURN_TOKEN_ID` / `CLOUDFLARE_TURN_TOKEN_SECRET` — 未設定なら STUN のみで動作。
+- `CLOUDFLARE_REALTIME_APP_ID` / `CLOUDFLARE_REALTIME_APP_TOKEN` — Cloudflare Realtime SFU。
+  未設定なら SFU 無効＝全グループがメッシュ（SFU 導入前と同一挙動）。`sfu.ts` がサーバー側のみで保持。
 - `WORKSPACE_PASSWORDS` — ワークスペースのパスワード保護（任意）。
   **コード上の正しい形式は JSON オブジェクト**: `{"ws1":"pass1","ws2":"pass2"}`（`logic.ts` の `parseWorkspacePasswords` 参照）。
   不正な JSON は警告して無視（全 workspace オープン）。URL の `?workspace=` で部屋を分離する。
