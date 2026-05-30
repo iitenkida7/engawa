@@ -12,6 +12,8 @@ import {
   ZONES,
   zoneAt,
 } from './tilemap';
+import { SpriteSheet } from './sprites';
+import { CELL, floorKindAt, propFor } from './decor';
 
 // Emoji shown as the avatar status badge, matching the toolbar menu labels.
 // `online` has no badge.
@@ -41,6 +43,15 @@ export class CanvasRenderer {
   private ctx: CanvasRenderingContext2D;
   private dpr: number;
 
+  // The static map (floors/walls/furniture/border/vignette) is baked once into
+  // this offscreen world-space canvas and blitted per frame, so a richer map is
+  // actually cheaper than the old per-tile loop. Rebuilt only when the sprite
+  // sheet finishes loading or the device pixel ratio changes (it is otherwise
+  // viewport-independent). null = needs (re)build.
+  private sheet = new SpriteSheet();
+  private mapCache: HTMLCanvasElement | null = null;
+  private mapCacheDpr = 0;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     const ctx = canvas.getContext('2d');
@@ -49,9 +60,20 @@ export class CanvasRenderer {
     this.dpr = window.devicePixelRatio || 1;
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    // Rebuild the cache with real sprites once the tilesheet loads.
+    this.sheet.whenReady(() => {
+      this.mapCache = null;
+    });
   }
 
   resize() {
+    // Refresh dpr (it can change when the window moves between monitors) and
+    // invalidate the cache if it did, so the baked layer stays crisp.
+    const dpr = window.devicePixelRatio || 1;
+    if (dpr !== this.dpr) {
+      this.dpr = dpr;
+      this.mapCache = null;
+    }
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
     this.canvas.width = Math.floor(w * this.dpr);
@@ -90,49 +112,19 @@ export class CanvasRenderer {
     ctx.save();
     ctx.translate(-camX, -camY);
 
-    // Tile map — only draw tiles visible in the viewport
-    const startCol = Math.max(0, Math.floor(camX / TILE_SIZE));
-    const endCol = Math.min(MAP_COLS - 1, Math.floor((camX + w) / TILE_SIZE));
-    const startRow = Math.max(0, Math.floor(camY / TILE_SIZE));
-    const endRow = Math.min(MAP_ROWS - 1, Math.floor((camY + h) / TILE_SIZE));
-
-    for (let r = startRow; r <= endRow; r++) {
-      for (let c = startCol; c <= endCol; c++) {
-        const tile = officeMap[r][c];
-        const tx = c * TILE_SIZE;
-        const ty = r * TILE_SIZE;
-
-        ctx.fillStyle = TILE_FILL[tile] ?? TILE_FILL[Tile.FLOOR];
-        ctx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
-
-        const border = TILE_BORDER[tile];
-        if (border) {
-          ctx.strokeStyle = border;
-          ctx.lineWidth = 1;
-          ctx.strokeRect(tx + 0.5, ty + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
-        }
-
-        // Subtle grid line on floor / meeting / lounge tiles
-        if (tile === Tile.FLOOR || tile === Tile.MEETING || tile === Tile.LOUNGE) {
-          ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(tx + 0.5, ty + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
-        }
-
-        // Plant decoration: draw a small circle
-        if (tile === Tile.PLANT) {
-          ctx.beginPath();
-          ctx.arc(tx + TILE_SIZE / 2, ty + TILE_SIZE / 2, TILE_SIZE * 0.3, 0, Math.PI * 2);
-          ctx.fillStyle = '#4a8a4a';
-          ctx.fill();
-        }
-      }
+    // Static map layer: one cached blit once the tilesheet has loaded; until
+    // then, fall back to the procedural per-tile draw so the map is never blank.
+    // The cache is full-map world space, so drawing it under the existing
+    // camera translate lets the browser clip the offscreen part for free.
+    const dpr = Math.min(this.dpr, 2);
+    if (this.sheet.ready) {
+      if (!this.mapCache || this.mapCacheDpr !== dpr) this.buildMapCache(dpr);
+      // Blit at LOGICAL map size — the destination ctx is already dpr-scaled, so
+      // passing device px here would double-scale.
+      ctx.drawImage(this.mapCache as HTMLCanvasElement, 0, 0, MAP_WIDTH, MAP_HEIGHT);
+    } else {
+      this.drawTilesFallback(ctx, camX, camY, w, h);
     }
-
-    // map border
-    ctx.strokeStyle = '#3a4050';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
 
     // Meeting-room zones: frame + name label, highlighted while self is inside.
     const selfZone = self ? zoneAt(self.x, self.y) : null;
@@ -178,6 +170,115 @@ export class CanvasRenderer {
     }
 
     ctx.restore();
+  }
+
+  // Bakes the whole static map into an offscreen world-space canvas: sprite
+  // floors (wood in the open office, carpet in rooms), procedural beveled walls,
+  // desk/plant sprites, the map border, and a corner vignette. Runs once (and on
+  // dpr change); the per-frame path is a single drawImage of this.
+  private buildMapCache(dpr: number) {
+    const cache = document.createElement('canvas');
+    cache.width = Math.round(MAP_WIDTH * dpr);
+    cache.height = Math.round(MAP_HEIGHT * dpr);
+    const cx = cache.getContext('2d')!;
+    cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Crisp pixel art when scaling the 16px sprites up to 50px tiles.
+    cx.imageSmoothingEnabled = false;
+
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        const tile = officeMap[r][c];
+        const tx = c * TILE_SIZE;
+        const ty = r * TILE_SIZE;
+        if (tile === Tile.WALL) {
+          this.drawWall(cx, tx, ty);
+          continue;
+        }
+        // Floor first (rooms read as carpet, the open office as wood)...
+        const floor = floorKindAt(c, r) === 'carpet' ? CELL.carpetFloor : CELL.woodFloor;
+        this.sheet.draw(cx, floor[0], floor[1], tx, ty, TILE_SIZE);
+        // ...then the prop on top, if this tile carries one.
+        const prop = propFor(tile);
+        if (prop === 'desk') this.sheet.draw(cx, CELL.desk[0], CELL.desk[1], tx, ty, TILE_SIZE);
+        else if (prop === 'plant') this.sheet.draw(cx, CELL.plant[0], CELL.plant[1], tx, ty, TILE_SIZE);
+      }
+    }
+
+    // Map border.
+    cx.strokeStyle = '#3a4050';
+    cx.lineWidth = 2;
+    cx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+
+    // Corner vignette for a touch of depth.
+    const g = cx.createRadialGradient(
+      MAP_WIDTH / 2, MAP_HEIGHT / 2, Math.min(MAP_WIDTH, MAP_HEIGHT) * 0.35,
+      MAP_WIDTH / 2, MAP_HEIGHT / 2, Math.max(MAP_WIDTH, MAP_HEIGHT) * 0.6,
+    );
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.28)');
+    cx.fillStyle = g;
+    cx.fillRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
+
+    this.mapCache = cache;
+    this.mapCacheDpr = dpr;
+  }
+
+  // A wall tile drawn procedurally (the Kenney pack has no wall tiles): a dark
+  // base with a lit top edge and a dark bottom edge for a paneled, 3D feel.
+  private drawWall(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+    cx.fillStyle = TILE_FILL[Tile.WALL];
+    cx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
+    cx.fillStyle = 'rgba(255,255,255,0.05)';
+    cx.fillRect(tx, ty, TILE_SIZE, 3);
+    cx.fillStyle = 'rgba(0,0,0,0.35)';
+    cx.fillRect(tx, ty + TILE_SIZE - 4, TILE_SIZE, 4);
+    cx.strokeStyle = '#252830';
+    cx.lineWidth = 1;
+    cx.strokeRect(tx + 0.5, ty + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+  }
+
+  // The original flat per-tile rendering, used only until the sprite sheet
+  // loads (or if it fails to). Visible-range culled, matching the old behaviour.
+  private drawTilesFallback(ctx: CanvasRenderingContext2D, camX: number, camY: number, w: number, h: number) {
+    const startCol = Math.max(0, Math.floor(camX / TILE_SIZE));
+    const endCol = Math.min(MAP_COLS - 1, Math.floor((camX + w) / TILE_SIZE));
+    const startRow = Math.max(0, Math.floor(camY / TILE_SIZE));
+    const endRow = Math.min(MAP_ROWS - 1, Math.floor((camY + h) / TILE_SIZE));
+
+    for (let r = startRow; r <= endRow; r++) {
+      for (let c = startCol; c <= endCol; c++) {
+        const tile = officeMap[r][c];
+        const tx = c * TILE_SIZE;
+        const ty = r * TILE_SIZE;
+
+        ctx.fillStyle = TILE_FILL[tile] ?? TILE_FILL[Tile.FLOOR];
+        ctx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
+
+        const border = TILE_BORDER[tile];
+        if (border) {
+          ctx.strokeStyle = border;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(tx + 0.5, ty + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+        }
+
+        if (tile === Tile.FLOOR || tile === Tile.MEETING || tile === Tile.LOUNGE) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(tx + 0.5, ty + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+        }
+
+        if (tile === Tile.PLANT) {
+          ctx.beginPath();
+          ctx.arc(tx + TILE_SIZE / 2, ty + TILE_SIZE / 2, TILE_SIZE * 0.3, 0, Math.PI * 2);
+          ctx.fillStyle = '#4a8a4a';
+          ctx.fill();
+        }
+      }
+    }
+
+    ctx.strokeStyle = '#3a4050';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
   }
 
   private drawZone(ctx: CanvasRenderingContext2D, zone: { name: string; x: number; y: number; w: number; h: number }, active: boolean) {
