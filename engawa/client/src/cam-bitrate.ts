@@ -9,9 +9,9 @@
 // webrtc.ts applies it via RTCRtpSender.setParameters (seamless, no renegotiation).
 
 // At or below this many proximity peers the throttle never kicks in: small
-// groups always get the high bitrate (max quality). Above it, speakers keep the
-// high rate and quiet users drop to the low one.
-export const CAM_THROTTLE_MIN_PEERS = 5;
+// groups always get the high bitrate (max quality). At this count or above,
+// speakers keep the high rate and quiet users drop to the low one.
+export const CAM_THROTTLE_MIN_PEERS = 3;
 
 // Camera send-bitrate ceilings (bps). These mirror the encoder's *maximum*; the
 // real rate still adapts down to the available bandwidth.
