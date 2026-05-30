@@ -1,0 +1,56 @@
+# Production sample. Copy this directory onto a host (e.g. a VPS) and run, from
+# inside it:
+#
+#   cp .env.example .env   # set ENGAWA_DOMAIN / ACME_EMAIL / TURN / ...
+#   docker compose up -d
+#
+# Caddy terminates HTTPS (Let's Encrypt, automatic) and reverse-proxies a single
+# upstream: the engawa image pulled from GHCR serves the built client + /ws +
+# /api on one origin (port 3000), so Caddy needs no path splitting and relays
+# the WebSocket upgrade transparently.
+#
+# ⚠️ Run a SINGLE instance only. Signaling and position sync are in-memory in
+# one process; scaling horizontally would split users across processes (they
+# would not see each other). Media is P2P, so this does not cap participants.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3 (QUIC)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # persists issued certs across restarts (avoid ACME rate limits)
+      - caddy_config:/config
+    environment:
+      - ENGAWA_DOMAIN=${ENGAWA_DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL:-}
+    depends_on:
+      server:
+        condition: service_healthy
+
+  server:
+    # Published to GHCR by .github/workflows/release.yml on v* tags.
+    # Pin a version tag in production instead of :latest for reproducible deploys.
+    image: ${ENGAWA_IMAGE:-ghcr.io/iitenkida7/engawa:latest}
+    restart: unless-stopped
+    expose:
+      - "3000" # internal only; reachable via Caddy, never published to the host
+    environment:
+      - PORT=3000
+      - CLOUDFLARE_TURN_TOKEN_ID=${CLOUDFLARE_TURN_TOKEN_ID:-}
+      - CLOUDFLARE_TURN_TOKEN_SECRET=${CLOUDFLARE_TURN_TOKEN_SECRET:-}
+      - WORKSPACE_PASSWORDS=${WORKSPACE_PASSWORDS:-}
+    healthcheck:
+      # busybox wget ships in the alpine-based bun image.
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  caddy_data:
+  caddy_config:

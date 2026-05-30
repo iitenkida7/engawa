@@ -1,2 +1,5 @@
 # Claude Code local settings and worktrees
 .claude/
+
+# Local env (read by docker compose at the repo root) — never commit secrets
+.env

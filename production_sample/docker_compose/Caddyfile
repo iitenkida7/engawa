@@ -1,0 +1,16 @@
+# Production reverse proxy. Caddy obtains and renews a Let's Encrypt certificate
+# for {$ENGAWA_DOMAIN} automatically (ports 80/443 must be reachable from the
+# internet and DNS must point at this host). The engawa image serves the built
+# client, /ws (WebSocket signaling/position sync) and /api on a single origin,
+# so one upstream covers everything; reverse_proxy relays the WebSocket 101
+# upgrade transparently.
+{
+	# ACME account email (expiry notices). Optional — leave ACME_EMAIL unset to
+	# register anonymously.
+	email {$ACME_EMAIL}
+}
+
+{$ENGAWA_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy server:3000
+}
