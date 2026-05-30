@@ -1,6 +1,6 @@
 // Pure geometry/decision helpers for WebRTC proximity connections.
-// Extracted from game.ts so the connect/disconnect rules can be unit-tested
-// without a running game loop. Behaviour must match the original inline logic.
+// Extracted from the app's game loop so the connect/disconnect rules can be
+// unit-tested in isolation. Behaviour must match the original inline logic.
 
 export type Point = { x: number; y: number };
 

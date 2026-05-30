@@ -1,4 +1,4 @@
-import { Game } from './game';
+import { App } from './app';
 
 const joinOverlay = document.getElementById('join-overlay') as HTMLDivElement;
 const joinForm = document.getElementById('join-form') as HTMLFormElement;
@@ -9,7 +9,7 @@ const canvas = document.getElementById('canvas') as HTMLCanvasElement;
 const stored = localStorage.getItem('engawa-name');
 if (stored) joinNameInput.value = stored;
 
-let game: Game | null = null;
+let app: App | null = null;
 
 joinForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -19,8 +19,8 @@ joinForm.addEventListener('submit', (e) => {
   const password = joinPasswordInput.value;
   joinOverlay.classList.add('hidden');
 
-  if (!game) {
-    game = new Game({ canvas });
+  if (!app) {
+    app = new App({ canvas });
   }
-  game.start(name, password);
+  app.start(name, password);
 });
