@@ -14,8 +14,13 @@ import {
   SCREEN_LARGE_MIN_PEERS,
   SCREEN_LONG_EDGE_DEFAULT,
   SCREEN_LONG_EDGE_LARGE,
+  SFU_CAM_DEFAULT_RID,
+  SFU_CAM_HALF_RID,
+  SFU_CAM_LAYERS,
+  SIMULCAST_FULL_MIN_WIDTH,
   SPEAKER_HOLD_MS,
   computeCamEncoding,
+  computePreferredRid,
   computeScreenEncoding,
   computeScreenScale,
   isHeldSpeaking,
@@ -164,5 +169,43 @@ describe('isHeldSpeaking', () => {
   it('respects a custom hold duration', () => {
     expect(isHeldSpeaking(false, 0, 500, 1000)).toBe(true);
     expect(isHeldSpeaking(false, 0, 1500, 1000)).toBe(false);
+  });
+});
+
+describe('computePreferredRid (SFU simulcast layer selection)', () => {
+  it('requests the full layer at or above the tile-width threshold', () => {
+    expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH)).toBe('f');
+    expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH + 200)).toBe('f');
+    expect(computePreferredRid(640)).toBe('f');
+  });
+
+  it('requests the half layer for small thumbnails (saves downlink)', () => {
+    expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH - 1)).toBe('h');
+    expect(computePreferredRid(120)).toBe('h');
+    expect(computePreferredRid(0)).toBe('h');
+  });
+});
+
+describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
+  it('has unique rids and strictly descending resolution', () => {
+    const rids = SFU_CAM_LAYERS.map((l) => l.rid);
+    expect(new Set(rids).size).toBe(rids.length);
+    for (let i = 1; i < SFU_CAM_LAYERS.length; i++) {
+      expect(SFU_CAM_LAYERS[i].scaleResolutionDownBy).toBeGreaterThan(
+        SFU_CAM_LAYERS[i - 1].scaleResolutionDownBy,
+      );
+    }
+  });
+
+  it('pins the full layer to the mesh speaking ceiling (quality floor)', () => {
+    const full = SFU_CAM_LAYERS.find((l) => l.rid === 'f');
+    expect(full?.maxBitrate).toBe(CAM_BITRATE_SPEAKING);
+    expect(full?.scaleResolutionDownBy).toBe(1);
+  });
+
+  it('contains both rids computePreferredRid can return', () => {
+    const rids = SFU_CAM_LAYERS.map((l) => l.rid);
+    expect(rids).toContain(SFU_CAM_DEFAULT_RID);
+    expect(rids).toContain(SFU_CAM_HALF_RID);
   });
 });

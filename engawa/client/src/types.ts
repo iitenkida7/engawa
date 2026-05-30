@@ -9,24 +9,40 @@ export type SignalData = unknown;
 
 export type StreamKind = 'mic' | 'cam' | 'screen';
 
+export type GroupMethod = 'mesh' | 'sfu';
+
+// One published SFU track (kind → Cloudflare trackName) in the per-user track
+// directory the server relays so peers can pull each other.
+export type SfuTrack = { kind: StreamKind; trackName: string };
+
 export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
 
 export type ClientMessage =
   | { type: 'join'; name: string; workspace: string; password?: string }
-  | { type: 'move'; x: number; y: number; vx: number; vy: number }
+  | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
   | { type: 'status'; status: PlayerStatus; isMuted: boolean; isVideoOn: boolean }
   | { type: 'signal'; to: string; data: SignalData }
-  | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' };
+  | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
+  // SFU: announce/replace the tracks this client has published to its Cloudflare
+  // session, so the server can relay them to the group as a track directory.
+  | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] };
 
 export type ServerMessage =
   | { type: 'auth-error'; message: string }
-  | { type: 'welcome'; self: Player; players: Player[]; bootId: string }
+  | { type: 'welcome'; self: Player; players: Player[]; bootId: string; sfuEnabled: boolean }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
   | { type: 'player-status'; userId: string; status: PlayerStatus; isMuted: boolean; isVideoOn: boolean }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
-  | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' };
+  | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' }
+  // SFU: the recipient's current proximity group and its transport. The client
+  // talks to exactly these members (members includes self) via mesh or SFU.
+  // Meeting-room groups are always 'sfu'; outdoor groups promote at 5 and latch.
+  | { type: 'group-update'; method: GroupMethod; members: string[] }
+  // SFU: a group peer's published track directory, so the recipient can pull
+  // their tracks by (sessionId, trackName).
+  | { type: 'sfu-peer-tracks'; userId: string; sessionId: string; tracks: SfuTrack[] };
 
 export const MAP_WIDTH = 2000;
 export const MAP_HEIGHT = 1500;

@@ -8,7 +8,7 @@ import { canOccupy, findWalkableSpawn, zoneAt } from './tilemap';
 import { inCallRange, isInitiator, shouldConnect, shouldDisconnect } from './proximity';
 import type { Point } from './proximity';
 import { findPath } from './pathfind';
-import { computeCamEncoding, computeScreenEncoding, isHeldSpeaking } from './cam-bitrate';
+import { computeCamEncoding, computeScreenEncoding, computePreferredRid, isHeldSpeaking } from './cam-bitrate';
 import { formatRtcRates } from './rtcstats';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
@@ -21,15 +21,17 @@ import {
   PLAYER_RADIUS,
   PLAYER_SPEED,
   POSITION_SEND_INTERVAL_MS,
+  type GroupMethod,
   type PlayerStatus,
   type ServerMessage,
 } from './types';
 import { RecorderManager } from './recorder';
 import { SceneCompositor } from './compositor';
 import { WebRtcManager } from './webrtc';
+import { SfuManager } from './sfu';
 import { RemoteMediaView } from './remote-media';
 import { RosterPanel } from './roster';
-import { ToolbarController } from './toolbar';
+import { ToolbarController, type MediaSink } from './toolbar';
 import { ReloadBanner, evaluateBoot } from './reload';
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
@@ -43,6 +45,8 @@ export class App {
   private net: NetworkClient;
   private media: MediaManager;
   private rtc: WebRtcManager;
+  private sfu: SfuManager;
+  private mediaSink: MediaSink;
   private recorder: RecorderManager;
   private compositor: SceneCompositor;
   private view: RemoteMediaView;
@@ -72,6 +76,18 @@ export class App {
   private inProximity = new Set<string>();
   private myStatus: PlayerStatus = 'online';
 
+  // Server-driven transport for our current proximity group. 'mesh' uses the
+  // legacy per-peer WebRtcManager (driven by the proximity loop below); 'sfu'
+  // routes everything through Cloudflare Realtime via SfuManager. Per group the
+  // switch is a one-way latch (issues #77/#78): outdoor clusters promote at 5
+  // and never demote until the group disperses; meeting rooms start as SFU.
+  private currentMethod: GroupMethod = 'mesh';
+  private sfuMembers = new Set<string>();
+  // Group peers whose track directory we've handed to SfuManager, so we can drop
+  // them when they leave the group.
+  private knownSfuPeers = new Set<string>();
+  private sfuEnabled = false;
+
   // Speaker-aware send policy. `lastLoudAtMs` is the last frame our mic was loud
   // (drives the post-speech hold). The computed camera encoding / screen bitrate
   // are pushed to the WebRtcManager each frame, which no-ops when unchanged.
@@ -86,6 +102,8 @@ export class App {
   // Handle for the ?debug=rtc stats poller, so re-entering start() (e.g. after
   // an auth-error retry) does not stack a second interval.
   private rtcStatsTimer: ReturnType<typeof setInterval> | null = null;
+  // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
+  private lastLayerUpdate = 0;
 
   constructor(opts: { canvas: HTMLCanvasElement }) {
     this.canvas = opts.canvas;
@@ -120,9 +138,28 @@ export class App {
       onPeerClosed: (userId) => this.view.removePeer(userId),
     });
 
+    // SFU transport. Shares the same remote-media event surface as the mesh, so
+    // tiles / recording need no changes. onPublished announces our published
+    // track directory to the server for relay; onFailed degrades to mesh.
+    this.sfu = new SfuManager({
+      onRemoteStream: (userId, stream, kind) => this.view.attachRemoteStream(userId, stream, kind),
+      onRemoteStreamRemoved: (userId, streamId) => this.view.detachRemoteStream(userId, streamId),
+      onPeerClosed: (userId) => this.view.removePeer(userId),
+      onPublished: (sessionId, tracks) => this.net.send({ type: 'sfu-publish', sessionId, tracks }),
+      onFailed: () => this.onSfuFailed(),
+    });
+
+    // Routes the toolbar's publish/unpublish to whichever transport is active.
+    this.mediaSink = {
+      addLocalStream: (stream, kind) =>
+        (this.currentMethod === 'sfu' ? this.sfu : this.rtc).addLocalStream(stream, kind),
+      removeLocalStream: (stream) =>
+        (this.currentMethod === 'sfu' ? this.sfu : this.rtc).removeLocalStream(stream),
+    };
+
     this.toolbar = new ToolbarController({
       media: this.media,
-      rtc: this.rtc,
+      rtc: this.mediaSink,
       recorder: this.recorder,
       compositor: this.compositor,
       view: this.view,
@@ -285,6 +322,7 @@ export class App {
           this.reloadBanner.show();
           break;
         }
+        this.sfuEnabled = msg.sfuEnabled;
         this.myId = msg.self.userId;
         const spawn = findWalkableSpawn(msg.self.x, msg.self.y, PLAYER_RADIUS);
         msg.self.x = spawn.x;
@@ -324,6 +362,8 @@ export class App {
         this.players.delete(msg.userId);
         if (this.focusedId === msg.userId) this.focusedId = null;
         this.rtc.closePeer(msg.userId);
+        this.sfu.removePeer(msg.userId);
+        this.knownSfuPeers.delete(msg.userId);
         this.view.removePeer(msg.userId);
         if (this.view.isShowingScreenshareFor(msg.userId)) {
           this.view.clearScreenshare();
@@ -336,6 +376,15 @@ export class App {
       }
       case 'stream-meta': {
         this.rtc.applyRemoteStreamMeta(msg.from, msg.streamId, msg.kind);
+        break;
+      }
+      case 'group-update': {
+        this.applyGroupMethod(msg.method, msg.members);
+        break;
+      }
+      case 'sfu-peer-tracks': {
+        this.knownSfuPeers.add(msg.userId);
+        this.sfu.setPeerTracks(msg.userId, msg.sessionId, msg.tracks);
         break;
       }
     }
@@ -402,6 +451,8 @@ export class App {
           y: this.me.y,
           vx: selfVx,
           vy: selfVy,
+          // Report our meeting-room zone so the server can group us (SFU vs mesh).
+          zoneId: zoneAt(this.me.x, this.me.y)?.id ?? null,
         });
         this.lastSentX = this.me.x;
         this.lastSentY = this.me.y;
@@ -418,6 +469,12 @@ export class App {
     // (and screen) ceilings while we are not the (recent) speaker.
     this.updateSendPolicy(now);
 
+    // SFU simulcast: re-pick each remote camera's layer by tile size (~1s cadence).
+    if (now - this.lastLayerUpdate > 1000) {
+      this.lastLayerUpdate = now;
+      this.updateSfuLayers();
+    }
+
     // Refresh the participant roster from the (now up-to-date) players map.
     this.roster.update(this.focusedId);
 
@@ -432,11 +489,15 @@ export class App {
       for (const p of this.players.values()) {
         if (p.isSelf) continue;
         const otherZoneId = zoneAt(p.x, p.y)?.id ?? null;
-        const has = this.rtc.hasPeer(p.userId);
-        if (shouldConnect(this.me, p, CONNECT_RADIUS, has, myZoneId, otherZoneId)) {
-          void this.rtc.createPeer(p.userId, isInitiator(this.myId, p.userId));
-        } else if (shouldDisconnect(this.me, p, DISCONNECT_RADIUS, has, myZoneId, otherZoneId)) {
-          this.rtc.closePeer(p.userId);
+        // Mesh connect/disconnect is driven here by proximity; in an SFU group
+        // the server's group-update / sfu-peer-tracks drive membership instead.
+        if (this.currentMethod === 'mesh') {
+          const has = this.rtc.hasPeer(p.userId);
+          if (shouldConnect(this.me, p, CONNECT_RADIUS, has, myZoneId, otherZoneId)) {
+            void this.rtc.createPeer(p.userId, isInitiator(this.myId, p.userId));
+          } else if (shouldDisconnect(this.me, p, DISCONNECT_RADIUS, has, myZoneId, otherZoneId)) {
+            this.rtc.closePeer(p.userId);
+          }
         }
         if (inCallRange(this.me, p, CONNECT_RADIUS, myZoneId, otherZoneId)) {
           nowInProximity.add(p.userId);
@@ -465,6 +526,10 @@ export class App {
   private updateSendPolicy(nowMs: number) {
     const me = this.me;
     if (!me) return;
+    // SFU sends a single upstream regardless of headcount, so it skips the mesh
+    // peer-count throttle entirely — SfuManager publishes a fixed simulcast
+    // ladder (the quality floor) and the SFU / receiver pick the layer instead.
+    if (this.currentMethod === 'sfu') return;
     if (me.isSpeaking) this.lastLoudAtMs = nowMs;
     const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
     const peerCount = this.rtc.peerCount;
@@ -530,6 +595,71 @@ export class App {
     this.myStatus = status;
     this.broadcastStatus();
     this.toolbar.refresh();
+  }
+
+  // Apply a server group-update: switch transport for our current proximity
+  // group. SFU is a one-way latch per group, so 'sfu' only ever promotes (the
+  // server never demotes mid-group); a 'mesh' update means a fresh group formed,
+  // so we tear any prior SFU transport down.
+  private applyGroupMethod(method: GroupMethod, members: string[]) {
+    if (method === 'sfu') {
+      const wasMesh = this.currentMethod !== 'sfu';
+      this.currentMethod = 'sfu';
+      this.sfuMembers = new Set(members);
+      if (wasMesh) {
+        // mesh → SFU: drop every mesh peer, then publish our live streams to the
+        // SFU. Remote media comes back via sfu-peer-tracks → pull.
+        this.rtc.closeAll();
+        this.publishLocalToSfu();
+      }
+      // Forget directory peers no longer in the group.
+      for (const id of [...this.knownSfuPeers]) {
+        if (!this.sfuMembers.has(id)) {
+          this.sfu.removePeer(id);
+          this.knownSfuPeers.delete(id);
+        }
+      }
+    } else if (this.currentMethod === 'sfu') {
+      // SFU → mesh: the group dispersed/reformed. Tear the SFU transport down;
+      // the proximity loop reconnects mesh peers from scratch next frame
+      // (WebRtcManager.createPeer bundles our live streams automatically).
+      this.currentMethod = 'mesh';
+      this.sfuMembers.clear();
+      this.knownSfuPeers.clear();
+      this.sfu.closeAll();
+    }
+  }
+
+  private publishLocalToSfu() {
+    if (this.media.micStream) this.sfu.addLocalStream(this.media.micStream, 'mic');
+    if (this.media.camStream) this.sfu.addLocalStream(this.media.camStream, 'cam');
+    if (this.media.screenStream) this.sfu.addLocalStream(this.media.screenStream, 'screen');
+  }
+
+  // The SFU peer connection failed: degrade this group to mesh so the call
+  // survives rather than dropping. The proximity loop reconnects mesh peers next
+  // frame. (App-token-less environments never reach SFU, so never get here.)
+  private onSfuFailed() {
+    if (this.currentMethod !== 'sfu') return;
+    console.warn('[sfu] connection failed; falling back to mesh');
+    this.currentMethod = 'mesh';
+    this.sfuMembers.clear();
+    this.knownSfuPeers.clear();
+    this.sfu.closeAll();
+  }
+
+  // Pick each SFU camera's simulcast layer by its rendered tile width (issue
+  // #78): small thumbnails take the half layer to save downlink, the stage-sized
+  // view takes full. setPreferredLayer no-ops when the rid is unchanged, so this
+  // is cheap to call on a slow cadence from the loop.
+  private updateSfuLayers() {
+    if (this.currentMethod !== 'sfu') return;
+    for (const userId of this.sfuMembers) {
+      if (userId === this.myId) continue;
+      const width = this.view.cameraTileWidth(userId);
+      if (width == null) continue;
+      this.sfu.setPreferredLayer(userId, 'cam', computePreferredRid(width));
+    }
   }
 }
 

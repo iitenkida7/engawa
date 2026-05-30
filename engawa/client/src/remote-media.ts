@@ -404,4 +404,13 @@ export class RemoteMediaView {
     }
     return streams;
   }
+
+  // The rendered width (CSS px) of a remote user's camera tile, or null when
+  // they have no camera tile. Drives SFU simulcast layer selection (issue #78):
+  // small tiles request the half layer to save downlink.
+  cameraTileWidth(userId: string): number | null {
+    const tile = this.remoteTiles.get(userId);
+    if (!tile || !tile.hasCam) return null;
+    return tile.container.clientWidth || null;
+  }
 }

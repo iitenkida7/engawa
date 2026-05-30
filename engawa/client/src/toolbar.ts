@@ -3,8 +3,16 @@ import type { PlayerState } from './player';
 import type { RecorderManager } from './recorder';
 import type { RemoteMediaView } from './remote-media';
 import { SceneCompositor } from './compositor';
-import type { PlayerStatus } from './types';
-import type { WebRtcManager } from './webrtc';
+import type { PlayerStatus, StreamKind } from './types';
+
+// The slice of the media transport the toolbar drives: publishing and
+// unpublishing local tracks. The App passes a router that forwards to whichever
+// transport (mesh WebRtcManager or SFU SfuManager) is active, so the toolbar
+// stays transport-agnostic.
+export interface MediaSink {
+  addLocalStream(stream: MediaStream, kind: StreamKind): void;
+  removeLocalStream(stream: MediaStream): void;
+}
 
 // Owns the bottom toolbar: the mic/cam/screen/record buttons, the device and
 // status dropdown menus, and the media orchestration behind each button (enable
@@ -14,7 +22,7 @@ import type { WebRtcManager } from './webrtc';
 // never reaches across subsystems itself.
 export class ToolbarController {
   private media: MediaManager;
-  private rtc: WebRtcManager;
+  private rtc: MediaSink;
   private recorder: RecorderManager;
   private compositor: SceneCompositor;
   private view: RemoteMediaView;
@@ -37,7 +45,7 @@ export class ToolbarController {
 
   constructor(opts: {
     media: MediaManager;
-    rtc: WebRtcManager;
+    rtc: MediaSink;
     recorder: RecorderManager;
     compositor: SceneCompositor;
     view: RemoteMediaView;
