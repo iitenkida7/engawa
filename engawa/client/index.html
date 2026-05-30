@@ -321,6 +321,26 @@
       }
       .roster-go:hover { background: #4f8cff; border-color: #4f8cff; color: white; }
 
+      /* ===== Server-update reload banner (top center, above everything) ===== */
+      #reload-banner {
+        position: fixed;
+        top: 16px; left: 50%; transform: translateX(-50%);
+        display: flex; align-items: center; gap: 12px;
+        background: #4f8cff; color: white;
+        padding: 10px 16px; border-radius: 10px;
+        box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+        font-size: 14px;
+        z-index: 2000;
+      }
+      #reload-banner .reload-banner-msg { font-weight: 600; }
+      #reload-banner .reload-banner-countdown { opacity: 0.85; }
+      #reload-banner button {
+        border: 0; border-radius: 8px;
+        background: white; color: #1a1d24;
+        padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+      }
+      #reload-banner button:hover { background: #e6e8ee; }
+
       .hidden { display: none !important; }
     </style>
   </head>

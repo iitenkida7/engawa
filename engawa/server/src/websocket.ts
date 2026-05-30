@@ -51,6 +51,9 @@ function playerFromWs(ws: ServerWebSocket<WsData>): Player {
 export function createWebSocketHandler(
   clients: Map<string, ServerWebSocket<WsData>>,
   passwordTable: Map<string, string> = workspacePasswords,
+  // Unique per server process start. Sent in every `welcome`; the client reloads
+  // when it sees a different id after reconnecting (see client reload.ts).
+  bootId: string = 'dev',
 ): WebSocketHandler<WsData> {
   return {
     open(ws) {
@@ -95,6 +98,7 @@ export function createWebSocketHandler(
             type: 'welcome',
             self: playerFromWs(ws),
             players: existing,
+            bootId,
           });
 
           broadcast(
