@@ -62,6 +62,9 @@ export class ToolbarController {
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
     this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
 
+    // OS/browser "stop sharing" routes through the same teardown as the button.
+    this.media.onScreenEnded((old) => this.afterScreenStopped(old));
+
     this.setup();
     this.refresh();
   }
@@ -131,10 +134,7 @@ export class ToolbarController {
   private async toggleScreen() {
     if (this.media.screenOn) {
       const old = this.media.disableScreen();
-      if (old) this.rtc.removeLocalStream(old);
-      const me = this.getMe();
-      if (me) me.isSharingScreen = false;
-      this.view.clearScreenshare();
+      if (old) this.afterScreenStopped(old);
     } else {
       try {
         const stream = await this.media.enableScreen();
@@ -146,6 +146,20 @@ export class ToolbarController {
         alert('画面共有を開始できません: ' + (e as Error).message);
       }
     }
+  }
+
+  // Teardown after the screen stream has stopped. Shared by the toolbar stop
+  // button and the OS/browser "stop sharing" path (via media.onScreenEnded) so
+  // the two can't diverge: remove the stream from every peer (which also sends
+  // stream-meta 'removed' and triggers the remote 'ended'), drop the sharing
+  // flag (canvas 🖥 label), and close the local screenshare stage. `old` is the
+  // just-stopped stream. The generic media `emit()` already refreshed the
+  // button label, so this only does the cross-subsystem cleanup.
+  private afterScreenStopped(old: MediaStream) {
+    this.rtc.removeLocalStream(old);
+    const me = this.getMe();
+    if (me) me.isSharingScreen = false;
+    this.view.clearScreenshare();
   }
 
   private toggleRecord() {

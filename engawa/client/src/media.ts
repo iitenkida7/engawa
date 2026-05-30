@@ -8,6 +8,10 @@ export class MediaManager {
   selectedMicId: string | null = null;
   selectedCamId: string | null = null;
   private listeners = new Set<MediaListener>();
+  // Notified when the screen share ends on its own (OS/browser "stop sharing"),
+  // with the just-stopped stream. Lets the owner run the same teardown as the
+  // toolbar stop button instead of only the generic `emit()` listeners.
+  private screenEndedHandler: ((old: MediaStream) => void) | null = null;
 
   on(fn: MediaListener) {
     this.listeners.add(fn);
@@ -15,6 +19,11 @@ export class MediaManager {
   }
   private emit() {
     for (const fn of this.listeners) fn();
+  }
+
+  // Register the handler for an externally-ended screen share (see above).
+  onScreenEnded(handler: (old: MediaStream) => void) {
+    this.screenEndedHandler = handler;
   }
 
   get micOn() {
@@ -107,8 +116,14 @@ export class MediaManager {
     if (track) {
       // Tell encoders to optimize for crisp text/UI rather than low bitrate.
       track.contentHint = 'detail';
-      // browser stop-sharing → propagate
-      track.addEventListener('ended', () => this.disableScreen());
+      // OS/browser "stop sharing": stop the stream, then notify so the owner
+      // can run the full teardown (remove from peers, clear the stage, drop the
+      // sharing flag) — the same path as the toolbar stop button. track.stop()
+      // does not re-fire 'ended', so this can't loop.
+      track.addEventListener('ended', () => {
+        const old = this.disableScreen();
+        if (old) this.screenEndedHandler?.(old);
+      });
     }
     this.screenStream = stream;
     this.emit();

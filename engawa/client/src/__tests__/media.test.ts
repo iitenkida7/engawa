@@ -206,6 +206,22 @@ describe('MediaManager screen', () => {
     expect(m.screenOn).toBe(false);
   });
 
+  it('notifies the screen-ended handler with the stopped stream on "ended"', async () => {
+    // The OS/browser "stop sharing" path must hand the owner the just-stopped
+    // stream so it can run the full teardown (issue #55).
+    const track = makeTrack('video');
+    const stream = makeStream([track]);
+    getDisplayMedia.mockResolvedValue(stream);
+    const m = new MediaManager();
+    const onEnded = mock();
+    m.onScreenEnded(onEnded);
+    await m.enableScreen();
+    track.fireEnded();
+    expect(onEnded).toHaveBeenCalledTimes(1);
+    expect(onEnded).toHaveBeenCalledWith(stream);
+    expect(m.screenOn).toBe(false);
+  });
+
   it('propagates getDisplayMedia rejection', async () => {
     getDisplayMedia.mockRejectedValue(new Error('cancelled'));
     const m = new MediaManager();
