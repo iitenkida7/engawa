@@ -35,6 +35,8 @@ export class ToolbarController {
   private btnCam: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
+  private btnArrangeSmart: HTMLButtonElement;
+  private btnArrangeGrid: HTMLButtonElement;
   private btnStatus: HTMLButtonElement;
 
   // Selectable statuses, in menu order, with their toolbar labels.
@@ -68,6 +70,8 @@ export class ToolbarController {
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
+    this.btnArrangeSmart = document.getElementById('btn-arrange-smart') as HTMLButtonElement;
+    this.btnArrangeGrid = document.getElementById('btn-arrange-grid') as HTMLButtonElement;
     this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
 
     // OS/browser "stop sharing" routes through the same teardown as the button.
@@ -97,6 +101,10 @@ export class ToolbarController {
     this.setupDeviceMenus();
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
+    // One-shot batch arrange: tidy every open window. These only move/resize
+    // panels — nothing is locked or persisted (windows stay draggable after).
+    this.btnArrangeSmart.addEventListener('click', () => this.view.arrange('smart'));
+    this.btnArrangeGrid.addEventListener('click', () => this.view.arrange('grid'));
   }
 
   refresh() {
