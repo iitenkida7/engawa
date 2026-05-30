@@ -9,9 +9,11 @@ import {
   CAM_THROTTLE_MIN_PEERS,
   SCREEN_BITRATE_HIGH,
   SCREEN_BITRATE_THROTTLED,
+  SCREEN_MAX_LONG_EDGE,
   SPEAKER_HOLD_MS,
   computeCamEncoding,
   computeScreenBitrate,
+  computeScreenScale,
   isHeldSpeaking,
 } from '../cam-bitrate';
 
@@ -66,6 +68,39 @@ describe('computeScreenBitrate', () => {
 
   it('the throttled rate is meaningfully lower than the high rate', () => {
     expect(SCREEN_BITRATE_THROTTLED).toBeLessThan(SCREEN_BITRATE_HIGH);
+  });
+});
+
+describe('computeScreenScale', () => {
+  it('does not scale a source already within the FHD cap', () => {
+    // 16:9 1080p monitor: longest edge 1920 == cap → no downscale.
+    expect(computeScreenScale(1920, 1080)).toBe(1);
+    // 720p is well within the cap.
+    expect(computeScreenScale(1280, 720)).toBe(1);
+  });
+
+  it('scales an ultrawide source down to the FHD long edge', () => {
+    // 3420 wide → 3420 / 1920 ≈ 1.781 (encoded ~1920×649).
+    expect(computeScreenScale(3420, 1156)).toBeCloseTo(3420 / SCREEN_MAX_LONG_EDGE, 5);
+  });
+
+  it('scales a 4K source to exactly half (4K long edge is 2× FHD)', () => {
+    expect(computeScreenScale(3840, 2160)).toBe(2);
+  });
+
+  it('uses the longer edge regardless of orientation', () => {
+    expect(computeScreenScale(1156, 3420)).toBeCloseTo(3420 / SCREEN_MAX_LONG_EDGE, 5);
+  });
+
+  it('never upscales and is safe for an unknown (0) source size', () => {
+    expect(computeScreenScale(640, 480)).toBe(1);
+    expect(computeScreenScale(0, 0)).toBe(1);
+    expect(computeScreenScale(0, 1080)).toBe(1);
+  });
+
+  it('respects a custom long-edge cap', () => {
+    // 720p cap: a 1080p monitor scales by 1.5 → 1280×720.
+    expect(computeScreenScale(1920, 1080, 1280)).toBeCloseTo(1.5, 5);
   });
 });
 

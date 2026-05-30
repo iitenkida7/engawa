@@ -38,6 +38,30 @@ export const CAM_SCALE_QUIET = 2;
 export const SCREEN_BITRATE_HIGH = 3_000_000;
 export const SCREEN_BITRATE_THROTTLED = 1_500_000;
 
+// Screen-share encode ceilings, independent of peer count. Encode cost grows
+// ~with pixel count, and in the mesh that cost is paid once per peer, so an
+// uncapped 4 MP ultrawide / 4K share saturates the CPU (measured: ~150-300ms
+// encode/frame, CPU-limited). Capping the longest encoded edge to FHD tames
+// 4K/ultrawide while keeping text legible; a framerate cap claws back CPU on
+// monitors already within the resolution cap (e.g. a 16:9 1080p screen) without
+// touching resolution at all — screen content is mostly static, so 15fps is
+// barely noticeable.
+export const SCREEN_MAX_LONG_EDGE = 1920;
+export const SCREEN_MAX_FRAMERATE = 15;
+
+// Pure: the scaleResolutionDownBy needed to bring the longer source edge down to
+// `maxLongEdge` (FHD by default). Returns 1 (no scaling) when the source is
+// already within the cap or its size is unknown (0), and never upscales.
+export function computeScreenScale(
+  srcWidth: number,
+  srcHeight: number,
+  maxLongEdge: number = SCREEN_MAX_LONG_EDGE,
+): number {
+  const longEdge = Math.max(srcWidth, srcHeight);
+  if (longEdge <= 0 || maxLongEdge <= 0) return 1;
+  return Math.max(1, longEdge / maxLongEdge);
+}
+
 // After speech stops, keep the high bitrate for this long so short pauses don't
 // make the picture "pulse" between sharp and soft (flapping prevention).
 export const SPEAKER_HOLD_MS = 3_000;

@@ -5,6 +5,8 @@ import { transformSdp } from './sdp';
 import {
   computeCamEncoding,
   computeScreenBitrate,
+  computeScreenScale,
+  SCREEN_MAX_FRAMERATE,
   type CamEncoding,
 } from './cam-bitrate';
 import {
@@ -65,9 +67,17 @@ async function tuneSenders(pc: RTCPeerConnection, camEnc: CamEncoding, screenBit
         params.degradationPreference = 'balanced';
       } else if (kind === 'screen') {
         enc.maxBitrate = screenBitrate;
+        // Cap the encoded resolution to FHD-class and the framerate, so a 4K /
+        // ultrawide share doesn't saturate the CPU when encoded once per peer
+        // (encode cost ~scales with pixels × fps). getSettings() reports the
+        // live capture size; computeScreenScale returns 1 (no scaling) when it
+        // is unknown or already within the cap.
+        const s = track.getSettings();
+        enc.scaleResolutionDownBy = computeScreenScale(s.width ?? 0, s.height ?? 0);
+        enc.maxFramerate = SCREEN_MAX_FRAMERATE;
         // contentHint='detail' optimizes for crisp text/UI, so under congestion
-        // keep the resolution (drop framerate instead) — the opposite of
-        // maintain-framerate, which would blur the very text we want sharp.
+        // keep the (capped) resolution and drop framerate instead — the opposite
+        // of maintain-framerate, which would blur the very text we want sharp.
         params.degradationPreference = 'maintain-resolution';
       } else {
         enc.maxBitrate = MIC_BITRATE;
