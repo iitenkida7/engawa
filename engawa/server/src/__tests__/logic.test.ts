@@ -8,16 +8,24 @@ import {
   isAllowedReaction,
   MAP_HEIGHT,
   MAP_WIDTH,
+  MAX_VELOCITY,
+  normalizeBool,
   normalizeChatText,
   normalizeIceServers,
   normalizeName,
+  normalizePlayerStatus,
+  normalizeSfuTracks,
   normalizeStatusNote,
   normalizeUntil,
+  normalizeVelocity,
   normalizeWorkspace,
+  PLAYER_STATUSES,
   PROXIMITY_CONNECT_RADIUS,
   parseWorkspacePasswords,
   REACTION_EMOJIS,
+  SFU_MAX_TRACKS,
   SFU_PROMOTE_AT,
+  SFU_TRACK_NAME_MAX_LENGTH,
   STATUS_NOTE_MAX_LENGTH,
   sfuLatchSeeds,
   verifyWorkspacePassword,
@@ -444,5 +452,114 @@ describe('isAllowedReaction', () => {
     expect(isAllowedReaction(42)).toBe(false);
     // No arbitrary text — guards against an emoji with extra characters.
     expect(isAllowedReaction('👍 hello')).toBe(false);
+  });
+});
+
+describe('normalizePlayerStatus', () => {
+  test('passes through every known status', () => {
+    for (const status of PLAYER_STATUSES) {
+      expect(normalizePlayerStatus(status)).toBe(status);
+    }
+  });
+
+  test('falls back to online for unknown or non-string input', () => {
+    expect(normalizePlayerStatus('offline')).toBe('online');
+    expect(normalizePlayerStatus('')).toBe('online');
+    expect(normalizePlayerStatus(undefined)).toBe('online');
+    expect(normalizePlayerStatus(null)).toBe('online');
+    expect(normalizePlayerStatus(42)).toBe('online');
+    expect(normalizePlayerStatus({ status: 'busy' })).toBe('online');
+  });
+});
+
+describe('normalizeBool', () => {
+  test('only literal true is true', () => {
+    expect(normalizeBool(true)).toBe(true);
+  });
+
+  test('everything else is false', () => {
+    expect(normalizeBool(false)).toBe(false);
+    expect(normalizeBool(undefined)).toBe(false);
+    expect(normalizeBool(null)).toBe(false);
+    expect(normalizeBool(1)).toBe(false);
+    expect(normalizeBool('true')).toBe(false);
+    expect(normalizeBool(0)).toBe(false);
+  });
+});
+
+describe('normalizeVelocity', () => {
+  test('passes through a finite value within bounds', () => {
+    expect(normalizeVelocity(0)).toBe(0);
+    expect(normalizeVelocity(210)).toBe(210);
+    expect(normalizeVelocity(-630)).toBe(-630);
+  });
+
+  test('clamps values beyond ±MAX_VELOCITY', () => {
+    expect(normalizeVelocity(MAX_VELOCITY + 1000)).toBe(MAX_VELOCITY);
+    expect(normalizeVelocity(-(MAX_VELOCITY + 1000))).toBe(-MAX_VELOCITY);
+    expect(normalizeVelocity(1e9)).toBe(MAX_VELOCITY);
+  });
+
+  test('collapses non-finite and garbage to 0', () => {
+    expect(normalizeVelocity(Number.NaN)).toBe(0);
+    expect(normalizeVelocity(Number.POSITIVE_INFINITY)).toBe(0);
+    expect(normalizeVelocity(Number.NEGATIVE_INFINITY)).toBe(0);
+    expect(normalizeVelocity('fast')).toBe(0);
+    expect(normalizeVelocity(undefined)).toBe(0);
+    expect(normalizeVelocity(null)).toBe(0);
+  });
+
+  test('coerces a numeric string like the original Number() behaviour', () => {
+    expect(normalizeVelocity('120')).toBe(120);
+  });
+});
+
+describe('normalizeSfuTracks', () => {
+  test('keeps well-formed entries', () => {
+    const tracks = [
+      { kind: 'mic', trackName: 'mic-1' },
+      { kind: 'cam', trackName: 'cam-1' },
+      { kind: 'screen', trackName: 'screen-1' },
+    ] as const;
+    expect(normalizeSfuTracks(tracks)).toEqual([...tracks]);
+  });
+
+  test('drops entries with an unknown kind or bad trackName', () => {
+    const tracks = [
+      { kind: 'mic', trackName: 'ok' },
+      { kind: 'bogus', trackName: 'x' },
+      { kind: 'cam', trackName: '' },
+      { kind: 'cam', trackName: 42 },
+      { kind: 'screen' },
+      'not-an-object',
+      null,
+    ];
+    expect(normalizeSfuTracks(tracks)).toEqual([{ kind: 'mic', trackName: 'ok' }]);
+  });
+
+  test('drops a trackName over the length cap', () => {
+    const long = 'a'.repeat(SFU_TRACK_NAME_MAX_LENGTH + 1);
+    const atCap = 'b'.repeat(SFU_TRACK_NAME_MAX_LENGTH);
+    expect(
+      normalizeSfuTracks([
+        { kind: 'mic', trackName: long },
+        { kind: 'cam', trackName: atCap },
+      ]),
+    ).toEqual([{ kind: 'cam', trackName: atCap }]);
+  });
+
+  test('bounds the total number of tracks', () => {
+    const many = Array.from({ length: SFU_MAX_TRACKS + 5 }, (_, i) => ({
+      kind: 'mic' as const,
+      trackName: `t-${i}`,
+    }));
+    expect(normalizeSfuTracks(many)).toHaveLength(SFU_MAX_TRACKS);
+  });
+
+  test('returns an empty array for non-array input', () => {
+    expect(normalizeSfuTracks(undefined)).toEqual([]);
+    expect(normalizeSfuTracks(null)).toEqual([]);
+    expect(normalizeSfuTracks('tracks')).toEqual([]);
+    expect(normalizeSfuTracks({ kind: 'mic', trackName: 'x' })).toEqual([]);
   });
 });
