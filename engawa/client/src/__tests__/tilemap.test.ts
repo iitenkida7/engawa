@@ -11,7 +11,7 @@ import {
   Tile,
   ZONES,
   zoneAt,
-} from '../tilemap';
+} from '@/world/tilemap';
 
 // Pixel coordinate of the center of tile (col, row).
 function center(col: number, row: number): { x: number; y: number } {

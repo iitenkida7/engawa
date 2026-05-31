@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { computeRecordingLayout, fitRect } from '../compositor';
+import { computeRecordingLayout, fitRect } from '@/media/compositor';
 
 describe('fitRect', () => {
   it('contain: letterboxes a wide source into a square box (centered)', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { CELL, floorKindAt, propFor } from '../decor';
-import { Tile } from '../tilemap';
+import { CELL, floorKindAt, propFor } from '@/world/decor';
+import { Tile } from '@/world/tilemap';
 
 describe('propFor', () => {
   it('maps desk and plant tiles to their props, everything else to null', () => {

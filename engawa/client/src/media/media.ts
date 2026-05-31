@@ -8,7 +8,7 @@ import {
   VBG_CUSTOM,
   BG_PRESETS,
   type BgSpec,
-} from './vbg';
+} from '@/media/vbg';
 
 type MediaListener = () => void;
 

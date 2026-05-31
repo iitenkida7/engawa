@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { InputManager } from '../input';
+import { InputManager } from '@/world/input';
 
 function press(key: string) {
   window.dispatchEvent(new KeyboardEvent('keydown', { key }));

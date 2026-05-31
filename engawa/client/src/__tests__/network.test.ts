@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { NetworkClient } from '../network';
-import type { ServerMessage } from '../types';
+import { NetworkClient } from '@/core/network';
+import type { ServerMessage } from '@/core/types';
 
 // Minimal fake WebSocket capturing listeners and sent payloads.
 class FakeWebSocket {

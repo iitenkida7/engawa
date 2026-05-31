@@ -1,13 +1,13 @@
-import type { StreamKind, SfuTrack } from './types';
-import { transformSdpForLowLatency } from './sdp';
-import { SFU_CAM_LAYERS, SFU_SCREEN_MAX_BITRATE } from './cam-bitrate';
+import type { StreamKind, SfuTrack } from '@/core/types';
+import { transformSdpForLowLatency } from '@/rtc/sdp';
+import { SFU_CAM_LAYERS, SFU_SCREEN_MAX_BITRATE } from '@/rtc/cam-bitrate';
 import {
   summarizeRtcStats,
   diffRtcStats,
   type RtcSnapshot,
   type RtcConn,
   type RtcStreamRate,
-} from './rtcstats';
+} from '@/rtc/rtcstats';
 
 // Sentinel conn ids for the debug console. The SFU is one PC, so our published
 // tracks aren't per-peer: they go to one synthetic "upstream" conn. Received

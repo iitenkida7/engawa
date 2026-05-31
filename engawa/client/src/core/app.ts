@@ -1,16 +1,16 @@
-import { CanvasRenderer } from './canvas';
-import { InputManager } from './input';
-import { MediaManager } from './media';
-import { NetworkClient } from './network';
-import { PlayerState } from './player';
-import { SoundManager } from './sounds';
-import { canOccupy, findWalkableSpawn, zoneAt } from './tilemap';
-import { isInitiator } from './proximity';
-import type { Point } from './proximity';
-import { findPath } from './pathfind';
-import { computeCamEncoding, computeScreenEncoding, computePreferredRid, isHeldSpeaking } from './cam-bitrate';
-import type { RtcConn } from './rtcstats';
-import { DebugConsole } from './debug-console';
+import { CanvasRenderer } from '@/world/canvas';
+import { InputManager } from '@/world/input';
+import { MediaManager } from '@/media/media';
+import { NetworkClient } from '@/core/network';
+import { PlayerState } from '@/world/player';
+import { SoundManager } from '@/ui/sounds';
+import { canOccupy, findWalkableSpawn, zoneAt } from '@/world/tilemap';
+import { isInitiator } from '@/core/proximity';
+import type { Point } from '@/core/proximity';
+import { findPath } from '@/world/pathfind';
+import { computeCamEncoding, computeScreenEncoding, computePreferredRid, isHeldSpeaking } from '@/rtc/cam-bitrate';
+import type { RtcConn } from '@/rtc/rtcstats';
+import { DebugConsole } from '@/ui/debug-console';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
   CLICK_MOVE_MULTIPLIER,
@@ -23,19 +23,19 @@ import {
   type GroupMethod,
   type PlayerStatus,
   type ServerMessage,
-} from './types';
-import { RecorderManager } from './recorder';
-import { SceneCompositor } from './compositor';
-import { WebRtcManager } from './webrtc';
-import { SfuManager } from './sfu';
-import { RemoteMediaView } from './remote-media';
-import { RosterPanel } from './roster';
-import { ToolbarController, type MediaSink } from './toolbar';
-import { ReloadBanner, evaluateBoot } from './reload';
-import { ChatPanel } from './chat';
-import { Toasts } from './notify';
-import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from './lifecycle';
-import BackgroundTicker from './background-ticker?worker';
+} from '@/core/types';
+import { RecorderManager } from '@/media/recorder';
+import { SceneCompositor } from '@/media/compositor';
+import { WebRtcManager } from '@/rtc/webrtc';
+import { SfuManager } from '@/rtc/sfu';
+import { RemoteMediaView } from '@/ui/remote-media';
+import { RosterPanel } from '@/ui/roster';
+import { ToolbarController, type MediaSink } from '@/ui/toolbar';
+import { ReloadBanner, evaluateBoot } from '@/core/reload';
+import { ChatPanel } from '@/ui/chat';
+import { Toasts } from '@/ui/notify';
+import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
+import BackgroundTicker from '@/core/background-ticker?worker';
 
 // A knock can't be re-sent to the same person until this elapses; it also
 // covers the pending window, so you can't spam someone while waiting for a

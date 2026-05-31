@@ -1,9 +1,9 @@
-import type { MediaManager } from './media';
-import type { PlayerState } from './player';
-import type { RecorderManager } from './recorder';
-import type { RemoteMediaView } from './remote-media';
-import { SceneCompositor } from './compositor';
-import type { StreamKind } from './types';
+import type { MediaManager } from '@/media/media';
+import type { PlayerState } from '@/world/player';
+import type { RecorderManager } from '@/media/recorder';
+import type { RemoteMediaView } from '@/ui/remote-media';
+import { SceneCompositor } from '@/media/compositor';
+import type { StreamKind } from '@/core/types';
 import {
   BG_PRESETS,
   VBG_OFF,
@@ -14,7 +14,7 @@ import {
   parseVbgChoice,
   serializeVbgChoice,
   fileToDownscaledDataUrl,
-} from './vbg';
+} from '@/media/vbg';
 
 // The slice of the media transport the toolbar drives: publishing and
 // unpublishing local tracks. The App passes a router that forwards to whichever

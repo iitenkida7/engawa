@@ -4,7 +4,7 @@ import {
   diffRtcStats,
   summarizeRtcStats,
   type RtcSnapshot,
-} from '../rtcstats';
+} from '@/rtc/rtcstats';
 
 describe('summarizeRtcStats', () => {
   it('extracts outbound, inbound, remote-inbound, codecs and RTT, ignoring unknown types', () => {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { MediaManager } from '../media';
+import { MediaManager } from '@/media/media';
 
 // Fake MediaStreamTrack that records stop() and supports an 'ended' listener.
 function makeTrack(kind: 'audio' | 'video') {

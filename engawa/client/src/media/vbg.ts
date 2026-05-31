@@ -14,7 +14,7 @@
 // same pattern as proximity.ts / panels.ts.
 
 import type { ImageSegmenter, ImageSegmenterResult } from '@mediapipe/tasks-vision';
-import { fitRect } from './compositor';
+import { fitRect } from '@/media/compositor';
 
 // A background choice is a single string: the reserved values 'off'/'blur', or a
 // preset id (including 'custom' for a user-uploaded image). Stored as-is.

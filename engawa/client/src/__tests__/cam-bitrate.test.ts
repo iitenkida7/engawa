@@ -24,7 +24,7 @@ import {
   computeScreenEncoding,
   computeScreenScale,
   isHeldSpeaking,
-} from '../cam-bitrate';
+} from '@/rtc/cam-bitrate';
 
 describe('computeCamEncoding', () => {
   const HIGH = {

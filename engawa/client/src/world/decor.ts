@@ -4,7 +4,7 @@
 // cells to SpriteSheet.draw when baking the static map cache. Decoration is
 // purely visual — it never touches SOLID/collision (that stays in tilemap.ts).
 
-import { Tile, TILE_SIZE, ZONES } from './tilemap';
+import { Tile, TILE_SIZE, ZONES } from '@/world/tilemap';
 
 // Cell coordinates [col, row] in the Kenney "Roguelike Indoors" sheet.
 export const CELL = {

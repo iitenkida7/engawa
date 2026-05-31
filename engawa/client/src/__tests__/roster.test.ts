@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { orderRoster } from '../roster';
+import { orderRoster } from '@/ui/roster';
 
 const P = (userId: string, name: string) => ({ userId, name });
 

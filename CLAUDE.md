@@ -106,36 +106,46 @@ P2P メッシュ、会議室ゾーンと 5 人以上の屋外クラスタは Clo
 - `types.ts` — `WsData`（接続ごとの状態）, `ClientMessage` / `ServerMessage`。
 
 ### クライアント（`engawa/client/src/`）
-`app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・移動・近接判定・
+ファイルは責務ごとに **5 フォルダ**へ分割し、import は **`@/` エイリアス**（`@/<folder>/<name>` 形式。
+`tsconfig.json` の `paths` と `vite.config.ts` の `resolve.alias` で定義。Bun test も `paths` を解決する）で
+参照する。エントリは `core/main.ts`（`index.html` が読む）。同一フォルダ内でも `@/` で参照し位置非依存にしてある。
+- **`core/`** — オーケストレーションと基盤: `app.ts`, `main.ts`, `types.ts`, `lifecycle.ts`, `network.ts`, `proximity.ts`, `reload.ts`, `background-ticker.ts`
+- **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`
+- **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`
+- **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`
+- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `debug-console.ts`, `sounds.ts`
+
+`core/app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・移動・近接判定・
 サーバーメッセージのルーティング・各サブシステムの配線を担う。サブシステム同士は直接参照せず
-App が仲介する（既存の Manager-callback パターン）。責務ごとのモジュールを束ねる:
-- `network.ts` — WebSocket。**dev では Vite プロキシが Bun の 101 升級を正しく中継できない**ため
+App が仲介する（既存の Manager-callback パターン）。主なモジュール:
+- `core/network.ts` — WebSocket。**dev では Vite プロキシが Bun の 101 升級を正しく中継できない**ため
   Bun サーバーへ直結し、prod では `window.location.host` を使う（コード中コメント参照）。
-- `webrtc.ts` — simple-peer のラッパ（**mesh 経路**）。kind（mic/cam/screen）ごとの送信ビットレート
+- `rtc/webrtc.ts` — simple-peer のラッパ（**mesh 経路**）。kind（mic/cam/screen）ごとの送信ビットレート
   上限、受信ジッタバッファ下限などを調整。
-- `sfu.ts`（`SfuManager`）— **SFU 経路**。単一 RTCPeerConnection で自分のトラックを push（カメラは
-  simulcast 多レイヤ）＋他者を pull。`webrtc.ts` と同じイベント面（`onRemoteStream` 等）に乗せるので
-  下流（`remote-media`・録画）は無変更。App が mesh と排他的に切り替える（`/api/sfu/*` プロキシ経由）。
-- `cam-bitrate.ts` — mesh のピア数連動ビットレート throttle に加え、**SFU の画質フロア／simulcast
+- `rtc/sfu.ts`（`SfuManager`）— **SFU 経路**。単一 RTCPeerConnection で自分のトラックを push（カメラは
+  simulcast 多レイヤ）＋他者を pull。`rtc/webrtc.ts` と同じイベント面（`onRemoteStream` 等）に乗せるので
+  下流（`ui/remote-media`・録画）は無変更。App が mesh と排他的に切り替える（`/api/sfu/*` プロキシ経由）。
+- `rtc/cam-bitrate.ts` — mesh のピア数連動ビットレート throttle に加え、**SFU の画質フロア／simulcast
   レイヤ構成 `SFU_CAM_LAYERS`・受信タイルサイズ→レイヤ選択 `computePreferredRid`**（純粋関数）。
-- `sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=20, in-band FEC など）。
-- `media.ts` — マイク/カメラ/画面共有ストリーム管理。`recorder.ts` — ブラウザ内録画。
-- `proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、
-  どちらが initiator かの決定）。テスト容易性のため `app.ts` から切り出している。
-- `toolbar.ts`（`ToolbarController`）— マイク/カメラ/画面共有/録画ボタンとデバイス/ステータスメニュー。
+- `rtc/sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=20, in-band FEC など）。
+- `media/media.ts` — マイク/カメラ/画面共有ストリーム管理。`media/recorder.ts` — ブラウザ内録画。
+- `core/proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、
+  どちらが initiator かの決定）。テスト容易性のため `core/app.ts` から切り出している。
+- `ui/toolbar.ts`（`ToolbarController`）— マイク/カメラ/画面共有/録画ボタンとデバイス/ステータスメニュー。
   サブシステムをまたぐ変更はコールバックで App に戻す。
-- `remote-media.ts`（`RemoteMediaView`）— リモートのビデオタイル/マイク音声/画面共有ステージ/
+- `ui/remote-media.ts`（`RemoteMediaView`）— リモートのビデオタイル/マイク音声/画面共有ステージ/
   自分のプレビューの DOM 管理。発話検出器を保持する。
-- `panels.ts` — フローティングパネルのプリセットと純粋関数 `computePanelPreset()`。
-  `speaking.ts` — `SpeakingDetector` と純粋なしきい値判定 `isLoud()`。
-- `tilemap.ts` — オフィスのタイルマップと `canOccupy`（衝突判定）。`pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
-- `canvas.ts` — Canvas 2D 描画。`input.ts` — キー入力。`player.ts` — プレイヤー状態。
-  `draggable.ts` — ビデオ/画面共有パネルのドラッグ。`compositor.ts` — 録画用の映像合成。`sounds.ts` — 効果音。
-- `types.ts` — クライアント側の共有定数/型。`main.ts` — エントリ。
+- `ui/panels.ts` — フローティングパネルのプリセットと純粋関数 `computePanelPreset()`。
+  `media/speaking.ts` — `SpeakingDetector` と純粋なしきい値判定 `isLoud()`。
+- `world/tilemap.ts` — オフィスのタイルマップと `canOccupy`（衝突判定）。`world/pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
+- `world/canvas.ts` — Canvas 2D 描画。`world/input.ts` — キー入力。`world/player.ts` — プレイヤー状態。
+  `ui/draggable.ts` — ビデオ/画面共有パネルのドラッグ。`media/compositor.ts` — 録画用の映像合成。`ui/sounds.ts` — 効果音。
+- `core/types.ts` — クライアント側の共有定数/型。`core/main.ts` — エントリ。
 
 **「純粋ロジックをモジュールに切り出してテストする」パターン**が server(`logic.ts` の各正規化関数と
-`computeProximityGroups`)/client(`proximity.ts`, `pathfind.ts`, `sdp.ts`, `speaking.ts` の `isLoud()`,
-`panels.ts` の `computePanelPreset()`, `cam-bitrate.ts` の `computePreferredRid()`) の両方で採られている。
+`computeProximityGroups`)/client(`core/proximity.ts`, `world/pathfind.ts`, `rtc/sdp.ts`, `media/speaking.ts` の `isLoud()`,
+`ui/panels.ts` の `computePanelPreset()`, `rtc/cam-bitrate.ts` の `computePreferredRid()`) の両方で採られている。
+テストは `src/__tests__/`（フラット）に集約し、`@/<folder>/<name>` で対象を import する。
 挙動を変えずにテストしやすくするのが目的なので、ロジックを触るときはこの分離を保ち、対応するテストも更新する。
 
 ## 設計の指針（変えるときに外さない不変条件）
