@@ -8,16 +8,11 @@
 // renderer's sheet and this one don't double-download).
 
 import {
-  ACC,
-  BOTTOM,
   CATEGORY_LABELS,
   CharacterSheet,
-  HAIR,
   LPC_CREDITS_URL,
   OUTFIT_COUNTS,
   optionLabel,
-  SKIN_TINTS,
-  TOP,
 } from '@/world/character';
 import {
   normalizeOutfit,
@@ -48,14 +43,6 @@ export function loadOutfit(): Outfit {
 function saveOutfit(o: Outfit) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(o));
 }
-
-const COUNT_OF: Record<OutfitCategory, number> = {
-  skin: SKIN_TINTS.length,
-  hair: HAIR.length,
-  top: TOP.length,
-  bottom: BOTTOM.length,
-  acc: ACC.length,
-};
 
 export class AvatarEditor {
   private sheet = new CharacterSheet();
@@ -150,7 +137,7 @@ export class AvatarEditor {
   }
 
   private step(cat: OutfitCategory, delta: number) {
-    this.draft = { ...this.draft, [cat]: wrapIndex(this.draft[cat] + delta, COUNT_OF[cat]) };
+    this.draft = { ...this.draft, [cat]: wrapIndex(this.draft[cat] + delta, OUTFIT_COUNTS[cat]) };
     this.render();
   }
 

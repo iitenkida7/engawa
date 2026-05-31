@@ -44,7 +44,9 @@ import { RosterPanel } from '@/ui/roster';
 import { SoundManager } from '@/ui/sounds';
 import { type MediaSink, ToolbarController } from '@/ui/toolbar';
 import { CanvasRenderer } from '@/world/canvas';
+import { OUTFIT_COUNTS } from '@/world/character';
 import { InputManager } from '@/world/input';
+import { normalizeOutfit } from '@/world/outfit';
 import { findPath } from '@/world/pathfind';
 import { PlayerState } from '@/world/player';
 import { canOccupy, findWalkableSpawn, zoneAt } from '@/world/tilemap';
@@ -546,7 +548,13 @@ export class App {
         this.me = new PlayerState(msg.self, true);
         this.players.set(this.myId, this.me);
         for (const p of msg.players) {
-          this.players.set(p.userId, new PlayerState(p, false));
+          // Peer outfits arrive only server-bounded (0..63); re-clamp to our real
+          // part counts so a stale/oversized index renders a real option, not an
+          // empty layer.
+          this.players.set(
+            p.userId,
+            new PlayerState({ ...p, outfit: normalizeOutfit(p.outfit, OUTFIT_COUNTS) }, false),
+          );
         }
         this.view.setSelfName(this.joinedName);
         document.getElementById('toolbar')?.classList.remove('hidden');
@@ -557,7 +565,8 @@ export class App {
       }
       case 'player-joined': {
         if (msg.player.userId === this.myId) break;
-        this.players.set(msg.player.userId, new PlayerState(msg.player, false));
+        const joined = { ...msg.player, outfit: normalizeOutfit(msg.player.outfit, OUTFIT_COUNTS) };
+        this.players.set(msg.player.userId, new PlayerState(joined, false));
         break;
       }
       case 'player-moved': {
@@ -567,7 +576,8 @@ export class App {
       }
       case 'outfit-update': {
         const p = this.players.get(msg.userId);
-        if (p) p.outfit = msg.outfit;
+        // Re-clamp the peer's server-bounded indices to our real part counts.
+        if (p) p.outfit = normalizeOutfit(msg.outfit, OUTFIT_COUNTS);
         break;
       }
       case 'player-status': {
