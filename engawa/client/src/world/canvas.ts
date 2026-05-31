@@ -9,6 +9,7 @@ import {
   ZOOM_MIN,
   ZOOM_STEP,
 } from '@/core/types';
+import { CharacterSheet } from '@/world/character';
 import { CELL, floorKindAt, propFor } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import { SpriteSheet } from '@/world/sprites';
@@ -48,6 +49,11 @@ export function truncateNote(note: string, max = AVATAR_NOTE_MAX): string {
 
 // How far (world px) a reaction bubble drifts upward over its lifetime.
 const REACTION_RISE_PX = 36;
+
+// Composited-avatar display scale: the 64px source frame is drawn at this size
+// (1:1 keeps the pixel art crisp). Feet are planted on the shadow so the avatar
+// stands on its map spot.
+const SPRITE_SCALE = 1;
 
 /**
  * Animation state of a floating reaction `elapsed` ms into its `lifetime`.
@@ -97,6 +103,9 @@ export class CanvasRenderer {
   // sheet finishes loading or the device pixel ratio changes (it is otherwise
   // viewport-independent). null = needs (re)build.
   private sheet = new SpriteSheet();
+  // Modular avatar sprites (#141). Until it loads, drawPlayer falls back to the
+  // colored circle + initials below.
+  private characters = new CharacterSheet();
   private mapCache: HTMLCanvasElement | null = null;
   private mapCacheDpr = 0;
 
@@ -461,37 +470,48 @@ export class CanvasRenderer {
     }
 
     // shadow
+    const footY = p.y + PLAYER_RADIUS + 2;
     ctx.beginPath();
-    ctx.ellipse(p.x, p.y + PLAYER_RADIUS + 2, PLAYER_RADIUS * 0.8, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x, footY, PLAYER_RADIUS * 0.8, 4, 0, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fill();
 
-    // body circle
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, PLAYER_RADIUS, 0, Math.PI * 2);
-    ctx.fillStyle = p.color;
-    ctx.fill();
-
-    // border
-    ctx.lineWidth = p.isSelf ? 4 : 2;
-    ctx.strokeStyle = p.isSelf ? '#4f8cff' : 'rgba(0,0,0,0.5)';
-    ctx.stroke();
-
-    // speaking indicator
-    if (p.isSpeaking) {
+    // Composited avatar sprite (#141). Feet planted on the shadow. Falls back to
+    // the original colored circle + initials until the sprite layers load.
+    const drewSprite = this.characters.draw(ctx, p.outfit, p.facing, p.x, footY, SPRITE_SCALE);
+    if (drewSprite) {
+      // Base rings replace the circle's border/ring: green while speaking, else
+      // a blue ring under self — read as a glow at the feet, not across the body.
+      if (p.isSpeaking) this.footRing(ctx, p.x, footY, 'rgba(80,220,120,0.9)');
+      else if (p.isSelf) this.footRing(ctx, p.x, footY, 'rgba(79,140,255,0.9)');
+    } else {
+      // body circle
       ctx.beginPath();
-      ctx.arc(p.x, p.y, PLAYER_RADIUS + 5, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(80,220,120,0.9)';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
+      ctx.arc(p.x, p.y, PLAYER_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
 
-    // initials
-    ctx.fillStyle = 'white';
-    ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(p.initials(), p.x, p.y);
+      // border
+      ctx.lineWidth = p.isSelf ? 4 : 2;
+      ctx.strokeStyle = p.isSelf ? '#4f8cff' : 'rgba(0,0,0,0.5)';
+      ctx.stroke();
+
+      // speaking indicator
+      if (p.isSpeaking) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, PLAYER_RADIUS + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(80,220,120,0.9)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // initials
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.initials(), p.x, p.y);
+    }
 
     // Status badge (top-right of avatar). Show the status emoji — matching the
     // toolbar menu — so meeting/break read clearly, not just as a colored dot.
@@ -535,6 +555,16 @@ export class CanvasRenderer {
       ctx.fillStyle = '#ffe7a3';
       ctx.fillText(note, p.x, ny + nlh / 2 + 1);
     }
+  }
+
+  // A thin ellipse ring at the avatar's feet — the sprite-mode equivalent of the
+  // circle's border/speaking ring (self = blue, speaking = green).
+  private footRing(ctx: CanvasRenderingContext2D, x: number, footY: number, color: string) {
+    ctx.beginPath();
+    ctx.ellipse(x, footY, PLAYER_RADIUS * 0.9, 5, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }
 
   private roundRect(

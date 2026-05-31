@@ -175,6 +175,17 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
 ## コーディング規約
 - TypeScript strict モード / セミコロンあり / シングルクォート / インデント スペース2つ。
 
+## 素材ライセンス（重要）
+- **マップタイル**: Kenney「Roguelike Indoors」= **CC0**（`engawa/client/src/assets/`）。
+- **アバター（キャラメイク #141）**: LPC（Universal-LPC-Spritesheet-Character-Generator）。
+  アートは **CC-BY-SA 3.0 / OGA-BY 3.0 / CC-BY 3.0 / GPL 3.0 / CC0 がパーツごとに混在**する。
+  **CC-BY-SA 3.0 は ShareAlike**（合成・色変えなどの派生も同ライセンス）。
+  - 取り込んだパーツの作者・ライセンス・出典は `engawa/client/src/assets/lpc/CREDITS.csv` に**個別に**記録する。
+    各ライセンス全文も同ディレクトリに同梱（`LICENSE-*.txt`）。新しいパーツを足すときは CREDITS.csv も必ず更新する。
+  - 帰属表示は **3 箇所**で行う: ①`assets/lpc/CREDITS.csv`＋ライセンス全文の同梱、②README の「クレジット」節、
+    ③キャラメイク画面（avatar-editor）下部のクレジットリンク。
+- **素材のライセンスと engawa 本体コードのライセンスは分離して扱う。** CC0 以外の素材を増やすときはこの方針に従う。
+
 ## 作業の進め方
 - 仕様はユーザーと一緒に決める。不明点や判断に迷う点は実装前に確認する。
 - 仕様が決まったら GitHub Issue に起票してから着手する。

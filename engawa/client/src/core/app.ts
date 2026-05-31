@@ -12,6 +12,7 @@ import {
   type GroupMethod,
   MAP_HEIGHT,
   MAP_WIDTH,
+  type Outfit,
   PLAYER_RADIUS,
   PLAYER_SPEED,
   type PlayerStatus,
@@ -33,6 +34,7 @@ import type { RtcConn } from '@/rtc/rtcstats';
 import { SfuManager } from '@/rtc/sfu';
 import { partitionMembers } from '@/rtc/sfu-logic';
 import { WebRtcManager } from '@/rtc/webrtc';
+import type { AvatarEditor } from '@/ui/avatar-editor';
 import { ChatPanel } from '@/ui/chat';
 import { DebugConsole } from '@/ui/debug-console';
 import { KnockController } from '@/ui/knock';
@@ -70,6 +72,7 @@ export class App {
   private toasts = new Toasts();
   private sounds = new SoundManager();
   private knocks: KnockController;
+  private editor: AvatarEditor;
 
   private myId: string = '';
   private me: PlayerState | null = null;
@@ -159,8 +162,9 @@ export class App {
     }
   };
 
-  constructor(opts: { canvas: HTMLCanvasElement }) {
+  constructor(opts: { canvas: HTMLCanvasElement; editor: AvatarEditor }) {
     this.canvas = opts.canvas;
+    this.editor = opts.editor;
     this.renderer = new CanvasRenderer(this.canvas);
     this.input = new InputManager();
     this.media = new MediaManager();
@@ -270,6 +274,14 @@ export class App {
     });
     this.recorder.on(() => this.toolbar.refresh());
     this.view.refreshSelfPreview();
+
+    // The toolbar 🧍 button reopens the character maker in-room; applying relays
+    // the new outfit to peers (see onOutfitApplied).
+    document
+      .getElementById('btn-avatar')
+      ?.addEventListener('click', () =>
+        this.editor.open({ onApply: (o) => this.onOutfitApplied(o) }),
+      );
 
     // Double-click the map to walk to that point (A* around walls, boosted speed).
     this.canvas.addEventListener('dblclick', this.onCanvasDblClick);
@@ -430,8 +442,17 @@ export class App {
       type: 'join',
       name: this.joinedName,
       workspace,
+      outfit: this.editor.getOutfit(),
       ...(this.joinedPassword ? { password: this.joinedPassword } : {}),
     });
+  }
+
+  // The character maker was confirmed in-room: update our own avatar and relay
+  // the new outfit to the workspace so peers re-render it (the server forwards
+  // it without storing — invariant #2; on reconnect the join re-sends it).
+  private onOutfitApplied(outfit: Outfit) {
+    if (this.me) this.me.outfit = outfit;
+    this.net.send({ type: 'outfit-update', outfit });
   }
 
   private authFailed = false;
@@ -542,6 +563,11 @@ export class App {
       case 'player-moved': {
         const p = this.players.get(msg.userId);
         if (p) p.setTarget(msg.x, msg.y, msg.vx, msg.vy);
+        break;
+      }
+      case 'outfit-update': {
+        const p = this.players.get(msg.userId);
+        if (p) p.outfit = msg.outfit;
         break;
       }
       case 'player-status': {
@@ -678,6 +704,9 @@ export class App {
         selfVx = v.vx;
         selfVy = v.vy;
       }
+      // Face the way we're moving so our own avatar's sprite turns (remote
+      // players turn via setTarget). Idle keeps the last facing.
+      this.me.updateFacing(selfVx, selfVy);
     }
 
     // Interpolate remote players (also frame-rate independent).

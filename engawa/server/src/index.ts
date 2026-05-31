@@ -31,6 +31,7 @@ const server = Bun.serve({
           x: 0,
           y: 0,
           zoneId: null,
+          outfit: { skin: 0, hair: 0, top: 0, bottom: 0, acc: 0 },
           sfuSessionId: null,
           sfuTracks: [],
           groupKey: null,

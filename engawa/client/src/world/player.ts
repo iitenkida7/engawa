@@ -1,4 +1,5 @@
 import { EXTRAP_MAX_MS, INTERP_DECAY, type Player, type PlayerStatus } from '@/core/types';
+import { type Direction, defaultOutfit, type Outfit } from '@/world/outfit';
 
 export class PlayerState implements Player {
   userId: string;
@@ -29,6 +30,11 @@ export class PlayerState implements Player {
   isVideoOn = false;
   isSharingScreen = false;
 
+  // Modular avatar configuration (#141) and the facing it last moved in. The
+  // renderer composites `outfit` into a sprite; `facing` picks the direction row.
+  outfit: Outfit;
+  facing: Direction = 'down';
+
   constructor(p: Player, isSelf: boolean) {
     this.userId = p.userId;
     this.name = p.name;
@@ -39,6 +45,7 @@ export class PlayerState implements Player {
     this.lastUpdate = performance.now();
     this.isSelf = isSelf;
     this.color = colorForId(p.userId);
+    this.outfit = p.outfit ?? defaultOutfit();
   }
 
   setTarget(x: number, y: number, vx: number, vy: number) {
@@ -47,6 +54,15 @@ export class PlayerState implements Player {
     this.vx = vx;
     this.vy = vy;
     this.lastUpdate = performance.now();
+    this.updateFacing(vx, vy);
+  }
+
+  // Update the facing from a velocity (no change while stationary, so an idle
+  // avatar keeps looking where it last moved). Dominant axis wins.
+  updateFacing(vx: number, vy: number) {
+    if (vx === 0 && vy === 0) return;
+    if (Math.abs(vx) > Math.abs(vy)) this.facing = vx < 0 ? 'left' : 'right';
+    else this.facing = vy < 0 ? 'up' : 'down';
   }
 
   // dt is seconds elapsed since the previous frame.

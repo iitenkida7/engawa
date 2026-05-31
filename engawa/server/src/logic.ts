@@ -2,7 +2,7 @@
 // unit-tested in isolation. Behaviour must stay identical to the inline code
 // that previously lived in websocket.ts.
 
-import type { GroupMethod, PlayerStatus, SfuTrack } from './types';
+import type { GroupMethod, Outfit, PlayerStatus, SfuTrack } from './types';
 
 /** Map bounds used to clamp player positions. */
 export const MAP_WIDTH = 2000;
@@ -170,6 +170,46 @@ export const REACTION_EMOJIS = ['👋', '👍', '❤️', '😂', '🎉', '🙏'
 /** True when `emoji` is one of the whitelisted reaction emojis. */
 export function isAllowedReaction(emoji: unknown): boolean {
   return typeof emoji === 'string' && (REACTION_EMOJIS as readonly string[]).includes(emoji);
+}
+
+/**
+ * Upper bound on any avatar-outfit category index. The server doesn't know the
+ * client's exact part counts (it stays decoupled from the asset set), so it only
+ * bounds indices to a generous non-negative integer range; the client re-clamps
+ * to its real per-category counts on receipt. Keeps a crafted message from
+ * carrying absurd values to peers.
+ */
+export const OUTFIT_MAX_INDEX = 63;
+
+/** The keys of an Outfit, in a fixed order. Mirrors the client's categories. */
+export const OUTFIT_KEYS = ['skin', 'hair', 'top', 'bottom', 'acc'] as const;
+
+/** The all-zero (default) outfit, used before a client announces one. */
+export const DEFAULT_OUTFIT: Outfit = { skin: 0, hair: 0, top: 0, bottom: 0, acc: 0 };
+
+/** Clamp one outfit index to an integer in [0, OUTFIT_MAX_INDEX]; junk → 0. */
+function sanitizeIndex(v: unknown): number {
+  const n = Math.trunc(Number(v));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n > OUTFIT_MAX_INDEX ? OUTFIT_MAX_INDEX : n;
+}
+
+/**
+ * Validate an incoming avatar outfit: produce an object with exactly the known
+ * category keys, each a bounded non-negative integer. Missing / non-object /
+ * garbage input yields the default outfit. The server relays this to peers, so
+ * sanitizing here keeps malformed indices from propagating.
+ */
+export function sanitizeOutfit(raw: unknown): Outfit {
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_OUTFIT };
+  const o = raw as Record<string, unknown>;
+  return {
+    skin: sanitizeIndex(o.skin),
+    hair: sanitizeIndex(o.hair),
+    top: sanitizeIndex(o.top),
+    bottom: sanitizeIndex(o.bottom),
+    acc: sanitizeIndex(o.acc),
+  };
 }
 
 /**
