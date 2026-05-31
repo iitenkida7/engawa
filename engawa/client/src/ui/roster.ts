@@ -294,9 +294,8 @@ export class RosterPanel {
       this.setCollapsed(narrow);
     }
     // The portaled status menu is positioned by JS from the button's rect, so a
-    // resize while it's open would leave it misaligned — re-anchor it. (If the
-    // resize just collapsed the roster, setCollapsed already hid it, so this
-    // no-ops.)
+    // resize while it's open would leave it misaligned — re-anchor it. The
+    // status button stays in the header even when collapsed, so this still holds.
     if (!this.statusMenu.classList.contains('hidden')) this.positionStatusMenu();
   }
 
@@ -309,9 +308,6 @@ export class RosterPanel {
     this.panelEl.classList.toggle('collapsed', this.collapsed);
     this.toggleEl.textContent = this.collapsed ? '⟩' : '⟨';
     this.toggleEl.title = this.collapsed ? '参加者リストを開く' : '折りたたむ';
-    // Collapsing hides the action buttons; close the (portaled) status menu so
-    // it can't linger detached from its now-hidden button.
-    if (this.collapsed) this.statusMenu.classList.add('hidden');
   }
 
   // Pumped once per frame from the game loop: reconciles the rows with the

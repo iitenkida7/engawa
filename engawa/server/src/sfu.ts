@@ -9,6 +9,10 @@
 
 const CLOUDFLARE_REALTIME_BASE = 'https://rtc.live.cloudflare.com/v1';
 
+// Abort a control-plane request if Cloudflare stalls, so a hung upstream doesn't
+// pin the proxied request open — on timeout the catch below returns 502.
+const SFU_FETCH_TIMEOUT_MS = 8000;
+
 // Allowed session sub-paths (everything after .../sessions). Whitelisted so the
 // proxy can never be coerced into hitting an arbitrary Cloudflare URL. The
 // session-id segment is restricted to alphanumerics/`_`/`-` (no dots, so it
@@ -66,6 +70,7 @@ export async function proxySfuRequest(
         'Content-Type': 'application/json',
       },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(SFU_FETCH_TIMEOUT_MS),
     });
     const text = await res.text();
     let parsed: unknown = {};

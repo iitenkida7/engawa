@@ -671,17 +671,12 @@
         gap: 2px;
       }
 
-      /* Collapsed: shrink to just the header pill (icon + count + toggle). */
-      #roster.collapsed {
-        width: auto;
-      }
-
+      /* Collapsed: hide only the participant list. The header keeps its full
+         width and its chat / status buttons, so nothing in the header shifts. */
       #roster.collapsed #roster-header {
         border-bottom: 0;
       }
 
-      #roster.collapsed #roster-title,
-      #roster.collapsed #roster-actions,
       #roster.collapsed #roster-list {
         display: none;
       }

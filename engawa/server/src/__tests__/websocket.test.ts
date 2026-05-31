@@ -281,6 +281,21 @@ describe('createWebSocketHandler — move', () => {
     expect(mover.data.y).toBe(0);
   });
 
+  test('normalizes a non-finite / oversized velocity before broadcasting (#125)', () => {
+    const mover = makeWs({ workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(mover);
+    handler.open!(peer);
+
+    deliver(handler, mover, { type: 'move', x: 100, y: 100, vx: Infinity, vy: 1e9 });
+
+    const moved = peer.sent.find((m) => m.type === 'player-moved');
+    if (moved?.type !== 'player-moved') throw new Error('expected player-moved');
+    // Infinity collapses to 0; a huge finite value clamps to the velocity cap.
+    expect(moved.vx).toBe(0);
+    expect(moved.vy).toBe(2000);
+  });
+
   test('does not echo the move back to the mover', () => {
     const mover = makeWs({ workspace: 'ws1', joined: true });
     handler.open!(mover);
@@ -368,6 +383,27 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       note: '',
       until: null,
     });
+  });
+
+  test('validates an unknown status and coerces flags before broadcasting (#125)', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(peer);
+
+    // Bogus enum value and non-boolean flags arriving over the wire.
+    deliver(handler, sender, {
+      type: 'status',
+      status: 'offline',
+      isMuted: 'yes',
+      isVideoOn: 1,
+    });
+
+    const status = peer.sent.find((m) => m.type === 'player-status');
+    if (status?.type !== 'player-status') throw new Error('expected player-status');
+    expect(status.status).toBe('online');
+    expect(status.isMuted).toBe(false);
+    expect(status.isVideoOn).toBe(false);
   });
 
   test('relays the status one-liner and return time, normalized (#85)', () => {
@@ -547,6 +583,26 @@ describe('createWebSocketHandler — SFU grouping', () => {
       expect(dir.sessionId).toBe('sess-a');
       expect(dir.tracks).toEqual([{ kind: 'mic', trackName: 'a-mic' }]);
     }
+  });
+
+  test('sfu-publish filters malformed track entries before relaying (#125)', () => {
+    const a = joinAt(500, 500, 'meeting-1');
+    const b = joinAt(600, 600, 'meeting-1');
+    deliver(handler, a, {
+      type: 'sfu-publish',
+      sessionId: 'sess-a',
+      tracks: [
+        { kind: 'mic', trackName: 'a-mic' },
+        { kind: 'bogus', trackName: 'x' },
+        { kind: 'cam', trackName: '' },
+        'garbage',
+      ],
+    });
+    const dir = b.sent.find((m) => m.type === 'sfu-peer-tracks');
+    if (dir?.type !== 'sfu-peer-tracks') throw new Error('expected sfu-peer-tracks');
+    expect(dir.tracks).toEqual([{ kind: 'mic', trackName: 'a-mic' }]);
+    // The connection's recorded directory is the filtered one too.
+    expect(a.data.sfuTracks).toEqual([{ kind: 'mic', trackName: 'a-mic' }]);
   });
 
   test('a late joiner learns an existing member already-published tracks', () => {

@@ -2,7 +2,7 @@
 // unit-tested in isolation. Behaviour must stay identical to the inline code
 // that previously lived in websocket.ts.
 
-import type { GroupMethod } from './types';
+import type { GroupMethod, PlayerStatus, SfuTrack } from './types';
 
 /** Map bounds used to clamp player positions. */
 export const MAP_WIDTH = 2000;
@@ -86,6 +86,78 @@ export function normalizeStatusNote(raw: unknown): string {
  */
 export function normalizeUntil(raw: unknown): number | null {
   return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : null;
+}
+
+/**
+ * Valid player statuses. Mirrors PlayerStatus in types.ts. Used to enum-check
+ * an incoming status so a malformed value can't propagate to peers.
+ */
+export const PLAYER_STATUSES = ['online', 'busy', 'away', 'meeting', 'break'] as const;
+
+/**
+ * Normalize an incoming player status: keep it only when it's one of the known
+ * enum values, otherwise fall back to 'online'. Guards against arbitrary strings
+ * (or non-strings) reaching peers as a status.
+ */
+export function normalizePlayerStatus(raw: unknown): PlayerStatus {
+  return typeof raw === 'string' && (PLAYER_STATUSES as readonly string[]).includes(raw)
+    ? (raw as PlayerStatus)
+    : 'online';
+}
+
+/**
+ * Coerce an incoming flag (isMuted / isVideoOn) to a strict boolean. Only a
+ * literal `true` is truthy; everything else (undefined, 1, 'true', null) is
+ * false, so peers always receive a clean boolean.
+ */
+export function normalizeBool(raw: unknown): boolean {
+  return raw === true;
+}
+
+/**
+ * Max absolute velocity (px/s) accepted on a move. A generous bound — well above
+ * any legitimate movement speed (PLAYER_SPEED 210 × click-move multiplier 3) —
+ * that still rejects Infinity and absurd magnitudes.
+ */
+export const MAX_VELOCITY = 2000;
+
+/**
+ * Normalize a reported velocity component: a finite number clamped to
+ * ±MAX_VELOCITY. Non-finite input (NaN / Infinity) collapses to 0. Stricter than
+ * the prior `Number(v) || 0`, which let Infinity and huge values pass through.
+ */
+export function normalizeVelocity(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, n));
+}
+
+/** Max length (chars) of a single SFU trackName. Cloudflare track ids are short. */
+export const SFU_TRACK_NAME_MAX_LENGTH = 128;
+
+/** Max number of tracks one client may announce (mic/cam/screen → 3, plus slack). */
+export const SFU_MAX_TRACKS = 8;
+
+/**
+ * Validate an incoming SFU track directory (`sfu-publish`). Keeps only
+ * well-formed entries — `kind` is a known StreamKind and `trackName` is a
+ * non-empty string within the length cap — and bounds the total count. The
+ * server relays this directory verbatim to group peers, so malformed or
+ * oversized entries are dropped here before they propagate.
+ */
+export function normalizeSfuTracks(raw: unknown): SfuTrack[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SfuTrack[] = [];
+  for (const t of raw) {
+    if (!t || typeof t !== 'object') continue;
+    const { kind, trackName } = t as { kind?: unknown; trackName?: unknown };
+    if (kind !== 'mic' && kind !== 'cam' && kind !== 'screen') continue;
+    if (typeof trackName !== 'string' || trackName.length === 0) continue;
+    if (trackName.length > SFU_TRACK_NAME_MAX_LENGTH) continue;
+    out.push({ kind, trackName });
+    if (out.length >= SFU_MAX_TRACKS) break;
+  }
+  return out;
 }
 
 /**

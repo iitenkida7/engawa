@@ -7,10 +7,14 @@ import {
   isAllowedReaction,
   MAP_HEIGHT,
   MAP_WIDTH,
+  normalizeBool,
   normalizeChatText,
   normalizeName,
+  normalizePlayerStatus,
+  normalizeSfuTracks,
   normalizeStatusNote,
   normalizeUntil,
+  normalizeVelocity,
   normalizeWorkspace,
   PROXIMITY_DISCONNECT_RADIUS,
   type ProximityGroup,
@@ -234,9 +238,9 @@ export function createWebSocketHandler(
             {
               type: 'player-status',
               userId: ws.data.userId,
-              status: msg.status,
-              isMuted: msg.isMuted,
-              isVideoOn: msg.isVideoOn,
+              status: normalizePlayerStatus(msg.status),
+              isMuted: normalizeBool(msg.isMuted),
+              isVideoOn: normalizeBool(msg.isVideoOn),
               note: normalizeStatusNote(msg.note),
               until: normalizeUntil(msg.until),
             },
@@ -248,8 +252,8 @@ export function createWebSocketHandler(
         case 'move': {
           if (!ws.data.joined) return;
           const { x, y } = clampPosition(msg.x, msg.y, MAP_WIDTH, MAP_HEIGHT);
-          const vx = Number(msg.vx) || 0;
-          const vy = Number(msg.vy) || 0;
+          const vx = normalizeVelocity(msg.vx);
+          const vy = normalizeVelocity(msg.vy);
           ws.data.x = x;
           ws.data.y = y;
           ws.data.zoneId = msg.zoneId ?? null;
@@ -352,12 +356,16 @@ export function createWebSocketHandler(
           // userId in the relayed directory is set by us, so a client can only
           // ever mis-announce its OWN tracks, never impersonate another user.
           if (typeof msg.sessionId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(msg.sessionId)) return;
+          // Validate the announced track directory (drop malformed/oversized
+          // entries) before recording or relaying it — the server forwards it
+          // verbatim to group peers.
+          const tracks = normalizeSfuTracks(msg.tracks);
           // Record this client's published directory and relay it to the current
           // SFU group's members. A publish does not change membership, so we do
           // not recompute groups — the members are read straight off the last
           // group signature sent to this client (groupKey = "sfu:id1,id2,...").
           ws.data.sfuSessionId = msg.sessionId;
-          ws.data.sfuTracks = msg.tracks;
+          ws.data.sfuTracks = tracks;
           if (ws.data.groupKey?.startsWith('sfu:')) {
             const members = ws.data.groupKey.slice('sfu:'.length).split(',');
             for (const c of clients.values()) {
@@ -368,7 +376,7 @@ export function createWebSocketHandler(
                 type: 'sfu-peer-tracks',
                 userId: ws.data.userId,
                 sessionId: msg.sessionId,
-                tracks: msg.tracks,
+                tracks,
               });
             }
           }
