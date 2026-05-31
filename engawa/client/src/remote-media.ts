@@ -1,6 +1,15 @@
 import { bringToFront, makeDraggable } from './draggable';
 import type { MediaManager } from './media';
-import { bindCamAspect, createModeControls, setupPanelModes } from './panels';
+import {
+  applyPanelGeometry,
+  bindCamAspect,
+  computeGridLayout,
+  computePresentationLayout,
+  createModeControls,
+  type LayoutItem,
+  readCamAspect,
+  setupPanelModes,
+} from './panels';
 import type { PlayerState } from './player';
 import type { RecorderManager } from './recorder';
 import {
@@ -403,6 +412,36 @@ export class RemoteMediaView {
       if (stream) streams.push(stream);
     }
     return streams;
+  }
+
+  // ============= Batch arrange (one-shot "tidy all windows") =============
+  // Re-lays every visible window in one shot: 'grid' tiles them evenly; 'smart'
+  // uses a presentation layout when a screenshare is on stage, else a grid.
+  // Like the header presets this only writes position/size — windows stay
+  // freely draggable/resizable afterwards (nothing is locked or persisted).
+  arrange(mode: 'smart' | 'grid') {
+    const screenVisible = this.screenshareStageEl.classList.contains('visible');
+    // Collect visible panels with the element to move and its layout item, in a
+    // stable order: screenshare first, then camera/mic tiles, then self preview.
+    const panels: Array<{ el: HTMLElement; item: LayoutItem }> = [];
+    if (screenVisible) {
+      panels.push({ el: this.screenshareStageEl, item: { aspectLocked: false, aspect: 16 / 9 } });
+    }
+    for (const tile of this.remoteTiles.values()) {
+      panels.push({ el: tile.container, item: { aspectLocked: true, aspect: readCamAspect(tile.container) } });
+    }
+    if (!this.selfPreviewEl.classList.contains('hidden')) {
+      panels.push({ el: this.selfPreviewEl, item: { aspectLocked: true, aspect: readCamAspect(this.selfPreviewEl) } });
+    }
+    if (panels.length === 0) return;
+
+    const items = panels.map((p) => p.item);
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const geos = mode === 'smart' && screenVisible
+      ? computePresentationLayout(items, vw, vh)
+      : computeGridLayout(items, vw, vh);
+    panels.forEach((p, i) => applyPanelGeometry(p.el, geos[i]));
   }
 
   // The rendered width (CSS px) of a remote user's camera tile, or null when

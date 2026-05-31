@@ -6,9 +6,14 @@
 export type PanelPreset = 'pip' | 'side' | 'full';
 
 // Layout margin used when computing presets (px).
-const PANEL_MARGIN = 12;
+export const PANEL_MARGIN = 12;
 // Space reserved at the bottom for the toolbar, so presets never sit under it.
-const PANEL_BOTTOM_RESERVED = 80;
+export const PANEL_BOTTOM_RESERVED = 80;
+// Gap left between neighbouring windows when batch-arranging (grid/presentation).
+export const PANEL_GAP = 8;
+// Approx. height of a panel header bar; reserved on top of an aspect-locked
+// camera window's body so the whole window (header + video) fits its cell.
+export const PANEL_HEADER = 34;
 
 export type PanelGeometry = {
   left: number;
@@ -64,14 +69,10 @@ export function readCamAspect(el: HTMLElement): number {
   return 4 / 3;
 }
 
-// Applies a preset layout as explicit inline geometry. Presets only set an
-// initial position/size — the panel stays freely draggable and resizable
-// afterwards. Aspect-locked camera windows get width only; their height follows
-// the CSS aspect-ratio.
-export function applyPanelPreset(el: HTMLElement, preset: PanelPreset, aspectLocked: boolean) {
-  const aspect = aspectLocked ? readCamAspect(el) : 4 / 3;
-  const g = computePanelPreset(preset, aspectLocked, window.innerWidth, window.innerHeight, aspect);
-
+// Writes a computed geometry onto a panel as explicit inline styles. Shared by
+// the header presets and the batch arrange so both lay panels out the same way:
+// position + size only, so the panel stays freely draggable/resizable after.
+export function applyPanelGeometry(el: HTMLElement, g: PanelGeometry) {
   el.style.right = 'auto';
   el.style.bottom = 'auto';
   el.style.left = `${g.left}px`;
@@ -79,6 +80,97 @@ export function applyPanelPreset(el: HTMLElement, preset: PanelPreset, aspectLoc
   el.style.width = `${g.width}px`;
   // Aspect-locked windows derive height from width, so leave it unset.
   el.style.height = g.height == null ? '' : `${g.height}px`;
+}
+
+// Applies a preset layout as explicit inline geometry. Presets only set an
+// initial position/size — the panel stays freely draggable and resizable
+// afterwards. Aspect-locked camera windows get width only; their height follows
+// the CSS aspect-ratio.
+export function applyPanelPreset(el: HTMLElement, preset: PanelPreset, aspectLocked: boolean) {
+  const aspect = aspectLocked ? readCamAspect(el) : 4 / 3;
+  const g = computePanelPreset(preset, aspectLocked, window.innerWidth, window.innerHeight, aspect);
+  applyPanelGeometry(el, g);
+}
+
+// ============= Batch arrange (one-shot "tidy all windows") =============
+// A single window to place. `aspectLocked` camera windows (cam/self preview)
+// keep their aspect ratio; free-aspect windows (screenshare) fill their cell.
+export type LayoutItem = {
+  aspectLocked: boolean;
+  // content width/height; only used for aspect-locked windows.
+  aspect: number;
+};
+
+// The usable placement area: viewport minus the margin and the bottom toolbar
+// reservation. Matches the preset math so arrange and presets agree.
+function usableArea(vw: number, vh: number) {
+  const m = PANEL_MARGIN;
+  return { x: m, y: m, w: vw - m * 2, h: vh - m - PANEL_BOTTOM_RESERVED };
+}
+
+// Fits one window into a cell box [cx, cy, cw, ch], leaving PANEL_GAP between
+// neighbours. Aspect-locked windows are sized by width (height follows CSS)
+// and centred in the cell; free-aspect windows fill the cell.
+function fitInCell(item: LayoutItem, cx: number, cy: number, cw: number, ch: number): PanelGeometry {
+  const innerW = Math.max(1, cw - PANEL_GAP);
+  const innerH = Math.max(1, ch - PANEL_GAP);
+  if (!item.aspectLocked) {
+    return { left: Math.round(cx + PANEL_GAP / 2), top: Math.round(cy + PANEL_GAP / 2), width: Math.round(innerW), height: Math.round(innerH) };
+  }
+  // Body height is bounded by the cell minus the header; pick the largest width
+  // that keeps header + aspect-derived body within the cell.
+  const bodyMaxH = Math.max(1, innerH - PANEL_HEADER);
+  const width = Math.max(1, Math.round(Math.min(innerW, bodyMaxH * item.aspect)));
+  const fullH = PANEL_HEADER + width / item.aspect;
+  const left = Math.round(cx + (cw - width) / 2);
+  const top = Math.round(cy + (ch - fullH) / 2);
+  return { left, top, width, height: null };
+}
+
+// Pure: tiles every window into a near-square grid (cols = ceil(sqrt(n))) that
+// fills the usable area. Returns one geometry per item, in input order.
+export function computeGridLayout(items: LayoutItem[], vw: number, vh: number): PanelGeometry[] {
+  const n = items.length;
+  if (n === 0) return [];
+  const area = usableArea(vw, vh);
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  const cellW = area.w / cols;
+  const cellH = area.h / rows;
+  return items.map((item, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    return fitInCell(item, area.x + col * cellW, area.y + row * cellH, cellW, cellH);
+  });
+}
+
+// Pure: presentation layout — the (first) screenshare fills a large main area on
+// the left (~70% width); every other window stacks in a right-hand filmstrip.
+// Falls back to a grid when there is no screenshare to feature.
+export function computePresentationLayout(items: LayoutItem[], vw: number, vh: number): PanelGeometry[] {
+  const screenIdx = items.findIndex((it) => !it.aspectLocked);
+  if (screenIdx === -1) return computeGridLayout(items, vw, vh);
+
+  const area = usableArea(vw, vh);
+  const others = items.map((_, i) => i).filter((i) => i !== screenIdx);
+  const result = new Array<PanelGeometry>(items.length);
+
+  // No companions → the screenshare just takes the whole area.
+  if (others.length === 0) {
+    result[screenIdx] = fitInCell(items[screenIdx], area.x, area.y, area.w, area.h);
+    return result;
+  }
+
+  const mainW = Math.round((area.w - PANEL_GAP) * 0.7);
+  const stripW = area.w - PANEL_GAP - mainW;
+  result[screenIdx] = fitInCell(items[screenIdx], area.x, area.y, mainW, area.h);
+
+  const stripX = area.x + mainW + PANEL_GAP;
+  const cellH = area.h / others.length;
+  others.forEach((idx, k) => {
+    result[idx] = fitInCell(items[idx], stripX, area.y + k * cellH, stripW, cellH);
+  });
+  return result;
 }
 
 // Keeps a camera panel's --cam-aspect in sync with its live video dimensions,

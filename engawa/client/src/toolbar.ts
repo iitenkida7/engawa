@@ -48,6 +48,8 @@ export class ToolbarController {
   private btnBg: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
+  private btnArrangeSmart: HTMLButtonElement;
+  private btnArrangeGrid: HTMLButtonElement;
   private btnStatus: HTMLButtonElement;
   private bgFileInput: HTMLInputElement;
 
@@ -83,6 +85,8 @@ export class ToolbarController {
     this.btnBg = document.getElementById('btn-bg') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
+    this.btnArrangeSmart = document.getElementById('btn-arrange-smart') as HTMLButtonElement;
+    this.btnArrangeGrid = document.getElementById('btn-arrange-grid') as HTMLButtonElement;
     this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
     this.bgFileInput = document.getElementById('bg-file') as HTMLInputElement;
 
@@ -120,6 +124,10 @@ export class ToolbarController {
     });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
+    // One-shot batch arrange: tidy every open window. These only move/resize
+    // panels — nothing is locked or persisted (windows stay draggable after).
+    this.btnArrangeSmart.addEventListener('click', () => this.view.arrange('smart'));
+    this.btnArrangeGrid.addEventListener('click', () => this.view.arrange('grid'));
   }
 
   refresh() {
