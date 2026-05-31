@@ -422,11 +422,24 @@ describe('createWebSocketHandler — SFU grouping', () => {
     }
   });
 
-  test('an open-floor pair stays mesh (no group-update is sent)', () => {
+  test('an open-floor pair is told method=mesh with both members', () => {
     const a = joinAt(100, 100);
     const b = joinAt(140, 100); // within CONNECT_RADIUS, but only 2 people
-    expect(a.sent.some((m) => m.type === 'group-update')).toBe(false);
-    expect(b.sent.some((m) => m.type === 'group-update')).toBe(false);
+    const ga = lastGroupUpdate(a);
+    const gb = lastGroupUpdate(b);
+    expect(ga?.type === 'group-update' && ga.method).toBe('mesh');
+    expect(gb?.type === 'group-update' && gb.method).toBe('mesh');
+    const both = [a.data.userId, b.data.userId].sort();
+    if (ga?.type === 'group-update') expect(ga.members).toEqual(both);
+    if (gb?.type === 'group-update') expect(gb.members).toEqual(both);
+  });
+
+  test('a far-apart open-floor pair are each their own single-member mesh group', () => {
+    const a = joinAt(100, 100);
+    const b = joinAt(900, 100); // well beyond the disconnect radius
+    const ga = lastGroupUpdate(a);
+    expect(ga?.type === 'group-update' && ga.method).toBe('mesh');
+    if (ga?.type === 'group-update') expect(ga.members).toEqual([a.data.userId]);
   });
 
   test('an open-floor cluster promotes to sfu at the 5th member', () => {

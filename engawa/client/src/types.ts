@@ -70,13 +70,12 @@ export const PLAYER_SPEED = 210;
 export const CLICK_MOVE_MULTIPLIER = 3;
 // Distance (px) within which a click-to-move waypoint counts as reached.
 export const CLICK_MOVE_ARRIVE_THRESHOLD = 4;
-// Open-floor proximity range, in px. The avatar's drawn ring uses
-// CONNECT_RADIUS, and the call connects within it / disconnects past
-// DISCONNECT_RADIUS. The 30px gap is hysteresis (ratio 1.25) so peers near the
-// boundary don't flap between connect/disconnect. Meeting-room zones ignore
-// these (membership decides the call there).
+// Open-floor proximity range, in px, used only to draw the avatar's ring as a
+// visual hint of who is roughly in range. Actual call membership (and the
+// connect/disconnect hysteresis) is decided server-side by computeProximityGroups
+// and pushed via group-update; the client no longer connects/disconnects by
+// pairwise distance. Mirrors the server's PROXIMITY_CONNECT_RADIUS.
 export const CONNECT_RADIUS = 120;
-export const DISCONNECT_RADIUS = 150;
 export const POSITION_SEND_INTERVAL_MS = 50;
 // How aggressively remote players are pulled toward their predicted position
 // each frame. Higher = snappier but more jitter on noisy networks.
