@@ -84,6 +84,10 @@ export class SfuManager {
   private events: SfuEvents;
 
   private pc: RTCPeerConnection | null = null;
+  // Aborted in closeAll to detach the PC's 'track'/'connectionstatechange'
+  // listeners and every per-track 'ended' listener in one shot, so they don't
+  // outlive the closed PC (issue #127). Recreated alongside the PC in ensurePc.
+  private pcAbort: AbortController | null = null;
   private sessionId: string | null = null;
   private iceServers: RTCIceServer[] | null = null;
   private closed = false;
@@ -165,6 +169,8 @@ export class SfuManager {
 
   closeAll() {
     this.closed = true;
+    this.pcAbort?.abort();
+    this.pcAbort = null;
     try {
       this.pc?.close();
     } catch {
@@ -262,25 +268,40 @@ export class SfuManager {
     if (this.pc) return this.pc;
     const iceServers = await this.ensureIceServers();
     const pc = new RTCPeerConnection({ iceServers, bundlePolicy: 'max-bundle' });
+    const abort = new AbortController();
+    this.pcAbort = abort;
+    const signal = abort.signal;
 
-    pc.addEventListener('track', (event) => {
-      const mid = event.transceiver.mid ?? '';
-      const key = this.midToRemote.get(mid);
-      if (!key) return;
-      const entry = this.remoteTracks.get(key);
-      if (!entry) return;
-      const stream = new MediaStream([event.track]);
-      entry.streamId = stream.id;
-      entry.trackId = event.track.id;
-      this.events.onRemoteStream(entry.userId, stream, entry.kind);
-      event.track.addEventListener('ended', () => {
-        if (entry.streamId) this.events.onRemoteStreamRemoved(entry.userId, entry.streamId);
-      });
-    });
+    pc.addEventListener(
+      'track',
+      (event) => {
+        const mid = event.transceiver.mid ?? '';
+        const key = this.midToRemote.get(mid);
+        if (!key) return;
+        const entry = this.remoteTracks.get(key);
+        if (!entry) return;
+        const stream = new MediaStream([event.track]);
+        entry.streamId = stream.id;
+        entry.trackId = event.track.id;
+        this.events.onRemoteStream(entry.userId, stream, entry.kind);
+        event.track.addEventListener(
+          'ended',
+          () => {
+            if (entry.streamId) this.events.onRemoteStreamRemoved(entry.userId, entry.streamId);
+          },
+          { signal },
+        );
+      },
+      { signal },
+    );
 
-    pc.addEventListener('connectionstatechange', () => {
-      if (shouldFallbackToMesh(pc.connectionState, this.closed)) this.events.onFailed();
-    });
+    pc.addEventListener(
+      'connectionstatechange',
+      () => {
+        if (shouldFallbackToMesh(pc.connectionState, this.closed)) this.events.onFailed();
+      },
+      { signal },
+    );
 
     this.pc = pc;
     return pc;

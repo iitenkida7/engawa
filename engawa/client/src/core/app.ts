@@ -135,6 +135,28 @@ export class App {
   // Guards beforeunload/visibilitychange registration so an auth-error retry
   // (start() called again) doesn't stack duplicate window listeners.
   private lifecycleReady = false;
+  // Set by dispose() to stop the rAF loop from rescheduling itself.
+  private disposed = false;
+
+  // Global listeners are held as stable references so dispose() can detach them
+  // (an inline arrow can't be removed). See issue #127.
+  private onCanvasDblClick = (e: MouseEvent) => this.handleCanvasDblClick(e);
+  private onReactionKey = (e: KeyboardEvent) => this.handleReactionKey(e);
+  private onBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (!shouldConfirmUnload(this.me !== null)) return;
+    // Setting returnValue is what triggers the browser's native confirm dialog;
+    // the text is ignored by modern browsers but assignment is still required.
+    e.preventDefault();
+    e.returnValue = '';
+  };
+  private onVisibilityChange = () => {
+    // Bun keeps the socket alive with protocol pings, but a long background
+    // stint can still drop it. On return, reconnect immediately rather than
+    // waiting on the close-handler's 2s retry.
+    if (!document.hidden && !this.authFailed && !this.net.isConnected()) {
+      this.net.connect();
+    }
+  };
 
   constructor(opts: { canvas: HTMLCanvasElement }) {
     this.canvas = opts.canvas;
@@ -248,18 +270,18 @@ export class App {
     this.view.refreshSelfPreview();
 
     // Double-click the map to walk to that point (A* around walls, boosted speed).
-    this.canvas.addEventListener('dblclick', (e) => this.onCanvasDblClick(e));
+    this.canvas.addEventListener('dblclick', this.onCanvasDblClick);
 
     // Number keys 1–6 fire the matching reaction (issue #23). Ignored while
     // typing in a field, and key-repeat is dropped so holding a key doesn't spam.
-    window.addEventListener('keydown', (e) => this.onReactionKey(e));
+    window.addEventListener('keydown', this.onReactionKey);
 
     this.setupZoomControls();
   }
 
   // Map a 1–6 keypress to REACTION_EMOJIS and send it. The send-side debounce in
   // sendReaction guards against rapid presses.
-  private onReactionKey(e: KeyboardEvent) {
+  private handleReactionKey(e: KeyboardEvent) {
     if (e.repeat || !this.me) return;
     const t = e.target;
     if (
@@ -295,7 +317,7 @@ export class App {
     refresh();
   }
 
-  private onCanvasDblClick(e: MouseEvent) {
+  private handleCanvasDblClick(e: MouseEvent) {
     if (!this.me) return;
     e.preventDefault();
     const world = this.renderer.screenToWorld(e.clientX, e.clientY, this.me);
@@ -365,21 +387,25 @@ export class App {
   private setupLifecycle() {
     if (this.lifecycleReady) return;
     this.lifecycleReady = true;
-    window.addEventListener('beforeunload', (e) => {
-      if (!shouldConfirmUnload(this.me !== null)) return;
-      // Setting returnValue is what triggers the browser's native confirm dialog;
-      // the text is ignored by modern browsers but assignment is still required.
-      e.preventDefault();
-      e.returnValue = '';
-    });
-    document.addEventListener('visibilitychange', () => {
-      // Bun keeps the socket alive with protocol pings, but a long background
-      // stint can still drop it. On return, reconnect immediately rather than
-      // waiting on the close-handler's 2s retry.
-      if (!document.hidden && !this.authFailed && !this.net.isConnected()) {
-        this.net.connect();
-      }
-    });
+    window.addEventListener('beforeunload', this.onBeforeUnload);
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
+  }
+
+  // Symmetric teardown for the App's long-lived resources: stops the rAF loop,
+  // terminates the background Worker, detaches the global window/document
+  // listeners, and closes both media transports (which detach their own track
+  // listeners). The SPA keeps a single App for the page lifetime so this is not
+  // auto-invoked today, but it keeps create/destroy paired (issue #127).
+  dispose() {
+    this.disposed = true;
+    this.bgTicker?.terminate();
+    this.bgTicker = null;
+    this.canvas.removeEventListener('dblclick', this.onCanvasDblClick);
+    window.removeEventListener('keydown', this.onReactionKey);
+    window.removeEventListener('beforeunload', this.onBeforeUnload);
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    this.rtc.closeAll();
+    this.sfu.closeAll();
   }
 
   // Snapshot the active transport's per-connection getStats diff for the debug
@@ -558,6 +584,7 @@ export class App {
   // Worker ticker drives step() instead — but always reschedules so the chain
   // resumes the instant the tab is shown again.
   private loop = (nowMs?: number) => {
+    if (this.disposed) return;
     if (!document.hidden) this.step(nowMs ?? performance.now(), true);
     requestAnimationFrame(this.loop);
   };
