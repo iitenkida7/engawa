@@ -1,3 +1,15 @@
+import {
+  VirtualBackground,
+  imagePainter,
+  loadImage,
+  isProcessingChoice,
+  VBG_OFF,
+  VBG_BLUR,
+  VBG_CUSTOM,
+  BG_PRESETS,
+  type BgSpec,
+} from './vbg';
+
 type MediaListener = () => void;
 
 export class MediaManager {
@@ -7,6 +19,15 @@ export class MediaManager {
   // Currently selected input devices (null = browser default).
   selectedMicId: string | null = null;
   selectedCamId: string | null = null;
+  // Virtual background: the active choice ('off'/'blur'/preset id/'custom') and
+  // the user-uploaded image (dataURL + decoded element) for the 'custom' choice.
+  bgChoice: string = VBG_OFF;
+  customBgDataUrl: string | null = null;
+  private customImg: HTMLImageElement | null = null;
+  // While a background is active, camStream is the processed (canvas) stream and
+  // these hold the underlying capture + processor for teardown.
+  private vbg: VirtualBackground | null = null;
+  private rawCam: MediaStream | null = null;
   private listeners = new Set<MediaListener>();
   // Notified when the screen share ends on its own (OS/browser "stop sharing"),
   // with the just-stopped stream. Lets the owner run the same teardown as the
@@ -79,7 +100,7 @@ export class MediaManager {
 
   async enableCam() {
     if (this.camStream) return this.camStream;
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const raw = await navigator.mediaDevices.getUserMedia({
       video: {
         width: { ideal: 320 },
         height: { ideal: 240 },
@@ -88,22 +109,98 @@ export class MediaManager {
         ...(this.selectedCamId ? { deviceId: { exact: this.selectedCamId } } : {}),
       },
     });
-    for (const t of stream.getVideoTracks()) {
+    for (const t of raw.getVideoTracks()) {
       // Tell encoders to optimize for motion (low-latency over crisp text).
       t.contentHint = 'motion';
     }
-    this.camStream = stream;
+
+    // Background off → use the raw stream directly (zero added cost).
+    if (!isProcessingChoice(this.bgChoice)) {
+      this.camStream = raw;
+      this.emit();
+      return raw;
+    }
+
+    // Background on → process through VirtualBackground; on any failure
+    // (model/WASM unavailable, no WebGL) fall back to the raw camera so the
+    // camera still works.
+    if (this.bgChoice === VBG_CUSTOM) await this.ensureCustomImg();
+    try {
+      const vbg = new VirtualBackground(raw, this.buildBgSpec());
+      const processed = await vbg.start();
+      this.vbg = vbg;
+      this.rawCam = raw;
+      this.camStream = processed;
+    } catch (e) {
+      console.warn('virtual background unavailable, using raw camera', e);
+      this.vbg = null;
+      this.rawCam = null;
+      this.camStream = raw;
+    }
     this.emit();
-    return stream;
+    return this.camStream;
   }
   disableCam() {
     const old = this.camStream;
+    if (this.vbg) {
+      this.vbg.stop();
+      this.vbg = null;
+    }
+    if (this.rawCam) {
+      for (const t of this.rawCam.getTracks()) t.stop();
+      this.rawCam = null;
+    }
     if (old) {
       for (const t of old.getTracks()) t.stop();
       this.camStream = null;
       this.emit();
     }
     return old;
+  }
+
+  // ---- Virtual background ----
+  // True while a processor is actively running (i.e. a live background can be
+  // updated without re-acquiring the camera).
+  get bgActive() {
+    return !!this.vbg;
+  }
+
+  setBgChoice(choice: string) {
+    this.bgChoice = choice;
+  }
+
+  // Store the uploaded image (dataURL) and decode it for painting. Pass null to
+  // clear. Awaitable so callers can guarantee it's ready before applying.
+  async setCustomBgImage(dataUrl: string | null) {
+    this.customBgDataUrl = dataUrl;
+    this.customImg = null;
+    if (dataUrl) this.customImg = await loadImage(dataUrl);
+  }
+
+  private async ensureCustomImg() {
+    if (this.customBgDataUrl && !this.customImg) {
+      try {
+        this.customImg = await loadImage(this.customBgDataUrl);
+      } catch {
+        this.customImg = null;
+      }
+    }
+  }
+
+  private buildBgSpec(): BgSpec {
+    if (this.bgChoice === VBG_BLUR) return { kind: 'blur' };
+    const preset = BG_PRESETS.find((p) => p.id === this.bgChoice);
+    if (preset) return { kind: 'image', paint: preset.paint };
+    if (this.bgChoice === VBG_CUSTOM && this.customImg) {
+      return { kind: 'image', paint: imagePainter(this.customImg) };
+    }
+    return { kind: 'blur' }; // safe fallback (e.g. custom chosen but no image)
+  }
+
+  // Update the running background in place (no track swap). Caller is
+  // responsible for re-acquiring the camera when crossing the on/off boundary.
+  updateBackground() {
+    if (this.vbg) this.vbg.setSpec(this.buildBgSpec());
   }
 
   async enableScreen() {
