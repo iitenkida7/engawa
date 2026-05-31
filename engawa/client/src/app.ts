@@ -179,8 +179,6 @@ export class App {
       view: this.view,
       broadcastStatus: () => this.broadcastStatus(),
       getMe: () => this.me,
-      getStatus: () => this.myStatus,
-      onSetStatus: (status) => this.setStatus(status),
     });
 
     this.roster = new RosterPanel({
@@ -189,6 +187,8 @@ export class App {
       onFocus: (userId) => this.focusPlayer(userId),
       onGoTo: (userId) => this.goToPlayer(userId),
       onKnock: (userId) => this.knock(userId),
+      getStatus: () => this.myStatus,
+      onSetStatus: (status) => this.setStatus(status),
     });
 
     this.chat = new ChatPanel({
@@ -418,6 +418,7 @@ export class App {
         this.view.setSelfName(this.joinedName);
         document.getElementById('toolbar')?.classList.remove('hidden');
         this.roster.show();
+        this.roster.refreshStatus();
         this.broadcastStatus();
         break;
       }
@@ -696,7 +697,7 @@ export class App {
     if (this.myStatus === status) return;
     this.myStatus = status;
     this.broadcastStatus();
-    this.toolbar.refresh();
+    this.roster.refreshStatus();
   }
 
   // Apply a server group-update: switch transport for our current proximity

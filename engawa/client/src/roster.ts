@@ -57,17 +57,31 @@ type RosterRow = {
   };
 };
 
+// Selectable statuses with their labels, used by the roster status dropdown.
+const STATUS_ORDER: PlayerStatus[] = ['online', 'busy', 'away', 'meeting', 'break'];
+const STATUS_LABELS: Record<PlayerStatus, string> = {
+  online: '🟢 オンライン',
+  busy: '🔴 取り込み中',
+  away: '🟡 離席中',
+  meeting: '🤝 商談中',
+  break: '☕ 休憩中',
+};
+
 export class RosterPanel {
   private players: Map<string, PlayerState>;
   private getMyId: () => string;
   private onFocus: (userId: string) => void;
   private onGoTo: (userId: string) => void;
   private onKnock: (userId: string) => void;
+  private getStatus: () => PlayerStatus;
+  private onSetStatus: (status: PlayerStatus) => void;
 
   private panelEl: HTMLDivElement;
   private countEl: HTMLElement;
   private toggleEl: HTMLButtonElement;
   private listEl: HTMLDivElement;
+  private btnStatus: HTMLButtonElement;
+  private statusMenu: HTMLDivElement;
 
   private rows = new Map<string, RosterRow>();
   // The userId sequence currently in the DOM; rebuilding only on change keeps
@@ -83,19 +97,26 @@ export class RosterPanel {
     onFocus: (userId: string) => void;
     onGoTo: (userId: string) => void;
     onKnock: (userId: string) => void;
+    getStatus: () => PlayerStatus;
+    onSetStatus: (status: PlayerStatus) => void;
   }) {
     this.players = opts.players;
     this.getMyId = opts.getMyId;
     this.onFocus = opts.onFocus;
     this.onGoTo = opts.onGoTo;
     this.onKnock = opts.onKnock;
+    this.getStatus = opts.getStatus;
+    this.onSetStatus = opts.onSetStatus;
 
     this.panelEl = document.getElementById('roster') as HTMLDivElement;
     this.countEl = document.getElementById('roster-count')!;
     this.toggleEl = document.getElementById('roster-toggle') as HTMLButtonElement;
     this.listEl = document.getElementById('roster-list') as HTMLDivElement;
+    this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
+    this.statusMenu = document.getElementById('status-menu') as HTMLDivElement;
 
     this.toggleEl.addEventListener('click', () => this.setCollapsed(!this.collapsed));
+    this.setupStatusMenu();
 
     // Auto-collapse on narrow viewports; expand again when it widens.
     this.wasNarrow = window.innerWidth <= NARROW_BREAKPOINT;
@@ -106,6 +127,46 @@ export class RosterPanel {
 
   show() {
     this.panelEl.classList.remove('hidden');
+  }
+
+  refreshStatus() {
+    this.btnStatus.textContent = ROSTER_STATUS_EMOJI[this.getStatus()];
+  }
+
+  private setupStatusMenu() {
+    // No stopPropagation: the click bubbles to document so the toolbar's own
+    // outside-click handler closes its menus too (the two menu groups stay
+    // mutually exclusive). The document handler below is guarded by
+    // "t !== btnStatus", so this toggle never closes the menu it just opened.
+    this.btnStatus.addEventListener('click', () => {
+      const open = this.statusMenu.classList.contains('hidden');
+      this.statusMenu.classList.toggle('hidden', !open);
+      if (open) this.populateStatusMenu();
+    });
+    document.addEventListener('click', (e) => {
+      const t = e.target as Node;
+      if (!this.statusMenu.contains(t) && t !== this.btnStatus) {
+        this.statusMenu.classList.add('hidden');
+      }
+    });
+  }
+
+  private populateStatusMenu() {
+    this.statusMenu.replaceChildren();
+    const current = this.getStatus();
+    for (const status of STATUS_ORDER) {
+      const item = document.createElement('button');
+      item.className = 'device-item';
+      const isSelected = status === current;
+      if (isSelected) item.classList.add('selected');
+      item.textContent = (isSelected ? '✓ ' : '') + STATUS_LABELS[status];
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.statusMenu.classList.add('hidden');
+        this.onSetStatus(status);
+      });
+      this.statusMenu.appendChild(item);
+    }
   }
 
   private onResize() {
