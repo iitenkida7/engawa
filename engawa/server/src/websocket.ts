@@ -143,6 +143,14 @@ function broadcastGroups(
     }
   }
 
+  // Drop the transient state for a workspace once everyone has left, so
+  // creating and abandoning many workspaces does not grow `groupState`
+  // unbounded (invariant #2: signaling server holds no lasting state).
+  if (wsClients.length === 0) {
+    groupState.delete(workspace);
+    return byUser;
+  }
+
   state.prevSfuMemberSets = sfuLatchSeeds(groups);
   state.prevGroupMemberSets = groups.map((g) => g.memberIds);
   groupState.set(workspace, state);
@@ -370,10 +378,17 @@ export function createWebSocketHandler(
     },
 
     close(ws) {
-      clients.delete(ws.data.userId);
-      if (ws.data.joined) {
-        broadcast(clients, ws.data.workspace, { type: 'player-left', userId: ws.data.userId });
-        broadcastGroups(clients, ws.data.workspace, groupState);
+      // Identity check: a reconnect with the same userId may have already
+      // replaced this entry in the map. Only remove (and announce the leave)
+      // when the stored socket is *this* one, so a stale close does not evict
+      // the live connection.
+      const isCurrent = clients.get(ws.data.userId) === ws;
+      if (isCurrent) {
+        clients.delete(ws.data.userId);
+        if (ws.data.joined) {
+          broadcast(clients, ws.data.workspace, { type: 'player-left', userId: ws.data.userId });
+          broadcastGroups(clients, ws.data.workspace, groupState);
+        }
       }
       console.log(`[ws] close ${ws.data.userId} (clients=${clients.size})`);
     },
