@@ -161,9 +161,16 @@ export class SfuManager {
     entry.preferredRid = rid;
     this.enqueue(async () => {
       if (!this.sessionId || !entry.mid) return;
-      await this.api<TracksResponse>(`/${this.sessionId}/tracks/update`, 'PUT', {
-        tracks: [{ mid: entry.mid, simulcast: { preferredRid: rid } }],
-      });
+      try {
+        await this.api<TracksResponse>(`/${this.sessionId}/tracks/update`, 'PUT', {
+          tracks: [{ mid: entry.mid, simulcast: { preferredRid: rid } }],
+        });
+      } catch (err) {
+        // Layer selection is a downlink optimization, not call-critical: a failed
+        // tweak must not tear the whole group down to mesh, so swallow it here
+        // rather than let it reach the op-chain fallback.
+        console.warn('[sfu] preferred layer update failed', err);
+      }
     });
   }
 
@@ -247,7 +254,15 @@ export class SfuManager {
       () => this.closed,
       op,
       (err) => {
-        console.warn('[sfu] op failed', err);
+        // A control-plane op failed (bad HTTP status, invalid JSON, renegotiation
+        // error, …). The SFU transport can no longer be trusted, so degrade this
+        // group to mesh — the same safety net as a 'failed' connection state. The
+        // App's handler calls closeAll(), which sets closed=true, so chainOp skips
+        // the rest of the queue and this can't re-fire. The cosmetic
+        // layer-preference op swallows its own error (see setPreferredLayer) so a
+        // failed tweak never trips this fallback.
+        console.warn('[sfu] op failed; falling back to mesh', err);
+        if (!this.closed) this.events.onFailed();
       },
     );
   }
@@ -316,14 +331,32 @@ export class SfuManager {
     return this.sessionId;
   }
 
-  // POST/PUT against our /api/sfu/* proxy.
+  // POST/PUT against our /api/sfu/* proxy. Throws on a network error, a non-2xx
+  // status, or a body that isn't valid JSON — previously the response was parsed
+  // blind, so a 4xx/5xx (or an HTML error page) slipped through as a malformed
+  // object and corrupted PC state silently. Throwing rejects the op, which the
+  // op-chain handler turns into a mesh fallback (see enqueue).
   private async api<T>(sessionPath: string, method: string, body: unknown): Promise<T> {
-    const res = await fetch(`/api/sfu/sessions${sessionPath}`, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    return (await res.json()) as T;
+    let res: Response;
+    try {
+      res = await fetch(`/api/sfu/sessions${sessionPath}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new Error(
+        `sfu api ${method} ${sessionPath}: network error (${(err as Error).message})`,
+      );
+    }
+    if (!res.ok) {
+      throw new Error(`sfu api ${method} ${sessionPath}: HTTP ${res.status}`);
+    }
+    try {
+      return (await res.json()) as T;
+    } catch (err) {
+      throw new Error(`sfu api ${method} ${sessionPath}: invalid JSON (${(err as Error).message})`);
+    }
   }
 
   private sendEncodingsFor(kind: StreamKind): RTCRtpEncodingParameters[] {

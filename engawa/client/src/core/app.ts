@@ -3,6 +3,7 @@ import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from
 import { NetworkClient } from '@/core/network';
 import type { Point } from '@/core/proximity';
 import { isInitiator } from '@/core/proximity';
+import { computeReconnectDelay, RECONNECT_MAX_ATTEMPTS } from '@/core/reconnect';
 import { evaluateBoot, ReloadBanner } from '@/core/reload';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
@@ -151,10 +152,10 @@ export class App {
   };
   private onVisibilityChange = () => {
     // Bun keeps the socket alive with protocol pings, but a long background
-    // stint can still drop it. On return, reconnect immediately rather than
-    // waiting on the close-handler's 2s retry.
+    // stint can still drop it. On return, reconnect immediately (clearing any
+    // pending backoff) rather than waiting on the close-handler's retry timer.
     if (!document.hidden && !this.authFailed && !this.net.isConnected()) {
-      this.net.connect();
+      this.manualReconnect();
     }
   };
 
@@ -216,6 +217,7 @@ export class App {
       recorder: this.recorder,
       compositor: this.compositor,
       view: this.view,
+      toasts: this.toasts,
       broadcastStatus: () => this.broadcastStatus(),
       getMe: () => this.me,
       onReaction: (emoji) => this.sendReaction(emoji),
@@ -417,6 +419,11 @@ export class App {
   }
 
   private onOpen() {
+    // Connected: the backoff resets and any "connection lost" toast clears. If
+    // auth then fails the auth-error handler re-shows the join overlay.
+    this.reconnectAttempt = 0;
+    this.dismissConnToast?.();
+    this.dismissConnToast = null;
     const params = new URLSearchParams(window.location.search);
     const workspace = params.get('workspace') || 'default';
     this.net.send({
@@ -429,13 +436,65 @@ export class App {
 
   private authFailed = false;
 
+  // Exponential-backoff reconnect state (issue #126). `reconnectAttempt` counts
+  // consecutive failures (reset on a successful open); `reconnectTimer` holds the
+  // pending retry so we never stack timers; `dismissConnToast` closes the active
+  // "connection lost" toast.
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private dismissConnToast: (() => void) | null = null;
+
   private onClose() {
     if (this.authFailed) {
       this.authFailed = false;
       return;
     }
-    console.warn('[ws] connection closed; will retry in 2s');
-    setTimeout(() => this.net.connect(), 2000);
+    this.scheduleReconnect();
+  }
+
+  // Reconnect with exponential backoff + jitter (computeReconnectDelay), bounded
+  // by RECONNECT_MAX_ATTEMPTS. Past the cap we stop auto-retrying and leave a
+  // persistent toast with a manual 再接続 button, so a long-down server isn't
+  // pinged forever (the old code retried every 2s with no ceiling).
+  private scheduleReconnect() {
+    // A retry is already pending: 'error' and 'close' can both fire, so don't
+    // stack timers.
+    if (this.reconnectTimer != null) return;
+    if (this.reconnectAttempt >= RECONNECT_MAX_ATTEMPTS) {
+      this.dismissConnToast?.();
+      this.dismissConnToast = this.toasts.action(
+        'サーバーに接続できません。',
+        [{ label: '再接続', primary: true, onClick: () => this.manualReconnect() }],
+        0,
+      );
+      return;
+    }
+    const delay = computeReconnectDelay(this.reconnectAttempt);
+    this.reconnectAttempt++;
+    console.warn(
+      `[ws] connection closed; retrying in ${delay}ms (attempt ${this.reconnectAttempt})`,
+    );
+    // Show the (persistent) reconnecting notice once; later attempts reuse it.
+    if (!this.dismissConnToast) {
+      this.dismissConnToast = this.toasts.action('接続が切れました。再接続しています…', [], 0);
+    }
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.net.connect();
+    }, delay);
+  }
+
+  // User asked to retry (manual button) or returned to a backgrounded tab whose
+  // socket dropped: clear any pending backoff, reset the counter, and reconnect now.
+  private manualReconnect() {
+    this.dismissConnToast?.();
+    this.dismissConnToast = null;
+    this.reconnectAttempt = 0;
+    if (this.reconnectTimer != null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.net.connect();
   }
 
   private onServerMessage(msg: ServerMessage) {
@@ -876,6 +935,7 @@ export class App {
   private onSfuFailed() {
     if (this.currentMethod !== 'sfu') return;
     console.warn('[sfu] connection failed; falling back to mesh');
+    this.toasts.info('通話サーバーに接続できないため、P2P 接続に切り替えました。');
     // Reuse the mesh reconciliation (it tears the SFU transport down and opens a
     // peer to every former SFU member). Snapshot members first — it clears the set.
     //

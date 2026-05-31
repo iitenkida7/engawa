@@ -20,6 +20,13 @@ export class Toasts {
     this.make(text, [], timeoutMs);
   }
 
+  // A failure toast: like info() but styled with a red accent and kept up a bit
+  // longer so the user has time to read it (used for camera/mic/connection
+  // errors that previously only hit the console — issue #126).
+  error(text: string, timeoutMs = 7000) {
+    this.make(text, [], timeoutMs, 'error');
+  }
+
   // An actionable toast with buttons. Returns a dismiss fn so callers can close
   // it early (e.g. when superseded). Clicking any action dismisses it first.
   // `timeoutMs` of 0 means it never auto-dismisses.
@@ -27,9 +34,14 @@ export class Toasts {
     return this.make(text, actions, timeoutMs);
   }
 
-  private make(text: string, actions: ToastAction[], timeoutMs: number): () => void {
+  private make(
+    text: string,
+    actions: ToastAction[],
+    timeoutMs: number,
+    variant?: 'error',
+  ): () => void {
     const el = document.createElement('div');
-    el.className = 'toast';
+    el.className = variant ? `toast ${variant}` : 'toast';
 
     const msg = document.createElement('span');
     msg.className = 'toast-msg';

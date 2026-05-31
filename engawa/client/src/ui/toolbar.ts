@@ -13,6 +13,7 @@ import {
   VBG_OFF,
   VBG_STORAGE_KEY,
 } from '@/media/vbg';
+import type { Toasts } from '@/ui/notify';
 import type { RemoteMediaView } from '@/ui/remote-media';
 import type { PlayerState } from '@/world/player';
 
@@ -41,6 +42,7 @@ export class ToolbarController {
   private recorder: RecorderManager;
   private compositor: SceneCompositor;
   private view: RemoteMediaView;
+  private toasts: Toasts;
   private broadcastStatus: () => void;
   private getMe: () => PlayerState | null;
   private onReaction: (emoji: string) => void;
@@ -63,6 +65,7 @@ export class ToolbarController {
     recorder: RecorderManager;
     compositor: SceneCompositor;
     view: RemoteMediaView;
+    toasts: Toasts;
     broadcastStatus: () => void;
     getMe: () => PlayerState | null;
     onReaction: (emoji: string) => void;
@@ -74,6 +77,7 @@ export class ToolbarController {
     this.recorder = opts.recorder;
     this.compositor = opts.compositor;
     this.view = opts.view;
+    this.toasts = opts.toasts;
     this.broadcastStatus = opts.broadcastStatus;
     this.getMe = opts.getMe;
     this.onReaction = opts.onReaction;
@@ -144,7 +148,7 @@ export class ToolbarController {
       this.rtc.addLocalStream(stream, 'mic');
       this.view.setLocalMicStream(stream);
     } catch (e) {
-      alert(`マイクを使えません: ${(e as Error).message}`);
+      this.toasts.error(`マイクを使えません: ${(e as Error).message}`);
     }
   }
   private stopMic() {
@@ -157,7 +161,7 @@ export class ToolbarController {
       const stream = await this.media.enableCam();
       this.rtc.addLocalStream(stream, 'cam');
     } catch (e) {
-      alert(`カメラを使えません: ${(e as Error).message}`);
+      this.toasts.error(`カメラを使えません: ${(e as Error).message}`);
     }
   }
   private stopCam() {
@@ -177,7 +181,7 @@ export class ToolbarController {
         if (me) me.isSharingScreen = true;
         this.view.showScreenshare(me?.userId ?? '', stream);
       } catch (e) {
-        alert(`画面共有を開始できません: ${(e as Error).message}`);
+        this.toasts.error(`画面共有を開始できません: ${(e as Error).message}`);
       }
     }
   }
@@ -462,7 +466,7 @@ export class ToolbarController {
       this.persistBgSettings();
       await this.setBackground(VBG_CUSTOM);
     } catch (e) {
-      alert(`画像を読み込めません: ${(e as Error).message}`);
+      this.toasts.error(`画像を読み込めません: ${(e as Error).message}`);
     }
   }
 
