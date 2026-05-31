@@ -26,13 +26,15 @@ export interface MediaSink {
 }
 
 // Owns the bottom toolbar, trimmed to the core call controls: mic, cam, screen
-// share, record, and a "⋯" overflow menu for low-frequency window-arrange
-// actions. Device selection and virtual-background live in the cam caret menu;
-// status and chat moved to the roster panel (issue #99). Each button also owns
-// the media orchestration behind it (enable the device, wire it into WebRTC,
-// update the screenshare stage). Player-state changes that must reach the rest
-// of the app (status broadcast, screenshare flag) are handed back through
-// callbacks so the toolbar never reaches across subsystems itself.
+// share, record, and a "⋯" overflow menu for low-frequency actions
+// (window-arrange + the RTC debug console toggle). Device selection and
+// virtual-background live in the cam caret menu; status and chat moved to the
+// roster panel (issue #99). Each button also owns the media orchestration behind
+// it (enable the device, wire it into WebRTC, update the screenshare stage).
+// Player-state changes that must reach the rest of the app (status broadcast,
+// screenshare flag) are handed back through callbacks so the toolbar never
+// reaches across subsystems itself — likewise the debug console is toggled via
+// callbacks, not a direct reference.
 export class ToolbarController {
   private media: MediaManager;
   private rtc: MediaSink;
@@ -41,6 +43,8 @@ export class ToolbarController {
   private view: RemoteMediaView;
   private broadcastStatus: () => void;
   private getMe: () => PlayerState | null;
+  private toggleDebug: () => void;
+  private isDebugOpen: () => boolean;
 
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
@@ -58,6 +62,8 @@ export class ToolbarController {
     view: RemoteMediaView;
     broadcastStatus: () => void;
     getMe: () => PlayerState | null;
+    toggleDebug: () => void;
+    isDebugOpen: () => boolean;
   }) {
     this.media = opts.media;
     this.rtc = opts.rtc;
@@ -66,6 +72,8 @@ export class ToolbarController {
     this.view = opts.view;
     this.broadcastStatus = opts.broadcastStatus;
     this.getMe = opts.getMe;
+    this.toggleDebug = opts.toggleDebug;
+    this.isDebugOpen = opts.isDebugOpen;
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
@@ -329,9 +337,11 @@ export class ToolbarController {
     addBg('📁 画像をアップロード…', () => this.bgFileInput.click());
   }
 
-  // The "⋯" overflow menu: one-shot batch window-arrange actions. These only
-  // move/resize panels — nothing is locked or persisted (windows stay
-  // draggable after).
+  // The "⋯" overflow menu: low-frequency actions. The two arrange items are
+  // one-shot batch window moves (nothing is locked or persisted — windows stay
+  // draggable after); the debug item toggles the RTC debug console (issue #113),
+  // its label reflecting the current open state since the menu re-populates on
+  // each open.
   private populateMoreMenu(menu: HTMLDivElement) {
     menu.replaceChildren();
     const addItem = (text: string, onClick: () => void) => {
@@ -347,6 +357,10 @@ export class ToolbarController {
     };
     addItem('✨ スマート整列', () => this.view.arrange('smart'));
     addItem('▦ グリッド整列', () => this.view.arrange('grid'));
+    addItem(
+      this.isDebugOpen() ? '🐛 デバッグを閉じる' : '🐛 デバッグ（RTC 接続）',
+      () => this.toggleDebug(),
+    );
   }
 
   private async switchMic(deviceId: string) {
