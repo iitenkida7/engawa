@@ -178,7 +178,7 @@ export class ToolbarController {
     this.rtc.removeLocalStream(old);
     const me = this.getMe();
     if (me) me.isSharingScreen = false;
-    this.view.clearScreenshare();
+    this.view.removeScreenshare(me?.userId ?? '');
   }
 
   private toggleRecord() {

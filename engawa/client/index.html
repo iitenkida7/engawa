@@ -437,10 +437,14 @@
         color: #9da3b0;
       }
 
-      #screenshare-stage {
-        display: none;
+      /* Screenshare stages: one draggable panel per sharing user, created
+         dynamically in remote-media.ts (so no display:none here — presence in
+         the DOM means it's on screen). The "main" (featured) share — the oldest
+         one, or whichever was promoted — gets a blue accent. */
+      .screenshare-stage {
         z-index: 6;
-        /* Default floating placement; presets/drag/resize override inline. */
+        /* Default floating placement for the main stage; later shares and any
+           preset/drag/resize override this inline. */
         left: 16px;
         bottom: 80px;
         width: 420px;
@@ -449,12 +453,13 @@
         min-height: 180px;
       }
 
-      #screenshare-stage.visible {
-        display: flex;
+      .screenshare-stage.main {
+        border-color: rgba(90, 160, 255, 0.9);
+        box-shadow: 0 0 0 1px rgba(90, 160, 255, 0.45), 0 8px 32px rgba(0, 0, 0, 0.5);
       }
 
       /* Screenshare contains a whole desktop, so letterbox it instead of crop. */
-      #screenshare-stage .panel-body video {
+      .screenshare-stage .panel-body video {
         object-fit: contain;
       }
 
@@ -1103,19 +1108,9 @@
           <video id="self-video" autoplay muted playsinline></video>
         </div>
       </div>
-      <div id="screenshare-stage" class="panel">
-        <div class="panel-header" id="stage-header">
-          <span class="label" id="screenshare-label"></span>
-          <div class="stage-controls">
-            <button data-mode="pip" title="小窓">🪟</button>
-            <button data-mode="side" title="サイドパネル">◧</button>
-            <button data-mode="full" title="全画面">⬜</button>
-          </div>
-        </div>
-        <div class="panel-body">
-          <video id="screenshare-video" autoplay playsinline></video>
-        </div>
-      </div>
+      <!-- Screenshare stages are created dynamically (one per sharing user) by
+           remote-media.ts and appended here under #app, as siblings of
+           #remote-videos / #self-preview. -->
       <div id="debug-console" class="hidden">
         <div id="debug-header">
           <span>🐛 デバッグ — RTC 接続</span>
