@@ -1,6 +1,19 @@
 import type { StreamKind, SfuTrack } from './types';
 import { transformSdpForLowLatency } from './sdp';
 import { SFU_CAM_LAYERS, SFU_SCREEN_MAX_BITRATE } from './cam-bitrate';
+import {
+  summarizeRtcStats,
+  diffRtcStats,
+  type RtcSnapshot,
+  type RtcConn,
+  type RtcStreamRate,
+} from './rtcstats';
+
+// Sentinel conn ids for the debug console. The SFU is one PC, so our published
+// tracks aren't per-peer: they go to one synthetic "upstream" conn. Received
+// tracks whose trackId we can't map back to a peer fall into a generic one.
+export const SFU_UPSTREAM_ID = '__sfu_up__';
+export const SFU_DOWNSTREAM_ID = '__sfu_down__';
 
 // Cloudflare Realtime SFU transport.
 //
@@ -52,6 +65,10 @@ type RemoteEntry = {
   trackName: string;
   mid: string | null;
   streamId: string | null;
+  // The pulled MediaStreamTrack's id, captured on the 'track' event. getStats
+  // inbound-rtp.trackIdentifier matches it, letting the debug console attribute
+  // each received stream (single SFU PC) back to a peer.
+  trackId: string | null;
   preferredRid: string | null;
 };
 
@@ -74,6 +91,9 @@ export class SfuManager {
 
   // Serializes every renegotiation against the single PC.
   private opChain: Promise<void> = Promise.resolve();
+
+  // Previous getStats snapshot for the per-second diff (debug console).
+  private statsPrev: RtcSnapshot | null = null;
 
   constructor(events: SfuEvents) {
     this.events = events;
@@ -154,6 +174,60 @@ export class SfuManager {
     this.localTracks.clear();
     this.remoteTracks.clear();
     this.midToRemote.clear();
+    this.statsPrev = null;
+  }
+
+  // Poll the single SFU PC's getStats() and split the per-second diff into
+  // RtcConns for the debug console: received streams grouped per peer (matched
+  // by trackId), plus a synthetic "self → SFU" upstream for our published
+  // tracks (the SFU topology sends one upstream, not one per peer). The first
+  // poll only seeds the baseline and returns nothing.
+  async collectStats(): Promise<RtcConn[]> {
+    if (!this.pc) return [];
+    let report: RTCStatsReport;
+    try {
+      report = await this.pc.getStats();
+    } catch {
+      return [];
+    }
+    const arr: Record<string, unknown>[] = [];
+    report.forEach((s) => arr.push(s as Record<string, unknown>));
+    const cur = summarizeRtcStats(arr);
+    const prev = this.statsPrev;
+    this.statsPrev = cur;
+    if (!prev) return [];
+
+    const rates = diffRtcStats(prev, cur);
+    const trackToUser = new Map<string, string>();
+    for (const e of this.remoteTracks.values()) {
+      if (e.trackId) trackToUser.set(e.trackId, e.userId);
+    }
+
+    const byUser = new Map<string, RtcStreamRate[]>();
+    const upstream: RtcStreamRate[] = [];
+    const unknown: RtcStreamRate[] = [];
+    for (const s of rates.streams) {
+      if (s.dir === 'send') {
+        upstream.push(s);
+        continue;
+      }
+      const uid = s.trackId ? trackToUser.get(s.trackId) : undefined;
+      if (uid) {
+        const list = byUser.get(uid) ?? [];
+        list.push(s);
+        byUser.set(uid, list);
+      } else {
+        unknown.push(s);
+      }
+    }
+
+    const out: RtcConn[] = [];
+    for (const [uid, streams] of byUser) out.push({ id: uid, streams });
+    if (unknown.length) out.push({ id: SFU_DOWNSTREAM_ID, label: 'SFU 受信', streams: unknown });
+    if (upstream.length) {
+      out.push({ id: SFU_UPSTREAM_ID, label: '自分 → SFU', rttMs: rates.rttMs, streams: upstream });
+    }
+    return out;
   }
 
   // ─── internals ────────────────────────────────────────────────────────────
@@ -191,6 +265,7 @@ export class SfuManager {
       if (!entry) return;
       const stream = new MediaStream([event.track]);
       entry.streamId = stream.id;
+      entry.trackId = event.track.id;
       this.events.onRemoteStream(entry.userId, stream, entry.kind);
       event.track.addEventListener('ended', () => {
         if (entry.streamId) this.events.onRemoteStreamRemoved(entry.userId, entry.streamId);
@@ -292,7 +367,15 @@ export class SfuManager {
     // in the offer SDP it just sent us — the same mid the browser exposes on the
     // transceiver in the 'track' event, so we route ontrack by it.
     const mid = resp.tracks?.[0]?.mid ?? null;
-    const entry: RemoteEntry = { userId, kind, trackName, mid, streamId: null, preferredRid: null };
+    const entry: RemoteEntry = {
+      userId,
+      kind,
+      trackName,
+      mid,
+      streamId: null,
+      trackId: null,
+      preferredRid: null,
+    };
     this.remoteTracks.set(key, entry);
     if (mid) this.midToRemote.set(mid, key);
 

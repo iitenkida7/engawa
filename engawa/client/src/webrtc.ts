@@ -13,7 +13,7 @@ import {
   summarizeRtcStats,
   diffRtcStats,
   type RtcSnapshot,
-  type RtcRates,
+  type RtcConn,
 } from './rtcstats';
 
 // Fixed mic send-bitrate ceiling (bps). The encoder still adapts down to the
@@ -135,7 +135,7 @@ export class WebRtcManager {
   // 'stream' / 'track' event on the peer.
   private pendingMeta = new Map<string, Map<string, StreamKind>>();
 
-  // Previous getStats snapshot per peer, for the ?debug=rtc telemetry diff.
+  // Previous getStats snapshot per peer, for the debug console per-second diff.
   private statsPrev = new Map<string, RtcSnapshot>();
 
   constructor(media: MediaManager, events: WebRtcEvents) {
@@ -219,10 +219,12 @@ export class WebRtcManager {
   }
 
   // Poll getStats() on every peer and return the per-second diff vs the previous
-  // poll (used by the ?debug=rtc telemetry; see rtcstats.ts). Peers seen for the
-  // first time are recorded but omitted until there is a delta to report.
-  async collectStats(): Promise<{ userId: string; rates: RtcRates }[]> {
-    const out: { userId: string; rates: RtcRates }[] = [];
+  // poll, one RtcConn per peer (used by the debug console; see rtcstats.ts).
+  // Each mesh peer has its own PC, so a conn carries both our send streams and
+  // what we receive from them. Peers seen for the first time are recorded but
+  // omitted until there is a delta to report.
+  async collectStats(): Promise<RtcConn[]> {
+    const out: RtcConn[] = [];
     for (const entry of this.peers.values()) {
       const pc = getPc(entry.peer);
       if (!pc) continue;
@@ -237,7 +239,10 @@ export class WebRtcManager {
       const cur = summarizeRtcStats(arr);
       const prev = this.statsPrev.get(entry.remoteUserId);
       this.statsPrev.set(entry.remoteUserId, cur);
-      if (prev) out.push({ userId: entry.remoteUserId, rates: diffRtcStats(prev, cur) });
+      if (prev) {
+        const rates = diffRtcStats(prev, cur);
+        out.push({ id: entry.remoteUserId, rttMs: rates.rttMs, streams: rates.streams });
+      }
     }
     return out;
   }
