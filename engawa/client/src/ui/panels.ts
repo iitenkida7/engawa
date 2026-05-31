@@ -111,11 +111,22 @@ function usableArea(vw: number, vh: number) {
 // Fits one window into a cell box [cx, cy, cw, ch], leaving PANEL_GAP between
 // neighbours. Aspect-locked windows are sized by width (height follows CSS)
 // and centred in the cell; free-aspect windows fill the cell.
-function fitInCell(item: LayoutItem, cx: number, cy: number, cw: number, ch: number): PanelGeometry {
+function fitInCell(
+  item: LayoutItem,
+  cx: number,
+  cy: number,
+  cw: number,
+  ch: number,
+): PanelGeometry {
   const innerW = Math.max(1, cw - PANEL_GAP);
   const innerH = Math.max(1, ch - PANEL_GAP);
   if (!item.aspectLocked) {
-    return { left: Math.round(cx + PANEL_GAP / 2), top: Math.round(cy + PANEL_GAP / 2), width: Math.round(innerW), height: Math.round(innerH) };
+    return {
+      left: Math.round(cx + PANEL_GAP / 2),
+      top: Math.round(cy + PANEL_GAP / 2),
+      width: Math.round(innerW),
+      height: Math.round(innerH),
+    };
   }
   // Body height is bounded by the cell minus the header; pick the largest width
   // that keeps header + aspect-derived body within the cell.
@@ -147,7 +158,11 @@ export function computeGridLayout(items: LayoutItem[], vw: number, vh: number): 
 // Pure: presentation layout — the (first) screenshare fills a large main area on
 // the left (~70% width); every other window stacks in a right-hand filmstrip.
 // Falls back to a grid when there is no screenshare to feature.
-export function computePresentationLayout(items: LayoutItem[], vw: number, vh: number): PanelGeometry[] {
+export function computePresentationLayout(
+  items: LayoutItem[],
+  vw: number,
+  vh: number,
+): PanelGeometry[] {
   const screenIdx = items.findIndex((it) => !it.aspectLocked);
   if (screenIdx === -1) return computeGridLayout(items, vw, vh);
 

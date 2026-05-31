@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { findPath, defaultTileWalkable, type TileWalkable } from '@/world/pathfind';
-import { TILE_SIZE, MAP_COLS, MAP_ROWS } from '@/world/tilemap';
+import { defaultTileWalkable, findPath, type TileWalkable } from '@/world/pathfind';
+import { MAP_COLS, MAP_ROWS, TILE_SIZE } from '@/world/tilemap';
 
 // Pixel coordinate of the center of tile (col, row).
 function center(col: number, row: number): { x: number; y: number } {

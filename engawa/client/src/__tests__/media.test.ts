@@ -12,7 +12,7 @@ function makeTrack(kind: 'audio' | 'video') {
       (listeners[type] ??= []).push(fn);
     }),
     fireEnded: () => {
-      for (const fn of listeners['ended'] ?? []) fn(undefined);
+      for (const fn of listeners.ended ?? []) fn(undefined);
     },
   };
 }
@@ -39,10 +39,7 @@ beforeEach(() => {
   getUserMedia = mock();
   getDisplayMedia = mock();
   enumerateDevices = mock();
-  originalMediaDevices = Object.getOwnPropertyDescriptor(
-    globalThis.navigator,
-    'mediaDevices',
-  );
+  originalMediaDevices = Object.getOwnPropertyDescriptor(globalThis.navigator, 'mediaDevices');
   hadMediaDevices = originalMediaDevices !== undefined;
   Object.defineProperty(globalThis.navigator, 'mediaDevices', {
     value: { getUserMedia, getDisplayMedia, enumerateDevices },

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import { KnockController, KNOCK_COOLDOWN_MS, type KnockDeps } from '@/ui/knock';
 import type { ClientMessage } from '@/core/types';
-import type { PlayerState } from '@/world/player';
+import { KNOCK_COOLDOWN_MS, KnockController, type KnockDeps } from '@/ui/knock';
 import type { ToastAction } from '@/ui/notify';
+import type { PlayerState } from '@/world/player';
 
 // Minimal player stand-ins; KnockController only reads `name` / `isSelf`.
 function player(name: string, isSelf = false): PlayerState {
@@ -37,7 +37,11 @@ function setup(players: Map<string, PlayerState>): Harness {
         return () => {};
       },
     } as unknown as KnockDeps['toasts'],
-    sounds: { enter: () => { enters++; } } as unknown as KnockDeps['sounds'],
+    sounds: {
+      enter: () => {
+        enters++;
+      },
+    } as unknown as KnockDeps['sounds'],
     goTo: (id) => goTos.push(id),
     now: () => nowMs,
   };
@@ -47,9 +51,13 @@ function setup(players: Map<string, PlayerState>): Harness {
     sent,
     infos,
     actions,
-    get enters() { return enters; },
+    get enters() {
+      return enters;
+    },
     goTos,
-    setNow: (ms) => { nowMs = ms; },
+    setNow: (ms) => {
+      nowMs = ms;
+    },
   } as Harness;
 }
 

@@ -1,30 +1,25 @@
 import type { ServerWebSocket, WebSocketHandler } from 'bun';
-import type {
-  ClientMessage,
-  Player,
-  ServerMessage,
-  WsData,
-} from './types';
 import {
-  MAP_HEIGHT,
-  MAP_WIDTH,
   clampPosition,
   computeProximityGroups,
+  type GroupMember,
   generateSpawn,
   isAllowedReaction,
+  MAP_HEIGHT,
+  MAP_WIDTH,
   normalizeChatText,
   normalizeName,
   normalizeStatusNote,
   normalizeUntil,
   normalizeWorkspace,
-  parseWorkspacePasswords,
   PROXIMITY_DISCONNECT_RADIUS,
+  type ProximityGroup,
+  parseWorkspacePasswords,
   sfuLatchSeeds,
   verifyWorkspacePassword,
-  type GroupMember,
-  type ProximityGroup,
 } from './logic';
 import { isSfuEnabled } from './sfu';
+import type { ClientMessage, Player, ServerMessage, WsData } from './types';
 
 // Workspace passwords from env: JSON object like {"ws1":"pass1","ws2":"pass2"}
 // If empty or not set, all workspaces are open (no auth required).
@@ -36,10 +31,7 @@ const workspacePasswords = parseWorkspacePasswords(process.env.WORKSPACE_PASSWOR
 //    shrinking cluster keeps SFU (one-way latch).
 //  - prevGroupMemberSets: the previous tick's group memberships (all groups), so
 //    an open-floor edge survives out to the disconnect radius (hysteresis).
-type GroupState = Map<
-  string,
-  { prevSfuMemberSets: string[][]; prevGroupMemberSets: string[][] }
->;
+type GroupState = Map<string, { prevSfuMemberSets: string[][]; prevGroupMemberSets: string[][] }>;
 
 function send(ws: ServerWebSocket<WsData>, msg: ServerMessage) {
   ws.send(JSON.stringify(msg));
@@ -266,7 +258,7 @@ export function createWebSocketHandler(
         case 'signal': {
           if (!ws.data.joined) return;
           const target = clients.get(msg.to);
-          if (!target || !target.data.joined) return;
+          if (!target?.data.joined) return;
           send(target, {
             type: 'signal',
             from: ws.data.userId,
@@ -278,7 +270,7 @@ export function createWebSocketHandler(
         case 'stream-meta': {
           if (!ws.data.joined) return;
           const target = clients.get(msg.to);
-          if (!target || !target.data.joined) return;
+          if (!target?.data.joined) return;
           send(target, {
             type: 'stream-meta',
             from: ws.data.userId,
@@ -304,7 +296,7 @@ export function createWebSocketHandler(
           };
           for (const id of memberIds) {
             const c = clients.get(id);
-            if (c && c.data.joined) send(c, out);
+            if (c?.data.joined) send(c, out);
           }
           break;
         }
@@ -326,7 +318,7 @@ export function createWebSocketHandler(
         case 'knock': {
           if (!ws.data.joined) return;
           const target = clients.get(msg.to);
-          if (!target || !target.data.joined || target.data.workspace !== ws.data.workspace) return;
+          if (!target?.data.joined || target.data.workspace !== ws.data.workspace) return;
           send(target, { type: 'knock', from: ws.data.userId, name: ws.data.name });
           break;
         }
@@ -334,7 +326,7 @@ export function createWebSocketHandler(
         case 'knock-reply': {
           if (!ws.data.joined) return;
           const target = clients.get(msg.to);
-          if (!target || !target.data.joined || target.data.workspace !== ws.data.workspace) return;
+          if (!target?.data.joined || target.data.workspace !== ws.data.workspace) return;
           send(target, {
             type: 'knock-reply',
             from: ws.data.userId,
@@ -388,4 +380,4 @@ export function createWebSocketHandler(
   };
 }
 
-export { MAP_WIDTH, MAP_HEIGHT };
+export { MAP_HEIGHT, MAP_WIDTH };

@@ -168,7 +168,10 @@ function buildZones(): { zones: Zone[]; grid: number[][] } {
       if (officeMap[r][c] !== Tile.MEETING || grid[r][c] !== -1) continue;
 
       const idx = zones.length;
-      let minC = c, maxC = c, minR = r, maxR = r;
+      let minC = c,
+        maxC = c,
+        minR = r,
+        maxR = r;
       const stack: [number, number][] = [[r, c]];
       grid[r][c] = idx;
       while (stack.length) {
@@ -177,7 +180,12 @@ function buildZones(): { zones: Zone[]; grid: number[][] } {
         if (cc > maxC) maxC = cc;
         if (rr < minR) minR = rr;
         if (rr > maxR) maxR = rr;
-        for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+        for (const [dr, dc] of [
+          [-1, 0],
+          [1, 0],
+          [0, -1],
+          [0, 1],
+        ] as const) {
           const nr = rr + dr;
           const nc = cc + dc;
           if (nr < 0 || nr >= MAP_ROWS || nc < 0 || nc >= MAP_COLS) continue;
@@ -215,7 +223,11 @@ export function zoneAt(px: number, py: number): Zone | null {
 }
 
 /** Find the nearest walkable pixel position, snapping to tile centers. */
-export function findWalkableSpawn(px: number, py: number, radius: number): { x: number; y: number } {
+export function findWalkableSpawn(
+  px: number,
+  py: number,
+  radius: number,
+): { x: number; y: number } {
   if (canOccupy(px, py, radius)) return { x: px, y: py };
 
   // Spiral outward in tile increments to find a walkable spot

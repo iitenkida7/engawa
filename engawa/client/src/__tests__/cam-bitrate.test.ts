@@ -7,6 +7,11 @@ import {
   CAM_SCALE_QUIET,
   CAM_SCALE_SPEAKING,
   CAM_THROTTLE_MIN_PEERS,
+  computeCamEncoding,
+  computePreferredRid,
+  computeScreenEncoding,
+  computeScreenScale,
+  isHeldSpeaking,
   SCREEN_BITRATE_HIGH,
   SCREEN_BITRATE_THROTTLED,
   SCREEN_FPS_DEFAULT,
@@ -19,11 +24,6 @@ import {
   SFU_CAM_LAYERS,
   SIMULCAST_FULL_MIN_WIDTH,
   SPEAKER_HOLD_MS,
-  computeCamEncoding,
-  computePreferredRid,
-  computeScreenEncoding,
-  computeScreenScale,
-  isHeldSpeaking,
 } from '@/rtc/cam-bitrate';
 
 describe('computeCamEncoding', () => {

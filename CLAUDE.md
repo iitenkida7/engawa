@@ -41,6 +41,7 @@ Slack のハドルや Gather.town のような「ばったり話す」体験を�
 | 停止 | `make down` |
 | 再起動 | `make restart` |
 | コンテナ状態 | `make ps` |
+| Lint（server + client / Biome） | `make lint` |
 | テスト（server + client 両方） | `make test` |
 | 本番ビルド（型チェック + バンドル） | `make build` |
 | 依存インストール | `make install` |
@@ -48,8 +49,12 @@ Slack のハドルや Gather.town のような「ばったり話す」体験を�
 
 - クライアント: http://localhost:5173 / サーバー: http://localhost:3000
 - サーバーは `bun --watch`、クライアントは Vite HMR で自動リロード。
-- `make build` は client 側で `tsc --noEmit`（型チェック）→ `vite build` を実行する。**型チェックがビルドの一部**。
-- 専用の lint コマンドはない。品質ゲートは「型チェック（build）＋ テスト」。
+- `make build` は **server 側で `tsc --noEmit`（型チェック）→ client 側で `tsc --noEmit` → `vite build`** を実行する。
+  **server / client とも型チェックがビルドの一部**（サーバーも型エラーで CI が落ちる）。
+- `make lint` は **Biome** を server / client それぞれに対し `biome ci src` で実行する（`no-floating-promises`・
+  未使用変数・スタイル統一などを検出）。設定は各パッケージ直下の `biome.json`（共通内容）。
+- **品質ゲートは「型チェック（build）＋ lint ＋ テスト」**。push 前にこの 3 つ（`make build` / `make lint` /
+  `make test`）を必ず通す。
 - `npm install` / `bun install` を勝手に実行しない。依存追加が必要なときはユーザーに確認する。
 
 ### 単一テストの実行
@@ -66,7 +71,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyWorkspacePassword'
 
 ### CI
 `.github/workflows/ci.yml` は main への push / PR で **ローカルと同じ Makefile ターゲット**
-（`make install` → `make build` → `make test`）を Docker 上で実行する。CI とローカルを一致させるため、
+（`make install` → `make build` → `make lint` → `make test`）を Docker 上で実行する。CI とローカルを一致させるため、
 新しい検証手順を足すときも Makefile 経由にする。
 
 ## アーキテクチャ（全体像）

@@ -135,8 +135,7 @@ export function transformSdpForLowLatency(sdp: string): string {
       flushSection(out.length);
       sectionStart = out.length;
       sectionIsOpusAudio =
-        line.startsWith('m=audio ') &&
-        [...opusPts].some((pt) => line.split(' ').includes(pt));
+        line.startsWith('m=audio ') && [...opusPts].some((pt) => line.split(' ').includes(pt));
     }
     out.push(line);
   }

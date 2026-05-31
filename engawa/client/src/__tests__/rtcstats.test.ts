@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  describeStream,
-  diffRtcStats,
-  summarizeRtcStats,
-  type RtcSnapshot,
-} from '@/rtc/rtcstats';
+import { describeStream, diffRtcStats, type RtcSnapshot, summarizeRtcStats } from '@/rtc/rtcstats';
 
 describe('summarizeRtcStats', () => {
   it('extracts outbound, inbound, remote-inbound, codecs and RTT, ignoring unknown types', () => {
@@ -112,7 +107,14 @@ describe('diffRtcStats — send streams', () => {
   const prev = snap({
     tMs: 1000,
     outbound: [
-      { ssrc: 1, kind: 'video', bytesSent: 0, packetsSent: 0, framesEncoded: 0, totalEncodeTime: 0 },
+      {
+        ssrc: 1,
+        kind: 'video',
+        bytesSent: 0,
+        packetsSent: 0,
+        framesEncoded: 0,
+        totalEncodeTime: 0,
+      },
     ],
     remoteInbound: [{ ssrc: 1, kind: 'video', packetsLost: 0 }],
   });

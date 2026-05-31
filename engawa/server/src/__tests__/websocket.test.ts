@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ServerWebSocket } from 'bun';
-import { createWebSocketHandler } from '../websocket';
 import type { ServerMessage, WsData } from '../types';
+import { createWebSocketHandler } from '../websocket';
 
 // Minimal fake of ServerWebSocket<WsData> that records everything the handler
 // sends and any close() call. Only the surface the handler actually touches is
@@ -47,11 +47,7 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
 }
 
 /** Deliver a JSON-encoded client message to the handler. */
-function deliver(
-  handler: ReturnType<typeof createWebSocketHandler>,
-  ws: FakeWs,
-  msg: unknown,
-) {
+function deliver(handler: ReturnType<typeof createWebSocketHandler>, ws: FakeWs, msg: unknown) {
   handler.message!(ws, JSON.stringify(msg));
 }
 
@@ -116,7 +112,12 @@ describe('createWebSocketHandler — join', () => {
     if (welcome?.type !== 'welcome') throw new Error('expected welcome');
     expect(welcome.self.name).toBe('Alice');
     expect(welcome.players).toHaveLength(1);
-    expect(welcome.players[0]).toMatchObject({ userId: existing.data.userId, name: 'Bob', x: 10, y: 20 });
+    expect(welcome.players[0]).toMatchObject({
+      userId: existing.data.userId,
+      name: 'Bob',
+      x: 10,
+      y: 20,
+    });
   });
 
   test('stamps the welcome with the server boot id', () => {
@@ -168,7 +169,12 @@ describe('createWebSocketHandler — join', () => {
     const handler = createWebSocketHandler(clients, new Map([['locked', 'secret']]));
     const joiner = makeWs();
     handler.open!(joiner);
-    deliver(handler, joiner, { type: 'join', name: 'Alice', workspace: 'locked', password: 'wrong' });
+    deliver(handler, joiner, {
+      type: 'join',
+      name: 'Alice',
+      workspace: 'locked',
+      password: 'wrong',
+    });
 
     expect(joiner.sent).toContainEqual({
       type: 'auth-error',
@@ -182,7 +188,12 @@ describe('createWebSocketHandler — join', () => {
     const handler = createWebSocketHandler(clients, new Map([['locked', 'secret']]));
     const joiner = makeWs();
     handler.open!(joiner);
-    deliver(handler, joiner, { type: 'join', name: 'Alice', workspace: 'locked', password: 'secret' });
+    deliver(handler, joiner, {
+      type: 'join',
+      name: 'Alice',
+      workspace: 'locked',
+      password: 'secret',
+    });
 
     expect(joiner.data.joined).toBe(true);
     expect(joiner.sent.some((m) => m.type === 'welcome')).toBe(true);
@@ -354,7 +365,12 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     handler.open!(sender);
     handler.open!(target);
 
-    deliver(handler, sender, { type: 'stream-meta', to: target.data.userId, streamId: 's1', kind: 'cam' });
+    deliver(handler, sender, {
+      type: 'stream-meta',
+      to: target.data.userId,
+      streamId: 's1',
+      kind: 'cam',
+    });
 
     expect(target.sent).toContainEqual({
       type: 'stream-meta',
@@ -464,7 +480,7 @@ describe('createWebSocketHandler — SFU grouping', () => {
 
   test('a far-apart open-floor pair are each their own single-member mesh group', () => {
     const a = joinAt(100, 100);
-    const b = joinAt(900, 100); // well beyond the disconnect radius
+    const _b = joinAt(900, 100); // well beyond the disconnect radius
     const ga = lastGroupUpdate(a);
     expect(ga?.type === 'group-update' && ga.method).toBe('mesh');
     if (ga?.type === 'group-update') expect(ga.members).toEqual([a.data.userId]);
@@ -504,9 +520,7 @@ describe('createWebSocketHandler — SFU grouping', () => {
       tracks: [{ kind: 'cam', trackName: 'a-cam' }],
     });
     const b = joinAt(550, 550, 'meeting-1');
-    const dir = b.sent.find(
-      (m) => m.type === 'sfu-peer-tracks' && m.userId === a.data.userId,
-    );
+    const dir = b.sent.find((m) => m.type === 'sfu-peer-tracks' && m.userId === a.data.userId);
     expect(dir).toBeDefined();
   });
 });
@@ -539,7 +553,12 @@ describe('createWebSocketHandler — chat', () => {
 
     const chatOf = (ws: FakeWs) => ws.sent.find((m) => m.type === 'chat');
     // Sender sees their own echo.
-    expect(chatOf(a)).toMatchObject({ type: 'chat', from: a.data.userId, name: 'U', text: 'hello' });
+    expect(chatOf(a)).toMatchObject({
+      type: 'chat',
+      from: a.data.userId,
+      name: 'U',
+      text: 'hello',
+    });
     // Nearby peer receives it.
     expect(chatOf(near)).toMatchObject({ type: 'chat', from: a.data.userId, text: 'hello' });
     // Distant peer does not.
@@ -577,7 +596,7 @@ describe('createWebSocketHandler — reaction', () => {
 
     deliver(handler, a, { type: 'reaction', emoji: '👍' });
 
-    const reaction = { type: 'reaction', userId: a.data.userId, emoji: '👍' };
+    const reaction = { type: 'reaction' as const, userId: a.data.userId, emoji: '👍' };
     // Sender sees their own bubble (no exceptUserId), and the peer sees it too.
     expect(a.sent).toContainEqual(reaction);
     expect(b.sent).toContainEqual(reaction);

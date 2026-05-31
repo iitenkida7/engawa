@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { composeStatusNote, orderRoster } from '@/ui/roster';
 import { formatUntil } from '@/core/types';
+import { composeStatusNote, orderRoster } from '@/ui/roster';
 
 const P = (userId: string, name: string) => ({ userId, name });
 

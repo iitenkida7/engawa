@@ -75,7 +75,10 @@ const screen = (aspect = 16 / 9): LayoutItem => ({ aspectLocked: false, aspect }
 // Resolve a geometry to a concrete bounding box. Aspect-locked windows carry a
 // null height (CSS derives it from width), so reconstruct the full window height
 // the same way the DOM would: header + width / aspect.
-function box(g: { left: number; top: number; width: number; height: number | null }, item: LayoutItem) {
+function box(
+  g: { left: number; top: number; width: number; height: number | null },
+  item: LayoutItem,
+) {
   const height = g.height ?? PANEL_HEADER + g.width / item.aspect;
   return { x: g.left, y: g.top, w: g.width, h: height };
 }
@@ -85,12 +88,21 @@ function overlaps(a: ReturnType<typeof box>, b: ReturnType<typeof box>): boolean
 }
 
 // The usable area presets/arrange share, for containment checks.
-const AREA = { left: PANEL_MARGIN, top: PANEL_MARGIN, right: VW - PANEL_MARGIN, bottom: VH - PANEL_BOTTOM_RESERVED };
+const AREA = {
+  left: PANEL_MARGIN,
+  top: PANEL_MARGIN,
+  right: VW - PANEL_MARGIN,
+  bottom: VH - PANEL_BOTTOM_RESERVED,
+};
 
 function withinArea(b: ReturnType<typeof box>): boolean {
   // Allow a 1px slack for rounding.
-  return b.x >= AREA.left - 1 && b.y >= AREA.top - 1 &&
-    b.x + b.w <= AREA.right + 1 && b.y + b.h <= AREA.bottom + 1;
+  return (
+    b.x >= AREA.left - 1 &&
+    b.y >= AREA.top - 1 &&
+    b.x + b.w <= AREA.right + 1 &&
+    b.y + b.h <= AREA.bottom + 1
+  );
 }
 
 describe('computeGridLayout', () => {

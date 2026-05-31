@@ -1,8 +1,8 @@
 import type { ServerWebSocket } from 'bun';
-import { createWebSocketHandler } from './websocket';
+import { isAllowedSessionPath, isSfuEnabled, proxySfuRequest } from './sfu';
 import { getTurnCredentials } from './turn';
-import { isSfuEnabled, isAllowedSessionPath, proxySfuRequest } from './sfu';
 import type { WsData } from './types';
+import { createWebSocketHandler } from './websocket';
 
 const clients = new Map<string, ServerWebSocket<WsData>>();
 const PUBLIC_DIR = './public';
@@ -85,7 +85,7 @@ const server = Bun.serve({
     }
     // SPA fallback to index.html (in case client uses any client-side routing)
     const indexFile = Bun.file(`${PUBLIC_DIR}/index.html`);
-    if (await indexFile.exists() && !reqPath.includes('.')) {
+    if ((await indexFile.exists()) && !reqPath.includes('.')) {
       return new Response(indexFile);
     }
     return new Response('Not Found', { status: 404 });

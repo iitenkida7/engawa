@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { MAP_HEIGHT, MAP_WIDTH } from '@/core/types';
 import { worldFromScreen } from '@/world/canvas';
-import { MAP_WIDTH, MAP_HEIGHT } from '@/core/types';
 
 describe('worldFromScreen', () => {
   const view = { w: 800, h: 600 };

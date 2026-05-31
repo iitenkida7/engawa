@@ -1,33 +1,36 @@
-import {
-  MAP_WIDTH,
-  MAP_HEIGHT,
-  PLAYER_RADIUS,
-  CONNECT_RADIUS,
-  REACTION_LIFETIME_MS,
-  ZOOM_MIN,
-  ZOOM_MAX,
-  ZOOM_STEP,
-} from '@/core/types';
-import type { PlayerState } from '@/world/player';
 import type { Point } from '@/core/proximity';
 import {
-  TILE_SIZE,
+  CONNECT_RADIUS,
+  MAP_HEIGHT,
+  MAP_WIDTH,
+  PLAYER_RADIUS,
+  REACTION_LIFETIME_MS,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  ZOOM_STEP,
+} from '@/core/types';
+import { CELL, floorKindAt, propFor } from '@/world/decor';
+import type { PlayerState } from '@/world/player';
+import { SpriteSheet } from '@/world/sprites';
+import {
   MAP_COLS,
   MAP_ROWS,
   officeMap,
-  TILE_FILL,
   TILE_BORDER,
+  TILE_FILL,
+  TILE_SIZE,
   Tile,
   ZONES,
   zoneAt,
 } from '@/world/tilemap';
-import { SpriteSheet } from '@/world/sprites';
-import { CELL, floorKindAt, propFor } from '@/world/decor';
 
 // Emoji shown as the avatar status badge, matching the toolbar menu labels.
 // `online` has no badge.
 const STATUS_BADGE: Record<string, string> = {
-  busy: '🔴', away: '🟡', meeting: '🤝', break: '☕',
+  busy: '🔴',
+  away: '🟡',
+  meeting: '🤝',
+  break: '☕',
 };
 
 // Max chars of the status one-liner shown above an avatar (#85); longer notes
@@ -324,7 +327,8 @@ export class CanvasRenderer {
         // ...then the prop on top, if this tile carries one.
         const prop = propFor(tile);
         if (prop === 'desk') this.sheet.draw(cx, CELL.desk[0], CELL.desk[1], tx, ty, TILE_SIZE);
-        else if (prop === 'plant') this.sheet.draw(cx, CELL.plant[0], CELL.plant[1], tx, ty, TILE_SIZE);
+        else if (prop === 'plant')
+          this.sheet.draw(cx, CELL.plant[0], CELL.plant[1], tx, ty, TILE_SIZE);
       }
     }
 
@@ -335,8 +339,12 @@ export class CanvasRenderer {
 
     // Corner vignette for a touch of depth.
     const g = cx.createRadialGradient(
-      MAP_WIDTH / 2, MAP_HEIGHT / 2, Math.min(MAP_WIDTH, MAP_HEIGHT) * 0.35,
-      MAP_WIDTH / 2, MAP_HEIGHT / 2, Math.max(MAP_WIDTH, MAP_HEIGHT) * 0.6,
+      MAP_WIDTH / 2,
+      MAP_HEIGHT / 2,
+      Math.min(MAP_WIDTH, MAP_HEIGHT) * 0.35,
+      MAP_WIDTH / 2,
+      MAP_HEIGHT / 2,
+      Math.max(MAP_WIDTH, MAP_HEIGHT) * 0.6,
     );
     g.addColorStop(0, 'rgba(0,0,0,0)');
     g.addColorStop(1, 'rgba(0,0,0,0.28)');
@@ -363,7 +371,13 @@ export class CanvasRenderer {
 
   // The original flat per-tile rendering, used only until the sprite sheet
   // loads (or if it fails to). Visible-range culled, matching the old behaviour.
-  private drawTilesFallback(ctx: CanvasRenderingContext2D, camX: number, camY: number, w: number, h: number) {
+  private drawTilesFallback(
+    ctx: CanvasRenderingContext2D,
+    camX: number,
+    camY: number,
+    w: number,
+    h: number,
+  ) {
     const startCol = Math.max(0, Math.floor(camX / TILE_SIZE));
     const endCol = Math.min(MAP_COLS - 1, Math.floor((camX + w) / TILE_SIZE));
     const startRow = Math.max(0, Math.floor(camY / TILE_SIZE));
@@ -405,7 +419,11 @@ export class CanvasRenderer {
     ctx.strokeRect(0, 0, MAP_WIDTH, MAP_HEIGHT);
   }
 
-  private drawZone(ctx: CanvasRenderingContext2D, zone: { name: string; x: number; y: number; w: number; h: number }, active: boolean) {
+  private drawZone(
+    ctx: CanvasRenderingContext2D,
+    zone: { name: string; x: number; y: number; w: number; h: number },
+    active: boolean,
+  ) {
     // Frame: brighter when self is inside so "in this room" is obvious.
     ctx.save();
     ctx.strokeStyle = active ? 'rgba(79,140,255,0.9)' : 'rgba(79,140,255,0.4)';

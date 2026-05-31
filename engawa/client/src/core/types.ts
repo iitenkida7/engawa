@@ -23,7 +23,14 @@ export type ClientMessage =
   // `note` is an optional free-text one-liner ("ランチ"); `until` is an optional
   // return time as absolute epoch ms (null = none). Both ride the existing
   // status sync (#85); the server relays them without storing.
-  | { type: 'status'; status: PlayerStatus; isMuted: boolean; isVideoOn: boolean; note?: string; until?: number | null }
+  | {
+      type: 'status';
+      status: PlayerStatus;
+      isMuted: boolean;
+      isVideoOn: boolean;
+      note?: string;
+      until?: number | null;
+    }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
   // A chat line, relayed to the sender's current proximity group (the people
@@ -44,7 +51,15 @@ export type ServerMessage =
   | { type: 'welcome'; self: Player; players: Player[]; bootId: string; sfuEnabled: boolean }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
-  | { type: 'player-status'; userId: string; status: PlayerStatus; isMuted: boolean; isVideoOn: boolean; note?: string; until?: number | null }
+  | {
+      type: 'player-status';
+      userId: string;
+      status: PlayerStatus;
+      isMuted: boolean;
+      isVideoOn: boolean;
+      note?: string;
+      until?: number | null;
+    }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
   | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' }

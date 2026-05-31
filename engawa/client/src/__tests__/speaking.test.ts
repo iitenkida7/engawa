@@ -18,9 +18,15 @@ describe('isLoud', () => {
     // one loud bin (255) but the rest silent → average 255/4 ≈ 63.75 > 15
     expect(isLoud(new Uint8Array([255, 0, 0, 0]))).toBe(true);
     // one loud bin spread across many silent bins → average drops below threshold
-    expect(isLoud(new Uint8Array(Array(32).fill(0).map((_, i) => (i === 0 ? 255 : 0))))).toBe(
-      false,
-    );
+    expect(
+      isLoud(
+        new Uint8Array(
+          Array(32)
+            .fill(0)
+            .map((_, i) => (i === 0 ? 255 : 0)),
+        ),
+      ),
+    ).toBe(false);
   });
 
   it('is false for an empty buffer (no audio data yet)', () => {

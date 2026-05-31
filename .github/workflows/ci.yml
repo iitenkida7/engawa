@@ -24,8 +24,11 @@ jobs:
       - name: Install dependencies
         run: make install
 
-      - name: Build (type-check + bundle the client)
+      - name: Build (type-check server + client, bundle the client)
         run: make build
+
+      - name: Lint (Biome — server + client)
+        run: make lint
 
       - name: Run test suites (server + client)
         run: make test

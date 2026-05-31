@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { reactionAnim, truncateNote } from '@/world/canvas';
 import { REACTION_LIFETIME_MS } from '@/core/types';
+import { reactionAnim, truncateNote } from '@/world/canvas';
 
 describe('truncateNote', () => {
   it('keeps a short note as-is, trimmed', () => {
