@@ -126,6 +126,16 @@ export const SFU_PROMOTE_AT = 5;
 // Connect radius (px) for the open-floor proximity graph. Mirrors the client's
 // CONNECT_RADIUS so the server's grouping matches what users see on the map.
 export const PROXIMITY_CONNECT_RADIUS = 120;
+// Disconnect radius (px) for the open-floor proximity graph. Hysteresis is
+// applied at the GROUP level (not per-pair): an edge survives out to this larger
+// distance when the two members were in the same group last tick, so members
+// near the boundary don't flap in and out of a group. New edges still only form
+// at the connect radius. NOTE this is group-scoped, so it differs subtly from a
+// per-pair rule — a pair that was only ever *transitively* connected (a chain
+// A–B–C, never A–C directly) can keep an A–C edge out to this radius once they
+// remain co-grouped. That is intentional under the "whole group meshes" model
+// (a latecomer connects to every member, not just nearby ones).
+export const PROXIMITY_DISCONNECT_RADIUS = 150;
 
 export type GroupMember = {
   userId: string;
@@ -146,16 +156,6 @@ export type ProximityGroup = {
   isMeeting: boolean;
 };
 
-// Two members share a proximity-graph edge iff: both stand in the same meeting
-// room (distance ignored), or both are on the open floor within `radius`.
-// Room-vs-floor and different-room pairs never connect.
-function membersConnected(a: GroupMember, b: GroupMember, radius: number): boolean {
-  if (a.zoneId !== null || b.zoneId !== null) {
-    return a.zoneId !== null && a.zoneId === b.zoneId;
-  }
-  return Math.hypot(b.x - a.x, b.y - a.y) <= radius;
-}
-
 function sharesAnyMember(ids: string[], set: Set<string>): boolean {
   return ids.some((id) => set.has(id));
 }
@@ -169,6 +169,13 @@ function sharesAnyMember(ids: string[], set: Set<string>): boolean {
  * @param opts.prevSfuMemberSets member-id lists of the previous tick's
  *   *open-floor* SFU groups, used to latch promotion (shrinking keeps SFU).
  *   Meeting-room groups must NOT be passed here (use sfuLatchSeeds()).
+ * @param opts.disconnectRadius open-floor hysteresis distance. Defaults to
+ *   connectRadius (no hysteresis); pass PROXIMITY_DISCONNECT_RADIUS together
+ *   with prevGroupMemberSets to keep an already-grouped pair connected out to it.
+ * @param opts.prevGroupMemberSets member-id lists of the previous tick's groups
+ *   (all of them), used so an existing open-floor edge survives out to
+ *   disconnectRadius instead of breaking the instant a member drifts past
+ *   connectRadius.
  */
 export function computeProximityGroups(
   members: GroupMember[],
@@ -176,12 +183,40 @@ export function computeProximityGroups(
     sfuEnabled: boolean;
     prevSfuMemberSets?: string[][];
     connectRadius?: number;
+    disconnectRadius?: number;
     promoteAt?: number;
+    prevGroupMemberSets?: string[][];
   },
 ): ProximityGroup[] {
-  const radius = opts.connectRadius ?? PROXIMITY_CONNECT_RADIUS;
+  const connectRadius = opts.connectRadius ?? PROXIMITY_CONNECT_RADIUS;
+  const disconnectRadius = opts.disconnectRadius ?? connectRadius;
   const promoteAt = opts.promoteAt ?? SFU_PROMOTE_AT;
   const prevSfu = (opts.prevSfuMemberSets ?? []).map((set) => new Set(set));
+
+  // Map each member to the index of the group it was in last tick, so an
+  // open-floor edge can apply hysteresis: a pair that was already together stays
+  // connected out to disconnectRadius (prevents flapping at the boundary).
+  const prevGroupOf = new Map<string, number>();
+  (opts.prevGroupMemberSets ?? []).forEach((ids, i) => {
+    for (const id of ids) prevGroupOf.set(id, i);
+  });
+  const wereTogether = (aId: string, bId: string): boolean => {
+    const ga = prevGroupOf.get(aId);
+    return ga !== undefined && ga === prevGroupOf.get(bId);
+  };
+
+  // Two members share a proximity-graph edge iff: both stand in the same meeting
+  // room (distance ignored), or both are on the open floor within the connect
+  // radius — or within the (larger) disconnect radius if they were already in
+  // the same group last tick. Room-vs-floor and different-room pairs never connect.
+  const membersConnected = (a: GroupMember, b: GroupMember): boolean => {
+    if (a.zoneId !== null || b.zoneId !== null) {
+      return a.zoneId !== null && a.zoneId === b.zoneId;
+    }
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    if (d <= connectRadius) return true;
+    return d <= disconnectRadius && wereTogether(a.userId, b.userId);
+  };
 
   // Union-find over the proximity graph.
   const n = members.length;
@@ -198,7 +233,7 @@ export function computeProximityGroups(
   };
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
-      if (membersConnected(members[i], members[j], radius)) {
+      if (membersConnected(members[i], members[j])) {
         parent[find(i)] = find(j);
       }
     }

@@ -159,6 +159,12 @@ export class WebRtcManager {
     return this.peers.has(remoteUserId);
   }
 
+  // Ids of the currently connected mesh peers. The App reconciles this against
+  // its server-assigned group membership to open/close peers.
+  peerIds(): string[] {
+    return [...this.peers.keys()];
+  }
+
   // Number of currently connected proximity peers (the mesh degree). The App
   // feeds this to computeCamEncoding / computeScreenEncoding to decide throttling.
   get peerCount(): number {
