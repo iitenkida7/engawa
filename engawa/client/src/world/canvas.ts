@@ -469,15 +469,12 @@ export class CanvasRenderer {
       ctx.stroke();
     }
 
-    // shadow
+    // Feet planting point for the sprite. No foot decoration (shadow / self ring
+    // / speaking ring) is drawn here — removed by request as visual clutter.
     const footY = p.y + PLAYER_RADIUS + 2;
-    ctx.beginPath();
-    ctx.ellipse(p.x, footY, PLAYER_RADIUS * 0.8, 4, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fill();
 
-    // Composited avatar sprite (#141). Feet planted on the shadow. Falls back to
-    // the original colored circle + initials until the sprite layers load.
+    // Composited avatar sprite (#141). Falls back to the original colored circle
+    // + initials until the sprite layers load.
     const drewSprite = this.characters.draw(
       ctx,
       p.outfit,
@@ -487,12 +484,7 @@ export class CanvasRenderer {
       footY,
       SPRITE_SCALE,
     );
-    if (drewSprite) {
-      // Base rings replace the circle's border/ring: green while speaking, else
-      // a blue ring under self — read as a glow at the feet, not across the body.
-      if (p.isSpeaking) this.footRing(ctx, p.x, footY, 'rgba(80,220,120,0.9)');
-      else if (p.isSelf) this.footRing(ctx, p.x, footY, 'rgba(79,140,255,0.9)');
-    } else {
+    if (!drewSprite) {
       // body circle
       ctx.beginPath();
       ctx.arc(p.x, p.y, PLAYER_RADIUS, 0, Math.PI * 2);
@@ -533,8 +525,13 @@ export class CanvasRenderer {
       ctx.fillText(badge, bx, by);
     }
 
-    // name label
+    // name label. Set alignment explicitly: the background rect is centered on
+    // p.x, but ctx.textAlign/textBaseline carry over from earlier draws (default
+    // 'start'/'alphabetic' when a sprite is drawn and no status badge ran), which
+    // would shift the text off the rect.
     ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     const label = p.name + (p.isSharingScreen ? '  🖥' : '');
     const m = ctx.measureText(label);
     const padX = 6;
@@ -563,16 +560,6 @@ export class CanvasRenderer {
       ctx.fillStyle = '#ffe7a3';
       ctx.fillText(note, p.x, ny + nlh / 2 + 1);
     }
-  }
-
-  // A thin ellipse ring at the avatar's feet — the sprite-mode equivalent of the
-  // circle's border/speaking ring (self = blue, speaking = green).
-  private footRing(ctx: CanvasRenderingContext2D, x: number, footY: number, color: string) {
-    ctx.beginPath();
-    ctx.ellipse(x, footY, PLAYER_RADIUS * 0.9, 5, 0, 0, Math.PI * 2);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.stroke();
   }
 
   private roundRect(
