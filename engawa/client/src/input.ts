@@ -3,6 +3,7 @@ export class InputManager {
 
   constructor() {
     window.addEventListener('keydown', (e) => {
+      if (this.isTextInput(e.target)) return;
       const key = e.key.toLowerCase();
       if (this.isMovementKey(key)) {
         this.keys.add(key);
@@ -10,9 +11,16 @@ export class InputManager {
       }
     });
     window.addEventListener('keyup', (e) => {
+      if (this.isTextInput(e.target)) return;
       this.keys.delete(e.key.toLowerCase());
     });
     window.addEventListener('blur', () => this.keys.clear());
+  }
+
+  private isTextInput(target: EventTarget | null): boolean {
+    if (!target || !(target instanceof HTMLElement)) return false;
+    const tag = target.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable;
   }
 
   private isMovementKey(k: string) {
