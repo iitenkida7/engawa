@@ -3,7 +3,7 @@ import type { PlayerState } from './player';
 import type { RecorderManager } from './recorder';
 import type { RemoteMediaView } from './remote-media';
 import { SceneCompositor } from './compositor';
-import type { PlayerStatus, StreamKind } from './types';
+import type { StreamKind } from './types';
 import {
   BG_PRESETS,
   VBG_OFF,
@@ -13,7 +13,6 @@ import {
   VBG_IMAGE_STORAGE_KEY,
   parseVbgChoice,
   serializeVbgChoice,
-  choiceLabel,
   fileToDownscaledDataUrl,
 } from './vbg';
 
@@ -26,12 +25,14 @@ export interface MediaSink {
   removeLocalStream(stream: MediaStream): void;
 }
 
-// Owns the bottom toolbar: the mic/cam/screen/record buttons, the device and
-// status dropdown menus, and the media orchestration behind each button (enable
-// the device, wire it into WebRTC, update the speaking detector / screenshare
-// stage). Player-state changes that must reach the rest of the app (status
-// broadcast, screenshare flag) are handed back through callbacks so the toolbar
-// never reaches across subsystems itself.
+// Owns the bottom toolbar, trimmed to the core call controls: mic, cam, screen
+// share, record, and a "⋯" overflow menu for low-frequency window-arrange
+// actions. Device selection and virtual-background live in the cam caret menu;
+// status and chat moved to the roster panel (issue #99). Each button also owns
+// the media orchestration behind it (enable the device, wire it into WebRTC,
+// update the screenshare stage). Player-state changes that must reach the rest
+// of the app (status broadcast, screenshare flag) are handed back through
+// callbacks so the toolbar never reaches across subsystems itself.
 export class ToolbarController {
   private media: MediaManager;
   private rtc: MediaSink;
@@ -40,24 +41,14 @@ export class ToolbarController {
   private view: RemoteMediaView;
   private broadcastStatus: () => void;
   private getMe: () => PlayerState | null;
-  private getStatus: () => PlayerStatus;
-  private onSetStatus: (status: PlayerStatus) => void;
 
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
-  private btnBg: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
-  private btnArrangeSmart: HTMLButtonElement;
-  private btnArrangeGrid: HTMLButtonElement;
-  private btnStatus: HTMLButtonElement;
+  private btnMore: HTMLButtonElement;
+  private moreMenu: HTMLDivElement;
   private bgFileInput: HTMLInputElement;
-
-  // Selectable statuses, in menu order, with their toolbar labels.
-  private readonly statusOrder: PlayerStatus[] = ['online', 'busy', 'away', 'meeting', 'break'];
-  private readonly statusLabels: Record<PlayerStatus, string> = {
-    online: '🟢 オンライン', busy: '🔴 取り込み中', away: '🟡 離席中', meeting: '🤝 商談中', break: '☕ 休憩中',
-  };
 
   constructor(opts: {
     media: MediaManager;
@@ -67,8 +58,6 @@ export class ToolbarController {
     view: RemoteMediaView;
     broadcastStatus: () => void;
     getMe: () => PlayerState | null;
-    getStatus: () => PlayerStatus;
-    onSetStatus: (status: PlayerStatus) => void;
   }) {
     this.media = opts.media;
     this.rtc = opts.rtc;
@@ -77,17 +66,13 @@ export class ToolbarController {
     this.view = opts.view;
     this.broadcastStatus = opts.broadcastStatus;
     this.getMe = opts.getMe;
-    this.getStatus = opts.getStatus;
-    this.onSetStatus = opts.onSetStatus;
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
-    this.btnBg = document.getElementById('btn-bg') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
-    this.btnArrangeSmart = document.getElementById('btn-arrange-smart') as HTMLButtonElement;
-    this.btnArrangeGrid = document.getElementById('btn-arrange-grid') as HTMLButtonElement;
-    this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
+    this.btnMore = document.getElementById('btn-more') as HTMLButtonElement;
+    this.moreMenu = document.getElementById('more-menu') as HTMLDivElement;
     this.bgFileInput = document.getElementById('bg-file') as HTMLInputElement;
 
     // OS/browser "stop sharing" routes through the same teardown as the button.
@@ -124,24 +109,17 @@ export class ToolbarController {
     });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
-    // One-shot batch arrange: tidy every open window. These only move/resize
-    // panels — nothing is locked or persisted (windows stay draggable after).
-    this.btnArrangeSmart.addEventListener('click', () => this.view.arrange('smart'));
-    this.btnArrangeGrid.addEventListener('click', () => this.view.arrange('grid'));
   }
 
   refresh() {
     this.btnMic.classList.toggle('active', this.media.micOn);
-    this.btnMic.textContent = this.media.micOn ? '🎤 マイク ON' : '🎤 マイク';
+    this.btnMic.textContent = this.media.micOn ? '🎤 ON' : '🎤 マイク';
     this.btnCam.classList.toggle('active', this.media.camOn);
-    this.btnCam.textContent = this.media.camOn ? '📷 カメラ ON' : '📷 カメラ';
-    this.btnBg.classList.toggle('active', this.media.bgChoice !== VBG_OFF);
-    this.btnBg.textContent = choiceLabel(this.media.bgChoice);
+    this.btnCam.textContent = this.media.camOn ? '📷 ON' : '📷 カメラ';
     this.btnScreen.classList.toggle('active', this.media.screenOn);
     this.btnScreen.textContent = this.media.screenOn ? '🖥 共有中' : '🖥 画面共有';
     this.btnRec.classList.toggle('recording', this.recorder.recording);
     this.btnRec.textContent = this.recorder.recording ? '⏹ 録画停止' : '⏺ 録画';
-    this.btnStatus.textContent = this.statusLabels[this.getStatus()];
   }
 
   // ---- Mic/cam enable & disable flows (shared by toolbar and device switch) ----
@@ -222,53 +200,36 @@ export class ToolbarController {
     this.refresh();
   }
 
-  // ============= Device & status selection =============
+  // ============= Device menus + "more" overflow =============
+  // Mic caret → device list. Cam caret → device list + virtual-background
+  // section. "⋯" → window-arrange actions. All three share one outside-click
+  // handler and a single closeMenus(), mirroring the old toolbar behaviour.
   private setupDeviceMenus() {
     const micMenu = document.getElementById('mic-menu') as HTMLDivElement;
     const camMenu = document.getElementById('cam-menu') as HTMLDivElement;
-    const bgMenu = document.getElementById('bg-menu') as HTMLDivElement;
-    const statusMenu = document.getElementById('status-menu') as HTMLDivElement;
     const btnMicDevices = document.getElementById('btn-mic-devices') as HTMLButtonElement;
     const btnCamDevices = document.getElementById('btn-cam-devices') as HTMLButtonElement;
 
     const closeMenus = () => {
       micMenu.classList.add('hidden');
       camMenu.classList.add('hidden');
-      bgMenu.classList.add('hidden');
-      statusMenu.classList.add('hidden');
+      this.moreMenu.classList.add('hidden');
     };
+    // No stopPropagation on the toggles below: the click bubbles to document so
+    // the roster's status menu (a separate outside-click handler) also closes,
+    // and vice-versa — keeping the two menu groups mutually exclusive. Each
+    // handler is guarded by "t !== its own button", so a toggle never closes
+    // the menu it just opened.
     document.addEventListener('click', (e) => {
       const t = e.target as Node;
       if (!micMenu.contains(t) && t !== btnMicDevices &&
           !camMenu.contains(t) && t !== btnCamDevices &&
-          !bgMenu.contains(t) && t !== this.btnBg &&
-          !statusMenu.contains(t) && t !== this.btnStatus) {
+          !this.moreMenu.contains(t) && t !== this.btnMore) {
         closeMenus();
       }
     });
 
-    this.btnBg.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const open = bgMenu.classList.contains('hidden');
-      closeMenus();
-      if (open) {
-        this.populateBgMenu(bgMenu);
-        bgMenu.classList.remove('hidden');
-      }
-    });
-
-    this.btnStatus.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const open = statusMenu.classList.contains('hidden');
-      closeMenus();
-      if (open) {
-        this.populateStatusMenu(statusMenu);
-        statusMenu.classList.remove('hidden');
-      }
-    });
-
-    btnMicDevices.addEventListener('click', async (e) => {
-      e.stopPropagation();
+    btnMicDevices.addEventListener('click', async () => {
       const open = micMenu.classList.contains('hidden');
       closeMenus();
       if (open) {
@@ -277,14 +238,21 @@ export class ToolbarController {
         micMenu.classList.remove('hidden');
       }
     });
-    btnCamDevices.addEventListener('click', async (e) => {
-      e.stopPropagation();
+    btnCamDevices.addEventListener('click', async () => {
       const open = camMenu.classList.contains('hidden');
       closeMenus();
       if (open) {
-        await this.populateDeviceMenu(camMenu, await this.media.listCams(), this.media.selectedCamId,
-          (id) => this.switchCam(id));
+        await this.populateCamMenu(camMenu);
         camMenu.classList.remove('hidden');
+      }
+    });
+
+    this.btnMore.addEventListener('click', () => {
+      const open = this.moreMenu.classList.contains('hidden');
+      closeMenus();
+      if (open) {
+        this.populateMoreMenu(this.moreMenu);
+        this.moreMenu.classList.remove('hidden');
       }
     });
   }
@@ -320,24 +288,65 @@ export class ToolbarController {
     });
   }
 
-  // Fills the status dropdown, marking the current status, mirroring the
-  // device-menu styling so the toolbar menus look and behave the same.
-  private populateStatusMenu(menu: HTMLDivElement) {
-    menu.replaceChildren();
-    const current = this.getStatus();
-    for (const status of this.statusOrder) {
+  // The cam caret menu: camera device list, then a labelled virtual-background
+  // section (off / blur / presets / custom / upload). Background lives here
+  // since it's a camera setting — its standalone toolbar button was removed.
+  private async populateCamMenu(menu: HTMLDivElement) {
+    await this.populateDeviceMenu(menu, await this.media.listCams(), this.media.selectedCamId,
+      (id) => this.switchCam(id));
+
+    const sep = document.createElement('div');
+    sep.className = 'menu-separator';
+    menu.appendChild(sep);
+    const label = document.createElement('div');
+    label.className = 'menu-label';
+    label.textContent = '背景';
+    menu.appendChild(label);
+
+    const current = this.media.bgChoice;
+    const addBg = (text: string, onPick: () => void, selectedId?: string) => {
       const item = document.createElement('button');
       item.className = 'device-item';
-      const isSelected = status === current;
+      const isSelected = selectedId !== undefined && selectedId === current;
       if (isSelected) item.classList.add('selected');
-      item.textContent = (isSelected ? '✓ ' : '') + this.statusLabels[status];
+      item.textContent = (isSelected ? '✓ ' : '') + text;
       item.addEventListener('click', (e) => {
         e.stopPropagation();
         menu.classList.add('hidden');
-        this.onSetStatus(status);
+        onPick();
       });
       menu.appendChild(item);
+    };
+
+    addBg('🚫 オフ', () => void this.setBackground(VBG_OFF), VBG_OFF);
+    addBg('🌫 ぼかし', () => void this.setBackground(VBG_BLUR), VBG_BLUR);
+    for (const preset of BG_PRESETS) {
+      addBg(preset.label, () => void this.setBackground(preset.id), preset.id);
     }
+    if (this.media.customBgDataUrl) {
+      addBg('🖼 カスタム画像', () => void this.setBackground(VBG_CUSTOM), VBG_CUSTOM);
+    }
+    addBg('📁 画像をアップロード…', () => this.bgFileInput.click());
+  }
+
+  // The "⋯" overflow menu: one-shot batch window-arrange actions. These only
+  // move/resize panels — nothing is locked or persisted (windows stay
+  // draggable after).
+  private populateMoreMenu(menu: HTMLDivElement) {
+    menu.replaceChildren();
+    const addItem = (text: string, onClick: () => void) => {
+      const item = document.createElement('button');
+      item.className = 'device-item';
+      item.textContent = text;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.classList.add('hidden');
+        onClick();
+      });
+      menu.appendChild(item);
+    };
+    addItem('✨ スマート整列', () => this.view.arrange('smart'));
+    addItem('▦ グリッド整列', () => this.view.arrange('grid'));
   }
 
   private async switchMic(deviceId: string) {
@@ -360,36 +369,6 @@ export class ToolbarController {
   }
 
   // ============= Virtual background =============
-  // Builds the background dropdown: off / blur / built-in presets / the stored
-  // custom image (if any) / an "upload" entry that opens the file picker.
-  private populateBgMenu(menu: HTMLDivElement) {
-    menu.replaceChildren();
-    const current = this.media.bgChoice;
-    const addItem = (label: string, onPick: () => void, selectedId?: string) => {
-      const item = document.createElement('button');
-      item.className = 'device-item';
-      const isSelected = selectedId !== undefined && selectedId === current;
-      if (isSelected) item.classList.add('selected');
-      item.textContent = (isSelected ? '✓ ' : '') + label;
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        menu.classList.add('hidden');
-        onPick();
-      });
-      menu.appendChild(item);
-    };
-
-    addItem('🚫 オフ', () => void this.setBackground(VBG_OFF), VBG_OFF);
-    addItem('🌫 ぼかし', () => void this.setBackground(VBG_BLUR), VBG_BLUR);
-    for (const preset of BG_PRESETS) {
-      addItem(preset.label, () => void this.setBackground(preset.id), preset.id);
-    }
-    if (this.media.customBgDataUrl) {
-      addItem('🖼 カスタム画像', () => void this.setBackground(VBG_CUSTOM), VBG_CUSTOM);
-    }
-    addItem('📁 画像をアップロード…', () => this.bgFileInput.click());
-  }
-
   private async setBackground(choice: string) {
     const wasProcessing = this.media.bgChoice !== VBG_OFF;
     this.media.setBgChoice(choice);

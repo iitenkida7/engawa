@@ -266,12 +266,26 @@
         color: #9da3b0;
       }
 
-      /* The status menu sits on the toolbar's right edge, so anchor it right to
-         keep it from overflowing past the viewport. */
-      #status-menu {
+      /* The more menu sits toward the toolbar's right edge; anchor right so it
+         doesn't overflow the viewport. */
+      #more-menu {
         left: auto;
         right: 0;
-        min-width: 160px;
+        min-width: 180px;
+      }
+
+      .device-menu .menu-separator {
+        height: 1px;
+        background: #3a4050;
+        margin: 4px 6px;
+      }
+
+      .device-menu .menu-label {
+        padding: 5px 10px 2px;
+        font-size: 10px;
+        color: #7a8090;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
       }
 
       /* Full-viewport overlay that only acts as a positioning context for the
@@ -513,8 +527,15 @@
         font-size: 11px;
       }
 
-      #roster-toggle {
+      #roster-actions {
         margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+
+      #roster-actions button,
+      #roster-toggle {
         background: transparent;
         border: 0;
         color: #9da3b0;
@@ -525,9 +546,29 @@
         line-height: 1;
       }
 
+      #roster-actions button:hover,
       #roster-toggle:hover {
         background: #353a47;
         color: #e6e8ee;
+      }
+
+      .roster-status-wrap {
+        position: relative;
+        display: flex;
+      }
+
+      /* Status menu: drops down from the roster header instead of upward. */
+      .roster-status-wrap #status-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        bottom: auto;
+        left: auto;
+        min-width: 160px;
+      }
+
+      #roster-toggle {
+        /* no margin-left: the #roster-actions div handles spacing */
       }
 
       #roster-list {
@@ -548,6 +589,7 @@
       }
 
       #roster.collapsed #roster-title,
+      #roster.collapsed #roster-actions,
       #roster.collapsed #roster-list {
         display: none;
       }
@@ -635,22 +677,26 @@
         color: white;
       }
 
-      /* ===== Chat panel (bottom-left, toggled from the toolbar) ===== */
+      /* ===== Chat toggle (in roster header) ===== */
       #btn-chat {
         position: relative;
+      }
+
+      #btn-chat.active {
+        color: #4f8cff;
       }
 
       /* Unread dot when a message arrives while the panel is closed. */
       #btn-chat.has-unread::after {
         content: '';
         position: absolute;
-        top: 3px;
-        right: 3px;
-        width: 8px;
-        height: 8px;
+        top: 0;
+        right: 0;
+        width: 7px;
+        height: 7px;
         border-radius: 50%;
         background: #dc3545;
-        border: 1px solid #1a1d24;
+        border: 1px solid rgba(20, 23, 30, 0.92);
       }
 
       #chat {
@@ -865,6 +911,13 @@
           <span id="roster-icon">👥</span>
           <span id="roster-title">参加者</span>
           <span id="roster-count">0</span>
+          <div id="roster-actions">
+            <button id="btn-chat" title="チャット">💬</button>
+            <div class="roster-status-wrap">
+              <button id="btn-status" title="ステータス">🟢</button>
+              <div id="status-menu" class="device-menu hidden"></div>
+            </div>
+          </div>
           <button id="roster-toggle" title="折りたたむ">⟨</button>
         </div>
         <div id="roster-list"></div>
@@ -877,22 +930,15 @@
         </div>
         <div class="btn-group">
           <button id="btn-cam" title="カメラ">📷 カメラ</button>
-          <button id="btn-cam-devices" class="btn-caret" title="カメラを選択">▾</button>
+          <button id="btn-cam-devices" class="btn-caret" title="カメラ・背景を選択">▾</button>
           <div id="cam-menu" class="device-menu hidden"></div>
-        </div>
-        <div class="btn-group">
-          <button id="btn-bg" title="バーチャル背景">🪄 背景</button>
-          <div id="bg-menu" class="device-menu hidden"></div>
         </div>
         <input id="bg-file" type="file" accept="image/*" class="hidden" />
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" title="録画">⏺ 録画</button>
-        <button id="btn-chat" title="チャット">💬 チャット</button>
-        <button id="btn-arrange-smart" title="スマート整列（共有中はプレゼン型、なければグリッド）">✨ スマート整列</button>
-        <button id="btn-arrange-grid" title="グリッド整列">▦ グリッド整列</button>
         <div class="btn-group">
-          <button id="btn-status" title="ステータス">🟢 オンライン</button>
-          <div id="status-menu" class="device-menu hidden"></div>
+          <button id="btn-more" title="その他">⋯</button>
+          <div id="more-menu" class="device-menu hidden"></div>
         </div>
         <div class="btn-group zoom-group">
           <button id="btn-zoom-in" title="拡大">🔍＋</button>
