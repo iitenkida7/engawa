@@ -8,6 +8,14 @@ import {
   summarizeRtcStats,
 } from '@/rtc/rtcstats';
 import { transformSdpForLowLatency } from '@/rtc/sdp';
+import {
+  chainOp,
+  reconcilePeerTracks,
+  remoteKey,
+  sfuErrorMessage,
+  sfuSessionError,
+  shouldFallbackToMesh,
+} from '@/rtc/sfu-logic';
 
 // Sentinel conn ids for the debug console. The SFU is one PC, so our published
 // tracks aren't per-peer: they go to one synthetic "upstream" conn. Received
@@ -72,8 +80,6 @@ type RemoteEntry = {
   preferredRid: string | null;
 };
 
-const remoteKey = (userId: string, kind: StreamKind) => `${userId}/${kind}`;
-
 export class SfuManager {
   private events: SfuEvents;
 
@@ -124,16 +130,11 @@ export class SfuManager {
   // anything that disappeared (e.g. they turned their camera off).
   setPeerTracks(userId: string, sessionId: string, tracks: SfuTrack[]) {
     this.enqueue(async () => {
-      const desired = new Set(tracks.map((t) => remoteKey(userId, t.kind)));
-      for (const t of tracks) {
-        if (!this.remoteTracks.has(remoteKey(userId, t.kind))) {
-          await this.pullTrack(userId, sessionId, t.kind, t.trackName);
-        }
+      const { toPull, toDrop } = reconcilePeerTracks(userId, tracks, this.remoteTracks.keys());
+      for (const t of toPull) {
+        await this.pullTrack(userId, sessionId, t.kind, t.trackName);
       }
-      for (const key of [...this.remoteTracks.keys()]) {
-        const entry = this.remoteTracks.get(key)!;
-        if (entry.userId === userId && !desired.has(key)) this.dropRemote(key);
-      }
+      for (const key of toDrop) this.dropRemote(key);
     });
   }
 
@@ -235,11 +236,14 @@ export class SfuManager {
   // ─── internals ────────────────────────────────────────────────────────────
 
   private enqueue(op: () => Promise<void>) {
-    this.opChain = this.opChain
-      .then(() => (this.closed ? undefined : op()))
-      .catch((err) => {
+    this.opChain = chainOp(
+      this.opChain,
+      () => this.closed,
+      op,
+      (err) => {
         console.warn('[sfu] op failed', err);
-      });
+      },
+    );
   }
 
   private async ensureIceServers(): Promise<RTCIceServer[]> {
@@ -275,7 +279,7 @@ export class SfuManager {
     });
 
     pc.addEventListener('connectionstatechange', () => {
-      if (pc.connectionState === 'failed' && !this.closed) this.events.onFailed();
+      if (shouldFallbackToMesh(pc.connectionState, this.closed)) this.events.onFailed();
     });
 
     this.pc = pc;
@@ -285,9 +289,9 @@ export class SfuManager {
   private async ensureSession(): Promise<string> {
     if (this.sessionId) return this.sessionId;
     const resp = await this.api<SessionResponse>('/new', 'POST', undefined);
-    if (!resp.sessionId)
-      throw new Error(`sfu: session create failed (${resp.errorDescription ?? 'no id'})`);
-    this.sessionId = resp.sessionId;
+    const err = sfuSessionError(resp);
+    if (err) throw new Error(`sfu: session create failed (${err})`);
+    this.sessionId = resp.sessionId!;
     return this.sessionId;
   }
 
@@ -334,7 +338,8 @@ export class SfuManager {
       sessionDescription: { type: 'offer', sdp: pc.localDescription?.sdp ?? '' },
       tracks: [{ location: 'local', mid: tx.mid, trackName }],
     });
-    if (resp.errorCode) throw new Error(`sfu push: ${resp.errorDescription ?? resp.errorCode}`);
+    const pushErr = sfuErrorMessage(resp);
+    if (pushErr) throw new Error(`sfu push: ${pushErr}`);
     if (resp.sessionDescription) await pc.setRemoteDescription(resp.sessionDescription);
 
     this.localTracks.set(trackName, { kind, trackName, sender: tx.sender, streamId });
@@ -372,7 +377,8 @@ export class SfuManager {
     const resp = await this.api<TracksResponse>(`/${sid}/tracks/new`, 'POST', {
       tracks: [{ location: 'remote', sessionId: theirSessionId, trackName }],
     });
-    if (resp.errorCode) throw new Error(`sfu pull: ${resp.errorDescription ?? resp.errorCode}`);
+    const pullErr = sfuErrorMessage(resp);
+    if (pullErr) throw new Error(`sfu pull: ${pullErr}`);
 
     // Cloudflare returns, in resp.tracks, the mid it assigned this remote track
     // in the offer SDP it just sent us — the same mid the browser exposes on the
@@ -403,8 +409,8 @@ export class SfuManager {
       const reneg = await this.api<TracksResponse>(`/${sid}/renegotiate`, 'PUT', {
         sessionDescription: { type: 'answer', sdp: pc.localDescription?.sdp ?? '' },
       });
-      if (reneg.errorCode)
-        throw new Error(`sfu renegotiate: ${reneg.errorDescription ?? reneg.errorCode}`);
+      const renegErr = sfuErrorMessage(reneg);
+      if (renegErr) throw new Error(`sfu renegotiate: ${renegErr}`);
     }
   }
 
