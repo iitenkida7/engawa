@@ -34,13 +34,9 @@ import { ToolbarController, type MediaSink } from '@/ui/toolbar';
 import { ReloadBanner, evaluateBoot } from '@/core/reload';
 import { ChatPanel } from '@/ui/chat';
 import { Toasts } from '@/ui/notify';
+import { KnockController } from '@/ui/knock';
 import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
 import BackgroundTicker from '@/core/background-ticker?worker';
-
-// A knock can't be re-sent to the same person until this elapses; it also
-// covers the pending window, so you can't spam someone while waiting for a
-// reply. The no-answer timeout matches it: once it fires the cooldown is up too.
-const KNOCK_COOLDOWN_MS = 20000;
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
@@ -64,11 +60,7 @@ export class App {
   private debug: DebugConsole;
   private toasts = new Toasts();
   private sounds = new SoundManager();
-
-  // Knock state (knocker side): target userId → no-answer timeout handle, and
-  // target userId → performance.now() until which a re-knock is suppressed.
-  private pendingKnocks = new Map<string, ReturnType<typeof setTimeout>>();
-  private knockCooldownUntil = new Map<string, number>();
+  private knocks: KnockController;
 
   private myId: string = '';
   private me: PlayerState | null = null;
@@ -201,13 +193,23 @@ export class App {
       getMyId: () => this.myId,
       onFocus: (userId) => this.focusPlayer(userId),
       onGoTo: (userId) => this.goToPlayer(userId),
-      onKnock: (userId) => this.knock(userId),
+      onKnock: (userId) => this.knocks.request(userId),
       getStatus: () => this.myStatus,
       onSetStatus: (status) => this.setStatus(status),
     });
 
     this.chat = new ChatPanel({
       onSend: (text) => this.net.send({ type: 'chat', text }),
+    });
+
+    // Knock (call-request) feature: owns its own pending/cooldown state. App
+    // forwards roster clicks and the knock/knock-reply server messages here.
+    this.knocks = new KnockController({
+      players: this.players,
+      send: (msg) => this.net.send(msg),
+      toasts: this.toasts,
+      sounds: this.sounds,
+      goTo: (userId) => this.goToPlayer(userId),
     });
 
     // Debug console (opened from the toolbar's "⋯" menu): polls the active
@@ -293,70 +295,6 @@ export class App {
     this.moveIndex = 0;
     // Keep them highlighted while walking over so they're easy to spot.
     this.focusedId = userId;
-  }
-
-  // Roster "🔔" button: send a knock (call request) to that player. Throttled
-  // per target (KNOCK_COOLDOWN_MS), which also blocks re-knocking while a reply
-  // is still pending. A local no-answer timer fires if they never respond.
-  private knock(userId: string) {
-    const target = this.players.get(userId);
-    if (!target || target.isSelf) return;
-    const now = performance.now();
-    if (now < (this.knockCooldownUntil.get(userId) ?? 0)) return;
-    this.knockCooldownUntil.set(userId, now + KNOCK_COOLDOWN_MS);
-
-    this.net.send({ type: 'knock', to: userId });
-    this.toasts.info(`${target.name} さんにノックしました…`);
-
-    const timer = setTimeout(() => {
-      this.pendingKnocks.delete(userId);
-      const p = this.players.get(userId);
-      this.toasts.info(`${p?.name ?? '相手'} さんから返事がありませんでした`);
-    }, KNOCK_COOLDOWN_MS);
-    this.pendingKnocks.set(userId, timer);
-  }
-
-  // Someone knocked us: offer an accept/decline toast. Accepting tells them OK
-  // (their client then walks over); 「あとで」 declines politely.
-  private onKnockReceived(fromUserId: string, name: string) {
-    this.sounds.enter();
-    this.toasts.action(
-      `${name} さんが話したがっています`,
-      [
-        {
-          label: '応じる',
-          primary: true,
-          onClick: () => this.net.send({ type: 'knock-reply', to: fromUserId, accept: true }),
-        },
-        {
-          label: 'あとで',
-          onClick: () => this.net.send({ type: 'knock-reply', to: fromUserId, accept: false }),
-        },
-      ],
-      KNOCK_COOLDOWN_MS,
-    );
-  }
-
-  // Reply to a knock we sent. On accept we walk over to them (reusing the
-  // roster's go-to path); on decline we just say so quietly.
-  private onKnockReply(fromUserId: string, name: string, accept: boolean) {
-    this.clearPendingKnock(fromUserId);
-    // Let the knocker try again right away once they've had a reply.
-    this.knockCooldownUntil.delete(fromUserId);
-    if (accept) {
-      this.toasts.info(`${name} さんが応じました。近づきます`);
-      this.goToPlayer(fromUserId);
-    } else {
-      this.toasts.info(`${name} さんは今は手が離せないようです`);
-    }
-  }
-
-  private clearPendingKnock(userId: string) {
-    const timer = this.pendingKnocks.get(userId);
-    if (timer) {
-      clearTimeout(timer);
-      this.pendingKnocks.delete(userId);
-    }
   }
 
   private joinedName = '';
@@ -499,8 +437,7 @@ export class App {
       case 'player-left': {
         this.players.delete(msg.userId);
         if (this.focusedId === msg.userId) this.focusedId = null;
-        this.clearPendingKnock(msg.userId);
-        this.knockCooldownUntil.delete(msg.userId);
+        this.knocks.onPlayerLeft(msg.userId);
         this.rtc.closePeer(msg.userId);
         this.sfu.removePeer(msg.userId);
         this.knownSfuPeers.delete(msg.userId);
@@ -530,11 +467,11 @@ export class App {
         break;
       }
       case 'knock': {
-        this.onKnockReceived(msg.from, msg.name);
+        this.knocks.received(msg.from, msg.name);
         break;
       }
       case 'knock-reply': {
-        this.onKnockReply(msg.from, msg.name, msg.accept);
+        this.knocks.reply(msg.from, msg.name, msg.accept);
         break;
       }
       case 'sfu-peer-tracks': {
