@@ -11,6 +11,7 @@
     "test:run": "bun test"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.35",
     "simple-peer": "^9.11.1"
   },
   "devDependencies": {

@@ -4,6 +4,18 @@ import type { RecorderManager } from './recorder';
 import type { RemoteMediaView } from './remote-media';
 import { SceneCompositor } from './compositor';
 import type { PlayerStatus, StreamKind } from './types';
+import {
+  BG_PRESETS,
+  VBG_OFF,
+  VBG_BLUR,
+  VBG_CUSTOM,
+  VBG_STORAGE_KEY,
+  VBG_IMAGE_STORAGE_KEY,
+  parseVbgChoice,
+  serializeVbgChoice,
+  choiceLabel,
+  fileToDownscaledDataUrl,
+} from './vbg';
 
 // The slice of the media transport the toolbar drives: publishing and
 // unpublishing local tracks. The App passes a router that forwards to whichever
@@ -33,9 +45,13 @@ export class ToolbarController {
 
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
+  private btnBg: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
+  private btnArrangeSmart: HTMLButtonElement;
+  private btnArrangeGrid: HTMLButtonElement;
   private btnStatus: HTMLButtonElement;
+  private bgFileInput: HTMLInputElement;
 
   // Selectable statuses, in menu order, with their toolbar labels.
   private readonly statusOrder: PlayerStatus[] = ['online', 'busy', 'away', 'meeting', 'break'];
@@ -66,13 +82,18 @@ export class ToolbarController {
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
+    this.btnBg = document.getElementById('btn-bg') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
+    this.btnArrangeSmart = document.getElementById('btn-arrange-smart') as HTMLButtonElement;
+    this.btnArrangeGrid = document.getElementById('btn-arrange-grid') as HTMLButtonElement;
     this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
+    this.bgFileInput = document.getElementById('bg-file') as HTMLInputElement;
 
     // OS/browser "stop sharing" routes through the same teardown as the button.
     this.media.onScreenEnded((old) => this.afterScreenStopped(old));
 
+    this.loadBgSettings();
     this.setup();
     this.refresh();
   }
@@ -95,8 +116,18 @@ export class ToolbarController {
       this.broadcastStatus();
     });
     this.setupDeviceMenus();
+    this.bgFileInput.addEventListener('change', () => {
+      const file = this.bgFileInput.files?.[0];
+      // Reset so picking the same file again still fires 'change'.
+      this.bgFileInput.value = '';
+      if (file) void this.onBgFile(file);
+    });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
+    // One-shot batch arrange: tidy every open window. These only move/resize
+    // panels — nothing is locked or persisted (windows stay draggable after).
+    this.btnArrangeSmart.addEventListener('click', () => this.view.arrange('smart'));
+    this.btnArrangeGrid.addEventListener('click', () => this.view.arrange('grid'));
   }
 
   refresh() {
@@ -104,6 +135,8 @@ export class ToolbarController {
     this.btnMic.textContent = this.media.micOn ? '🎤 マイク ON' : '🎤 マイク';
     this.btnCam.classList.toggle('active', this.media.camOn);
     this.btnCam.textContent = this.media.camOn ? '📷 カメラ ON' : '📷 カメラ';
+    this.btnBg.classList.toggle('active', this.media.bgChoice !== VBG_OFF);
+    this.btnBg.textContent = choiceLabel(this.media.bgChoice);
     this.btnScreen.classList.toggle('active', this.media.screenOn);
     this.btnScreen.textContent = this.media.screenOn ? '🖥 共有中' : '🖥 画面共有';
     this.btnRec.classList.toggle('recording', this.recorder.recording);
@@ -193,6 +226,7 @@ export class ToolbarController {
   private setupDeviceMenus() {
     const micMenu = document.getElementById('mic-menu') as HTMLDivElement;
     const camMenu = document.getElementById('cam-menu') as HTMLDivElement;
+    const bgMenu = document.getElementById('bg-menu') as HTMLDivElement;
     const statusMenu = document.getElementById('status-menu') as HTMLDivElement;
     const btnMicDevices = document.getElementById('btn-mic-devices') as HTMLButtonElement;
     const btnCamDevices = document.getElementById('btn-cam-devices') as HTMLButtonElement;
@@ -200,14 +234,26 @@ export class ToolbarController {
     const closeMenus = () => {
       micMenu.classList.add('hidden');
       camMenu.classList.add('hidden');
+      bgMenu.classList.add('hidden');
       statusMenu.classList.add('hidden');
     };
     document.addEventListener('click', (e) => {
       const t = e.target as Node;
       if (!micMenu.contains(t) && t !== btnMicDevices &&
           !camMenu.contains(t) && t !== btnCamDevices &&
+          !bgMenu.contains(t) && t !== this.btnBg &&
           !statusMenu.contains(t) && t !== this.btnStatus) {
         closeMenus();
+      }
+    });
+
+    this.btnBg.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = bgMenu.classList.contains('hidden');
+      closeMenus();
+      if (open) {
+        this.populateBgMenu(bgMenu);
+        bgMenu.classList.remove('hidden');
       }
     });
 
@@ -311,5 +357,87 @@ export class ToolbarController {
     this.stopCam();
     await this.startCam();
     this.broadcastStatus();
+  }
+
+  // ============= Virtual background =============
+  // Builds the background dropdown: off / blur / built-in presets / the stored
+  // custom image (if any) / an "upload" entry that opens the file picker.
+  private populateBgMenu(menu: HTMLDivElement) {
+    menu.replaceChildren();
+    const current = this.media.bgChoice;
+    const addItem = (label: string, onPick: () => void, selectedId?: string) => {
+      const item = document.createElement('button');
+      item.className = 'device-item';
+      const isSelected = selectedId !== undefined && selectedId === current;
+      if (isSelected) item.classList.add('selected');
+      item.textContent = (isSelected ? '✓ ' : '') + label;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.classList.add('hidden');
+        onPick();
+      });
+      menu.appendChild(item);
+    };
+
+    addItem('🚫 オフ', () => void this.setBackground(VBG_OFF), VBG_OFF);
+    addItem('🌫 ぼかし', () => void this.setBackground(VBG_BLUR), VBG_BLUR);
+    for (const preset of BG_PRESETS) {
+      addItem(preset.label, () => void this.setBackground(preset.id), preset.id);
+    }
+    if (this.media.customBgDataUrl) {
+      addItem('🖼 カスタム画像', () => void this.setBackground(VBG_CUSTOM), VBG_CUSTOM);
+    }
+    addItem('📁 画像をアップロード…', () => this.bgFileInput.click());
+  }
+
+  private async setBackground(choice: string) {
+    const wasProcessing = this.media.bgChoice !== VBG_OFF;
+    this.media.setBgChoice(choice);
+    this.persistBgSettings();
+    this.refresh();
+    if (!this.media.camOn) return;
+
+    const nowProcessing = choice !== VBG_OFF;
+    // Switching among blur/preset/custom while a processor is already running:
+    // update in place, keeping the same RTC track (no renegotiation, no
+    // status re-broadcast).
+    if (wasProcessing && nowProcessing && this.media.bgActive) {
+      this.media.updateBackground();
+      return;
+    }
+    // Crossing the on/off boundary swaps the camera track, so re-acquire just
+    // like a device switch.
+    this.stopCam();
+    await this.startCam();
+    this.broadcastStatus();
+  }
+
+  private async onBgFile(file: File) {
+    try {
+      const dataUrl = await fileToDownscaledDataUrl(file);
+      await this.media.setCustomBgImage(dataUrl);
+      this.persistBgSettings();
+      await this.setBackground(VBG_CUSTOM);
+    } catch (e) {
+      alert('画像を読み込めません: ' + (e as Error).message);
+    }
+  }
+
+  // Restore the persisted background choice + custom image on startup. Applied
+  // lazily: it takes effect the next time the camera is enabled.
+  private loadBgSettings() {
+    const storedImage = localStorage.getItem(VBG_IMAGE_STORAGE_KEY);
+    if (storedImage) void this.media.setCustomBgImage(storedImage);
+    const choice = parseVbgChoice(localStorage.getItem(VBG_STORAGE_KEY), !!storedImage);
+    this.media.setBgChoice(choice);
+  }
+
+  private persistBgSettings() {
+    localStorage.setItem(VBG_STORAGE_KEY, serializeVbgChoice(this.media.bgChoice));
+    if (this.media.customBgDataUrl) {
+      localStorage.setItem(VBG_IMAGE_STORAGE_KEY, this.media.customBgDataUrl);
+    } else {
+      localStorage.removeItem(VBG_IMAGE_STORAGE_KEY);
+    }
   }
 }
