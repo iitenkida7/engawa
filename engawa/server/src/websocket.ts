@@ -14,6 +14,8 @@ import {
   isAllowedReaction,
   normalizeChatText,
   normalizeName,
+  normalizeStatusNote,
+  normalizeUntil,
   normalizeWorkspace,
   parseWorkspacePasswords,
   PROXIMITY_DISCONNECT_RADIUS,
@@ -235,6 +237,8 @@ export function createWebSocketHandler(
               status: msg.status,
               isMuted: msg.isMuted,
               isVideoOn: msg.isVideoOn,
+              note: normalizeStatusNote(msg.note),
+              until: normalizeUntil(msg.until),
             },
             ws.data.userId,
           );

@@ -85,6 +85,13 @@ export class App {
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
   private myStatus: PlayerStatus = 'online';
+  // Status one-liner and return time (#85). `myUntil` is an absolute epoch ms
+  // (null = none); `myUntilMin` is the chosen preset in minutes, kept so the
+  // status menu can re-highlight it. A timer auto-returns to online at `myUntil`.
+  private myNote = '';
+  private myUntil: number | null = null;
+  private myUntilMin: number | null = null;
+  private untilTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Server-driven transport for our current proximity group. 'mesh' uses the
   // per-peer WebRtcManager; 'sfu' routes everything through Cloudflare Realtime
@@ -198,7 +205,9 @@ export class App {
       onGoTo: (userId) => this.goToPlayer(userId),
       onKnock: (userId) => this.knocks.request(userId),
       getStatus: () => this.myStatus,
-      onSetStatus: (status) => this.setStatus(status),
+      getNote: () => this.myNote,
+      getUntilMin: () => this.myUntilMin,
+      onSetStatus: (status, note, untilMin) => this.setStatus(status, note, untilMin),
     });
 
     this.chat = new ChatPanel({
@@ -448,6 +457,8 @@ export class App {
         const p = this.players.get(msg.userId);
         if (p) {
           p.status = msg.status;
+          p.note = msg.note ?? '';
+          p.until = msg.until ?? null;
           p.isMuted = msg.isMuted;
           p.isVideoOn = msg.isVideoOn;
           this.view.setTileMuted(msg.userId, msg.isMuted);
@@ -726,6 +737,8 @@ export class App {
   private broadcastStatus() {
     if (!this.me) return;
     this.me.status = this.myStatus;
+    this.me.note = this.myNote;
+    this.me.until = this.myUntil;
     this.me.isMuted = !this.media.micOn;
     this.me.isVideoOn = this.media.camOn;
     this.net.send({
@@ -733,14 +746,40 @@ export class App {
       status: this.myStatus,
       isMuted: !this.media.micOn,
       isVideoOn: this.media.camOn,
+      note: this.myNote,
+      until: this.myUntil,
     });
   }
 
-  private setStatus(status: PlayerStatus) {
-    if (this.myStatus === status) return;
+  // Set status plus optional one-liner and return time (#85). `untilMin` is a
+  // preset in minutes (null = no time); it's resolved to an absolute epoch ms so
+  // every peer shows the same clock target. A timer flips us back to online when
+  // the time arrives. No-ops only when status, note, and time all match.
+  private setStatus(status: PlayerStatus, note = '', untilMin: number | null = null) {
+    const until = untilMin == null ? null : Date.now() + untilMin * 60_000;
+    if (this.myStatus === status && this.myNote === note && this.myUntilMin === untilMin) return;
     this.myStatus = status;
+    this.myNote = note;
+    this.myUntil = until;
+    this.myUntilMin = untilMin;
     this.broadcastStatus();
     this.roster.refreshStatus();
+    this.scheduleAutoReturn();
+  }
+
+  // (Re)arm the auto-return-to-online timer for the current `myUntil`. Cleared
+  // and reset on every status change; on fire it broadcasts online with no note.
+  private scheduleAutoReturn() {
+    if (this.untilTimer != null) {
+      clearTimeout(this.untilTimer);
+      this.untilTimer = null;
+    }
+    if (this.myUntil == null) return;
+    const delay = Math.max(0, this.myUntil - Date.now());
+    this.untilTimer = setTimeout(() => {
+      this.untilTimer = null;
+      this.setStatus('online');
+    }, delay);
   }
 
   // Apply a server group-update: the server is the single source of truth for

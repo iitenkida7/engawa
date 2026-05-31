@@ -12,6 +12,9 @@ import {
   normalizeIceServers,
   isAllowedReaction,
   normalizeName,
+  normalizeStatusNote,
+  normalizeUntil,
+  STATUS_NOTE_MAX_LENGTH,
   normalizeWorkspace,
   parseWorkspacePasswords,
   REACTION_EMOJIS,
@@ -117,6 +120,38 @@ describe('normalizeChatText', () => {
   test('caps length at CHAT_MAX_LENGTH', () => {
     const long = 'a'.repeat(CHAT_MAX_LENGTH + 50);
     expect(normalizeChatText(long)).toHaveLength(CHAT_MAX_LENGTH);
+  });
+});
+
+describe('normalizeStatusNote', () => {
+  test('trims and keeps the note', () => {
+    expect(normalizeStatusNote('  ランチ  ')).toBe('ランチ');
+  });
+
+  test('returns empty for non-string or empty input', () => {
+    expect(normalizeStatusNote(undefined)).toBe('');
+    expect(normalizeStatusNote(42)).toBe('');
+    expect(normalizeStatusNote('   ')).toBe('');
+  });
+
+  test('caps length at STATUS_NOTE_MAX_LENGTH', () => {
+    const long = 'あ'.repeat(STATUS_NOTE_MAX_LENGTH + 10);
+    expect(normalizeStatusNote(long)).toHaveLength(STATUS_NOTE_MAX_LENGTH);
+  });
+});
+
+describe('normalizeUntil', () => {
+  test('passes through a finite positive epoch ms', () => {
+    expect(normalizeUntil(1893456000000)).toBe(1893456000000);
+  });
+
+  test('rejects non-numbers, non-finite, and non-positive values', () => {
+    expect(normalizeUntil(undefined)).toBeNull();
+    expect(normalizeUntil('soon')).toBeNull();
+    expect(normalizeUntil(Number.NaN)).toBeNull();
+    expect(normalizeUntil(Infinity)).toBeNull();
+    expect(normalizeUntil(0)).toBeNull();
+    expect(normalizeUntil(-5)).toBeNull();
   });
 });
 

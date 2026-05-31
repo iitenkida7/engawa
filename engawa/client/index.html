@@ -602,6 +602,67 @@
         z-index: 1100;
       }
 
+      /* Status one-liner + return-time draft fields (#85), above the status list. */
+      .status-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 4px 6px;
+      }
+
+      .status-field-label {
+        font-size: 11px;
+        color: #9da3b0;
+      }
+
+      .status-note-input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #3a4050;
+        background: #1c2027;
+        color: #e6e8ee;
+        font-size: 12px;
+      }
+
+      .status-note-input:focus {
+        outline: none;
+        border-color: #4f8cff;
+      }
+
+      .status-until-row {
+        display: flex;
+        gap: 4px;
+      }
+
+      .status-until-btn {
+        flex: 1;
+        padding: 5px 0;
+        border-radius: 6px;
+        border: 1px solid #3a4050;
+        background: #2a2f3a;
+        color: #e6e8ee;
+        font-size: 11px;
+        cursor: pointer;
+      }
+
+      .status-until-btn:hover {
+        background: #353a47;
+      }
+
+      .status-until-btn.selected {
+        border-color: #4f8cff;
+        color: #4f8cff;
+        font-weight: 600;
+      }
+
+      .status-divider {
+        height: 1px;
+        margin: 4px 6px;
+        background: #3a4050;
+      }
+
       #roster-list {
         overflow-y: auto;
         padding: 4px;
@@ -663,12 +724,34 @@
         flex-shrink: 0;
       }
 
-      .roster-name {
+      /* Name + status one-liner stack in a column; this box takes the row's
+         free width so name/note ellipsis-truncate instead of pushing siblings. */
+      .roster-main {
         flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+
+      .roster-name {
         min-width: 0;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+
+      .roster-note {
+        font-size: 10px;
+        color: #9da3b0;
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .roster-note.hidden {
+        display: none;
       }
 
       .roster-status {
