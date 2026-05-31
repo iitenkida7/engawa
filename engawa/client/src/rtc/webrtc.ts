@@ -115,6 +115,10 @@ type PeerEntry = {
   // after the previous one so concurrent tunes can't race and leave a stale
   // ceiling applied (the last-enqueued tune runs last and reads live values).
   tuneChain: Promise<void>;
+  // Aborted on cleanup to detach every track 'ended' listener wired for this
+  // peer in one shot (the tracks can outlive peer.destroy(), so a per-listener
+  // signal is how we make create/destroy symmetric — see issue #127).
+  abort: AbortController;
 };
 
 export type WebRtcEvents = {
@@ -294,6 +298,7 @@ export class WebRtcManager {
       remoteStreamKinds: new Map(),
       localStreamKinds: new Map(),
       tuneChain: Promise.resolve(),
+      abort: new AbortController(),
     };
     this.peers.set(remoteUserId, entry);
 
@@ -344,9 +349,13 @@ export class WebRtcManager {
 
     // Track end → tell UI to drop this stream's tile/stage.
     peer.on('track', (track, stream) => {
-      track.addEventListener('ended', () => {
-        this.events.onRemoteStreamRemoved(remoteUserId, stream.id);
-      });
+      track.addEventListener(
+        'ended',
+        () => {
+          this.events.onRemoteStreamRemoved(remoteUserId, stream.id);
+        },
+        { signal: entry.abort.signal },
+      );
       // New incoming transceiver — re-apply receiver hints.
       const pc = getPc(peer);
       if (pc) tuneReceivers(pc);
@@ -409,7 +418,10 @@ export class WebRtcManager {
   }
 
   private cleanupPeer(remoteUserId: string) {
-    if (!this.peers.has(remoteUserId)) return;
+    const entry = this.peers.get(remoteUserId);
+    if (!entry) return;
+    // Detach the track 'ended' listeners before dropping the entry.
+    entry.abort.abort();
     this.peers.delete(remoteUserId);
     this.pendingMeta.delete(remoteUserId);
     this.statsPrev.delete(remoteUserId);

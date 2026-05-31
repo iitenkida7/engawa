@@ -41,8 +41,10 @@ type Screenshare = {
   video: HTMLVideoElement;
   label: HTMLSpanElement;
   streamId: string;
-  // Removes the drag listeners when the stage is destroyed.
-  cleanupDrag: () => void;
+  // Removes the drag listeners AND the stage's dblclick handler when the stage
+  // is destroyed (the dblclick handler captures `this`/userId, so it must be
+  // detached explicitly rather than relying on the element being GC'd).
+  cleanup: () => void;
 };
 
 // Owns every media panel in the DOM: the floating remote camera tiles, the
@@ -363,7 +365,7 @@ export class RemoteMediaView {
     if (!ss) return;
     const wasMain = this.mainScreenshareUserId === userId;
     const vacated = wasMain ? this.snapshotGeometry(ss.container) : null;
-    ss.cleanupDrag();
+    ss.cleanup();
     try {
       ss.video.srcObject = null;
     } catch {
@@ -457,11 +459,16 @@ export class RemoteMediaView {
     });
     setupPanelModes(container, { onActivate: () => bringToFront(container) });
     // Double-click anywhere on the stage (except the preset buttons) promotes it.
-    container.addEventListener('dblclick', (e) => {
+    const onDblClick = (e: MouseEvent) => {
       if ((e.target as HTMLElement).closest('.stage-controls')) return;
       this.promoteScreenshare(userId);
-    });
-    return { container, video, label, streamId: '', cleanupDrag };
+    };
+    container.addEventListener('dblclick', onDblClick);
+    const cleanup = () => {
+      cleanupDrag();
+      container.removeEventListener('dblclick', onDblClick);
+    };
+    return { container, video, label, streamId: '', cleanup };
   }
 
   // ============= Self preview =============
