@@ -89,6 +89,43 @@ describe('createWebSocketHandler — open/close lifecycle', () => {
 
     expect(b.sent).toHaveLength(0);
   });
+
+  test('a stale close for a re-used userId does not evict the live connection', () => {
+    // Two sockets sharing the same userId (a reconnect that replaced the map
+    // entry). When the stale first socket closes, the map must still hold the
+    // newer one, and no spurious player-left should go out.
+    const sharedId = 'dup-user';
+    const stale = makeWs({ userId: sharedId, workspace: 'ws1', joined: true });
+    const live = makeWs({ userId: sharedId, workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(stale);
+    handler.open!(live); // overwrites clients[sharedId] with the live socket
+    handler.open!(peer);
+
+    handler.close!(stale, 1000, '');
+
+    // The live socket survives in the map.
+    expect(clients.get(sharedId)).toBe(live);
+    expect(clients.has(sharedId)).toBe(true);
+    // No leave is announced, because the user is still connected.
+    expect(peer.sent.some((m) => m.type === 'player-left')).toBe(false);
+  });
+
+  test('the live connection close still evicts and announces the leave', () => {
+    const sharedId = 'dup-user-2';
+    const stale = makeWs({ userId: sharedId, workspace: 'ws1', joined: true });
+    const live = makeWs({ userId: sharedId, workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(stale);
+    handler.open!(live);
+    handler.open!(peer);
+
+    handler.close!(stale, 1000, ''); // stale: no-op on the map
+    handler.close!(live, 1000, ''); // live: real removal
+
+    expect(clients.has(sharedId)).toBe(false);
+    expect(peer.sent).toContainEqual({ type: 'player-left', userId: sharedId });
+  });
 });
 
 describe('createWebSocketHandler — join', () => {
@@ -522,6 +559,40 @@ describe('createWebSocketHandler — SFU grouping', () => {
     const b = joinAt(550, 550, 'meeting-1');
     const dir = b.sent.find((m) => m.type === 'sfu-peer-tracks' && m.userId === a.data.userId);
     expect(dir).toBeDefined();
+  });
+
+  // Join a client with an explicit userId so we can re-use the same ids after a
+  // workspace empties out (to probe whether stale latch state was discarded).
+  const joinIdAt = (userId: string, x: number, y: number): FakeWs => {
+    const ws = makeWs({ userId });
+    handler.open!(ws);
+    deliver(handler, ws, { type: 'join', name: 'U', workspace: 'ws1' });
+    deliver(handler, ws, { type: 'move', x, y, vx: 0, vy: 0 });
+    return ws;
+  };
+
+  test("an emptied workspace's SFU latch is discarded, so a later small group is mesh", () => {
+    // 5-member open-floor cluster promotes to SFU and seeds the one-way latch.
+    const first: FakeWs[] = [];
+    for (let i = 0; i < 5; i++) first.push(joinIdAt(`u${i}`, 100 + i * 10, 100));
+    for (const w of first) {
+      const g = lastGroupUpdate(w);
+      expect(g?.type === 'group-update' && g.method).toBe('sfu');
+    }
+
+    // Everyone leaves: the workspace is now empty, so its latch state is dropped.
+    for (const w of first) handler.close!(w, 1000, '');
+    expect(clients.size).toBe(0);
+
+    // Two members with the SAME ids rejoin close together. If the stale latch
+    // had survived, {u0,u1} would share a member with the old SFU seed and
+    // wrongly stay SFU; with cleanup it correctly falls back to mesh.
+    const a = joinIdAt('u0', 100, 100);
+    const b = joinIdAt('u1', 140, 100);
+    const ga = lastGroupUpdate(a);
+    const gb = lastGroupUpdate(b);
+    expect(ga?.type === 'group-update' && ga.method).toBe('mesh');
+    expect(gb?.type === 'group-update' && gb.method).toBe('mesh');
   });
 });
 
