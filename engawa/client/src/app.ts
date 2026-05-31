@@ -204,7 +204,7 @@ export class App {
     this.recorder.on(() => this.toolbar.refresh());
     this.view.refreshSelfPreview();
 
-    // Double-click the map to walk to that point (A* around walls, 2× speed).
+    // Double-click the map to walk to that point (A* around walls, boosted speed).
     this.canvas.addEventListener('dblclick', (e) => this.onCanvasDblClick(e));
 
     this.setupZoomControls();
@@ -654,7 +654,7 @@ export class App {
     return this.me.x !== prevX || this.me.y !== prevY;
   }
 
-  // Advances along the click-to-move waypoints at 2× speed. Returns the
+  // Advances along the click-to-move waypoints at boosted speed. Returns the
   // velocity applied this frame (zero on arrival) so the caller can broadcast it.
   private followPath(dt: number): { vx: number; vy: number } {
     if (!this.me || !this.movePath) return { vx: 0, vy: 0 };

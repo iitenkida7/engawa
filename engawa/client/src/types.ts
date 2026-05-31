@@ -67,7 +67,7 @@ export const COLLISION_RADIUS = 16;
 // with the actual dt of each frame.
 export const PLAYER_SPEED = 210;
 // Double-click (click-to-move) travels at this multiple of PLAYER_SPEED.
-export const CLICK_MOVE_MULTIPLIER = 2;
+export const CLICK_MOVE_MULTIPLIER = 3;
 // Distance (px) within which a click-to-move waypoint counts as reached.
 export const CLICK_MOVE_ARRIVE_THRESHOLD = 4;
 // Open-floor proximity range, in px. The avatar's drawn ring uses
