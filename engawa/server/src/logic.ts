@@ -126,10 +126,15 @@ export const SFU_PROMOTE_AT = 5;
 // Connect radius (px) for the open-floor proximity graph. Mirrors the client's
 // CONNECT_RADIUS so the server's grouping matches what users see on the map.
 export const PROXIMITY_CONNECT_RADIUS = 120;
-// Disconnect radius (px) for the open-floor proximity graph. Mirrors the
-// client's DISCONNECT_RADIUS: an edge that already existed last tick survives
-// out to this larger distance (hysteresis), so members near the boundary don't
-// flap in and out of a group. New edges still only form at the connect radius.
+// Disconnect radius (px) for the open-floor proximity graph. Hysteresis is
+// applied at the GROUP level (not per-pair): an edge survives out to this larger
+// distance when the two members were in the same group last tick, so members
+// near the boundary don't flap in and out of a group. New edges still only form
+// at the connect radius. NOTE this is group-scoped, so it differs subtly from a
+// per-pair rule — a pair that was only ever *transitively* connected (a chain
+// A–B–C, never A–C directly) can keep an A–C edge out to this radius once they
+// remain co-grouped. That is intentional under the "whole group meshes" model
+// (a latecomer connects to every member, not just nearby ones).
 export const PROXIMITY_DISCONNECT_RADIUS = 150;
 
 export type GroupMember = {

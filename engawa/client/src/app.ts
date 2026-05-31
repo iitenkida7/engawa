@@ -496,11 +496,20 @@ export class App {
   }
 
   private async handleSignal(from: string, data: unknown) {
-    // Mesh membership is server-authoritative. Ignore a signal from someone the
-    // server has not placed in our mesh group when we have no peer for them yet:
-    // it would otherwise resurrect a peer we just dropped at the group boundary
-    // (there is no per-frame proximity loop to tear it down again).
-    if (this.currentMethod === 'mesh' && !this.rtc.hasPeer(from) && !this.meshMembers.has(from)) {
+    // Mesh membership is server-authoritative. Drop a signal from someone who is
+    // not in our mesh group when we have no peer for them yet. This guards two
+    // cases: (a) a stray late signal would otherwise resurrect a peer we just
+    // dropped at the group boundary (there is no per-frame proximity loop to tear
+    // it down again); (b) while we are on SFU, meshMembers is empty, so we never
+    // spin up a stray mesh peer for a group routed through the SFU. Existing peers
+    // (hasPeer) always pass so ICE trickle keeps flowing.
+    //
+    // Ordering: the server emits a joiner's group-update before any initiator can
+    // react to its own group-update and relay an offer, so the non-initiator has
+    // the joiner in meshMembers by the time the offer arrives. If that invariant
+    // ever broke, the offer would be dropped here (simple-peer does not resend)
+    // and the pair would fail to connect.
+    if (!this.rtc.hasPeer(from) && !this.meshMembers.has(from)) {
       return;
     }
     // If we have no peer for this user, create as non-initiator.
@@ -760,6 +769,12 @@ export class App {
     console.warn('[sfu] connection failed; falling back to mesh');
     // Reuse the mesh reconciliation (it tears the SFU transport down and opens a
     // peer to every former SFU member). Snapshot members first — it clears the set.
+    //
+    // Caveat: the server still considers this group SFU-latched, so if another
+    // member later joins it will send method='sfu' again and we re-attempt SFU
+    // (and may fail again). There is intentionally no "I fell back" message to the
+    // server — signaling stays stateless (invariant #2) — so we accept this rare
+    // re-try churn rather than add a control path for it.
     this.applyGroupMethod('mesh', [...this.sfuMembers]);
   }
 
