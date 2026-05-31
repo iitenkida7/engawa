@@ -469,3 +469,115 @@ describe('createWebSocketHandler — SFU grouping', () => {
     expect(dir).toBeDefined();
   });
 });
+
+describe('createWebSocketHandler — chat', () => {
+  let clients: Map<string, ServerWebSocket<WsData>>;
+  let handler: ReturnType<typeof createWebSocketHandler>;
+
+  beforeEach(() => {
+    clients = new Map();
+    handler = createWebSocketHandler(clients);
+  });
+
+  // Join + position a client so the proximity grouping has coordinates to work
+  // with (chat is scoped to the sender's proximity group).
+  const joinAt = (x: number, y: number): FakeWs => {
+    const ws = makeWs();
+    handler.open!(ws);
+    deliver(handler, ws, { type: 'join', name: 'U', workspace: 'ws1' });
+    deliver(handler, ws, { type: 'move', x, y, vx: 0, vy: 0 });
+    return ws;
+  };
+
+  test('relays a chat line to the sender and a nearby peer, but not a distant one', () => {
+    const a = joinAt(100, 100);
+    const near = joinAt(150, 100); // within CONNECT_RADIUS of a
+    const far = joinAt(1500, 1200); // its own proximity group
+
+    deliver(handler, a, { type: 'chat', text: 'hello' });
+
+    const chatOf = (ws: FakeWs) => ws.sent.find((m) => m.type === 'chat');
+    // Sender sees their own echo.
+    expect(chatOf(a)).toMatchObject({ type: 'chat', from: a.data.userId, name: 'U', text: 'hello' });
+    // Nearby peer receives it.
+    expect(chatOf(near)).toMatchObject({ type: 'chat', from: a.data.userId, text: 'hello' });
+    // Distant peer does not.
+    expect(chatOf(far)).toBeUndefined();
+  });
+
+  test('trims and drops an empty chat message', () => {
+    const a = joinAt(100, 100);
+    deliver(handler, a, { type: 'chat', text: '   ' });
+    expect(a.sent.some((m) => m.type === 'chat')).toBe(false);
+  });
+
+  test('ignores chat from a client that has not joined', () => {
+    const a = makeWs({ workspace: 'ws1', joined: false });
+    handler.open!(a);
+    deliver(handler, a, { type: 'chat', text: 'hi' });
+    expect(a.sent.some((m) => m.type === 'chat')).toBe(false);
+  });
+});
+
+describe('createWebSocketHandler — knock', () => {
+  let clients: Map<string, ServerWebSocket<WsData>>;
+  let handler: ReturnType<typeof createWebSocketHandler>;
+
+  beforeEach(() => {
+    clients = new Map();
+    handler = createWebSocketHandler(clients);
+  });
+
+  test('relays a knock only to the named target with sender name', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true, name: 'Alice' });
+    const target = makeWs({ workspace: 'ws1', joined: true });
+    const bystander = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(target);
+    handler.open!(bystander);
+
+    deliver(handler, sender, { type: 'knock', to: target.data.userId });
+
+    expect(target.sent).toContainEqual({
+      type: 'knock',
+      from: sender.data.userId,
+      name: 'Alice',
+    });
+    expect(bystander.sent).toHaveLength(0);
+  });
+
+  test('relays a knock-reply (accept) back to the named target', () => {
+    const replier = makeWs({ workspace: 'ws1', joined: true, name: 'Bob' });
+    const knocker = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(replier);
+    handler.open!(knocker);
+
+    deliver(handler, replier, { type: 'knock-reply', to: knocker.data.userId, accept: true });
+
+    expect(knocker.sent).toContainEqual({
+      type: 'knock-reply',
+      from: replier.data.userId,
+      name: 'Bob',
+      accept: true,
+    });
+  });
+
+  test('drops a knock to a target in a different workspace', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const target = makeWs({ workspace: 'ws2', joined: true });
+    handler.open!(sender);
+    handler.open!(target);
+    deliver(handler, sender, { type: 'knock', to: target.data.userId });
+    expect(target.sent).toHaveLength(0);
+  });
+
+  test('drops a knock to an unknown or unjoined target', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const unjoined = makeWs({ workspace: 'ws1', joined: false });
+    handler.open!(sender);
+    handler.open!(unjoined);
+    deliver(handler, sender, { type: 'knock', to: 'ghost' });
+    deliver(handler, sender, { type: 'knock', to: unjoined.data.userId });
+    expect(unjoined.sent).toHaveLength(0);
+  });
+});

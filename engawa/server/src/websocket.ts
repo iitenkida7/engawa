@@ -11,6 +11,7 @@ import {
   clampPosition,
   computeProximityGroups,
   generateSpawn,
+  normalizeChatText,
   normalizeName,
   normalizeWorkspace,
   parseWorkspacePasswords,
@@ -56,6 +57,26 @@ function playerFromWs(ws: ServerWebSocket<WsData>): Player {
     x: ws.data.x,
     y: ws.data.y,
   };
+}
+
+// The member ids of the proximity group `userId` currently belongs to — the
+// same connected component the call uses (meeting-room isolation included).
+// Reuses computeProximityGroups; membership is independent of the SFU/mesh
+// method, so sfuEnabled is irrelevant here. Always includes `userId` itself, so
+// a chat from someone standing alone still echoes back to them.
+function proximityGroupMemberIds(
+  clients: Map<string, ServerWebSocket<WsData>>,
+  workspace: string,
+  userId: string,
+): string[] {
+  const members: GroupMember[] = [];
+  for (const c of clients.values()) {
+    if (!c.data.joined || c.data.workspace !== workspace) continue;
+    members.push({ userId: c.data.userId, x: c.data.x, y: c.data.y, zoneId: c.data.zoneId });
+  }
+  const groups = computeProximityGroups(members, { sfuEnabled: false });
+  const g = groups.find((grp) => grp.memberIds.includes(userId));
+  return g ? g.memberIds : [userId];
 }
 
 // Recompute one workspace's proximity groups and notify clients whose SFU
@@ -249,6 +270,48 @@ export function createWebSocketHandler(
             from: ws.data.userId,
             streamId: msg.streamId,
             kind: msg.kind,
+          });
+          break;
+        }
+
+        case 'chat': {
+          if (!ws.data.joined) return;
+          const text = normalizeChatText(msg.text);
+          if (!text) return;
+          // Scope to the sender's proximity group so chat stays spatial; the
+          // group always includes the sender, so they see their own line too.
+          const memberIds = proximityGroupMemberIds(clients, ws.data.workspace, ws.data.userId);
+          const out: ServerMessage = {
+            type: 'chat',
+            from: ws.data.userId,
+            name: ws.data.name,
+            text,
+            ts: Date.now(),
+          };
+          for (const id of memberIds) {
+            const c = clients.get(id);
+            if (c && c.data.joined) send(c, out);
+          }
+          break;
+        }
+
+        case 'knock': {
+          if (!ws.data.joined) return;
+          const target = clients.get(msg.to);
+          if (!target || !target.data.joined || target.data.workspace !== ws.data.workspace) return;
+          send(target, { type: 'knock', from: ws.data.userId, name: ws.data.name });
+          break;
+        }
+
+        case 'knock-reply': {
+          if (!ws.data.joined) return;
+          const target = clients.get(msg.to);
+          if (!target || !target.data.joined || target.data.workspace !== ws.data.workspace) return;
+          send(target, {
+            type: 'knock-reply',
+            from: ws.data.userId,
+            name: ws.data.name,
+            accept: !!msg.accept,
           });
           break;
         }
