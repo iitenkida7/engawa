@@ -5,6 +5,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>engawa</title>
+    <!-- PWA: installable as a standalone desktop app (Chrome/Edge). No service
+         worker by design — this is a live WebRTC app with no offline value, and
+         reload.ts already handles update prompts (see issue #112). -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#1a1d24" />
+    <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <script>
       // Polyfills required by simple-peer (Node globals not present in browsers)
       window.global = window;
