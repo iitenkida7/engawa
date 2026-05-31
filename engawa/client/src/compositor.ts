@@ -194,12 +194,12 @@ export class SceneCompositor {
     ctx.fillStyle = FLOOR_BG;
     ctx.fillRect(0, 0, W, H);
 
-    const stage = document.getElementById('screenshare-stage');
-    const screenVideo = document.getElementById(
-      'screenshare-video',
-    ) as HTMLVideoElement | null;
-    const screenVisible =
-      !!stage && stage.classList.contains('visible') && hasFrame(screenVideo);
+    // The featured ("main") screenshare is the big stage in the recording; any
+    // other concurrent shares fall through to collectTiles() and ride the
+    // sidebar as tiles.
+    const stage = document.querySelector<HTMLElement>('.screenshare-stage.main');
+    const screenVideo = (stage?.querySelector('video') ?? null) as HTMLVideoElement | null;
+    const screenVisible = !!stage && hasFrame(screenVideo);
 
     const tiles = this.collectTiles();
     const layout = computeRecordingLayout(screenVisible, tiles.length, W, H);
@@ -217,12 +217,17 @@ export class SceneCompositor {
     layout.tiles.forEach((box, i) => this.drawTile(tiles[i], box));
   }
 
-  // Visible camera/mic `.panel` tiles (remote tiles + self preview). The
-  // screenshare stage is handled separately. Self preview is sorted last so
-  // remote participants lead the gallery.
+  // Visible `.panel` tiles for the recording sidebar: remote camera/mic tiles,
+  // any non-main screenshares, and the self preview. The main screenshare is
+  // drawn separately as the stage, so it's excluded here. Self preview is sorted
+  // last so remote participants lead the gallery.
   private collectTiles(): HTMLElement[] {
     return Array.from(document.querySelectorAll<HTMLElement>('.panel'))
-      .filter((el) => el.id !== 'screenshare-stage' && el.offsetParent !== null)
+      .filter(
+        (el) =>
+          !(el.classList.contains('screenshare-stage') && el.classList.contains('main')) &&
+          el.offsetParent !== null,
+      )
       .sort(
         (a, b) =>
           (a.id === 'self-preview' ? 1 : 0) - (b.id === 'self-preview' ? 1 : 0),

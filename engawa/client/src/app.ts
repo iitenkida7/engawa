@@ -504,10 +504,8 @@ export class App {
         this.rtc.closePeer(msg.userId);
         this.sfu.removePeer(msg.userId);
         this.knownSfuPeers.delete(msg.userId);
+        // removePeer also tears down their screenshare stage if any.
         this.view.removePeer(msg.userId);
-        if (this.view.isShowingScreenshareFor(msg.userId)) {
-          this.view.clearScreenshare();
-        }
         break;
       }
       case 'signal': {

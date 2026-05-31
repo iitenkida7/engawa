@@ -177,4 +177,27 @@ describe('computePresentationLayout', () => {
     const [g] = computePresentationLayout(items, VW, VH);
     expect(withinArea(box(g, items[0]))).toBe(true);
   });
+
+  it('features the first (main) screenshare and stacks other screenshares in the filmstrip', () => {
+    // Multiple simultaneous shares: the main share (first item) keeps the large
+    // left area; the second share and the camera both stack in the right strip.
+    const items = [screen(), screen(), cam()];
+    const geos = computePresentationLayout(items, VW, VH);
+    const boxes = geos.map((g, i) => box(g, items[i]));
+    boxes.forEach((b) => expect(withinArea(b)).toBe(true));
+    // Main is large (~70% width) on the left.
+    const usableW = VW - PANEL_MARGIN * 2;
+    expect(geos[0].left).toBeLessThan(VW * 0.2);
+    expect(geos[0].width).toBeGreaterThan(usableW * 0.6);
+    // The other windows (second screenshare + camera) sit in the right strip,
+    // to the right of the main area and without overlapping anything.
+    const mainRight = boxes[0].x + boxes[0].w;
+    expect(boxes[1].x).toBeGreaterThanOrEqual(mainRight);
+    expect(boxes[2].x).toBeGreaterThanOrEqual(mainRight);
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        expect(overlaps(boxes[i], boxes[j])).toBe(false);
+      }
+    }
+  });
 });

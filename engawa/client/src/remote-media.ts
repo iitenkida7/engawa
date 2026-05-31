@@ -36,6 +36,15 @@ type RemoteAudio = {
   streamId: string;
 };
 
+type Screenshare = {
+  container: HTMLDivElement;
+  video: HTMLVideoElement;
+  label: HTMLSpanElement;
+  streamId: string;
+  // Removes the drag listeners when the stage is destroyed.
+  cleanupDrag: () => void;
+};
+
 // Owns every media panel in the DOM: the floating remote camera tiles, the
 // per-user mic <audio> elements, the screenshare stage, and the self preview.
 // Also holds the speaking detectors (local mic + each remote mic) since their
@@ -52,15 +61,22 @@ export class RemoteMediaView {
   private getMyId: () => string;
 
   private remoteVideosEl: HTMLDivElement;
+  // Screenshare stages live as siblings of #remote-videos (directly under #app),
+  // not inside it, so their z-index stacks the same way the old static stage did
+  // (above the self preview) rather than being capped by #remote-videos' context.
+  private stageLayerEl: HTMLElement;
   private remoteTiles = new Map<string, RemoteTile>();
   // Mic audio is attached to dedicated <audio> elements so it plays even when
   // the user has no cam (no video tile yet). userId → audio element.
   private remoteAudios = new Map<string, RemoteAudio>();
 
-  private screenshareStageEl: HTMLDivElement;
-  private screenshareVideoEl: HTMLVideoElement;
-  private screenshareLabelEl: HTMLSpanElement;
-  private currentScreenshareUserId: string | null = null;
+  // Each sharing user gets their own draggable stage panel, keyed by userId.
+  // Map insertion order is share order (oldest first). `mainScreenshareUserId`
+  // is the featured share — it gets the large main area in the smart layout and
+  // a "main" accent; the rest stay small. It defaults to the oldest share and is
+  // re-picked when that share stops (next-oldest) or swapped by double-click.
+  private screenshares = new Map<string, Screenshare>();
+  private mainScreenshareUserId: string | null = null;
 
   private selfPreviewEl: HTMLDivElement;
   private selfPreviewHeaderEl: HTMLDivElement;
@@ -83,16 +99,13 @@ export class RemoteMediaView {
     this.getMyId = opts.getMyId;
 
     this.remoteVideosEl = document.getElementById('remote-videos') as HTMLDivElement;
-    this.screenshareStageEl = document.getElementById('screenshare-stage') as HTMLDivElement;
-    this.screenshareVideoEl = document.getElementById('screenshare-video') as HTMLVideoElement;
-    this.screenshareLabelEl = document.getElementById('screenshare-label') as HTMLSpanElement;
+    this.stageLayerEl = this.remoteVideosEl.parentElement as HTMLElement;
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
     this.selfPreviewHeaderEl = document.getElementById('self-preview-header') as HTMLDivElement;
     this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
 
     this.setupSelfPreview();
-    this.setupScreensharePanel();
   }
 
   // Make the self-preview draggable/resizable by its header. The CSS keeps its
@@ -108,14 +121,6 @@ export class RemoteMediaView {
       onActivate: () => bringToFront(this.selfPreviewEl),
     });
     bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
-  }
-
-  // Screenshare stage: preset buttons (shared with tiles) + header drag.
-  private setupScreensharePanel() {
-    const stage = this.screenshareStageEl;
-    const header = document.getElementById('stage-header')!;
-    setupPanelModes(stage);
-    makeDraggable(stage, { handle: header });
   }
 
   // Sets the label shown under the self preview (the local user's name).
@@ -199,9 +204,9 @@ export class RemoteMediaView {
         this.remoteTiles.delete(userId);
       }
     }
-    if (this.currentScreenshareUserId === userId &&
-        (this.screenshareVideoEl.srcObject as MediaStream | null)?.id === streamId) {
-      this.clearScreenshare();
+    const ss = this.screenshares.get(userId);
+    if (ss && ss.streamId === streamId) {
+      this.removeScreenshare(userId);
       const p = this.players.get(userId);
       if (p) p.isSharingScreen = false;
     }
@@ -308,44 +313,132 @@ export class RemoteMediaView {
       destroySpeakingDetector(det);
       this.remoteSpeakingDetectors.delete(userId);
     }
+    this.removeScreenshare(userId);
   }
 
-  // ============= Screenshare stage =============
+  // ============= Screenshare stages (one per sharing user) =============
+  // Attaches/updates a user's screenshare. The first sharer becomes the "main"
+  // featured stage (large, accented); later sharers open as smaller windows so
+  // they don't cover the main one. Re-called for the same user it just swaps the
+  // stream (e.g. device change) without moving the window.
   showScreenshare(userId: string, stream: MediaStream) {
-    this.currentScreenshareUserId = userId;
-    this.screenshareVideoEl.srcObject = stream;
-    this.screenshareVideoEl.play().catch(() => {
+    let ss = this.screenshares.get(userId);
+    if (!ss) {
+      const isMain = this.mainScreenshareUserId === null;
+      ss = this.createScreenshareStage(userId, isMain);
+      this.screenshares.set(userId, ss);
+      if (isMain) this.mainScreenshareUserId = userId;
+    }
+    ss.streamId = stream.id;
+    ss.video.srcObject = stream;
+    ss.video.play().catch(() => {
       /* autoplay may be blocked */
     });
     const isSelf = userId === this.getMyId();
     const p = this.players.get(userId);
-    this.screenshareLabelEl.textContent = isSelf
+    ss.label.textContent = isSelf
       ? 'あなたの画面'
       : `${p?.name || userId.slice(0, 6)} の画面`;
-    this.screenshareStageEl.classList.add('visible');
   }
 
-  clearScreenshare() {
-    this.currentScreenshareUserId = null;
-    try {
-      this.screenshareVideoEl.srcObject = null;
-    } catch {
-      /* noop */
+  // Removes a user's screenshare stage (no-op if they aren't sharing). When the
+  // main share stops, the next-oldest share is promoted into the vacated spot so
+  // the large window doesn't blink empty.
+  removeScreenshare(userId: string) {
+    const ss = this.screenshares.get(userId);
+    if (!ss) return;
+    const wasMain = this.mainScreenshareUserId === userId;
+    const vacated = wasMain ? this.snapshotGeometry(ss.container) : null;
+    ss.cleanupDrag();
+    try { ss.video.srcObject = null; } catch { /* noop */ }
+    ss.container.remove();
+    this.screenshares.delete(userId);
+    if (!wasMain) return;
+    // Promote the next-oldest remaining share (Map keeps insertion order).
+    const nextId = this.screenshares.keys().next().value ?? null;
+    this.mainScreenshareUserId = nextId;
+    if (nextId) {
+      const next = this.screenshares.get(nextId)!;
+      next.container.classList.add('main');
+      applyPanelGeometry(next.container, vacated!);
+      bringToFront(next.container);
     }
-    this.screenshareStageEl.classList.remove('visible');
-    // Reset inline drag/resize styles so CSS mode defaults apply next time
-    const el = this.screenshareStageEl;
-    el.style.left = '';
-    el.style.top = '';
-    el.style.right = '';
-    el.style.bottom = '';
-    el.style.width = '';
-    el.style.height = '';
   }
 
-  // True when the screenshare stage is currently showing this user's screen.
-  isShowingScreenshareFor(userId: string): boolean {
-    return this.currentScreenshareUserId === userId;
+  // Makes a non-main share the main one by swapping window geometry with the
+  // current main (double-click). The large spot stays put; only who occupies it
+  // changes. Future smart-arrange then features the new main.
+  private promoteScreenshare(userId: string) {
+    const mainId = this.mainScreenshareUserId;
+    if (!mainId || mainId === userId) return;
+    const next = this.screenshares.get(userId);
+    const prev = this.screenshares.get(mainId);
+    if (!next || !prev) return;
+    const prevGeo = this.snapshotGeometry(prev.container);
+    const nextGeo = this.snapshotGeometry(next.container);
+    applyPanelGeometry(next.container, prevGeo);
+    applyPanelGeometry(prev.container, nextGeo);
+    prev.container.classList.remove('main');
+    next.container.classList.add('main');
+    this.mainScreenshareUserId = userId;
+    bringToFront(next.container);
+  }
+
+  // Reads an element's current on-screen rect as an explicit geometry, so it can
+  // be re-applied as inline styles (used when swapping/inheriting the main spot).
+  private snapshotGeometry(el: HTMLElement): { left: number; top: number; width: number; height: number } {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  }
+
+  // Builds a draggable screenshare stage panel (free aspect, letterboxed video).
+  // `isMain` keeps the CSS default placement + the "main" accent; later shares
+  // open smaller and offset so they don't cover the main one.
+  private createScreenshareStage(userId: string, isMain: boolean): Screenshare {
+    const container = document.createElement('div');
+    container.className = isMain ? 'panel screenshare-stage main' : 'panel screenshare-stage';
+    container.dataset.userId = userId;
+
+    const header = document.createElement('div');
+    header.className = 'panel-header';
+    header.title = 'ダブルクリックでメイン表示に切り替え';
+    const label = document.createElement('span');
+    label.className = 'label';
+    header.appendChild(label);
+    header.appendChild(createModeControls());
+    container.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'panel-body';
+    container.appendChild(body);
+
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.playsInline = true;
+    body.appendChild(video);
+
+    if (!isMain) {
+      // Open later shares smaller and offset from the top so they don't land on
+      // top of the main stage; users can drag/arrange afterwards.
+      const n = this.screenshares.size;
+      container.style.left = `${360 + n * 28}px`;
+      container.style.top = `${24 + n * 28}px`;
+      container.style.width = '300px';
+      container.style.height = '190px';
+    }
+
+    this.stageLayerEl.appendChild(container);
+    const cleanupDrag = makeDraggable(container, {
+      handle: header,
+      onStart: () => bringToFront(container),
+    });
+    setupPanelModes(container, { onActivate: () => bringToFront(container) });
+    // Double-click anywhere on the stage (except the preset buttons) promotes it.
+    container.addEventListener('dblclick', (e) => {
+      if ((e.target as HTMLElement).closest('.stage-controls')) return;
+      this.promoteScreenshare(userId);
+    });
+    return { container, video, label, streamId: '', cleanupDrag };
   }
 
   // ============= Self preview =============
@@ -420,12 +513,15 @@ export class RemoteMediaView {
   // Like the header presets this only writes position/size — windows stay
   // freely draggable/resizable afterwards (nothing is locked or persisted).
   arrange(mode: 'smart' | 'grid') {
-    const screenVisible = this.screenshareStageEl.classList.contains('visible');
+    const hasScreen = this.screenshares.size > 0;
     // Collect visible panels with the element to move and its layout item, in a
-    // stable order: screenshare first, then camera/mic tiles, then self preview.
+    // stable order: the main screenshare first (so the presentation layout
+    // features it), then the other screenshares, then camera/mic tiles, then the
+    // self preview.
     const panels: Array<{ el: HTMLElement; item: LayoutItem }> = [];
-    if (screenVisible) {
-      panels.push({ el: this.screenshareStageEl, item: { aspectLocked: false, aspect: 16 / 9 } });
+    for (const userId of this.orderedScreenshareIds()) {
+      const ss = this.screenshares.get(userId)!;
+      panels.push({ el: ss.container, item: { aspectLocked: false, aspect: 16 / 9 } });
     }
     for (const tile of this.remoteTiles.values()) {
       panels.push({ el: tile.container, item: { aspectLocked: true, aspect: readCamAspect(tile.container) } });
@@ -438,10 +534,21 @@ export class RemoteMediaView {
     const items = panels.map((p) => p.item);
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const geos = mode === 'smart' && screenVisible
+    const geos = mode === 'smart' && hasScreen
       ? computePresentationLayout(items, vw, vh)
       : computeGridLayout(items, vw, vh);
     panels.forEach((p, i) => applyPanelGeometry(p.el, geos[i]));
+  }
+
+  // Screenshare userIds in layout order: the main share first, then the rest in
+  // share order. Drives both arrange() and the recording compositor.
+  private orderedScreenshareIds(): string[] {
+    const ids = [...this.screenshares.keys()];
+    const mainId = this.mainScreenshareUserId;
+    if (mainId && this.screenshares.has(mainId)) {
+      return [mainId, ...ids.filter((id) => id !== mainId)];
+    }
+    return ids;
   }
 
   // The rendered width (CSS px) of a remote user's camera tile, or null when
