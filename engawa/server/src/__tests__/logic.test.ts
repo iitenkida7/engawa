@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  CHAT_MAX_LENGTH,
   MAP_HEIGHT,
   MAP_WIDTH,
   PROXIMITY_CONNECT_RADIUS,
@@ -7,6 +8,7 @@ import {
   clampPosition,
   computeProximityGroups,
   generateSpawn,
+  normalizeChatText,
   normalizeIceServers,
   normalizeName,
   normalizeWorkspace,
@@ -92,6 +94,27 @@ describe('normalizeName', () => {
   test('caps the name at 24 chars', () => {
     const long = 'n'.repeat(50);
     expect(normalizeName(long)).toHaveLength(24);
+  });
+});
+
+describe('normalizeChatText', () => {
+  test('trims surrounding whitespace', () => {
+    expect(normalizeChatText('  hello  ')).toBe('hello');
+  });
+
+  test('returns empty for non-string input', () => {
+    expect(normalizeChatText(undefined)).toBe('');
+    expect(normalizeChatText(123)).toBe('');
+    expect(normalizeChatText(null)).toBe('');
+  });
+
+  test('returns empty for whitespace-only input', () => {
+    expect(normalizeChatText('   ')).toBe('');
+  });
+
+  test('caps length at CHAT_MAX_LENGTH', () => {
+    const long = 'a'.repeat(CHAT_MAX_LENGTH + 50);
+    expect(normalizeChatText(long)).toHaveLength(CHAT_MAX_LENGTH);
   });
 });
 

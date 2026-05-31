@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="ja">
+
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -19,8 +20,13 @@
       :root {
         color-scheme: dark;
       }
-      * { box-sizing: border-box; }
-      html, body {
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
         margin: 0;
         padding: 0;
         height: 100%;
@@ -29,112 +35,251 @@
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
         overflow: hidden;
       }
-      #app { position: relative; width: 100vw; height: 100vh; }
-      canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+
+      #app {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        cursor: grab;
+      }
 
       #join-overlay {
-        position: absolute; inset: 0;
-        display: flex; align-items: center; justify-content: center;
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         background: rgba(10, 12, 16, 0.85);
         z-index: 1010;
       }
+
       #join-overlay .card {
         background: #242832;
         border: 1px solid #353a47;
         border-radius: 12px;
         padding: 24px 28px;
         min-width: 280px;
-        box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
       }
-      #join-overlay h1 { margin: 0 0 16px; font-size: 20px; }
+
+      #join-overlay h1 {
+        margin: 0 0 16px;
+        font-size: 20px;
+      }
+
       #join-overlay input {
-        width: 100%; padding: 10px 12px; border-radius: 8px;
-        border: 1px solid #3a4050; background: #1a1d24; color: inherit;
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #3a4050;
+        background: #1a1d24;
+        color: inherit;
         font-size: 15px;
       }
+
       #join-overlay button {
-        margin-top: 12px; width: 100%; padding: 10px 12px;
-        border-radius: 8px; border: 0; background: #4f8cff; color: white;
-        font-size: 15px; cursor: pointer; font-weight: 600;
+        margin-top: 12px;
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 0;
+        background: #4f8cff;
+        color: white;
+        font-size: 15px;
+        cursor: pointer;
+        font-weight: 600;
       }
-      #join-overlay button:hover { background: #3a78f0; }
+
+      #join-overlay button:hover {
+        background: #3a78f0;
+      }
 
       #toolbar {
-        position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-        display: flex; gap: 8px;
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 8px;
         background: rgba(20, 23, 30, 0.9);
-        padding: 8px; border-radius: 12px;
+        padding: 8px;
+        border-radius: 12px;
         backdrop-filter: blur(8px);
         /* Stay above the draggable panels (their shared counter starts at 10
            and only climbs) so the toolbar is always clickable. The join
            overlay sits above this as the entry gate. */
         z-index: 1000;
       }
+
       #toolbar button {
-        padding: 8px 14px; border-radius: 8px; border: 1px solid #3a4050;
-        background: #2a2f3a; color: inherit; font-size: 13px; cursor: pointer;
-        display: flex; align-items: center; gap: 6px;
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid #3a4050;
+        background: #2a2f3a;
+        color: inherit;
+        font-size: 13px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
         /* Keep buttons a fixed size: never shrink or wrap their label, so a
            narrow viewport can't squeeze them into tall, uneven shapes. */
-        flex-shrink: 0; white-space: nowrap;
+        flex-shrink: 0;
+        white-space: nowrap;
       }
-      #toolbar button.active { background: #4f8cff; border-color: #4f8cff; color: white; }
-      #toolbar button:hover { background: #353a47; }
-      #toolbar button.active:hover { background: #3a78f0; }
-      #toolbar button.recording { background: #dc3545; border-color: #dc3545; color: white; animation: rec-pulse 1.5s ease-in-out infinite; }
-      #toolbar button.recording:hover { background: #c82333; }
-      @keyframes rec-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+      #toolbar button.active {
+        background: #4f8cff;
+        border-color: #4f8cff;
+        color: white;
+      }
+
+      #toolbar button:hover {
+        background: #353a47;
+      }
+
+      #toolbar button.active:hover {
+        background: #3a78f0;
+      }
+
+      #toolbar button.recording {
+        background: #dc3545;
+        border-color: #dc3545;
+        color: white;
+        animation: rec-pulse 1.5s ease-in-out infinite;
+      }
+
+      #toolbar button.recording:hover {
+        background: #c82333;
+      }
+
+      @keyframes rec-pulse {
+
+        0%,
+        100% {
+          opacity: 1;
+        }
+
+        50% {
+          opacity: 0.7;
+        }
+      }
+
       /* Disabled (e.g. zoom at its min/max): dimmed and non-interactive. */
-      #toolbar button:disabled { opacity: 0.4; cursor: default; }
-      #toolbar button:disabled:hover { background: #2a2f3a; }
+      #toolbar button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
+      #toolbar button:disabled:hover {
+        background: #2a2f3a;
+      }
 
       /* Zoom controls: a slim [🔍+] [🔍−] pill at the toolbar's right edge. */
-      #toolbar .zoom-group > button { border-radius: 0; border-right: none; }
-      #toolbar .zoom-group > button:first-child {
-        border-top-left-radius: 8px; border-bottom-left-radius: 8px;
+      #toolbar .zoom-group>button {
+        border-radius: 0;
+        border-right: none;
       }
-      #toolbar .zoom-group > button:last-child {
-        border-top-right-radius: 8px; border-bottom-right-radius: 8px;
+
+      #toolbar .zoom-group>button:first-child {
+        border-top-left-radius: 8px;
+        border-bottom-left-radius: 8px;
+      }
+
+      #toolbar .zoom-group>button:last-child {
+        border-top-right-radius: 8px;
+        border-bottom-right-radius: 8px;
         border-right: 1px solid #3a4050;
       }
 
-      #toolbar .btn-group { position: relative; display: flex; gap: 0; flex-shrink: 0; }
-      #toolbar .btn-group > #btn-mic,
-      #toolbar .btn-group > #btn-cam {
-        border-top-right-radius: 0; border-bottom-right-radius: 0;
+      #toolbar .btn-group {
+        position: relative;
+        display: flex;
+        gap: 0;
+        flex-shrink: 0;
+      }
+
+      #toolbar .btn-group>#btn-mic,
+      #toolbar .btn-group>#btn-cam {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
         border-right: none;
       }
+
       #toolbar .btn-caret {
-        padding: 8px 8px; font-size: 11px;
-        border-top-left-radius: 0; border-bottom-left-radius: 0;
+        padding: 8px 8px;
+        font-size: 11px;
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
       }
+
       .device-menu {
-        position: absolute; bottom: calc(100% + 6px); left: 0;
-        min-width: 200px; max-width: 320px;
+        position: absolute;
+        bottom: calc(100% + 6px);
+        left: 0;
+        min-width: 200px;
+        max-width: 320px;
         background: rgba(28, 32, 40, 0.98);
-        border: 1px solid #3a4050; border-radius: 8px;
-        padding: 4px; z-index: 20;
-        box-shadow: 0 8px 28px rgba(0,0,0,0.5);
-        display: flex; flex-direction: column; gap: 2px;
+        border: 1px solid #3a4050;
+        border-radius: 8px;
+        padding: 4px;
+        z-index: 20;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
       }
+
       .device-menu .device-item {
-        width: 100%; text-align: left;
-        padding: 7px 10px; border-radius: 6px; border: 0;
-        background: transparent; color: #e6e8ee; font-size: 12px; cursor: pointer;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        width: 100%;
+        text-align: left;
+        padding: 7px 10px;
+        border-radius: 6px;
+        border: 0;
+        background: transparent;
+        color: #e6e8ee;
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
-      .device-menu .device-item:hover { background: #353a47; }
-      .device-menu .device-item.selected { color: #4f8cff; font-weight: 600; }
-      .device-menu .device-empty { padding: 8px 10px; font-size: 12px; color: #9da3b0; }
+
+      .device-menu .device-item:hover {
+        background: #353a47;
+      }
+
+      .device-menu .device-item.selected {
+        color: #4f8cff;
+        font-weight: 600;
+      }
+
+      .device-menu .device-empty {
+        padding: 8px 10px;
+        font-size: 12px;
+        color: #9da3b0;
+      }
+
       /* The status menu sits on the toolbar's right edge, so anchor it right to
          keep it from overflowing past the viewport. */
-      #status-menu { left: auto; right: 0; min-width: 160px; }
+      #status-menu {
+        left: auto;
+        right: 0;
+        min-width: 160px;
+      }
 
       /* Full-viewport overlay that only acts as a positioning context for the
          draggable tiles. It must not capture pointer events itself, so it never
          blocks canvas interaction; each tile re-enables pointer events. */
       #remote-videos {
-        position: absolute; inset: 0;
+        position: absolute;
+        inset: 0;
         z-index: 5;
         pointer-events: none;
       }
@@ -144,29 +289,40 @@
          screenshare stage, every camera tile, and the self preview. */
       .panel {
         position: absolute;
-        background: rgba(14,16,20,0.92);
+        background: rgba(14, 16, 20, 0.92);
         border: 1px solid #353a47;
         border-radius: 12px;
         display: flex;
         flex-direction: column;
         overflow: hidden;
         resize: both;
-        min-width: 160px; min-height: 120px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        min-width: 160px;
+        min-height: 120px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         pointer-events: auto;
         transition: border-color 0.15s ease;
       }
+
       .panel-header {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 6px 10px; flex-shrink: 0;
-        cursor: grab; user-select: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 10px;
+        flex-shrink: 0;
+        cursor: grab;
+        user-select: none;
         border-bottom: 1px solid #2a2f3a;
-        background: rgba(0,0,0,0.25);
+        background: rgba(0, 0, 0, 0.25);
       }
+
       .panel-header .label {
-        font-size: 12px; color: #9da3b0;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        font-size: 12px;
+        color: #9da3b0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
+
       .panel-body {
         flex: 1;
         position: relative;
@@ -175,9 +331,11 @@
         background: #000;
         overflow: hidden;
       }
+
       .panel-body video {
         display: block;
-        width: 100%; height: 100%;
+        width: 100%;
+        height: 100%;
         object-fit: cover;
         background: #000;
       }
@@ -187,9 +345,11 @@
          there — presets never lock the window. */
       #self-preview {
         z-index: 5;
-        bottom: 80px; right: 16px;
+        bottom: 80px;
+        right: 16px;
         width: 180px;
       }
+
       #self-preview .panel-body video {
         /* Mirror so motion matches the user's expectations of a mirror. */
         transform: scaleX(-1);
@@ -209,154 +369,494 @@
         height: auto;
         resize: horizontal;
       }
+
       .remote-tile .panel-body,
       #self-preview .panel-body {
         flex: none;
         aspect-ratio: var(--cam-aspect, 4 / 3);
       }
+
       .remote-tile.speaking {
-        border-color: rgba(80,220,120,0.9);
-        box-shadow: 0 0 10px rgba(80,220,120,0.3);
+        border-color: rgba(80, 220, 120, 0.9);
+        box-shadow: 0 0 10px rgba(80, 220, 120, 0.3);
       }
+
       .remote-tile.muted .panel-body::after,
       #self-preview.muted .panel-body::after {
         content: '🔇';
-        position: absolute; top: 6px; right: 6px;
-        background: rgba(220,53,69,0.85); border-radius: 4px;
-        padding: 2px 5px; font-size: 11px; line-height: 1;
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        background: rgba(220, 53, 69, 0.85);
+        border-radius: 4px;
+        padding: 2px 5px;
+        font-size: 11px;
+        line-height: 1;
       }
+
       .panel-body .no-video {
-        position: absolute; inset: 0;
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
         background: #1a1d24;
       }
+
       .panel-body .no-video-initials {
-        width: 48px; height: 48px;
+        width: 48px;
+        height: 48px;
         border-radius: 50%;
         background: #3a4050;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 18px; font-weight: bold; color: #e6e8ee;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        font-weight: bold;
+        color: #e6e8ee;
       }
+
       .panel-body .no-video-name {
         margin-top: 8px;
-        font-size: 12px; color: #9da3b0;
+        font-size: 12px;
+        color: #9da3b0;
       }
 
       #screenshare-stage {
         display: none;
         z-index: 6;
         /* Default floating placement; presets/drag/resize override inline. */
-        left: 16px; bottom: 80px;
-        width: 420px; height: 280px;
-        min-width: 240px; min-height: 180px;
+        left: 16px;
+        bottom: 80px;
+        width: 420px;
+        height: 280px;
+        min-width: 240px;
+        min-height: 180px;
       }
-      #screenshare-stage.visible { display: flex; }
+
+      #screenshare-stage.visible {
+        display: flex;
+      }
+
       /* Screenshare contains a whole desktop, so letterbox it instead of crop. */
       #screenshare-stage .panel-body video {
         object-fit: contain;
       }
-      .stage-controls { display: flex; gap: 4px; }
+
+      .stage-controls {
+        display: flex;
+        gap: 4px;
+      }
+
       .stage-controls button {
-        background: rgba(255,255,255,0.08); border: none; color: #ccc;
-        border-radius: 6px; padding: 4px 8px; cursor: pointer; font-size: 13px;
+        background: rgba(255, 255, 255, 0.08);
+        border: none;
+        color: #ccc;
+        border-radius: 6px;
+        padding: 4px 8px;
+        cursor: pointer;
+        font-size: 13px;
         line-height: 1;
       }
-      .stage-controls button:hover { background: rgba(255,255,255,0.18); }
+
+      .stage-controls button:hover {
+        background: rgba(255, 255, 255, 0.18);
+      }
 
       /* ===== Participant roster (top-left, collapsible) ===== */
       #roster {
-        position: absolute; top: 12px; left: 12px;
-        width: 232px; max-height: calc(100vh - 24px);
-        display: flex; flex-direction: column;
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        width: 232px;
+        max-height: calc(100vh - 24px);
+        display: flex;
+        flex-direction: column;
         background: rgba(20, 23, 30, 0.92);
-        border: 1px solid #353a47; border-radius: 10px;
+        border: 1px solid #353a47;
+        border-radius: 10px;
         backdrop-filter: blur(8px);
-        box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
         overflow: hidden;
         /* Above the draggable tiles (z starts at 10 and climbs) but below the
            toolbar (z1000), so the list stays clickable. */
         z-index: 900;
         font-size: 13px;
       }
+
       #roster-header {
-        display: flex; align-items: center; gap: 8px;
-        padding: 8px 10px; flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        flex-shrink: 0;
         border-bottom: 1px solid #2a2f3a;
-        background: rgba(0,0,0,0.2);
+        background: rgba(0, 0, 0, 0.2);
       }
-      #roster-icon { font-size: 14px; line-height: 1; }
-      #roster-title { font-weight: 600; white-space: nowrap; }
-      #roster-count {
-        background: #4f8cff; color: white;
-        padding: 1px 8px; border-radius: 999px; font-size: 11px;
-      }
-      #roster-toggle {
-        margin-left: auto;
-        background: transparent; border: 0; color: #9da3b0;
-        font-size: 14px; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+
+      #roster-icon {
+        font-size: 14px;
         line-height: 1;
       }
-      #roster-toggle:hover { background: #353a47; color: #e6e8ee; }
+
+      #roster-title {
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      #roster-count {
+        background: #4f8cff;
+        color: white;
+        padding: 1px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+      }
+
+      #roster-toggle {
+        margin-left: auto;
+        background: transparent;
+        border: 0;
+        color: #9da3b0;
+        font-size: 14px;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: 6px;
+        line-height: 1;
+      }
+
+      #roster-toggle:hover {
+        background: #353a47;
+        color: #e6e8ee;
+      }
+
       #roster-list {
         overflow-y: auto;
         padding: 4px;
-        display: flex; flex-direction: column; gap: 2px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
       }
+
       /* Collapsed: shrink to just the header pill (icon + count + toggle). */
-      #roster.collapsed { width: auto; }
-      #roster.collapsed #roster-header { border-bottom: 0; }
+      #roster.collapsed {
+        width: auto;
+      }
+
+      #roster.collapsed #roster-header {
+        border-bottom: 0;
+      }
+
       #roster.collapsed #roster-title,
-      #roster.collapsed #roster-list { display: none; }
+      #roster.collapsed #roster-list {
+        display: none;
+      }
 
       .roster-row {
-        display: flex; align-items: center; gap: 8px;
-        padding: 6px 8px; border-radius: 6px; cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        cursor: pointer;
         border-left: 3px solid transparent;
         user-select: none;
       }
-      .roster-row:hover { background: #2a2f3a; }
-      .roster-row.self { background: rgba(79,140,255,0.12); }
-      .roster-row.self:hover { background: rgba(79,140,255,0.2); }
-      .roster-row.focused { background: rgba(255,196,0,0.16); }
-      .roster-row.speaking { border-left-color: rgba(80,220,120,0.9); }
-      .roster-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-      .roster-name {
-        flex: 1; min-width: 0;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+
+      .roster-row:hover {
+        background: #2a2f3a;
       }
-      .roster-status { flex-shrink: 0; font-size: 12px; line-height: 1; }
-      .roster-go {
+
+      .roster-row.self {
+        background: rgba(79, 140, 255, 0.12);
+      }
+
+      .roster-row.self:hover {
+        background: rgba(79, 140, 255, 0.2);
+      }
+
+      .roster-row.focused {
+        background: rgba(255, 196, 0, 0.16);
+      }
+
+      .roster-row.speaking {
+        border-left-color: rgba(80, 220, 120, 0.9);
+      }
+
+      .roster-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
         flex-shrink: 0;
-        background: #2a2f3a; border: 1px solid #3a4050; color: #e6e8ee;
-        border-radius: 6px; width: 24px; height: 24px; padding: 0;
-        font-size: 13px; line-height: 1; cursor: pointer;
       }
-      .roster-go:hover { background: #4f8cff; border-color: #4f8cff; color: white; }
+
+      .roster-name {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .roster-status {
+        flex-shrink: 0;
+        font-size: 12px;
+        line-height: 1;
+      }
+
+      .roster-go,
+      .roster-knock {
+        flex-shrink: 0;
+        background: #2a2f3a;
+        border: 1px solid #3a4050;
+        color: #e6e8ee;
+        border-radius: 6px;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        font-size: 13px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .roster-go:hover {
+        background: #4f8cff;
+        border-color: #4f8cff;
+        color: white;
+      }
+
+      .roster-knock {
+        font-size: 11px;
+      }
+
+      .roster-knock:hover {
+        background: #f0a02a;
+        border-color: #f0a02a;
+        color: white;
+      }
+
+      /* ===== Chat panel (bottom-left, toggled from the toolbar) ===== */
+      #btn-chat {
+        position: relative;
+      }
+
+      /* Unread dot when a message arrives while the panel is closed. */
+      #btn-chat.has-unread::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #dc3545;
+        border: 1px solid #1a1d24;
+      }
+
+      #chat {
+        position: absolute;
+        left: 12px;
+        bottom: 76px;
+        width: 300px;
+        max-width: calc(100vw - 24px);
+        height: 46vh;
+        max-height: calc(100vh - 160px);
+        display: flex;
+        flex-direction: column;
+        background: rgba(20, 23, 30, 0.94);
+        border: 1px solid #353a47;
+        border-radius: 10px;
+        backdrop-filter: blur(8px);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        overflow: hidden;
+        /* Above the draggable tiles, below the toolbar (z1000) it toggles from. */
+        z-index: 950;
+        font-size: 13px;
+      }
+
+      #chat-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 10px;
+        flex-shrink: 0;
+        font-weight: 600;
+        border-bottom: 1px solid #2a2f3a;
+        background: rgba(0, 0, 0, 0.2);
+      }
+
+      #chat-close {
+        background: transparent;
+        border: 0;
+        color: #9da3b0;
+        font-size: 14px;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: 6px;
+        line-height: 1;
+      }
+
+      #chat-close:hover {
+        background: #353a47;
+        color: #e6e8ee;
+      }
+
+      #chat-list {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .chat-msg {
+        line-height: 1.35;
+        word-break: break-word;
+      }
+
+      .chat-msg .chat-who {
+        color: #9da3b0;
+        font-weight: 600;
+        margin-right: 6px;
+      }
+
+      .chat-msg.self .chat-who {
+        color: #4f8cff;
+      }
+
+      .chat-msg .chat-text {
+        color: #e6e8ee;
+      }
+
+      #chat-form {
+        flex-shrink: 0;
+        padding: 8px;
+        border-top: 1px solid #2a2f3a;
+      }
+
+      #chat-input {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid #3a4050;
+        background: #1a1d24;
+        color: inherit;
+        font-size: 13px;
+      }
+
+      /* ===== Toasts (top-center stack) for knock requests/replies ===== */
+      #toasts {
+        position: fixed;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: center;
+        /* Below the reload banner (z2000), above the toolbar. */
+        z-index: 1500;
+        pointer-events: none;
+      }
+
+      .toast {
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        max-width: 360px;
+        background: rgba(28, 32, 40, 0.98);
+        border: 1px solid #3a4050;
+        border-radius: 10px;
+        padding: 10px 14px;
+        font-size: 13px;
+        color: #e6e8ee;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+      }
+
+      .toast-msg {
+        flex: 1;
+      }
+
+      .toast-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .toast-actions button {
+        border: 1px solid #3a4050;
+        background: #2a2f3a;
+        color: #e6e8ee;
+        border-radius: 8px;
+        padding: 5px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .toast-actions button:hover {
+        background: #353a47;
+      }
+
+      .toast-actions button.primary {
+        background: #4f8cff;
+        border-color: #4f8cff;
+        color: white;
+      }
+
+      .toast-actions button.primary:hover {
+        background: #3a78f0;
+      }
 
       /* ===== Server-update reload banner (top center, above everything) ===== */
       #reload-banner {
         position: fixed;
-        top: 16px; left: 50%; transform: translateX(-50%);
-        display: flex; align-items: center; gap: 12px;
-        background: #4f8cff; color: white;
-        padding: 10px 16px; border-radius: 10px;
-        box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: #4f8cff;
+        color: white;
+        padding: 10px 16px;
+        border-radius: 10px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
         font-size: 14px;
         z-index: 2000;
       }
-      #reload-banner .reload-banner-msg { font-weight: 600; }
-      #reload-banner .reload-banner-countdown { opacity: 0.85; }
-      #reload-banner button {
-        border: 0; border-radius: 8px;
-        background: white; color: #1a1d24;
-        padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
-      }
-      #reload-banner button:hover { background: #e6e8ee; }
 
-      .hidden { display: none !important; }
+      #reload-banner .reload-banner-msg {
+        font-weight: 600;
+      }
+
+      #reload-banner .reload-banner-countdown {
+        opacity: 0.85;
+      }
+
+      #reload-banner button {
+        border: 0;
+        border-radius: 8px;
+        background: white;
+        color: #1a1d24;
+        padding: 6px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      #reload-banner button:hover {
+        background: #e6e8ee;
+      }
+
+      .hidden {
+        display: none !important;
+      }
     </style>
   </head>
+
   <body>
     <div id="app">
       <canvas id="canvas"></canvas>
@@ -387,6 +887,7 @@
         <input id="bg-file" type="file" accept="image/*" class="hidden" />
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" title="録画">⏺ 録画</button>
+        <button id="btn-chat" title="チャット">💬 チャット</button>
         <button id="btn-arrange-smart" title="スマート整列（共有中はプレゼン型、なければグリッド）">✨ スマート整列</button>
         <button id="btn-arrange-grid" title="グリッド整列">▦ グリッド整列</button>
         <div class="btn-group">
@@ -397,6 +898,16 @@
           <button id="btn-zoom-in" title="拡大">🔍＋</button>
           <button id="btn-zoom-out" title="縮小">🔍−</button>
         </div>
+      </div>
+      <div id="chat" class="hidden">
+        <div id="chat-header">
+          <span id="chat-title">💬 チャット</span>
+          <button id="chat-close" title="閉じる">✕</button>
+        </div>
+        <div id="chat-list"></div>
+        <form id="chat-form">
+          <input id="chat-input" type="text" placeholder="近くの人にメッセージ…" maxlength="500" autocomplete="off" />
+        </form>
       </div>
       <div id="remote-videos"></div>
       <div id="self-preview" class="panel hidden">
@@ -436,4 +947,5 @@
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
+
 </html>

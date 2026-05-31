@@ -62,6 +62,7 @@ export class RosterPanel {
   private getMyId: () => string;
   private onFocus: (userId: string) => void;
   private onGoTo: (userId: string) => void;
+  private onKnock: (userId: string) => void;
 
   private panelEl: HTMLDivElement;
   private countEl: HTMLElement;
@@ -81,11 +82,13 @@ export class RosterPanel {
     getMyId: () => string;
     onFocus: (userId: string) => void;
     onGoTo: (userId: string) => void;
+    onKnock: (userId: string) => void;
   }) {
     this.players = opts.players;
     this.getMyId = opts.getMyId;
     this.onFocus = opts.onFocus;
     this.onGoTo = opts.onGoTo;
+    this.onKnock = opts.onKnock;
 
     this.panelEl = document.getElementById('roster') as HTMLDivElement;
     this.countEl = document.getElementById('roster-count')!;
@@ -179,14 +182,24 @@ export class RosterPanel {
 
     el.append(dot, name, status);
 
-    // Self can't walk to itself, so no → button on its own row.
+    // Self can't knock or walk to itself, so its row has neither button.
     if (!p.isSelf) {
+      const knock = document.createElement('button');
+      knock.className = 'roster-knock';
+      knock.textContent = '🔔';
+      knock.title = `${p.name} さんにノック（話したいと伝える）`;
+      knock.addEventListener('click', (e) => {
+        // Don't let the button click bubble up to the row's focus handler.
+        e.stopPropagation();
+        this.onKnock(p.userId);
+      });
+      el.appendChild(knock);
+
       const go = document.createElement('button');
       go.className = 'roster-go';
       go.textContent = '→';
       go.title = `${p.name} のそばへ移動`;
       go.addEventListener('click', (e) => {
-        // Don't let the button click bubble up to the row's focus handler.
         e.stopPropagation();
         this.onGoTo(p.userId);
       });

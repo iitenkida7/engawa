@@ -23,6 +23,12 @@ export type ClientMessage =
   | { type: 'status'; status: PlayerStatus; isMuted: boolean; isVideoOn: boolean }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
+  // A chat line, relayed to the sender's current proximity group (the people
+  // they're in a call with), so text stays spatial. The server keeps no history.
+  | { type: 'chat'; text: string }
+  // A knock (call request) and its accept/decline reply, both relayed 1:1.
+  | { type: 'knock'; to: string }
+  | { type: 'knock-reply'; to: string; accept: boolean }
   // SFU: announce/replace the tracks this client has published to its Cloudflare
   // session, so the server can relay them to the group as a track directory.
   | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] };
@@ -36,6 +42,12 @@ export type ServerMessage =
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
   | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' }
+  // A chat line from a proximity-group peer (from === self when it's the echo
+  // of our own message). `name` is the sender's display name; `ts` is server ms.
+  | { type: 'chat'; from: string; name: string; text: string; ts: number }
+  // An incoming knock, and the reply to a knock we sent.
+  | { type: 'knock'; from: string; name: string }
+  | { type: 'knock-reply'; from: string; name: string; accept: boolean }
   // SFU: the recipient's current proximity group and its transport. The client
   // talks to exactly these members (members includes self) via mesh or SFU.
   // Meeting-room groups are always 'sfu'; outdoor groups promote at 5 and latch.

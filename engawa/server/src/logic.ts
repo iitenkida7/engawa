@@ -52,6 +52,20 @@ export function normalizeName(name: string | undefined): string {
   return (name || 'anon').slice(0, 24);
 }
 
+/** Max length (chars) of a single chat message after trimming. */
+export const CHAT_MAX_LENGTH = 500;
+
+/**
+ * Normalize an incoming chat message: coerce to string, trim surrounding
+ * whitespace, and cap length. Non-string or empty-after-trim input yields ''
+ * (the caller drops empty messages). The browser renders chat with textContent,
+ * so HTML is never interpreted; this only guards length and type.
+ */
+export function normalizeChatText(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().slice(0, CHAT_MAX_LENGTH);
+}
+
 /**
  * Clamp a coordinate pair into the map bounds. Non-finite inputs collapse to 0,
  * matching the original `Number(v) || 0` behaviour.
