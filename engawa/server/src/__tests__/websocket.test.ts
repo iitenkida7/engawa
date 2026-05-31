@@ -317,6 +317,34 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       status: 'busy',
       isMuted: true,
       isVideoOn: false,
+      note: '',
+      until: null,
+    });
+  });
+
+  test('relays the status one-liner and return time, normalized (#85)', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(peer);
+
+    deliver(handler, sender, {
+      type: 'status',
+      status: 'break',
+      isMuted: false,
+      isVideoOn: false,
+      note: '  ランチ  ',
+      until: 1893456000000,
+    });
+
+    expect(peer.sent).toContainEqual({
+      type: 'player-status',
+      userId: sender.data.userId,
+      status: 'break',
+      isMuted: false,
+      isVideoOn: false,
+      note: 'ランチ',
+      until: 1893456000000,
     });
   });
 

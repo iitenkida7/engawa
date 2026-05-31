@@ -30,6 +30,19 @@ const STATUS_BADGE: Record<string, string> = {
   busy: '🔴', away: '🟡', meeting: '🤝', break: '☕',
 };
 
+// Max chars of the status one-liner shown above an avatar (#85); longer notes
+// are truncated with an ellipsis. The full text stays in the roster.
+const AVATAR_NOTE_MAX = 12;
+
+/**
+ * Pure: shorten a status one-liner for the above-avatar label. Trims, then caps
+ * to `max` chars with a trailing ellipsis. '' (or whitespace-only) yields ''.
+ */
+export function truncateNote(note: string, max = AVATAR_NOTE_MAX): string {
+  const t = note.trim();
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+}
+
 // How far (world px) a reaction bubble drifts upward over its lifetime.
 const REACTION_RISE_PX = 36;
 
@@ -487,6 +500,23 @@ export class CanvasRenderer {
     ctx.fill();
     ctx.fillStyle = 'white';
     ctx.fillText(label, p.x, ly + lh / 2 + 1);
+
+    // Status one-liner (#85): a small pill above the avatar, so "なぜ離れている
+    // か" reads at a glance on the map. Truncated; the return time lives in the
+    // roster. Reactions float in the same area but are transient and on top.
+    const note = truncateNote(p.note);
+    if (note) {
+      ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      const nm = ctx.measureText(note);
+      const nlw = nm.width + padX * 2;
+      const nlh = 16;
+      const ny = p.y - PLAYER_RADIUS - 6 - nlh;
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      this.roundRect(ctx, p.x - nlw / 2, ny, nlw, nlh, 4);
+      ctx.fill();
+      ctx.fillStyle = '#ffe7a3';
+      ctx.fillText(note, p.x, ny + nlh / 2 + 1);
+    }
   }
 
   private roundRect(

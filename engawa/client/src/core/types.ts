@@ -20,7 +20,10 @@ export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
 export type ClientMessage =
   | { type: 'join'; name: string; workspace: string; password?: string }
   | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
-  | { type: 'status'; status: PlayerStatus; isMuted: boolean; isVideoOn: boolean }
+  // `note` is an optional free-text one-liner ("ランチ"); `until` is an optional
+  // return time as absolute epoch ms (null = none). Both ride the existing
+  // status sync (#85); the server relays them without storing.
+  | { type: 'status'; status: PlayerStatus; isMuted: boolean; isVideoOn: boolean; note?: string; until?: number | null }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
   // A chat line, relayed to the sender's current proximity group (the people
@@ -41,7 +44,7 @@ export type ServerMessage =
   | { type: 'welcome'; self: Player; players: Player[]; bootId: string; sfuEnabled: boolean }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
-  | { type: 'player-status'; userId: string; status: PlayerStatus; isMuted: boolean; isVideoOn: boolean }
+  | { type: 'player-status'; userId: string; status: PlayerStatus; isMuted: boolean; isVideoOn: boolean; note?: string; until?: number | null }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
   | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' }
@@ -96,6 +99,24 @@ export const EXTRAP_MAX_MS = 200;
 export const ZOOM_MIN = 0.5;
 export const ZOOM_MAX = 1.0;
 export const ZOOM_STEP = 1.2;
+
+// Max length of a status one-liner (issue #85). The input enforces it client
+// side; the server also clamps to this on relay so a crafted message can't
+// flood peers with a huge note.
+export const STATUS_NOTE_MAX_LEN = 40;
+// Return-time presets offered in the status menu, in minutes. `null` = no time.
+export const STATUS_UNTIL_PRESETS_MIN = [15, 30, 60] as const;
+
+// Format an absolute return time (epoch ms) as local HH:MM, or '' when there's
+// no time or it has already passed. Pure so the label logic is unit-testable;
+// each client formats with its own clock (minor skew is fine for a "戻り時刻").
+export function formatUntil(until: number | null | undefined, now = Date.now()): string {
+  if (until == null || until <= now) return '';
+  const d = new Date(until);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
 
 // Emoji reactions (issue #23). The toolbar offers these as buttons and number
 // keys 1–6 map to them in order; the server validates against the same list

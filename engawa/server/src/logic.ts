@@ -66,6 +66,28 @@ export function normalizeChatText(raw: unknown): string {
   return raw.trim().slice(0, CHAT_MAX_LENGTH);
 }
 
+/** Max length (chars) of a status one-liner. Mirrors STATUS_NOTE_MAX_LEN on the client. */
+export const STATUS_NOTE_MAX_LENGTH = 40;
+
+/**
+ * Normalize a status one-liner (#85): coerce to string, trim, cap length. Non-
+ * string or empty-after-trim input yields '' (no note). Like chat, the browser
+ * renders it with textContent, so this only guards length and type.
+ */
+export function normalizeStatusNote(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().slice(0, STATUS_NOTE_MAX_LENGTH);
+}
+
+/**
+ * Normalize a status return time (#85): a finite positive epoch-ms number, else
+ * null (no return time). The server doesn't interpret it — clients format and
+ * auto-clear — so this only rejects garbage so peers get a clean number|null.
+ */
+export function normalizeUntil(raw: unknown): number | null {
+  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : null;
+}
+
 /**
  * Allowed emoji reactions. The server validates against this list so a client
  * can only ever broadcast one of these (no arbitrary text). Must stay in sync

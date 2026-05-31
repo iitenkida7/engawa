@@ -8,6 +8,7 @@
 
 import type { PlayerState } from '@/world/player';
 import type { PlayerStatus } from '@/core/types';
+import { formatUntil, STATUS_NOTE_MAX_LEN, STATUS_UNTIL_PRESETS_MIN } from '@/core/types';
 
 // Status emoji shown in the roster. Unlike the canvas avatar badge, `online`
 // gets an explicit 🟢 so every row carries a status indicator.
@@ -41,16 +42,33 @@ export function orderRoster<T extends { userId: string; name: string }>(
   });
 }
 
+// Pure: the secondary line under a roster name (#85) — the one-liner plus the
+// return time as "〜HH:MMまで". Either part may be absent; an already-passed
+// `until` is dropped (the owner will broadcast online shortly). '' = no line.
+export function composeStatusNote(
+  note: string,
+  until: number | null | undefined,
+  now = Date.now(),
+): string {
+  const parts: string[] = [];
+  if (note) parts.push(note);
+  const hhmm = formatUntil(until, now);
+  if (hhmm) parts.push(`〜${hhmm}まで`);
+  return parts.join(' ');
+}
+
 type RosterRow = {
   el: HTMLDivElement;
   dot: HTMLSpanElement;
   name: HTMLSpanElement;
+  note: HTMLSpanElement;
   status: HTMLSpanElement;
   // Last-rendered values, so per-frame syncs skip redundant DOM writes.
   cache: {
     name?: string;
     color?: string;
     status?: PlayerStatus;
+    note?: string;
     speaking?: boolean;
     self?: boolean;
     focused?: boolean;
@@ -74,7 +92,15 @@ export class RosterPanel {
   private onGoTo: (userId: string) => void;
   private onKnock: (userId: string) => void;
   private getStatus: () => PlayerStatus;
-  private onSetStatus: (status: PlayerStatus) => void;
+  private getNote: () => string;
+  private getUntilMin: () => number | null;
+  private onSetStatus: (status: PlayerStatus, note: string, untilMin: number | null) => void;
+
+  // Status-menu draft (#85): the note input plus the picked return-time preset
+  // (minutes, null = none). Both seed from the current status when the menu
+  // opens; clicking a status commits them together.
+  private noteInput: HTMLInputElement | null = null;
+  private untilMinDraft: number | null = null;
 
   private panelEl: HTMLDivElement;
   private countEl: HTMLElement;
@@ -98,7 +124,9 @@ export class RosterPanel {
     onGoTo: (userId: string) => void;
     onKnock: (userId: string) => void;
     getStatus: () => PlayerStatus;
-    onSetStatus: (status: PlayerStatus) => void;
+    getNote: () => string;
+    getUntilMin: () => number | null;
+    onSetStatus: (status: PlayerStatus, note: string, untilMin: number | null) => void;
   }) {
     this.players = opts.players;
     this.getMyId = opts.getMyId;
@@ -106,6 +134,8 @@ export class RosterPanel {
     this.onGoTo = opts.onGoTo;
     this.onKnock = opts.onKnock;
     this.getStatus = opts.getStatus;
+    this.getNote = opts.getNote;
+    this.getUntilMin = opts.getUntilMin;
     this.onSetStatus = opts.onSetStatus;
 
     this.panelEl = document.getElementById('roster') as HTMLDivElement;
@@ -165,8 +195,71 @@ export class RosterPanel {
     this.statusMenu.style.left = 'auto';
   }
 
+  // Build the status menu fresh each open (#85): a one-liner input + return-time
+  // presets seed from the current status as a draft, then the status buttons
+  // commit status + draft together and close. Clicks inside the form fields are
+  // stopped from bubbling so the document outside-click handler doesn't close it.
   private populateStatusMenu() {
     this.statusMenu.replaceChildren();
+    this.untilMinDraft = this.getUntilMin();
+
+    // One-liner input.
+    const noteField = document.createElement('label');
+    noteField.className = 'status-field';
+    const noteLabel = document.createElement('span');
+    noteLabel.className = 'status-field-label';
+    noteLabel.textContent = '一言メッセージ';
+    const note = document.createElement('input');
+    note.type = 'text';
+    note.className = 'status-note-input';
+    note.maxLength = STATUS_NOTE_MAX_LEN;
+    note.placeholder = '例: ランチ';
+    note.value = this.getNote();
+    note.addEventListener('click', (e) => e.stopPropagation());
+    // Enter commits with the current status, for a quick note-only update.
+    note.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.commitStatus(this.getStatus());
+      }
+    });
+    this.noteInput = note;
+    noteField.append(noteLabel, note);
+    this.statusMenu.appendChild(noteField);
+
+    // Return-time presets.
+    const untilField = document.createElement('div');
+    untilField.className = 'status-field';
+    const untilLabel = document.createElement('span');
+    untilLabel.className = 'status-field-label';
+    untilLabel.textContent = '戻り時刻';
+    const untilRow = document.createElement('div');
+    untilRow.className = 'status-until-row';
+    const presets: { min: number | null; text: string }[] = [
+      { min: null, text: 'なし' },
+      ...STATUS_UNTIL_PRESETS_MIN.map((min) => ({ min, text: `${min}分` })),
+    ];
+    for (const preset of presets) {
+      const btn = document.createElement('button');
+      btn.className = 'status-until-btn';
+      btn.textContent = preset.text;
+      if (preset.min === this.untilMinDraft) btn.classList.add('selected');
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.untilMinDraft = preset.min;
+        for (const b of untilRow.children) b.classList.remove('selected');
+        btn.classList.add('selected');
+      });
+      untilRow.appendChild(btn);
+    }
+    untilField.append(untilLabel, untilRow);
+    this.statusMenu.appendChild(untilField);
+
+    const divider = document.createElement('div');
+    divider.className = 'status-divider';
+    this.statusMenu.appendChild(divider);
+
+    // Status buttons — selecting one commits the draft and closes.
     const current = this.getStatus();
     for (const status of STATUS_ORDER) {
       const item = document.createElement('button');
@@ -176,11 +269,22 @@ export class RosterPanel {
       item.textContent = (isSelected ? '✓ ' : '') + STATUS_LABELS[status];
       item.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.statusMenu.classList.add('hidden');
-        this.onSetStatus(status);
+        this.commitStatus(status);
       });
       this.statusMenu.appendChild(item);
     }
+  }
+
+  // Apply the picked status with the menu's current note/return-time draft, then
+  // close. `online` clears the note/time so "戻りました" is a clean reset.
+  private commitStatus(status: PlayerStatus) {
+    this.statusMenu.classList.add('hidden');
+    if (status === 'online') {
+      this.onSetStatus(status, '', null);
+      return;
+    }
+    const note = this.noteInput?.value.trim() ?? '';
+    this.onSetStatus(status, note, this.untilMinDraft);
   }
 
   private onResize() {
@@ -257,13 +361,23 @@ export class RosterPanel {
     const dot = document.createElement('span');
     dot.className = 'roster-dot';
 
+    // Name and the optional status one-liner stack in a column so the note (#85)
+    // sits under the name without pushing the status emoji / buttons around.
+    const main = document.createElement('div');
+    main.className = 'roster-main';
+
     const name = document.createElement('span');
     name.className = 'roster-name';
+
+    const note = document.createElement('span');
+    note.className = 'roster-note hidden';
+
+    main.append(name, note);
 
     const status = document.createElement('span');
     status.className = 'roster-status';
 
-    el.append(dot, name, status);
+    el.append(dot, main, status);
 
     // Self can't knock or walk to itself, so its row has neither button.
     if (!p.isSelf) {
@@ -293,7 +407,7 @@ export class RosterPanel {
     // map — a light, non-destructive action; moving requires the explicit →.
     el.addEventListener('click', () => this.onFocus(p.userId));
 
-    return { el, dot, name, status, cache: {} };
+    return { el, dot, name, note, status, cache: {} };
   }
 
   private syncRow(row: RosterRow, p: PlayerState, focused: boolean) {
@@ -309,6 +423,14 @@ export class RosterPanel {
     if (c.status !== p.status) {
       row.status.textContent = ROSTER_STATUS_EMOJI[p.status] ?? '';
       c.status = p.status;
+    }
+    // The note line recomputes from note + return time; the latter ticks down to
+    // a minute boundary, so compose every frame but only touch the DOM on change.
+    const noteText = composeStatusNote(p.note, p.until);
+    if (c.note !== noteText) {
+      row.note.textContent = noteText;
+      row.note.classList.toggle('hidden', noteText === '');
+      c.note = noteText;
     }
     if (c.speaking !== p.isSpeaking) {
       row.el.classList.toggle('speaking', p.isSpeaking);
