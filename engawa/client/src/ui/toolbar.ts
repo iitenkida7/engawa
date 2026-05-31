@@ -3,7 +3,7 @@ import type { PlayerState } from '@/world/player';
 import type { RecorderManager } from '@/media/recorder';
 import type { RemoteMediaView } from '@/ui/remote-media';
 import { SceneCompositor } from '@/media/compositor';
-import type { StreamKind } from '@/core/types';
+import { REACTION_EMOJIS, type StreamKind } from '@/core/types';
 import {
   BG_PRESETS,
   VBG_OFF,
@@ -43,6 +43,7 @@ export class ToolbarController {
   private view: RemoteMediaView;
   private broadcastStatus: () => void;
   private getMe: () => PlayerState | null;
+  private onReaction: (emoji: string) => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
 
@@ -50,6 +51,8 @@ export class ToolbarController {
   private btnCam: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
+  private btnReaction: HTMLButtonElement;
+  private reactionMenu: HTMLDivElement;
   private btnMore: HTMLButtonElement;
   private moreMenu: HTMLDivElement;
   private bgFileInput: HTMLInputElement;
@@ -62,6 +65,7 @@ export class ToolbarController {
     view: RemoteMediaView;
     broadcastStatus: () => void;
     getMe: () => PlayerState | null;
+    onReaction: (emoji: string) => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
   }) {
@@ -72,6 +76,7 @@ export class ToolbarController {
     this.view = opts.view;
     this.broadcastStatus = opts.broadcastStatus;
     this.getMe = opts.getMe;
+    this.onReaction = opts.onReaction;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
 
@@ -79,6 +84,8 @@ export class ToolbarController {
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
+    this.btnReaction = document.getElementById('btn-reaction') as HTMLButtonElement;
+    this.reactionMenu = document.getElementById('reaction-menu') as HTMLDivElement;
     this.btnMore = document.getElementById('btn-more') as HTMLButtonElement;
     this.moreMenu = document.getElementById('more-menu') as HTMLDivElement;
     this.bgFileInput = document.getElementById('bg-file') as HTMLInputElement;
@@ -221,6 +228,7 @@ export class ToolbarController {
     const closeMenus = () => {
       micMenu.classList.add('hidden');
       camMenu.classList.add('hidden');
+      this.reactionMenu.classList.add('hidden');
       this.moreMenu.classList.add('hidden');
     };
     // No stopPropagation on the toggles below: the click bubbles to document so
@@ -232,6 +240,7 @@ export class ToolbarController {
       const t = e.target as Node;
       if (!micMenu.contains(t) && t !== btnMicDevices &&
           !camMenu.contains(t) && t !== btnCamDevices &&
+          !this.reactionMenu.contains(t) && t !== this.btnReaction &&
           !this.moreMenu.contains(t) && t !== this.btnMore) {
         closeMenus();
       }
@@ -255,6 +264,15 @@ export class ToolbarController {
       }
     });
 
+    this.btnReaction.addEventListener('click', () => {
+      const open = this.reactionMenu.classList.contains('hidden');
+      closeMenus();
+      if (open) {
+        this.populateReactionMenu(this.reactionMenu);
+        this.reactionMenu.classList.remove('hidden');
+      }
+    });
+
     this.btnMore.addEventListener('click', () => {
       const open = this.moreMenu.classList.contains('hidden');
       closeMenus();
@@ -262,6 +280,25 @@ export class ToolbarController {
         this.populateMoreMenu(this.moreMenu);
         this.moreMenu.classList.remove('hidden');
       }
+    });
+  }
+
+  // The 😀 reaction menu: one button per whitelisted emoji. Clicking sends the
+  // reaction (App debounces) and closes the menu. The number-key hint matches
+  // the 1–6 shortcuts wired in App.
+  private populateReactionMenu(menu: HTMLDivElement) {
+    menu.replaceChildren();
+    REACTION_EMOJIS.forEach((emoji, i) => {
+      const item = document.createElement('button');
+      item.className = 'reaction-item';
+      item.title = `リアクション (${i + 1})`;
+      item.textContent = emoji;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.classList.add('hidden');
+        this.onReaction(emoji);
+      });
+      menu.appendChild(item);
     });
   }
 

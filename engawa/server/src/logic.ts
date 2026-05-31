@@ -67,6 +67,18 @@ export function normalizeChatText(raw: unknown): string {
 }
 
 /**
+ * Allowed emoji reactions. The server validates against this list so a client
+ * can only ever broadcast one of these (no arbitrary text). Must stay in sync
+ * with the client's REACTION_EMOJIS in client/src/core/types.ts.
+ */
+export const REACTION_EMOJIS = ['👋', '👍', '❤️', '😂', '🎉', '🙏'] as const;
+
+/** True when `emoji` is one of the whitelisted reaction emojis. */
+export function isAllowedReaction(emoji: unknown): boolean {
+  return typeof emoji === 'string' && (REACTION_EMOJIS as readonly string[]).includes(emoji);
+}
+
+/**
  * Clamp a coordinate pair into the map bounds. Non-finite inputs collapse to 0,
  * matching the original `Number(v) || 0` behaviour.
  */

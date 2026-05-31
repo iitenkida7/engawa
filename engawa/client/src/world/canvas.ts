@@ -3,6 +3,7 @@ import {
   MAP_HEIGHT,
   PLAYER_RADIUS,
   CONNECT_RADIUS,
+  REACTION_LIFETIME_MS,
   ZOOM_MIN,
   ZOOM_MAX,
   ZOOM_STEP,
@@ -28,6 +29,23 @@ import { CELL, floorKindAt, propFor } from '@/world/decor';
 const STATUS_BADGE: Record<string, string> = {
   busy: '🔴', away: '🟡', meeting: '🤝', break: '☕',
 };
+
+// How far (world px) a reaction bubble drifts upward over its lifetime.
+const REACTION_RISE_PX = 36;
+
+/**
+ * Animation state of a floating reaction `elapsed` ms into its `lifetime`.
+ * Pure (no DOM) so the float/fade curve is unit-testable. Returns null once the
+ * reaction has expired; otherwise alpha fades 1→0 and rise grows 0→REACTION_RISE_PX.
+ */
+export function reactionAnim(
+  elapsed: number,
+  lifetime = REACTION_LIFETIME_MS,
+): { alpha: number; rise: number } | null {
+  if (elapsed < 0 || elapsed >= lifetime) return null;
+  const t = elapsed / lifetime;
+  return { alpha: 1 - t, rise: REACTION_RISE_PX * t };
+}
 
 /**
  * Convert a screen/client coordinate to a world coordinate. Pure (no DOM) so
@@ -70,6 +88,11 @@ export class CanvasRenderer {
   // default 1:1 view; smaller surveys more of the office. The map cache is
   // viewport-independent, so zooming never invalidates it.
   private zoomLevel = ZOOM_MAX;
+
+  // Live emoji reactions, anchored to a userId so the bubble tracks that avatar
+  // as it moves. Each is drawn floating up + fading; expired ones are pruned in
+  // render(). Memory-only, like everything else here.
+  private reactions: { userId: string; emoji: string; start: number }[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -122,6 +145,11 @@ export class CanvasRenderer {
   }
   private setZoom(z: number) {
     this.zoomLevel = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+  }
+
+  /** Queue a floating emoji reaction above the given player's avatar. */
+  addReaction(userId: string, emoji: string) {
+    this.reactions.push({ userId, emoji, start: performance.now() });
   }
 
   /** Map a click position (clientX/Y) to a world coordinate. */
@@ -224,7 +252,35 @@ export class CanvasRenderer {
       this.drawPlayer(ctx, p, p.userId === highlightId);
     }
 
+    // Floating emoji reactions, on top of the avatars they belong to.
+    this.drawReactions(ctx, sortedPlayers);
+
     ctx.restore();
+  }
+
+  // Draw each live reaction floating above its player's head, fading as it
+  // rises, and prune the ones that have expired. A reaction whose player has
+  // left is simply not drawn but still ages out.
+  private drawReactions(ctx: CanvasRenderingContext2D, players: PlayerState[]) {
+    if (this.reactions.length === 0) return;
+    const now = performance.now();
+    const byId = new Map(players.map((p) => [p.userId, p]));
+    const alive: typeof this.reactions = [];
+    for (const r of this.reactions) {
+      const anim = reactionAnim(now - r.start);
+      if (!anim) continue;
+      alive.push(r);
+      const p = byId.get(r.userId);
+      if (!p) continue;
+      ctx.save();
+      ctx.globalAlpha = anim.alpha;
+      ctx.font = '28px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(r.emoji, p.x, p.y - PLAYER_RADIUS - 18 - anim.rise);
+      ctx.restore();
+    }
+    this.reactions = alive;
   }
 
   // Bakes the whole static map into an offscreen world-space canvas: sprite

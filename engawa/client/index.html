@@ -295,6 +295,28 @@
         letter-spacing: 0.05em;
       }
 
+      /* Reaction picker: emoji buttons laid out in a compact row. */
+      #reaction-menu {
+        min-width: 0;
+        flex-direction: row;
+        flex-wrap: wrap;
+        max-width: 220px;
+      }
+
+      #reaction-menu .reaction-item {
+        border: 0;
+        background: transparent;
+        border-radius: 6px;
+        padding: 4px 6px;
+        font-size: 22px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      #reaction-menu .reaction-item:hover {
+        background: #353a47;
+      }
+
       /* Full-viewport overlay that only acts as a positioning context for the
          draggable tiles. It must not capture pointer events itself, so it never
          blocks canvas interaction; each tile re-enables pointer events. */
@@ -1085,6 +1107,10 @@
         <input id="bg-file" type="file" accept="image/*" class="hidden" />
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" title="録画">⏺ 録画</button>
+        <div class="btn-group">
+          <button id="btn-reaction" title="リアクション">😀</button>
+          <div id="reaction-menu" class="device-menu hidden"></div>
+        </div>
         <div class="btn-group">
           <button id="btn-more" title="その他">⋯</button>
           <div id="more-menu" class="device-menu hidden"></div>

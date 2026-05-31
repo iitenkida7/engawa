@@ -20,6 +20,8 @@ import {
   PLAYER_RADIUS,
   PLAYER_SPEED,
   POSITION_SEND_INTERVAL_MS,
+  REACTION_DEBOUNCE_MS,
+  REACTION_EMOJIS,
   type GroupMethod,
   type PlayerStatus,
   type ServerMessage,
@@ -182,6 +184,7 @@ export class App {
       view: this.view,
       broadcastStatus: () => this.broadcastStatus(),
       getMe: () => this.me,
+      onReaction: (emoji) => this.sendReaction(emoji),
       // The 🐛 debug console lives in the toolbar's "⋯" menu (issue #113). These
       // resolve lazily on click, so referencing this.debug (built below) is fine.
       toggleDebug: () => this.debug.toggle(),
@@ -233,7 +236,24 @@ export class App {
     // Double-click the map to walk to that point (A* around walls, boosted speed).
     this.canvas.addEventListener('dblclick', (e) => this.onCanvasDblClick(e));
 
+    // Number keys 1–6 fire the matching reaction (issue #23). Ignored while
+    // typing in a field, and key-repeat is dropped so holding a key doesn't spam.
+    window.addEventListener('keydown', (e) => this.onReactionKey(e));
+
     this.setupZoomControls();
+  }
+
+  // Map a 1–6 keypress to REACTION_EMOJIS and send it. The send-side debounce in
+  // sendReaction guards against rapid presses.
+  private onReactionKey(e: KeyboardEvent) {
+    if (e.repeat || !this.me) return;
+    const t = e.target;
+    if (t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+      return;
+    }
+    const idx = REACTION_EMOJIS.findIndex((_, i) => e.key === String(i + 1));
+    if (idx < 0) return;
+    this.sendReaction(REACTION_EMOJIS[idx]);
   }
 
   // Wire the toolbar zoom controls to the renderer (a pure view concern App
@@ -466,6 +486,12 @@ export class App {
         });
         break;
       }
+      case 'reaction': {
+        // The server echoes our own reactions back too, so this covers both
+        // peers' bubbles and our own (no separate local echo).
+        this.renderer.addReaction(msg.userId, msg.emoji);
+        break;
+      }
       case 'knock': {
         this.knocks.received(msg.from, msg.name);
         break;
@@ -681,6 +707,20 @@ export class App {
       return { vx: 0, vy: 0 };
     }
     return { vx, vy };
+  }
+
+  // Last time we sent a reaction, for the debounce below.
+  private lastReactionAt = 0;
+
+  // Send an emoji reaction, debounced so mashing a button/key can't flood the
+  // group. The server echoes it back, which is what pops our own bubble — so we
+  // don't add it locally here (keeps one render path for ours and peers').
+  private sendReaction(emoji: string) {
+    if (!this.me) return;
+    const now = performance.now();
+    if (now - this.lastReactionAt < REACTION_DEBOUNCE_MS) return;
+    this.lastReactionAt = now;
+    this.net.send({ type: 'reaction', emoji });
   }
 
   private broadcastStatus() {

@@ -11,6 +11,7 @@ import {
   clampPosition,
   computeProximityGroups,
   generateSpawn,
+  isAllowedReaction,
   normalizeChatText,
   normalizeName,
   normalizeWorkspace,
@@ -301,6 +302,20 @@ export function createWebSocketHandler(
             const c = clients.get(id);
             if (c && c.data.joined) send(c, out);
           }
+          break;
+        }
+
+        case 'reaction': {
+          if (!ws.data.joined) return;
+          // Whitelist-validate so a client can't broadcast arbitrary text. The
+          // reaction goes to the whole workspace including the sender, so their
+          // own avatar shows the bubble too (no separate local echo needed).
+          if (!isAllowedReaction(msg.emoji)) return;
+          broadcast(clients, ws.data.workspace, {
+            type: 'reaction',
+            userId: ws.data.userId,
+            emoji: msg.emoji,
+          });
           break;
         }
 

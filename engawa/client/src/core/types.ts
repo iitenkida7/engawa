@@ -29,6 +29,9 @@ export type ClientMessage =
   // A knock (call request) and its accept/decline reply, both relayed 1:1.
   | { type: 'knock'; to: string }
   | { type: 'knock-reply'; to: string; accept: boolean }
+  // An emoji reaction, broadcast to the whole workspace (whitelist-validated)
+  // and rendered as a short-lived bubble above the sender's avatar.
+  | { type: 'reaction'; emoji: string }
   // SFU: announce/replace the tracks this client has published to its Cloudflare
   // session, so the server can relay them to the group as a track directory.
   | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] };
@@ -48,6 +51,9 @@ export type ServerMessage =
   // An incoming knock, and the reply to a knock we sent.
   | { type: 'knock'; from: string; name: string }
   | { type: 'knock-reply'; from: string; name: string; accept: boolean }
+  // An emoji reaction from a workspace peer (from === self for our own echo),
+  // shown floating above that user's avatar.
+  | { type: 'reaction'; userId: string; emoji: string }
   // SFU: the recipient's current proximity group and its transport. The client
   // talks to exactly these members (members includes self) via mesh or SFU.
   // Meeting-room groups are always 'sfu'; outdoor groups promote at 5 and latch.
@@ -90,3 +96,12 @@ export const EXTRAP_MAX_MS = 200;
 export const ZOOM_MIN = 0.5;
 export const ZOOM_MAX = 1.0;
 export const ZOOM_STEP = 1.2;
+
+// Emoji reactions (issue #23). The toolbar offers these as buttons and number
+// keys 1–6 map to them in order; the server validates against the same list
+// (server/src/logic.ts REACTION_EMOJIS) so keep the two in sync.
+export const REACTION_EMOJIS = ['👋', '👍', '❤️', '😂', '🎉', '🙏'] as const;
+// How long a reaction bubble lives (ms) — it floats up and fades over this span.
+export const REACTION_LIFETIME_MS = 1500;
+// Min gap (ms) between reactions we send, to debounce mashing a button / key.
+export const REACTION_DEBOUNCE_MS = 300;
