@@ -42,4 +42,12 @@ export class NetworkClient {
       this.ws.send(JSON.stringify(msg));
     }
   }
+
+  // True while the socket is open or still opening — i.e. connect() does not need
+  // to be (re)called. Used by the visibility handler to reconnect a dropped
+  // socket on return from a long background stint, without stacking connects on
+  // one that is merely mid-handshake.
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING;
+  }
 }

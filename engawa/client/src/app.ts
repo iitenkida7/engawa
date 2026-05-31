@@ -33,6 +33,8 @@ import { ToolbarController, type MediaSink } from './toolbar';
 import { ReloadBanner, evaluateBoot } from './reload';
 import { ChatPanel } from './chat';
 import { Toasts } from './notify';
+import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from './lifecycle';
+import BackgroundTicker from './background-ticker?worker';
 
 // A knock can't be re-sent to the same person until this elapses; it also
 // covers the pending window, so you can't spam someone while waiting for a
@@ -120,6 +122,14 @@ export class App {
   private rtcStatsTimer: ReturnType<typeof setInterval> | null = null;
   // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
   private lastLayerUpdate = 0;
+
+  // Background ticker: a Worker that keeps update() running while the tab is
+  // hidden (requestAnimationFrame is paused there). Created in start(); the
+  // visible/hidden handover lives in the loop and onWorkerTick.
+  private bgTicker: Worker | null = null;
+  // Guards beforeunload/visibilitychange registration so an auth-error retry
+  // (start() called again) doesn't stack duplicate window listeners.
+  private lifecycleReady = false;
 
   constructor(opts: { canvas: HTMLCanvasElement }) {
     this.canvas = opts.canvas;
@@ -345,7 +355,45 @@ export class App {
     this.joinedPassword = password;
     this.net.connect();
     requestAnimationFrame(this.loop);
+    this.startBackgroundTicker();
+    this.setupLifecycle();
     this.startRtcStatsLogging();
+  }
+
+  // Keep the simulation alive in a hidden tab. While visible, requestAnimationFrame
+  // drives update()+render(). When the tab is backgrounded the browser pauses rAF,
+  // so a Worker timer (immune to background throttling) drives update() only — no
+  // render, since nothing is on screen. document.hidden picks the single active
+  // driver each tick, so the two never double-step.
+  private startBackgroundTicker() {
+    if (this.bgTicker) return;
+    this.bgTicker = new BackgroundTicker();
+    this.bgTicker.onmessage = () => {
+      if (document.hidden) this.step(performance.now(), false);
+    };
+    this.bgTicker.postMessage({ intervalMs: BACKGROUND_TICK_INTERVAL_MS });
+  }
+
+  // Confirm an accidental close while in a workspace, and recover the socket the
+  // moment the user returns to a tab that was backgrounded long enough to drop it.
+  private setupLifecycle() {
+    if (this.lifecycleReady) return;
+    this.lifecycleReady = true;
+    window.addEventListener('beforeunload', (e) => {
+      if (!shouldConfirmUnload(this.me !== null)) return;
+      // Setting returnValue is what triggers the browser's native confirm dialog;
+      // the text is ignored by modern browsers but assignment is still required.
+      e.preventDefault();
+      e.returnValue = '';
+    });
+    document.addEventListener('visibilitychange', () => {
+      // Bun keeps the socket alive with protocol pings, but a long background
+      // stint can still drop it. On return, reconnect immediately rather than
+      // waiting on the close-handler's 2s retry.
+      if (!document.hidden && !this.authFailed && !this.net.isConnected()) {
+        this.net.connect();
+      }
+    });
   }
 
   // getStats console telemetry, off unless the page is opened with ?debug=rtc.
@@ -521,15 +569,26 @@ export class App {
 
   private lastFrameMs = 0;
 
+  // The rAF driver (visible tabs). Skips its own work while hidden — there the
+  // Worker ticker drives step() instead — but always reschedules so the chain
+  // resumes the instant the tab is shown again.
   private loop = (nowMs?: number) => {
-    const t = nowMs ?? performance.now();
-    const dt = this.lastFrameMs ? Math.min(0.1, (t - this.lastFrameMs) / 1000) : 1 / 60;
-    this.lastFrameMs = t;
-    this.update(dt);
-    const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
-    this.renderer.render(this.me, this.players.values(), dest, this.focusedId);
+    if (!document.hidden) this.step(nowMs ?? performance.now(), true);
     requestAnimationFrame(this.loop);
   };
+
+  // One simulation step. `render` is false for background Worker ticks (nothing
+  // is visible). dt is computed from lastFrameMs regardless of which driver
+  // called us, so it stays continuous across a visible/hidden handover.
+  private step(nowMs: number, render: boolean) {
+    const dt = computeFrameDt(this.lastFrameMs, nowMs);
+    this.lastFrameMs = nowMs;
+    this.update(dt);
+    if (render) {
+      const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
+      this.renderer.render(this.me, this.players.values(), dest, this.focusedId);
+    }
+  }
 
   private update(dt: number) {
     // Move self by input (frame-rate independent: dt × speed-per-second)
