@@ -10,9 +10,11 @@ import {
   generateSpawn,
   normalizeChatText,
   normalizeIceServers,
+  isAllowedReaction,
   normalizeName,
   normalizeWorkspace,
   parseWorkspacePasswords,
+  REACTION_EMOJIS,
   sfuLatchSeeds,
   verifyWorkspacePassword,
   type GroupMember,
@@ -383,5 +385,26 @@ describe('sfuLatchSeeds', () => {
     );
     const second = computeProximityGroups(shrunk, { sfuEnabled: true, prevSfuMemberSets: seeds });
     expect(second[0].method).toBe('sfu');
+  });
+});
+
+describe('isAllowedReaction', () => {
+  test('accepts every whitelisted emoji', () => {
+    for (const emoji of REACTION_EMOJIS) {
+      expect(isAllowedReaction(emoji)).toBe(true);
+    }
+  });
+
+  test('rejects emojis outside the whitelist', () => {
+    expect(isAllowedReaction('🔥')).toBe(false);
+    expect(isAllowedReaction('😀')).toBe(false);
+  });
+
+  test('rejects non-string and empty input', () => {
+    expect(isAllowedReaction('')).toBe(false);
+    expect(isAllowedReaction(undefined)).toBe(false);
+    expect(isAllowedReaction(42)).toBe(false);
+    // No arbitrary text — guards against an emoji with extra characters.
+    expect(isAllowedReaction('👍 hello')).toBe(false);
   });
 });

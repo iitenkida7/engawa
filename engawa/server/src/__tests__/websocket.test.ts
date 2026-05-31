@@ -532,6 +532,60 @@ describe('createWebSocketHandler — chat', () => {
   });
 });
 
+describe('createWebSocketHandler — reaction', () => {
+  let clients: Map<string, ServerWebSocket<WsData>>;
+  let handler: ReturnType<typeof createWebSocketHandler>;
+
+  beforeEach(() => {
+    clients = new Map();
+    handler = createWebSocketHandler(clients);
+  });
+
+  test('broadcasts a whitelisted reaction to the whole workspace, including the sender', () => {
+    const a = makeWs({ workspace: 'ws1', joined: true });
+    const b = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(a);
+    handler.open!(b);
+
+    deliver(handler, a, { type: 'reaction', emoji: '👍' });
+
+    const reaction = { type: 'reaction', userId: a.data.userId, emoji: '👍' };
+    // Sender sees their own bubble (no exceptUserId), and the peer sees it too.
+    expect(a.sent).toContainEqual(reaction);
+    expect(b.sent).toContainEqual(reaction);
+  });
+
+  test('drops a reaction that is not on the whitelist', () => {
+    const a = makeWs({ workspace: 'ws1', joined: true });
+    const b = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(a);
+    handler.open!(b);
+
+    deliver(handler, a, { type: 'reaction', emoji: '🔥' });
+
+    expect(a.sent.some((m) => m.type === 'reaction')).toBe(false);
+    expect(b.sent.some((m) => m.type === 'reaction')).toBe(false);
+  });
+
+  test('does not deliver a reaction to a different workspace', () => {
+    const a = makeWs({ workspace: 'ws1', joined: true });
+    const other = makeWs({ workspace: 'ws2', joined: true });
+    handler.open!(a);
+    handler.open!(other);
+
+    deliver(handler, a, { type: 'reaction', emoji: '🎉' });
+
+    expect(other.sent.some((m) => m.type === 'reaction')).toBe(false);
+  });
+
+  test('ignores a reaction from a client that has not joined', () => {
+    const a = makeWs({ workspace: 'ws1', joined: false });
+    handler.open!(a);
+    deliver(handler, a, { type: 'reaction', emoji: '👍' });
+    expect(a.sent.some((m) => m.type === 'reaction')).toBe(false);
+  });
+});
+
 describe('createWebSocketHandler — knock', () => {
   let clients: Map<string, ServerWebSocket<WsData>>;
   let handler: ReturnType<typeof createWebSocketHandler>;
