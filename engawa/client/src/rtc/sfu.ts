@@ -1,13 +1,13 @@
-import type { StreamKind, SfuTrack } from '@/core/types';
-import { transformSdpForLowLatency } from '@/rtc/sdp';
+import type { SfuTrack, StreamKind } from '@/core/types';
 import { SFU_CAM_LAYERS, SFU_SCREEN_MAX_BITRATE } from '@/rtc/cam-bitrate';
 import {
-  summarizeRtcStats,
   diffRtcStats,
-  type RtcSnapshot,
   type RtcConn,
+  type RtcSnapshot,
   type RtcStreamRate,
+  summarizeRtcStats,
 } from '@/rtc/rtcstats';
+import { transformSdpForLowLatency } from '@/rtc/sdp';
 
 // Sentinel conn ids for the debug console. The SFU is one PC, so our published
 // tracks aren't per-peer: they go to one synthetic "upstream" conn. Received
@@ -191,7 +191,9 @@ export class SfuManager {
       return [];
     }
     const arr: Record<string, unknown>[] = [];
-    report.forEach((s) => arr.push(s as Record<string, unknown>));
+    report.forEach((s) => {
+      arr.push(s as Record<string, unknown>);
+    });
     const cur = summarizeRtcStats(arr);
     const prev = this.statsPrev;
     this.statsPrev = cur;
@@ -283,7 +285,8 @@ export class SfuManager {
   private async ensureSession(): Promise<string> {
     if (this.sessionId) return this.sessionId;
     const resp = await this.api<SessionResponse>('/new', 'POST', undefined);
-    if (!resp.sessionId) throw new Error(`sfu: session create failed (${resp.errorDescription ?? 'no id'})`);
+    if (!resp.sessionId)
+      throw new Error(`sfu: session create failed (${resp.errorDescription ?? 'no id'})`);
     this.sessionId = resp.sessionId;
     return this.sessionId;
   }
@@ -322,7 +325,10 @@ export class SfuManager {
       sendEncodings: this.sendEncodingsFor(kind),
     });
     const offer = await pc.createOffer();
-    await pc.setLocalDescription({ type: 'offer', sdp: transformSdpForLowLatency(offer.sdp ?? '') });
+    await pc.setLocalDescription({
+      type: 'offer',
+      sdp: transformSdpForLowLatency(offer.sdp ?? ''),
+    });
 
     const resp = await this.api<TracksResponse>(`/${sid}/tracks/new`, 'POST', {
       sessionDescription: { type: 'offer', sdp: pc.localDescription?.sdp ?? '' },
@@ -352,7 +358,12 @@ export class SfuManager {
     this.announcePublished();
   }
 
-  private async pullTrack(userId: string, theirSessionId: string, kind: StreamKind, trackName: string) {
+  private async pullTrack(
+    userId: string,
+    theirSessionId: string,
+    kind: StreamKind,
+    trackName: string,
+  ) {
     const pc = await this.ensurePc();
     const sid = await this.ensureSession();
     const key = remoteKey(userId, kind);
@@ -385,11 +396,15 @@ export class SfuManager {
       // Same low-latency Opus tuning the mesh applies to every answer. Video
       // codec order is left to the browser: the camera publish is simulcast, for
       // which VP8 is the reliable path — forcing VP9/SVC can break the rids.
-      await pc.setLocalDescription({ type: 'answer', sdp: transformSdpForLowLatency(answer.sdp ?? '') });
+      await pc.setLocalDescription({
+        type: 'answer',
+        sdp: transformSdpForLowLatency(answer.sdp ?? ''),
+      });
       const reneg = await this.api<TracksResponse>(`/${sid}/renegotiate`, 'PUT', {
         sessionDescription: { type: 'answer', sdp: pc.localDescription?.sdp ?? '' },
       });
-      if (reneg.errorCode) throw new Error(`sfu renegotiate: ${reneg.errorDescription ?? reneg.errorCode}`);
+      if (reneg.errorCode)
+        throw new Error(`sfu renegotiate: ${reneg.errorDescription ?? reneg.errorCode}`);
     }
   }
 

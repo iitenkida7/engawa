@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  computeFrameDt,
   DEFAULT_FRAME_DT,
   MAX_FRAME_DT,
-  computeFrameDt,
   shouldConfirmUnload,
 } from '@/core/lifecycle';
 

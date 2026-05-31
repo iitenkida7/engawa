@@ -1,7 +1,7 @@
 import type { ClientMessage } from '@/core/types';
-import type { PlayerState } from '@/world/player';
 import type { Toasts } from '@/ui/notify';
 import type { SoundManager } from '@/ui/sounds';
+import type { PlayerState } from '@/world/player';
 
 // A knock can't be re-sent to the same person until this elapses; it also
 // covers the pending window, so you can't spam someone while waiting for a

@@ -1,20 +1,15 @@
 import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
 import type { StreamKind } from '@/core/types';
 import type { MediaManager } from '@/media/media';
-import { transformSdp } from '@/rtc/sdp';
 import {
+  type CamEncoding,
   computeCamEncoding,
   computeScreenEncoding,
   computeScreenScale,
-  type CamEncoding,
   type ScreenEncoding,
 } from '@/rtc/cam-bitrate';
-import {
-  summarizeRtcStats,
-  diffRtcStats,
-  type RtcSnapshot,
-  type RtcConn,
-} from '@/rtc/rtcstats';
+import { diffRtcStats, type RtcConn, type RtcSnapshot, summarizeRtcStats } from '@/rtc/rtcstats';
+import { transformSdp } from '@/rtc/sdp';
 
 // Fixed mic send-bitrate ceiling (bps). The encoder still adapts down to the
 // available bandwidth. Camera and screen ceilings are dynamic and live in the
@@ -35,8 +30,16 @@ const JITTER_BUFFER_TARGET_MS = 100;
 
 function tuneReceivers(pc: RTCPeerConnection) {
   for (const r of pc.getReceivers()) {
-    try { (r as unknown as { playoutDelayHint: number }).playoutDelayHint = PLAYOUT_DELAY_HINT_S; } catch { /* unsupported */ }
-    try { (r as unknown as { jitterBufferTarget: number }).jitterBufferTarget = JITTER_BUFFER_TARGET_MS; } catch { /* unsupported */ }
+    try {
+      (r as unknown as { playoutDelayHint: number }).playoutDelayHint = PLAYOUT_DELAY_HINT_S;
+    } catch {
+      /* unsupported */
+    }
+    try {
+      (r as unknown as { jitterBufferTarget: number }).jitterBufferTarget = JITTER_BUFFER_TARGET_MS;
+    } catch {
+      /* unsupported */
+    }
   }
 }
 
@@ -76,7 +79,11 @@ async function tuneSenders(pc: RTCPeerConnection, camEnc: CamEncoding, screenEnc
         // computeScreenScale returns 1 (no scaling) when it is unknown or
         // already within the cap.
         const s = track.getSettings();
-        enc.scaleResolutionDownBy = computeScreenScale(s.width ?? 0, s.height ?? 0, screenEnc.maxLongEdge);
+        enc.scaleResolutionDownBy = computeScreenScale(
+          s.width ?? 0,
+          s.height ?? 0,
+          screenEnc.maxLongEdge,
+        );
         enc.maxFramerate = screenEnc.maxFramerate;
         // contentHint='detail' optimizes for crisp text/UI, so under congestion
         // keep the (capped) resolution and drop framerate instead — the opposite
@@ -210,12 +217,14 @@ export class WebRtcManager {
   // tune runs last applies the current ceilings — concurrent calls can't leave a
   // stale value applied.
   private retunePeer(entry: PeerEntry) {
-    entry.tuneChain = entry.tuneChain.then(() => {
-      const pc = getPc(entry.peer);
-      return pc ? tuneSenders(pc, this.camEnc, this.screenEnc) : undefined;
-    }).catch((err) => {
-      console.warn('[rtc] retune failed', err);
-    });
+    entry.tuneChain = entry.tuneChain
+      .then(() => {
+        const pc = getPc(entry.peer);
+        return pc ? tuneSenders(pc, this.camEnc, this.screenEnc) : undefined;
+      })
+      .catch((err) => {
+        console.warn('[rtc] retune failed', err);
+      });
   }
 
   // Poll getStats() on every peer and return the per-second diff vs the previous
@@ -235,7 +244,9 @@ export class WebRtcManager {
         continue;
       }
       const arr: Record<string, unknown>[] = [];
-      report.forEach((s) => arr.push(s as Record<string, unknown>));
+      report.forEach((s) => {
+        arr.push(s as Record<string, unknown>);
+      });
       const cur = summarizeRtcStats(arr);
       const prev = this.statsPrev.get(entry.remoteUserId);
       this.statsPrev.set(entry.remoteUserId, cur);

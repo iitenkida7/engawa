@@ -1,20 +1,20 @@
-import type { MediaManager } from '@/media/media';
-import type { PlayerState } from '@/world/player';
-import type { RecorderManager } from '@/media/recorder';
-import type { RemoteMediaView } from '@/ui/remote-media';
-import { SceneCompositor } from '@/media/compositor';
 import { REACTION_EMOJIS, type StreamKind } from '@/core/types';
+import type { SceneCompositor } from '@/media/compositor';
+import type { MediaManager } from '@/media/media';
+import type { RecorderManager } from '@/media/recorder';
 import {
   BG_PRESETS,
-  VBG_OFF,
-  VBG_BLUR,
-  VBG_CUSTOM,
-  VBG_STORAGE_KEY,
-  VBG_IMAGE_STORAGE_KEY,
+  fileToDownscaledDataUrl,
   parseVbgChoice,
   serializeVbgChoice,
-  fileToDownscaledDataUrl,
+  VBG_BLUR,
+  VBG_CUSTOM,
+  VBG_IMAGE_STORAGE_KEY,
+  VBG_OFF,
+  VBG_STORAGE_KEY,
 } from '@/media/vbg';
+import type { RemoteMediaView } from '@/ui/remote-media';
+import type { PlayerState } from '@/world/player';
 
 // The slice of the media transport the toolbar drives: publishing and
 // unpublishing local tracks. The App passes a router that forwards to whichever
@@ -144,7 +144,7 @@ export class ToolbarController {
       this.rtc.addLocalStream(stream, 'mic');
       this.view.setLocalMicStream(stream);
     } catch (e) {
-      alert('マイクを使えません: ' + (e as Error).message);
+      alert(`マイクを使えません: ${(e as Error).message}`);
     }
   }
   private stopMic() {
@@ -157,7 +157,7 @@ export class ToolbarController {
       const stream = await this.media.enableCam();
       this.rtc.addLocalStream(stream, 'cam');
     } catch (e) {
-      alert('カメラを使えません: ' + (e as Error).message);
+      alert(`カメラを使えません: ${(e as Error).message}`);
     }
   }
   private stopCam() {
@@ -177,7 +177,7 @@ export class ToolbarController {
         if (me) me.isSharingScreen = true;
         this.view.showScreenshare(me?.userId ?? '', stream);
       } catch (e) {
-        alert('画面共有を開始できません: ' + (e as Error).message);
+        alert(`画面共有を開始できません: ${(e as Error).message}`);
       }
     }
   }
@@ -238,10 +238,16 @@ export class ToolbarController {
     // the menu it just opened.
     document.addEventListener('click', (e) => {
       const t = e.target as Node;
-      if (!micMenu.contains(t) && t !== btnMicDevices &&
-          !camMenu.contains(t) && t !== btnCamDevices &&
-          !this.reactionMenu.contains(t) && t !== this.btnReaction &&
-          !this.moreMenu.contains(t) && t !== this.btnMore) {
+      if (
+        !micMenu.contains(t) &&
+        t !== btnMicDevices &&
+        !camMenu.contains(t) &&
+        t !== btnCamDevices &&
+        !this.reactionMenu.contains(t) &&
+        t !== this.btnReaction &&
+        !this.moreMenu.contains(t) &&
+        t !== this.btnMore
+      ) {
         closeMenus();
       }
     });
@@ -250,8 +256,12 @@ export class ToolbarController {
       const open = micMenu.classList.contains('hidden');
       closeMenus();
       if (open) {
-        await this.populateDeviceMenu(micMenu, await this.media.listMics(), this.media.selectedMicId,
-          (id) => this.switchMic(id));
+        await this.populateDeviceMenu(
+          micMenu,
+          await this.media.listMics(),
+          this.media.selectedMicId,
+          (id) => this.switchMic(id),
+        );
         micMenu.classList.remove('hidden');
       }
     });
@@ -337,8 +347,12 @@ export class ToolbarController {
   // section (off / blur / presets / custom / upload). Background lives here
   // since it's a camera setting — its standalone toolbar button was removed.
   private async populateCamMenu(menu: HTMLDivElement) {
-    await this.populateDeviceMenu(menu, await this.media.listCams(), this.media.selectedCamId,
-      (id) => this.switchCam(id));
+    await this.populateDeviceMenu(
+      menu,
+      await this.media.listCams(),
+      this.media.selectedCamId,
+      (id) => this.switchCam(id),
+    );
 
     const sep = document.createElement('div');
     sep.className = 'menu-separator';
@@ -394,9 +408,8 @@ export class ToolbarController {
     };
     addItem('✨ スマート整列', () => this.view.arrange('smart'));
     addItem('▦ グリッド整列', () => this.view.arrange('grid'));
-    addItem(
-      this.isDebugOpen() ? '🐛 デバッグを閉じる' : '🐛 デバッグ（RTC 接続）',
-      () => this.toggleDebug(),
+    addItem(this.isDebugOpen() ? '🐛 デバッグを閉じる' : '🐛 デバッグ（RTC 接続）', () =>
+      this.toggleDebug(),
     );
   }
 
@@ -449,7 +462,7 @@ export class ToolbarController {
       this.persistBgSettings();
       await this.setBackground(VBG_CUSTOM);
     } catch (e) {
-      alert('画像を読み込めません: ' + (e as Error).message);
+      alert(`画像を読み込めません: ${(e as Error).message}`);
     }
   }
 

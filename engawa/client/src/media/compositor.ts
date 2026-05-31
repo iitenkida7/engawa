@@ -34,9 +34,7 @@ export function fitRect(
 ): { x: number; y: number; w: number; h: number } {
   if (srcW <= 0 || srcH <= 0) return { x: boxX, y: boxY, w: boxW, h: boxH };
   const scale =
-    fit === 'contain'
-      ? Math.min(boxW / srcW, boxH / srcH)
-      : Math.max(boxW / srcW, boxH / srcH);
+    fit === 'contain' ? Math.min(boxW / srcW, boxH / srcH) : Math.max(boxW / srcW, boxH / srcH);
   const w = srcW * scale;
   const h = srcH * scale;
   return { x: boxX + (boxW - w) / 2, y: boxY + (boxH - h) / 2, w, h };
@@ -214,7 +212,9 @@ export class SceneCompositor {
       this.drawLabel(stage, layout.screen);
     }
 
-    layout.tiles.forEach((box, i) => this.drawTile(tiles[i], box));
+    layout.tiles.forEach((box, i) => {
+      this.drawTile(tiles[i], box);
+    });
   }
 
   // Visible `.panel` tiles for the recording sidebar: remote camera/mic tiles,
@@ -228,10 +228,7 @@ export class SceneCompositor {
           !(el.classList.contains('screenshare-stage') && el.classList.contains('main')) &&
           el.offsetParent !== null,
       )
-      .sort(
-        (a, b) =>
-          (a.id === 'self-preview' ? 1 : 0) - (b.id === 'self-preview' ? 1 : 0),
-      );
+      .sort((a, b) => (a.id === 'self-preview' ? 1 : 0) - (b.id === 'self-preview' ? 1 : 0));
   }
 
   private drawBox(box: Box, color: string) {
@@ -257,8 +254,7 @@ export class SceneCompositor {
     this.drawBox(box, '#000');
     const video = panel.querySelector('video') as HTMLVideoElement | null;
     if (hasFrame(video)) {
-      const fit: ObjectFit =
-        getComputedStyle(video).objectFit === 'contain' ? 'contain' : 'cover';
+      const fit: ObjectFit = getComputedStyle(video).objectFit === 'contain' ? 'contain' : 'cover';
       this.drawVideo(video, box, fit, panel.id === 'self-preview');
     } else {
       this.drawPlaceholder(panel, box);
@@ -266,22 +262,9 @@ export class SceneCompositor {
     this.drawLabel(panel, box);
   }
 
-  private drawVideo(
-    video: HTMLVideoElement,
-    box: Box,
-    fit: ObjectFit,
-    mirror: boolean,
-  ) {
+  private drawVideo(video: HTMLVideoElement, box: Box, fit: ObjectFit, mirror: boolean) {
     const { ctx } = this;
-    const d = fitRect(
-      video.videoWidth,
-      video.videoHeight,
-      box.x,
-      box.y,
-      box.w,
-      box.h,
-      fit,
-    );
+    const d = fitRect(video.videoWidth, video.videoHeight, box.x, box.y, box.w, box.h, fit);
     ctx.save();
     ctx.beginPath();
     ctx.rect(box.x, box.y, box.w, box.h);

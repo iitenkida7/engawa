@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'bun:test';
 import {
-  BG_PRESETS,
-  VBG_OFF,
-  VBG_BLUR,
-  VBG_CUSTOM,
   allChoices,
-  parseVbgChoice,
-  serializeVbgChoice,
-  isProcessingChoice,
+  BG_PRESETS,
   choiceLabel,
   downscaleSize,
+  isProcessingChoice,
+  parseVbgChoice,
+  serializeVbgChoice,
+  VBG_BLUR,
+  VBG_CUSTOM,
+  VBG_OFF,
 } from '@/media/vbg';
 
 describe('vbg preset registry', () => {

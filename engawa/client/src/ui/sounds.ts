@@ -9,8 +9,9 @@ export class SoundManager {
 
   private getCtx(): AudioContext {
     if (!this.ctx) {
-      const Ctor = (window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+      const Ctor =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new Ctor();
     }
     // Some browsers leave the context suspended until a gesture; resume on each play.

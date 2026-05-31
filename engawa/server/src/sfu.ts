@@ -52,7 +52,10 @@ export async function proxySfuRequest(
   const appId = process.env.CLOUDFLARE_REALTIME_APP_ID;
   const token = process.env.CLOUDFLARE_REALTIME_APP_TOKEN;
   if (!appId || !token) {
-    return { status: 503, body: { errorCode: 'sfu_disabled', errorDescription: 'SFU not configured' } };
+    return {
+      status: 503,
+      body: { errorCode: 'sfu_disabled', errorDescription: 'SFU not configured' },
+    };
   }
 
   try {
@@ -76,6 +79,9 @@ export async function proxySfuRequest(
     return { status: res.status, body: parsed };
   } catch (err) {
     console.error('[sfu] proxy error', err);
-    return { status: 502, body: { errorCode: 'sfu_upstream', errorDescription: 'SFU upstream error' } };
+    return {
+      status: 502,
+      body: { errorCode: 'sfu_upstream', errorDescription: 'SFU upstream error' },
+    };
   }
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { ReloadBanner, countdownMessage, evaluateBoot } from '@/core/reload';
+import { countdownMessage, evaluateBoot, ReloadBanner } from '@/core/reload';
 
 describe('evaluateBoot', () => {
   it('records the boot id on the first welcome without reloading', () => {

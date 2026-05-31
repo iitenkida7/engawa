@@ -3,8 +3,8 @@
 // style of proximity.ts. Used by click-to-move to walk around walls/desks.
 
 import type { Point } from '@/core/proximity';
-import { TILE_SIZE, MAP_COLS, MAP_ROWS, canOccupy } from '@/world/tilemap';
 import { COLLISION_RADIUS } from '@/core/types';
+import { canOccupy, MAP_COLS, MAP_ROWS, TILE_SIZE } from '@/world/tilemap';
 
 export type TileWalkable = (col: number, row: number) => boolean;
 

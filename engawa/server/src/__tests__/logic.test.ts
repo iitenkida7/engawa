@@ -1,26 +1,26 @@
 import { describe, expect, test } from 'bun:test';
 import {
   CHAT_MAX_LENGTH,
-  MAP_HEIGHT,
-  MAP_WIDTH,
-  PROXIMITY_CONNECT_RADIUS,
-  SFU_PROMOTE_AT,
   clampPosition,
   computeProximityGroups,
+  type GroupMember,
   generateSpawn,
+  isAllowedReaction,
+  MAP_HEIGHT,
+  MAP_WIDTH,
   normalizeChatText,
   normalizeIceServers,
-  isAllowedReaction,
   normalizeName,
   normalizeStatusNote,
   normalizeUntil,
-  STATUS_NOTE_MAX_LENGTH,
   normalizeWorkspace,
+  PROXIMITY_CONNECT_RADIUS,
   parseWorkspacePasswords,
   REACTION_EMOJIS,
+  SFU_PROMOTE_AT,
+  STATUS_NOTE_MAX_LENGTH,
   sfuLatchSeeds,
   verifyWorkspacePassword,
-  type GroupMember,
 } from '../logic';
 
 describe('verifyWorkspacePassword', () => {
@@ -215,7 +215,10 @@ describe('normalizeIceServers', () => {
   });
 
   test('passes an array through unchanged', () => {
-    const arr = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+    const arr = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+    ];
     expect(normalizeIceServers(arr)).toBe(arr);
   });
 
@@ -227,17 +230,15 @@ describe('normalizeIceServers', () => {
 });
 
 describe('computeProximityGroups', () => {
-  const m = (
-    userId: string,
-    x: number,
-    y: number,
-    zoneId: string | null = null,
-  ): GroupMember => ({ userId, x, y, zoneId });
+  const m = (userId: string, x: number, y: number, zoneId: string | null = null): GroupMember => ({
+    userId,
+    x,
+    y,
+    zoneId,
+  });
 
-  const groupOf = (
-    groups: ReturnType<typeof computeProximityGroups>,
-    userId: string,
-  ) => groups.find((g) => g.memberIds.includes(userId));
+  const groupOf = (groups: ReturnType<typeof computeProximityGroups>, userId: string) =>
+    groups.find((g) => g.memberIds.includes(userId));
 
   test('open floor: two players within the radius form one mesh group', () => {
     const groups = computeProximityGroups([m('a', 0, 0), m('b', 50, 0)], { sfuEnabled: true });
@@ -248,19 +249,18 @@ describe('computeProximityGroups', () => {
   });
 
   test('open floor: players beyond the radius are separate single-member groups', () => {
-    const groups = computeProximityGroups(
-      [m('a', 0, 0), m('b', PROXIMITY_CONNECT_RADIUS + 1, 0)],
-      { sfuEnabled: true },
-    );
+    const groups = computeProximityGroups([m('a', 0, 0), m('b', PROXIMITY_CONNECT_RADIUS + 1, 0)], {
+      sfuEnabled: true,
+    });
     expect(groups).toHaveLength(2);
     expect(groups.every((g) => g.method === 'mesh')).toBe(true);
   });
 
   test('connectivity is transitive (A-B and B-C close, A-C far → one group)', () => {
-    const groups = computeProximityGroups(
-      [m('a', 0, 0), m('b', 100, 0), m('c', 200, 0)],
-      { sfuEnabled: true, connectRadius: 120 },
-    );
+    const groups = computeProximityGroups([m('a', 0, 0), m('b', 100, 0), m('c', 200, 0)], {
+      sfuEnabled: true,
+      connectRadius: 120,
+    });
     expect(groups).toHaveLength(1);
     expect(groups[0].memberIds).toEqual(['a', 'b', 'c']);
   });
@@ -271,9 +271,9 @@ describe('computeProximityGroups', () => {
     expect(
       computeProximityGroups(cluster(SFU_PROMOTE_AT - 1), { sfuEnabled: true })[0].method,
     ).toBe('mesh');
-    expect(
-      computeProximityGroups(cluster(SFU_PROMOTE_AT), { sfuEnabled: true })[0].method,
-    ).toBe('sfu');
+    expect(computeProximityGroups(cluster(SFU_PROMOTE_AT), { sfuEnabled: true })[0].method).toBe(
+      'sfu',
+    );
   });
 
   test('meeting room: same-zone members are always SFU regardless of count/distance', () => {
@@ -287,18 +287,16 @@ describe('computeProximityGroups', () => {
   });
 
   test('different meeting rooms are separate groups', () => {
-    const groups = computeProximityGroups(
-      [m('a', 0, 0, 'meeting-1'), m('b', 10, 0, 'meeting-2')],
-      { sfuEnabled: true },
-    );
+    const groups = computeProximityGroups([m('a', 0, 0, 'meeting-1'), m('b', 10, 0, 'meeting-2')], {
+      sfuEnabled: true,
+    });
     expect(groups).toHaveLength(2);
   });
 
   test('a room member and an adjacent open-floor member never share a group', () => {
-    const groups = computeProximityGroups(
-      [m('a', 0, 0, 'meeting-1'), m('b', 1, 0, null)],
-      { sfuEnabled: true },
-    );
+    const groups = computeProximityGroups([m('a', 0, 0, 'meeting-1'), m('b', 1, 0, null)], {
+      sfuEnabled: true,
+    });
     expect(groups).toHaveLength(2);
     expect(groupOf(groups, 'a')?.method).toBe('sfu'); // room → SFU
     expect(groupOf(groups, 'b')?.method).toBe('mesh'); // open floor, alone → mesh
@@ -402,7 +400,12 @@ describe('computeProximityGroups', () => {
 describe('sfuLatchSeeds', () => {
   test('returns member lists of open-floor SFU groups only (excludes rooms and mesh)', () => {
     const groups = [
-      { groupId: 'a,b', memberIds: ['a', 'b', 'c', 'd', 'e'], method: 'sfu' as const, isMeeting: false },
+      {
+        groupId: 'a,b',
+        memberIds: ['a', 'b', 'c', 'd', 'e'],
+        method: 'sfu' as const,
+        isMeeting: false,
+      },
       { groupId: 'r1,r2', memberIds: ['r1', 'r2'], method: 'sfu' as const, isMeeting: true },
       { groupId: 'x,y', memberIds: ['x', 'y'], method: 'mesh' as const, isMeeting: false },
     ];

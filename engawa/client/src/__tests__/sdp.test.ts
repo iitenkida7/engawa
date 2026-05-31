@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  transformSdp,
-  transformSdpForLowLatency,
-  transformSdpPreferVideoCodec,
-} from '@/rtc/sdp';
+import { transformSdp, transformSdpForLowLatency, transformSdpPreferVideoCodec } from '@/rtc/sdp';
 
 const EXPECTED_FMTP = 'minptime=10;useinbandfec=1;usedtx=0;stereo=0;sprop-stereo=0';
 
@@ -48,10 +44,7 @@ describe('transformSdpForLowLatency', () => {
   });
 
   it('inserts ptime/maxptime right after the m=audio line', () => {
-    const input = sdp([
-      'm=audio 9 UDP/TLS/RTP/SAVPF 111',
-      'a=rtpmap:111 opus/48000/2',
-    ]);
+    const input = sdp(['m=audio 9 UDP/TLS/RTP/SAVPF 111', 'a=rtpmap:111 opus/48000/2']);
     const lines = transformSdpForLowLatency(input).split('\r\n');
     const mIdx = lines.findIndex((l) => l.startsWith('m=audio '));
     expect(lines[mIdx + 1]).toBe('a=ptime:20');

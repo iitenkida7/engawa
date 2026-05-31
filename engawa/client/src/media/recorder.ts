@@ -36,19 +36,25 @@ export class RecorderManager {
   private mimeType = '';
 
   private listeners = new Set<RecorderListener>();
-  on(fn: RecorderListener) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
-  private emit() { for (const fn of this.listeners) fn(); }
+  on(fn: RecorderListener) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+  private emit() {
+    for (const fn of this.listeners) fn();
+  }
 
-  get recording() { return this.recorder?.state === 'recording'; }
+  get recording() {
+    return this.recorder?.state === 'recording';
+  }
 
-  get format() { return fileExtension(this.mimeType); }
+  get format() {
+    return fileExtension(this.mimeType);
+  }
 
   // Start recording. Pass all audio streams to mix, and an optional video
   // stream (cam or canvas capture) to include as the video track.
-  start(
-    audioStreams: MediaStream[],
-    videoStream?: MediaStream,
-  ) {
+  start(audioStreams: MediaStream[], videoStream?: MediaStream) {
     if (this.recorder) return;
 
     this.mimeType = pickMimeType();
@@ -69,9 +75,7 @@ export class RecorderManager {
     }
 
     // Build combined stream: mixed audio + optional video
-    const tracks: MediaStreamTrack[] = [
-      ...this.mixDest.stream.getAudioTracks(),
-    ];
+    const tracks: MediaStreamTrack[] = [...this.mixDest.stream.getAudioTracks()];
     if (videoStream) {
       for (const t of videoStream.getVideoTracks()) tracks.push(t);
     }
@@ -118,7 +122,7 @@ export class RecorderManager {
   }
 
   stop() {
-    if (!this.recorder || this.recorder.state !== 'recording') return;
+    if (this.recorder?.state !== 'recording') return;
     this.recorder.stop();
     // Cleanup audio context
     for (const src of this.sources.values()) src.disconnect();

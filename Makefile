@@ -3,7 +3,7 @@
 
 COMPOSE := docker compose
 
-.PHONY: up down restart ps build test install clean
+.PHONY: up down restart ps build lint test install clean
 
 up:
 	$(COMPOSE) up -d
@@ -19,7 +19,12 @@ ps:
 	$(COMPOSE) ps
 
 build:
+	$(COMPOSE) run --rm --no-deps server bun run typecheck
 	$(COMPOSE) run --rm --no-deps client bun run build
+
+lint:
+	$(COMPOSE) run --rm --no-deps server bun run lint
+	$(COMPOSE) run --rm --no-deps client bun run lint
 
 test:
 	$(COMPOSE) run --rm --no-deps server bun test

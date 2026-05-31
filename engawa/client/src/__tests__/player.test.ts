@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, spyOn } from 'bun:test';
-import { PlayerState } from '@/world/player';
 import { EXTRAP_MAX_MS } from '@/core/types';
+import { PlayerState } from '@/world/player';
 
 function makePlayer(x = 0, y = 0, id = 'u1') {
   return new PlayerState({ userId: id, name: 'Alice Smith', x, y }, false);

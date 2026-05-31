@@ -1,13 +1,13 @@
 import {
-  VirtualBackground,
-  imagePainter,
-  loadImage,
-  isProcessingChoice,
-  VBG_OFF,
-  VBG_BLUR,
-  VBG_CUSTOM,
   BG_PRESETS,
   type BgSpec,
+  imagePainter,
+  isProcessingChoice,
+  loadImage,
+  VBG_BLUR,
+  VBG_CUSTOM,
+  VBG_OFF,
+  VirtualBackground,
 } from '@/media/vbg';
 
 type MediaListener = () => void;

@@ -1,5 +1,13 @@
-import { bringToFront, makeDraggable } from '@/ui/draggable';
+import type { StreamKind } from '@/core/types';
 import type { MediaManager } from '@/media/media';
+import type { RecorderManager } from '@/media/recorder';
+import {
+  createSpeakingDetector,
+  destroySpeakingDetector,
+  isSpeaking,
+  type SpeakingDetector,
+} from '@/media/speaking';
+import { bringToFront, makeDraggable } from '@/ui/draggable';
 import {
   applyPanelGeometry,
   bindCamAspect,
@@ -11,14 +19,6 @@ import {
   setupPanelModes,
 } from '@/ui/panels';
 import type { PlayerState } from '@/world/player';
-import type { RecorderManager } from '@/media/recorder';
-import {
-  createSpeakingDetector,
-  destroySpeakingDetector,
-  isSpeaking,
-  type SpeakingDetector,
-} from '@/media/speaking';
-import type { StreamKind } from '@/core/types';
 
 type RemoteTile = {
   container: HTMLDivElement;
@@ -171,7 +171,11 @@ export class RemoteMediaView {
   detachRemoteStream(userId: string, streamId: string) {
     const audio = this.remoteAudios.get(userId);
     if (audio && audio.streamId === streamId) {
-      try { audio.audio.srcObject = null; } catch { /* noop */ }
+      try {
+        audio.audio.srcObject = null;
+      } catch {
+        /* noop */
+      }
       audio.audio.remove();
       this.remoteAudios.delete(userId);
       this.recorder.removeAudioStream(streamId);
@@ -193,7 +197,11 @@ export class RemoteMediaView {
     if (tile && tile.camStreamId === streamId) {
       tile.hasCam = false;
       tile.camStreamId = undefined;
-      try { tile.video.srcObject = null; } catch { /* noop */ }
+      try {
+        tile.video.srcObject = null;
+      } catch {
+        /* noop */
+      }
       // If still has mic, show placeholder; otherwise remove tile
       if (this.remoteAudios.has(userId)) {
         tile.video.style.display = 'none';
@@ -298,13 +306,21 @@ export class RemoteMediaView {
     const t = this.remoteTiles.get(userId);
     if (t) {
       t.cleanupDrag();
-      try { t.video.srcObject = null; } catch { /* noop */ }
+      try {
+        t.video.srcObject = null;
+      } catch {
+        /* noop */
+      }
       t.container.remove();
       this.remoteTiles.delete(userId);
     }
     const a = this.remoteAudios.get(userId);
     if (a) {
-      try { a.audio.srcObject = null; } catch { /* noop */ }
+      try {
+        a.audio.srcObject = null;
+      } catch {
+        /* noop */
+      }
       a.audio.remove();
       this.remoteAudios.delete(userId);
     }
@@ -336,9 +352,7 @@ export class RemoteMediaView {
     });
     const isSelf = userId === this.getMyId();
     const p = this.players.get(userId);
-    ss.label.textContent = isSelf
-      ? 'あなたの画面'
-      : `${p?.name || userId.slice(0, 6)} の画面`;
+    ss.label.textContent = isSelf ? 'あなたの画面' : `${p?.name || userId.slice(0, 6)} の画面`;
   }
 
   // Removes a user's screenshare stage (no-op if they aren't sharing). When the
@@ -350,7 +364,11 @@ export class RemoteMediaView {
     const wasMain = this.mainScreenshareUserId === userId;
     const vacated = wasMain ? this.snapshotGeometry(ss.container) : null;
     ss.cleanupDrag();
-    try { ss.video.srcObject = null; } catch { /* noop */ }
+    try {
+      ss.video.srcObject = null;
+    } catch {
+      /* noop */
+    }
     ss.container.remove();
     this.screenshares.delete(userId);
     if (!wasMain) return;
@@ -386,7 +404,12 @@ export class RemoteMediaView {
 
   // Reads an element's current on-screen rect as an explicit geometry, so it can
   // be re-applied as inline styles (used when swapping/inheriting the main spot).
-  private snapshotGeometry(el: HTMLElement): { left: number; top: number; width: number; height: number } {
+  private snapshotGeometry(el: HTMLElement): {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } {
     const r = el.getBoundingClientRect();
     return { left: r.left, top: r.top, width: r.width, height: r.height };
   }
@@ -454,7 +477,11 @@ export class RemoteMediaView {
       }
       this.selfPreviewEl.classList.remove('hidden');
     } else {
-      try { this.selfVideoEl.srcObject = null; } catch { /* noop */ }
+      try {
+        this.selfVideoEl.srcObject = null;
+      } catch {
+        /* noop */
+      }
       this.selfPreviewEl.classList.add('hidden');
     }
   }
@@ -524,20 +551,29 @@ export class RemoteMediaView {
       panels.push({ el: ss.container, item: { aspectLocked: false, aspect: 16 / 9 } });
     }
     for (const tile of this.remoteTiles.values()) {
-      panels.push({ el: tile.container, item: { aspectLocked: true, aspect: readCamAspect(tile.container) } });
+      panels.push({
+        el: tile.container,
+        item: { aspectLocked: true, aspect: readCamAspect(tile.container) },
+      });
     }
     if (!this.selfPreviewEl.classList.contains('hidden')) {
-      panels.push({ el: this.selfPreviewEl, item: { aspectLocked: true, aspect: readCamAspect(this.selfPreviewEl) } });
+      panels.push({
+        el: this.selfPreviewEl,
+        item: { aspectLocked: true, aspect: readCamAspect(this.selfPreviewEl) },
+      });
     }
     if (panels.length === 0) return;
 
     const items = panels.map((p) => p.item);
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const geos = mode === 'smart' && hasScreen
-      ? computePresentationLayout(items, vw, vh)
-      : computeGridLayout(items, vw, vh);
-    panels.forEach((p, i) => applyPanelGeometry(p.el, geos[i]));
+    const geos =
+      mode === 'smart' && hasScreen
+        ? computePresentationLayout(items, vw, vh)
+        : computeGridLayout(items, vw, vh);
+    panels.forEach((p, i) => {
+      applyPanelGeometry(p.el, geos[i]);
+    });
   }
 
   // Screenshare userIds in layout order: the main share first, then the rest in
@@ -556,7 +592,7 @@ export class RemoteMediaView {
   // small tiles request the half layer to save downlink.
   cameraTileWidth(userId: string): number | null {
     const tile = this.remoteTiles.get(userId);
-    if (!tile || !tile.hasCam) return null;
+    if (!tile?.hasCam) return null;
     return tile.container.clientWidth || null;
   }
 }

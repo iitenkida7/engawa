@@ -23,7 +23,6 @@ export class ChatPanel {
   private onSend: (text: string) => void;
 
   private open = false;
-  private hasUnread = false;
 
   constructor(opts: { onSend: (text: string) => void }) {
     this.onSend = opts.onSend;
@@ -49,7 +48,6 @@ export class ChatPanel {
     this.panelEl.classList.toggle('hidden', !open);
     this.toggleBtn.classList.toggle('active', open);
     if (open) {
-      this.hasUnread = false;
       this.toggleBtn.classList.remove('has-unread');
       this.inputEl.focus();
       this.scrollToBottom();
@@ -80,7 +78,6 @@ export class ChatPanel {
     if (this.open) {
       this.scrollToBottom();
     } else if (!m.isSelf) {
-      this.hasUnread = true;
       this.toggleBtn.classList.add('has-unread');
     }
   }

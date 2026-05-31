@@ -37,7 +37,14 @@ export class SpriteSheet {
   // Draw source cell (col,row) into the destination square (dx,dy,size). No-op
   // until the sheet is loaded. Pair with ctx.imageSmoothingEnabled=false so the
   // pixel art stays crisp when scaled from 16px up to a 50px tile.
-  draw(ctx: CanvasRenderingContext2D, col: number, row: number, dx: number, dy: number, size: number) {
+  draw(
+    ctx: CanvasRenderingContext2D,
+    col: number,
+    row: number,
+    dx: number,
+    dy: number,
+    size: number,
+  ) {
     if (!this.ready) return;
     ctx.drawImage(this.img, col * STRIDE, row * STRIDE, SRC_TILE, SRC_TILE, dx, dy, size, size);
   }

@@ -58,22 +58,39 @@ export const BG_PRESETS: BgPreset[] = [
   {
     id: 'office',
     label: '🏢 オフィス',
-    paint: (ctx, w, h) => linear(ctx, w, h, [[0, '#2b3242'], [1, '#1a1d24']]),
+    paint: (ctx, w, h) =>
+      linear(ctx, w, h, [
+        [0, '#2b3242'],
+        [1, '#1a1d24'],
+      ]),
   },
   {
     id: 'sky',
     label: '🌤 青空',
-    paint: (ctx, w, h) => linear(ctx, w, h, [[0, '#7fc7ff'], [1, '#d8f0ff']]),
+    paint: (ctx, w, h) =>
+      linear(ctx, w, h, [
+        [0, '#7fc7ff'],
+        [1, '#d8f0ff'],
+      ]),
   },
   {
     id: 'sunset',
     label: '🌇 夕焼け',
-    paint: (ctx, w, h) => linear(ctx, w, h, [[0, '#3a2a55'], [0.5, '#c2557a'], [1, '#ffb36b']]),
+    paint: (ctx, w, h) =>
+      linear(ctx, w, h, [
+        [0, '#3a2a55'],
+        [0.5, '#c2557a'],
+        [1, '#ffb36b'],
+      ]),
   },
   {
     id: 'forest',
     label: '🌿 グリーン',
-    paint: (ctx, w, h) => linear(ctx, w, h, [[0, '#1e3d2f'], [1, '#3f7d5a']]),
+    paint: (ctx, w, h) =>
+      linear(ctx, w, h, [
+        [0, '#1e3d2f'],
+        [1, '#3f7d5a'],
+      ]),
   },
 ];
 
@@ -121,11 +138,7 @@ export function choiceLabel(choice: string): string {
 
 // Compute the downscaled dimensions for an uploaded image so the stored dataURL
 // stays small (localStorage budget) while keeping the aspect ratio. Pure.
-export function downscaleSize(
-  srcW: number,
-  srcH: number,
-  max: number,
-): { w: number; h: number } {
+export function downscaleSize(srcW: number, srcH: number, max: number): { w: number; h: number } {
   if (srcW <= 0 || srcH <= 0) return { w: 0, h: 0 };
   const scale = Math.min(1, max / Math.max(srcW, srcH));
   return { w: Math.max(1, Math.round(srcW * scale)), h: Math.max(1, Math.round(srcH * scale)) };

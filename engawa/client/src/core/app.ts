@@ -1,44 +1,49 @@
-import { CanvasRenderer } from '@/world/canvas';
-import { InputManager } from '@/world/input';
-import { MediaManager } from '@/media/media';
+import BackgroundTicker from '@/core/background-ticker?worker';
+import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
 import { NetworkClient } from '@/core/network';
-import { PlayerState } from '@/world/player';
-import { SoundManager } from '@/ui/sounds';
-import { canOccupy, findWalkableSpawn, zoneAt } from '@/world/tilemap';
-import { isInitiator } from '@/core/proximity';
 import type { Point } from '@/core/proximity';
-import { findPath } from '@/world/pathfind';
-import { computeCamEncoding, computeScreenEncoding, computePreferredRid, isHeldSpeaking } from '@/rtc/cam-bitrate';
-import type { RtcConn } from '@/rtc/rtcstats';
-import { DebugConsole } from '@/ui/debug-console';
+import { isInitiator } from '@/core/proximity';
+import { evaluateBoot, ReloadBanner } from '@/core/reload';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
   CLICK_MOVE_MULTIPLIER,
   COLLISION_RADIUS,
+  type GroupMethod,
   MAP_HEIGHT,
   MAP_WIDTH,
   PLAYER_RADIUS,
   PLAYER_SPEED,
+  type PlayerStatus,
   POSITION_SEND_INTERVAL_MS,
   REACTION_DEBOUNCE_MS,
   REACTION_EMOJIS,
-  type GroupMethod,
-  type PlayerStatus,
   type ServerMessage,
 } from '@/core/types';
-import { RecorderManager } from '@/media/recorder';
 import { SceneCompositor } from '@/media/compositor';
-import { WebRtcManager } from '@/rtc/webrtc';
+import { MediaManager } from '@/media/media';
+import { RecorderManager } from '@/media/recorder';
+import {
+  computeCamEncoding,
+  computePreferredRid,
+  computeScreenEncoding,
+  isHeldSpeaking,
+} from '@/rtc/cam-bitrate';
+import type { RtcConn } from '@/rtc/rtcstats';
 import { SfuManager } from '@/rtc/sfu';
+import { WebRtcManager } from '@/rtc/webrtc';
+import { ChatPanel } from '@/ui/chat';
+import { DebugConsole } from '@/ui/debug-console';
+import { KnockController } from '@/ui/knock';
+import { Toasts } from '@/ui/notify';
 import { RemoteMediaView } from '@/ui/remote-media';
 import { RosterPanel } from '@/ui/roster';
-import { ToolbarController, type MediaSink } from '@/ui/toolbar';
-import { ReloadBanner, evaluateBoot } from '@/core/reload';
-import { ChatPanel } from '@/ui/chat';
-import { Toasts } from '@/ui/notify';
-import { KnockController } from '@/ui/knock';
-import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
-import BackgroundTicker from '@/core/background-ticker?worker';
+import { SoundManager } from '@/ui/sounds';
+import { type MediaSink, ToolbarController } from '@/ui/toolbar';
+import { CanvasRenderer } from '@/world/canvas';
+import { InputManager } from '@/world/input';
+import { findPath } from '@/world/pathfind';
+import { PlayerState } from '@/world/player';
+import { canOccupy, findWalkableSpawn, zoneAt } from '@/world/tilemap';
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
@@ -107,7 +112,6 @@ export class App {
   // Group peers whose track directory we've handed to SfuManager, so we can drop
   // them when they leave the group.
   private knownSfuPeers = new Set<string>();
-  private sfuEnabled = false;
 
   // Speaker-aware send policy. `lastLoudAtMs` is the last frame our mic was loud
   // (drives the post-speech hold). The computed camera encoding / screen bitrate
@@ -257,7 +261,10 @@ export class App {
   private onReactionKey(e: KeyboardEvent) {
     if (e.repeat || !this.me) return;
     const t = e.target;
-    if (t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+    if (
+      t instanceof HTMLElement &&
+      (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+    ) {
       return;
     }
     const idx = REACTION_EMOJIS.findIndex((_, i) => e.key === String(i + 1));
@@ -378,8 +385,7 @@ export class App {
   // console. Only the live path has peers: mesh has one PeerConnection per peer,
   // the SFU one PC split back into per-peer conns (see each collectStats).
   private collectRtcStats(): Promise<{ method: GroupMethod; conns: RtcConn[] }> {
-    const conns =
-      this.currentMethod === 'sfu' ? this.sfu.collectStats() : this.rtc.collectStats();
+    const conns = this.currentMethod === 'sfu' ? this.sfu.collectStats() : this.rtc.collectStats();
     return conns.then((c) => ({ method: this.currentMethod, conns: c }));
   }
 
@@ -426,7 +432,6 @@ export class App {
           this.reloadBanner.show();
           break;
         }
-        this.sfuEnabled = msg.sfuEnabled;
         this.myId = msg.self.userId;
         const spawn = findWalkableSpawn(msg.self.x, msg.self.y, PLAYER_RADIUS);
         msg.self.x = spawn.x;
@@ -477,7 +482,10 @@ export class App {
         break;
       }
       case 'signal': {
-        this.handleSignal(msg.from, msg.data);
+        // Fire-and-forget: the message router is synchronous, and a failed
+        // signal is non-fatal (that one peer just won't connect). void marks
+        // the dropped promise as intentional.
+        void this.handleSignal(msg.from, msg.data);
         break;
       }
       case 'stream-meta': {

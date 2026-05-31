@@ -1,6 +1,6 @@
-import { makeDraggable } from '@/ui/draggable';
-import { describeStream, type RtcConn, type RtcStreamRate } from '@/rtc/rtcstats';
 import type { GroupMethod } from '@/core/types';
+import { describeStream, type RtcConn, type RtcStreamRate } from '@/rtc/rtcstats';
+import { makeDraggable } from '@/ui/draggable';
 
 // The debug console modal: a panel toggled from the toolbar's "⋯" overflow menu
 // that lists, once a second, the WebRTC connections of the active transport
