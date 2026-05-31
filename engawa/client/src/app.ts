@@ -5,7 +5,7 @@ import { NetworkClient } from './network';
 import { PlayerState } from './player';
 import { SoundManager } from './sounds';
 import { canOccupy, findWalkableSpawn, zoneAt } from './tilemap';
-import { inCallRange, isInitiator, shouldConnect, shouldDisconnect } from './proximity';
+import { isInitiator } from './proximity';
 import type { Point } from './proximity';
 import { findPath } from './pathfind';
 import { computeCamEncoding, computeScreenEncoding, computePreferredRid, isHeldSpeaking } from './cam-bitrate';
@@ -13,8 +13,6 @@ import { formatRtcRates } from './rtcstats';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
   CLICK_MOVE_MULTIPLIER,
-  CONNECT_RADIUS,
-  DISCONNECT_RADIUS,
   COLLISION_RADIUS,
   MAP_HEIGHT,
   MAP_WIDTH,
@@ -91,11 +89,15 @@ export class App {
   private myStatus: PlayerStatus = 'online';
 
   // Server-driven transport for our current proximity group. 'mesh' uses the
-  // legacy per-peer WebRtcManager (driven by the proximity loop below); 'sfu'
-  // routes everything through Cloudflare Realtime via SfuManager. Per group the
-  // switch is a one-way latch (issues #77/#78): outdoor clusters promote at 5
-  // and never demote until the group disperses; meeting rooms start as SFU.
+  // per-peer WebRtcManager; 'sfu' routes everything through Cloudflare Realtime
+  // via SfuManager. Per group the switch is a one-way latch (issues #77/#78):
+  // outdoor clusters promote at 5 and never demote until the group disperses;
+  // meeting rooms start as SFU. Membership for BOTH methods comes from the
+  // server's group-update (the connected component), so a mesh client meshes
+  // with every group member — not just peers inside its own radius.
   private currentMethod: GroupMethod = 'mesh';
+  // Other members of our current mesh group (excludes self). Empty when SFU.
+  private meshMembers = new Set<string>();
   private sfuMembers = new Set<string>();
   // Group peers whose track directory we've handed to SfuManager, so we can drop
   // them when they leave the group.
@@ -494,7 +496,14 @@ export class App {
   }
 
   private async handleSignal(from: string, data: unknown) {
-    // If we have no peer for this user, create as non-initiator
+    // Mesh membership is server-authoritative. Ignore a signal from someone the
+    // server has not placed in our mesh group when we have no peer for them yet:
+    // it would otherwise resurrect a peer we just dropped at the group boundary
+    // (there is no per-frame proximity loop to tear it down again).
+    if (this.currentMethod === 'mesh' && !this.rtc.hasPeer(from) && !this.meshMembers.has(from)) {
+      return;
+    }
+    // If we have no peer for this user, create as non-initiator.
     if (!this.rtc.hasPeer(from)) {
       await this.rtc.createPeer(from, false);
     }
@@ -581,32 +590,19 @@ export class App {
     // Refresh the participant roster from the (now up-to-date) players map.
     this.roster.update(this.focusedId);
 
-    // Proximity check + chime sounds
+    // Chime sounds. Both mesh and SFU membership are decided by the server's
+    // group-update (the connected component, meeting-room isolation included),
+    // so the chime mirrors who we are *actually* in a call with — it can no
+    // longer ring for someone the radius reaches but we never connect to.
     if (this.me) {
-      // Meeting rooms are isolated bubbles: inside a room, zone membership
-      // decides the call (everyone in the same room, nobody outside); outside,
-      // the usual proximity radius applies. Both ends compute zones from the
-      // already-synced positions, so the decision stays symmetric.
-      const myZoneId = zoneAt(this.me.x, this.me.y)?.id ?? null;
+      const groupPeers = this.currentMethod === 'sfu' ? this.sfuMembers : this.meshMembers;
       const nowInProximity = new Set<string>();
-      for (const p of this.players.values()) {
-        if (p.isSelf) continue;
-        const otherZoneId = zoneAt(p.x, p.y)?.id ?? null;
-        // Mesh connect/disconnect is driven here by proximity; in an SFU group
-        // the server's group-update / sfu-peer-tracks drive membership instead.
-        if (this.currentMethod === 'mesh') {
-          const has = this.rtc.hasPeer(p.userId);
-          if (shouldConnect(this.me, p, CONNECT_RADIUS, has, myZoneId, otherZoneId)) {
-            void this.rtc.createPeer(p.userId, isInitiator(this.myId, p.userId));
-          } else if (shouldDisconnect(this.me, p, DISCONNECT_RADIUS, has, myZoneId, otherZoneId)) {
-            this.rtc.closePeer(p.userId);
-          }
-        }
-        if (inCallRange(this.me, p, CONNECT_RADIUS, myZoneId, otherZoneId)) {
-          nowInProximity.add(p.userId);
-          if (!this.inProximity.has(p.userId)) {
-            this.sounds.enter();
-          }
+      for (const id of groupPeers) {
+        if (id === this.myId) continue;
+        if (!this.players.has(id)) continue;
+        nowInProximity.add(id);
+        if (!this.inProximity.has(id)) {
+          this.sounds.enter();
         }
       }
       for (const id of this.inProximity) {
@@ -700,15 +696,17 @@ export class App {
     this.roster.refreshStatus();
   }
 
-  // Apply a server group-update: switch transport for our current proximity
-  // group. SFU is a one-way latch per group, so 'sfu' only ever promotes (the
-  // server never demotes mid-group); a 'mesh' update means a fresh group formed,
-  // so we tear any prior SFU transport down.
+  // Apply a server group-update: the server is the single source of truth for
+  // who is in our call. 'sfu' is a one-way latch per group (only ever promotes;
+  // the server never demotes mid-group). 'mesh' means we connect directly to
+  // every listed member — the full connected component, so a latecomer joining
+  // an existing cluster reaches everyone, not just whoever is closest.
   private applyGroupMethod(method: GroupMethod, members: string[]) {
     if (method === 'sfu') {
       const wasMesh = this.currentMethod !== 'sfu';
       this.currentMethod = 'sfu';
       this.sfuMembers = new Set(members);
+      this.meshMembers.clear();
       if (wasMesh) {
         // mesh → SFU: drop every mesh peer, then publish our live streams to the
         // SFU. Remote media comes back via sfu-peer-tracks → pull.
@@ -722,14 +720,28 @@ export class App {
           this.knownSfuPeers.delete(id);
         }
       }
-    } else if (this.currentMethod === 'sfu') {
-      // SFU → mesh: the group dispersed/reformed. Tear the SFU transport down;
-      // the proximity loop reconnects mesh peers from scratch next frame
-      // (WebRtcManager.createPeer bundles our live streams automatically).
+    } else {
+      if (this.currentMethod === 'sfu') {
+        // SFU → mesh: the group dispersed/reformed. Tear the SFU transport down
+        // before rebuilding the mesh below.
+        this.sfu.closeAll();
+        this.knownSfuPeers.clear();
+      }
       this.currentMethod = 'mesh';
       this.sfuMembers.clear();
-      this.knownSfuPeers.clear();
-      this.sfu.closeAll();
+      // Reconcile mesh peers against the group: close peers no longer in it,
+      // open one to every member we are not yet connected to. createPeer bundles
+      // our live streams automatically; initiator election keeps it to one offer.
+      const next = new Set(members.filter((id) => id !== this.myId));
+      for (const id of this.rtc.peerIds()) {
+        if (!next.has(id)) this.rtc.closePeer(id);
+      }
+      for (const id of next) {
+        if (!this.rtc.hasPeer(id)) {
+          void this.rtc.createPeer(id, isInitiator(this.myId, id));
+        }
+      }
+      this.meshMembers = next;
     }
   }
 
@@ -740,15 +752,15 @@ export class App {
   }
 
   // The SFU peer connection failed: degrade this group to mesh so the call
-  // survives rather than dropping. The proximity loop reconnects mesh peers next
-  // frame. (App-token-less environments never reach SFU, so never get here.)
+  // survives rather than dropping. We mesh directly with the group's members
+  // (the same set the SFU was serving). (App-token-less environments never reach
+  // SFU, so never get here.)
   private onSfuFailed() {
     if (this.currentMethod !== 'sfu') return;
     console.warn('[sfu] connection failed; falling back to mesh');
-    this.currentMethod = 'mesh';
-    this.sfuMembers.clear();
-    this.knownSfuPeers.clear();
-    this.sfu.closeAll();
+    // Reuse the mesh reconciliation (it tears the SFU transport down and opens a
+    // peer to every former SFU member). Snapshot members first — it clears the set.
+    this.applyGroupMethod('mesh', [...this.sfuMembers]);
   }
 
   // Pick each SFU camera's simulcast layer by its rendered tile width (issue

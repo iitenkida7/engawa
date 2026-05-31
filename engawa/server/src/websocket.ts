@@ -15,6 +15,7 @@ import {
   normalizeName,
   normalizeWorkspace,
   parseWorkspacePasswords,
+  PROXIMITY_DISCONNECT_RADIUS,
   sfuLatchSeeds,
   verifyWorkspacePassword,
   type GroupMember,
@@ -26,10 +27,16 @@ import { isSfuEnabled } from './sfu';
 // If empty or not set, all workspaces are open (no auth required).
 const workspacePasswords = parseWorkspacePasswords(process.env.WORKSPACE_PASSWORDS);
 
-// Per-workspace transient grouping state: the previous tick's open-floor SFU
-// member sets, so a shrinking cluster keeps SFU (one-way latch). Memory-only,
-// reset on restart (stateless invariant #2).
-type GroupState = Map<string, { prevSfuMemberSets: string[][] }>;
+// Per-workspace transient grouping state, memory-only, reset on restart
+// (stateless invariant #2):
+//  - prevSfuMemberSets: the previous tick's open-floor SFU member sets, so a
+//    shrinking cluster keeps SFU (one-way latch).
+//  - prevGroupMemberSets: the previous tick's group memberships (all groups), so
+//    an open-floor edge survives out to the disconnect radius (hysteresis).
+type GroupState = Map<
+  string,
+  { prevSfuMemberSets: string[][]; prevGroupMemberSets: string[][] }
+>;
 
 function send(ws: ServerWebSocket<WsData>, msg: ServerMessage) {
   ws.send(JSON.stringify(msg));
@@ -79,13 +86,15 @@ function proximityGroupMemberIds(
   return g ? g.memberIds : [userId];
 }
 
-// Recompute one workspace's proximity groups and notify clients whose SFU
-// membership changed. Returns userId → group so callers can look up a member's
-// current group. Plain-mesh members are intentionally NOT messaged — they are
-// driven by the client's legacy proximity loop; only SFU membership (and the
-// SFU→mesh transition, so the client tears the transport down) is signaled,
-// which keeps message volume minimal. When SFU is disabled every group is mesh,
-// so no group-update is ever sent and behaviour is identical to pre-SFU.
+// Recompute one workspace's proximity groups and notify every client whose
+// group membership changed. Returns userId → group so callers can look up a
+// member's current group. Both mesh and SFU groups are signaled via
+// `group-update`: the server is the single source of truth for who is in a
+// call, so a mesh client connects to every member of its connected component
+// (not just peers inside its own radius). This is what makes a latecomer who
+// joins the edge of an existing cluster reach everyone, exactly like a meeting
+// room. A message is only sent when a client's (method + member set) actually
+// changes, so volume stays bounded by real topology changes.
 function broadcastGroups(
   clients: Map<string, ServerWebSocket<WsData>>,
   workspace: string,
@@ -99,10 +108,12 @@ function broadcastGroups(
     wsClients.push(c);
   }
 
-  const state = groupState.get(workspace) ?? { prevSfuMemberSets: [] };
+  const state = groupState.get(workspace) ?? { prevSfuMemberSets: [], prevGroupMemberSets: [] };
   const groups = computeProximityGroups(members, {
     sfuEnabled: isSfuEnabled(),
     prevSfuMemberSets: state.prevSfuMemberSets,
+    prevGroupMemberSets: state.prevGroupMemberSets,
+    disconnectRadius: PROXIMITY_DISCONNECT_RADIUS,
   });
 
   const byUser = new Map<string, ProximityGroup>();
@@ -111,11 +122,13 @@ function broadcastGroups(
   for (const c of wsClients) {
     const g = byUser.get(c.data.userId);
     if (!g) continue;
+    // Signature of the group as last sent to this client. A mesh→sfu (or the
+    // reverse), or any change in the member set, flips this and re-notifies.
+    const key = `${g.method}:${g.memberIds.join(',')}`;
+    if (c.data.groupKey === key) continue;
+    c.data.groupKey = key;
+    send(c, { type: 'group-update', method: g.method, members: g.memberIds });
     if (g.method === 'sfu') {
-      const key = `sfu:${g.memberIds.join(',')}`;
-      if (c.data.groupKey === key) continue;
-      c.data.groupKey = key;
-      send(c, { type: 'group-update', method: 'sfu', members: g.memberIds });
       // Hand this client the current track directory of the group's other
       // already-published members so it can pull them. When a member (re)joins
       // the group every member's key changes, so the reverse direction — telling
@@ -132,15 +145,11 @@ function broadcastGroups(
           tracks: other.data.sfuTracks,
         });
       }
-    } else if (c.data.groupKey !== null) {
-      // Was in an SFU group, now mesh: tell the client to drop the SFU transport
-      // and fall back to the mesh proximity loop.
-      c.data.groupKey = null;
-      send(c, { type: 'group-update', method: 'mesh', members: g.memberIds });
     }
   }
 
   state.prevSfuMemberSets = sfuLatchSeeds(groups);
+  state.prevGroupMemberSets = groups.map((g) => g.memberIds);
   groupState.set(workspace, state);
   return byUser;
 }

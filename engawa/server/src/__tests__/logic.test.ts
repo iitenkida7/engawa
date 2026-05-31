@@ -324,6 +324,42 @@ describe('computeProximityGroups', () => {
   test('empty input yields no groups', () => {
     expect(computeProximityGroups([], { sfuEnabled: true })).toEqual([]);
   });
+
+  describe('open-floor hysteresis (connect vs disconnect radius)', () => {
+    // a, b sit between the two radii: too far to form a NEW edge, but close
+    // enough that an existing edge survives.
+    const between = [m('a', 0, 0), m('b', 135, 0)]; // 135: in (120, 150]
+
+    test('a pair between the radii does NOT connect without prior grouping', () => {
+      const groups = computeProximityGroups(between, {
+        sfuEnabled: true,
+        connectRadius: 120,
+        disconnectRadius: 150,
+      });
+      expect(groups).toHaveLength(2); // no edge formed by hysteresis alone
+    });
+
+    test('a pair between the radii STAYS connected if they were grouped last tick', () => {
+      const groups = computeProximityGroups(between, {
+        sfuEnabled: true,
+        connectRadius: 120,
+        disconnectRadius: 150,
+        prevGroupMemberSets: [['a', 'b']],
+      });
+      expect(groups).toHaveLength(1);
+      expect(groups[0].memberIds).toEqual(['a', 'b']);
+    });
+
+    test('an edge breaks once the pair exceeds the disconnect radius', () => {
+      const groups = computeProximityGroups([m('a', 0, 0), m('b', 200, 0)], {
+        sfuEnabled: true,
+        connectRadius: 120,
+        disconnectRadius: 150,
+        prevGroupMemberSets: [['a', 'b']],
+      });
+      expect(groups).toHaveLength(2);
+    });
+  });
 });
 
 describe('sfuLatchSeeds', () => {
