@@ -12,6 +12,7 @@ import {
   type GroupMethod,
   MAP_HEIGHT,
   MAP_WIDTH,
+  type Outfit,
   PLAYER_RADIUS,
   PLAYER_SPEED,
   type PlayerStatus,
@@ -33,6 +34,7 @@ import type { RtcConn } from '@/rtc/rtcstats';
 import { SfuManager } from '@/rtc/sfu';
 import { partitionMembers } from '@/rtc/sfu-logic';
 import { WebRtcManager } from '@/rtc/webrtc';
+import type { AvatarEditor } from '@/ui/avatar-editor';
 import { ChatPanel } from '@/ui/chat';
 import { DebugConsole } from '@/ui/debug-console';
 import { KnockController } from '@/ui/knock';
@@ -42,7 +44,9 @@ import { RosterPanel } from '@/ui/roster';
 import { SoundManager } from '@/ui/sounds';
 import { type MediaSink, ToolbarController } from '@/ui/toolbar';
 import { CanvasRenderer } from '@/world/canvas';
+import { OUTFIT_COUNTS } from '@/world/character';
 import { InputManager } from '@/world/input';
+import { normalizeOutfit } from '@/world/outfit';
 import { findPath } from '@/world/pathfind';
 import { PlayerState } from '@/world/player';
 import { canOccupy, findWalkableSpawn, zoneAt } from '@/world/tilemap';
@@ -70,6 +74,7 @@ export class App {
   private toasts = new Toasts();
   private sounds = new SoundManager();
   private knocks: KnockController;
+  private editor: AvatarEditor;
 
   private myId: string = '';
   private me: PlayerState | null = null;
@@ -159,8 +164,9 @@ export class App {
     }
   };
 
-  constructor(opts: { canvas: HTMLCanvasElement }) {
+  constructor(opts: { canvas: HTMLCanvasElement; editor: AvatarEditor }) {
     this.canvas = opts.canvas;
+    this.editor = opts.editor;
     this.renderer = new CanvasRenderer(this.canvas);
     this.input = new InputManager();
     this.media = new MediaManager();
@@ -270,6 +276,14 @@ export class App {
     });
     this.recorder.on(() => this.toolbar.refresh());
     this.view.refreshSelfPreview();
+
+    // The toolbar 🧍 button reopens the character maker in-room; applying relays
+    // the new outfit to peers (see onOutfitApplied).
+    document
+      .getElementById('btn-avatar')
+      ?.addEventListener('click', () =>
+        this.editor.open({ onApply: (o) => this.onOutfitApplied(o) }),
+      );
 
     // Double-click the map to walk to that point (A* around walls, boosted speed).
     this.canvas.addEventListener('dblclick', this.onCanvasDblClick);
@@ -430,8 +444,17 @@ export class App {
       type: 'join',
       name: this.joinedName,
       workspace,
+      outfit: this.editor.getOutfit(),
       ...(this.joinedPassword ? { password: this.joinedPassword } : {}),
     });
+  }
+
+  // The character maker was confirmed in-room: update our own avatar and relay
+  // the new outfit to the workspace so peers re-render it (the server forwards
+  // it without storing — invariant #2; on reconnect the join re-sends it).
+  private onOutfitApplied(outfit: Outfit) {
+    if (this.me) this.me.outfit = outfit;
+    this.net.send({ type: 'outfit-update', outfit });
   }
 
   private authFailed = false;
@@ -525,7 +548,13 @@ export class App {
         this.me = new PlayerState(msg.self, true);
         this.players.set(this.myId, this.me);
         for (const p of msg.players) {
-          this.players.set(p.userId, new PlayerState(p, false));
+          // Peer outfits arrive only server-bounded (0..63); re-clamp to our real
+          // part counts so a stale/oversized index renders a real option, not an
+          // empty layer.
+          this.players.set(
+            p.userId,
+            new PlayerState({ ...p, outfit: normalizeOutfit(p.outfit, OUTFIT_COUNTS) }, false),
+          );
         }
         this.view.setSelfName(this.joinedName);
         document.getElementById('toolbar')?.classList.remove('hidden');
@@ -536,12 +565,19 @@ export class App {
       }
       case 'player-joined': {
         if (msg.player.userId === this.myId) break;
-        this.players.set(msg.player.userId, new PlayerState(msg.player, false));
+        const joined = { ...msg.player, outfit: normalizeOutfit(msg.player.outfit, OUTFIT_COUNTS) };
+        this.players.set(msg.player.userId, new PlayerState(joined, false));
         break;
       }
       case 'player-moved': {
         const p = this.players.get(msg.userId);
         if (p) p.setTarget(msg.x, msg.y, msg.vx, msg.vy);
+        break;
+      }
+      case 'outfit-update': {
+        const p = this.players.get(msg.userId);
+        // Re-clamp the peer's server-bounded indices to our real part counts.
+        if (p) p.outfit = normalizeOutfit(msg.outfit, OUTFIT_COUNTS);
         break;
       }
       case 'player-status': {
@@ -678,6 +714,9 @@ export class App {
         selfVx = v.vx;
         selfVy = v.vy;
       }
+      // Face the way we're moving so our own avatar's sprite turns (remote
+      // players turn via setTarget). Idle keeps the last facing.
+      this.me.updateFacing(selfVx, selfVy);
     }
 
     // Interpolate remote players (also frame-rate independent).

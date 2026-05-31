@@ -1151,6 +1151,173 @@
         font-variant-numeric: tabular-nums;
       }
 
+      /* Secondary join button (e.g. "アバターを編集"): muted vs. the blue submit. */
+      #join-overlay button.secondary {
+        background: #2a2f3a;
+        border: 1px solid #3a4050;
+      }
+
+      #join-overlay button.secondary:hover {
+        background: #353a47;
+      }
+
+      /* ===== Character maker modal (#141) ===== */
+      #avatar-editor {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 12, 16, 0.85);
+        /* Above the join overlay (1010) and the toolbar (1000). */
+        z-index: 1200;
+      }
+
+      #avatar-editor .avatar-card {
+        background: #242832;
+        border: 1px solid #353a47;
+        border-radius: 12px;
+        padding: 20px 22px;
+        width: 320px;
+        max-width: calc(100vw - 24px);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+
+      #avatar-editor h2 {
+        margin: 0;
+        font-size: 18px;
+        align-self: flex-start;
+      }
+
+      #avatar-preview {
+        width: 128px;
+        height: 150px;
+        image-rendering: pixelated;
+        background: #1a1d24;
+        border: 1px solid #3a4050;
+        border-radius: 8px;
+      }
+
+      #avatar-categories {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        /* Many categories now (sex/skin/hair/colors/clothes/…) — cap the height
+           and scroll so the card never outgrows the viewport on small screens. */
+        max-height: 42vh;
+        overflow-y: auto;
+      }
+
+      .avatar-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .avatar-row-label {
+        width: 56px;
+        flex-shrink: 0;
+        font-size: 13px;
+        color: #9da3b0;
+      }
+
+      .avatar-row-value {
+        flex: 1;
+        text-align: center;
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .avatar-step {
+        width: 30px;
+        flex-shrink: 0;
+        padding: 6px 0;
+        border-radius: 6px;
+        border: 1px solid #3a4050;
+        background: #2a2f3a;
+        color: #e6e8ee;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .avatar-step:hover {
+        background: #353a47;
+      }
+
+      .avatar-actions {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+      }
+
+      .avatar-actions button {
+        flex: 1;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 0;
+        background: #4f8cff;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .avatar-actions button:hover {
+        background: #3a78f0;
+      }
+
+      .avatar-actions button.secondary {
+        background: #2a2f3a;
+        border: 1px solid #3a4050;
+        font-weight: 500;
+      }
+
+      .avatar-actions button.secondary:hover {
+        background: #353a47;
+      }
+
+      .avatar-footer {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: #7a8090;
+      }
+
+      .avatar-footer a {
+        color: #4f8cff;
+        text-decoration: none;
+      }
+
+      .avatar-footer a:hover {
+        text-decoration: underline;
+      }
+
+      .avatar-close {
+        margin-left: auto;
+        background: transparent;
+        border: 0;
+        color: #9da3b0;
+        font-size: 14px;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: 6px;
+        line-height: 1;
+      }
+
+      .avatar-close:hover {
+        background: #353a47;
+        color: #e6e8ee;
+      }
+
       .hidden {
         display: none !important;
       }
@@ -1190,6 +1357,7 @@
         <input id="bg-file" type="file" accept="image/*" class="hidden" />
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" title="録画">⏺ 録画</button>
+        <button id="btn-avatar" title="アバターを編集">🧍 アバター</button>
         <div class="btn-group">
           <button id="btn-reaction" title="リアクション">😀</button>
           <div id="reaction-menu" class="device-menu hidden"></div>
@@ -1242,8 +1410,27 @@
           <h1>engawa に参加</h1>
           <input id="join-name" type="text" placeholder="名前を入力" maxlength="24" autofocus required />
           <input id="join-password" type="password" placeholder="パスワード（任意）" maxlength="64" style="margin-top: 8px;" />
+          <button type="button" id="btn-avatar-pre" class="secondary">🎨 アバターを編集</button>
           <button type="submit">入室</button>
         </form>
+      </div>
+      <!-- Character maker (#141). Owned by ui/avatar-editor.ts; opened from the
+           join screen and from the toolbar's 🧍 button. Above the join overlay. -->
+      <div id="avatar-editor" class="hidden">
+        <div class="avatar-card">
+          <h2>アバターを作る</h2>
+          <canvas id="avatar-preview" width="128" height="150"></canvas>
+          <div id="avatar-categories"></div>
+          <div class="avatar-actions">
+            <button type="button" id="avatar-random" class="secondary">🎲 おまかせ</button>
+            <button type="button" id="avatar-apply">決定</button>
+          </div>
+          <div class="avatar-footer">
+            <span>素材: LPC (CC-BY-SA 等)</span>
+            <a id="avatar-credits" href="#" target="_blank" rel="noopener noreferrer">クレジット</a>
+            <button type="button" id="avatar-cancel" class="avatar-close" title="閉じる">✕</button>
+          </div>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/core/main.ts"></script>

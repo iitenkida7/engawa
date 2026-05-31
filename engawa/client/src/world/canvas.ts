@@ -9,6 +9,7 @@ import {
   ZOOM_MIN,
   ZOOM_STEP,
 } from '@/core/types';
+import { CharacterSheet } from '@/world/character';
 import { CELL, floorKindAt, propFor } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import { SpriteSheet } from '@/world/sprites';
@@ -48,6 +49,11 @@ export function truncateNote(note: string, max = AVATAR_NOTE_MAX): string {
 
 // How far (world px) a reaction bubble drifts upward over its lifetime.
 const REACTION_RISE_PX = 36;
+
+// Composited-avatar display scale: the 64px source frame is drawn at this size
+// (1:1 keeps the pixel art crisp). Feet are planted on the shadow so the avatar
+// stands on its map spot.
+const SPRITE_SCALE = 1;
 
 /**
  * Animation state of a floating reaction `elapsed` ms into its `lifetime`.
@@ -97,6 +103,9 @@ export class CanvasRenderer {
   // sheet finishes loading or the device pixel ratio changes (it is otherwise
   // viewport-independent). null = needs (re)build.
   private sheet = new SpriteSheet();
+  // Modular avatar sprites (#141). Until it loads, drawPlayer falls back to the
+  // colored circle + initials below.
+  private characters = new CharacterSheet();
   private mapCache: HTMLCanvasElement | null = null;
   private mapCacheDpr = 0;
 
@@ -460,38 +469,49 @@ export class CanvasRenderer {
       ctx.stroke();
     }
 
-    // shadow
-    ctx.beginPath();
-    ctx.ellipse(p.x, p.y + PLAYER_RADIUS + 2, PLAYER_RADIUS * 0.8, 4, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fill();
+    // Feet planting point for the sprite. No foot decoration (shadow / self ring
+    // / speaking ring) is drawn here — removed by request as visual clutter.
+    const footY = p.y + PLAYER_RADIUS + 2;
 
-    // body circle
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, PLAYER_RADIUS, 0, Math.PI * 2);
-    ctx.fillStyle = p.color;
-    ctx.fill();
-
-    // border
-    ctx.lineWidth = p.isSelf ? 4 : 2;
-    ctx.strokeStyle = p.isSelf ? '#4f8cff' : 'rgba(0,0,0,0.5)';
-    ctx.stroke();
-
-    // speaking indicator
-    if (p.isSpeaking) {
+    // Composited avatar sprite (#141). Falls back to the original colored circle
+    // + initials until the sprite layers load.
+    const drewSprite = this.characters.draw(
+      ctx,
+      p.outfit,
+      p.facing,
+      p.walkCol(),
+      p.x,
+      footY,
+      SPRITE_SCALE,
+    );
+    if (!drewSprite) {
+      // body circle
       ctx.beginPath();
-      ctx.arc(p.x, p.y, PLAYER_RADIUS + 5, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(80,220,120,0.9)';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
+      ctx.arc(p.x, p.y, PLAYER_RADIUS, 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
 
-    // initials
-    ctx.fillStyle = 'white';
-    ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(p.initials(), p.x, p.y);
+      // border
+      ctx.lineWidth = p.isSelf ? 4 : 2;
+      ctx.strokeStyle = p.isSelf ? '#4f8cff' : 'rgba(0,0,0,0.5)';
+      ctx.stroke();
+
+      // speaking indicator
+      if (p.isSpeaking) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, PLAYER_RADIUS + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(80,220,120,0.9)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // initials
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(p.initials(), p.x, p.y);
+    }
 
     // Status badge (top-right of avatar). Show the status emoji — matching the
     // toolbar menu — so meeting/break read clearly, not just as a colored dot.
@@ -505,8 +525,13 @@ export class CanvasRenderer {
       ctx.fillText(badge, bx, by);
     }
 
-    // name label
+    // name label. Set alignment explicitly: the background rect is centered on
+    // p.x, but ctx.textAlign/textBaseline carry over from earlier draws (default
+    // 'start'/'alphabetic' when a sprite is drawn and no status badge ran), which
+    // would shift the text off the rect.
     ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     const label = p.name + (p.isSharingScreen ? '  🖥' : '');
     const m = ctx.measureText(label);
     const padX = 6;

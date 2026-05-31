@@ -1,8 +1,15 @@
+import type { Outfit } from '@/world/outfit';
+
+export type { Outfit };
+
 export type Player = {
   userId: string;
   name: string;
   x: number;
   y: number;
+  // Modular avatar configuration (#141). Optional so a peer/server that omits it
+  // (or an older client) still parses; the renderer falls back to defaults.
+  outfit?: Outfit;
 };
 
 export type SignalData = unknown;
@@ -18,7 +25,10 @@ export type SfuTrack = { kind: StreamKind; trackName: string };
 export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
 
 export type ClientMessage =
-  | { type: 'join'; name: string; workspace: string; password?: string }
+  | { type: 'join'; name: string; workspace: string; password?: string; outfit?: Outfit }
+  // Avatar appearance changed in the editor; relayed to the workspace so peers
+  // re-render this avatar. Stateless: the server forwards it, keeping nothing.
+  | { type: 'outfit-update'; outfit: Outfit }
   | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
   // `note` is an optional free-text one-liner ("ランチ"); `until` is an optional
   // return time as absolute epoch ms (null = none). Both ride the existing
@@ -51,6 +61,8 @@ export type ServerMessage =
   | { type: 'welcome'; self: Player; players: Player[]; bootId: string; sfuEnabled: boolean }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
+  // A peer's new avatar configuration, relayed from their `outfit-update`.
+  | { type: 'outfit-update'; userId: string; outfit: Outfit }
   | {
       type: 'player-status';
       userId: string;

@@ -1,8 +1,26 @@
+// Modular avatar configuration (#141): an integer index per category. The server
+// treats it as opaque data — it only sanitizes (sanitizeOutfit) and relays it,
+// never interprets it — so it stays stateless (invariant #2).
+export type Outfit = {
+  sex: number;
+  skin: number;
+  hair: number;
+  hairColor: number;
+  top: number;
+  topColor: number;
+  bottom: number;
+  bottomColor: number;
+  shoes: number;
+  hat: number;
+  glasses: number;
+};
+
 export type Player = {
   userId: string;
   name: string;
   x: number;
   y: number;
+  outfit: Outfit;
 };
 
 export type SignalData = unknown;
@@ -18,7 +36,9 @@ export type SfuTrack = { kind: StreamKind; trackName: string };
 export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
 
 export type ClientMessage =
-  | { type: 'join'; name: string; workspace: string; password?: string }
+  | { type: 'join'; name: string; workspace: string; password?: string; outfit?: Outfit }
+  // Avatar appearance changed; relayed to the workspace (sanitized, never stored).
+  | { type: 'outfit-update'; outfit: Outfit }
   | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
   // `note` is an optional free-text one-liner; `until` an optional return time
   // (absolute epoch ms, null = none). Relayed with the status, never stored (#85).
@@ -50,6 +70,8 @@ export type ServerMessage =
   | { type: 'welcome'; self: Player; players: Player[]; bootId: string; sfuEnabled: boolean }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
+  // A peer's new avatar configuration, relayed from their `outfit-update`.
+  | { type: 'outfit-update'; userId: string; outfit: Outfit }
   | {
       type: 'player-status';
       userId: string;
@@ -88,6 +110,9 @@ export type WsData = {
   // Last reported meeting-room zone id (null = open floor). Reported by the
   // client on every `move`; drives server-side proximity grouping.
   zoneId: string | null;
+  // Modular avatar configuration (#141). Sanitized on join / outfit-update and
+  // relayed to peers; transient, reset on restart (invariant #2).
+  outfit: Outfit;
   // SFU track directory for this connection (null = hasn't published). Relayed
   // to group peers for pulling. Transient: dropped on disconnect / restart.
   sfuSessionId: string | null;

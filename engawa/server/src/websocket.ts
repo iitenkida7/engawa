@@ -19,6 +19,7 @@ import {
   PROXIMITY_DISCONNECT_RADIUS,
   type ProximityGroup,
   parseWorkspacePasswords,
+  sanitizeOutfit,
   sfuLatchSeeds,
   verifyWorkspacePassword,
 } from './logic';
@@ -62,6 +63,7 @@ function playerFromWs(ws: ServerWebSocket<WsData>): Player {
     name: ws.data.name,
     x: ws.data.x,
     y: ws.data.y,
+    outfit: ws.data.outfit,
   };
 }
 
@@ -197,6 +199,7 @@ export function createWebSocketHandler(
 
           ws.data.name = normalizeName(msg.name);
           ws.data.workspace = workspace;
+          ws.data.outfit = sanitizeOutfit(msg.outfit);
           // Spawn in the open office area (center aisle, avoids walls/desks)
           const spawn = generateSpawn();
           ws.data.x = spawn.x;
@@ -244,6 +247,22 @@ export function createWebSocketHandler(
               note: normalizeStatusNote(msg.note),
               until: normalizeUntil(msg.until),
             },
+            ws.data.userId,
+          );
+          break;
+        }
+
+        case 'outfit-update': {
+          if (!ws.data.joined) return;
+          // Sanitize then relay to the workspace (peers re-render; the sender
+          // updated its own avatar locally). Server keeps it only in transient
+          // ws.data so a reconnecting peer's join re-announces it (invariant #2).
+          const outfit = sanitizeOutfit(msg.outfit);
+          ws.data.outfit = outfit;
+          broadcast(
+            clients,
+            ws.data.workspace,
+            { type: 'outfit-update', userId: ws.data.userId, outfit },
             ws.data.userId,
           );
           break;
