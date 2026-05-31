@@ -140,8 +140,11 @@ export class RosterPanel {
     // "t !== btnStatus", so this toggle never closes the menu it just opened.
     this.btnStatus.addEventListener('click', () => {
       const open = this.statusMenu.classList.contains('hidden');
+      if (open) {
+        this.populateStatusMenu();
+        this.positionStatusMenu();
+      }
       this.statusMenu.classList.toggle('hidden', !open);
-      if (open) this.populateStatusMenu();
     });
     document.addEventListener('click', (e) => {
       const t = e.target as Node;
@@ -149,6 +152,17 @@ export class RosterPanel {
         this.statusMenu.classList.add('hidden');
       }
     });
+  }
+
+  // The status menu is portaled to #app top-level (not nested in the roster's
+  // overflow:hidden box), so we anchor it under the button each time it opens:
+  // dropping downward, right-aligned to the button. Measuring on open keeps it
+  // correct regardless of header width (chat button present, count digits, …).
+  private positionStatusMenu() {
+    const r = this.btnStatus.getBoundingClientRect();
+    this.statusMenu.style.top = `${r.bottom + 6}px`;
+    this.statusMenu.style.right = `${window.innerWidth - r.right}px`;
+    this.statusMenu.style.left = 'auto';
   }
 
   private populateStatusMenu() {
@@ -175,6 +189,11 @@ export class RosterPanel {
       this.wasNarrow = narrow;
       this.setCollapsed(narrow);
     }
+    // The portaled status menu is positioned by JS from the button's rect, so a
+    // resize while it's open would leave it misaligned — re-anchor it. (If the
+    // resize just collapsed the roster, setCollapsed already hid it, so this
+    // no-ops.)
+    if (!this.statusMenu.classList.contains('hidden')) this.positionStatusMenu();
   }
 
   private setCollapsed(collapsed: boolean) {
@@ -186,6 +205,9 @@ export class RosterPanel {
     this.panelEl.classList.toggle('collapsed', this.collapsed);
     this.toggleEl.textContent = this.collapsed ? '⟩' : '⟨';
     this.toggleEl.title = this.collapsed ? '参加者リストを開く' : '折りたたむ';
+    // Collapsing hides the action buttons; close the (portaled) status menu so
+    // it can't linger detached from its now-hidden button.
+    if (this.collapsed) this.statusMenu.classList.add('hidden');
   }
 
   // Pumped once per frame from the game loop: reconciles the rows with the

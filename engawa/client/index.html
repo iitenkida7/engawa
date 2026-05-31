@@ -552,23 +552,20 @@
         color: #e6e8ee;
       }
 
-      .roster-status-wrap {
-        position: relative;
-        display: flex;
-      }
-
-      /* Status menu: drops down from the roster header instead of upward. */
-      .roster-status-wrap #status-menu {
+      /* Status menu is portaled to #app top-level (not nested in the roster's
+         overflow:hidden box) so it never clips when the participant list is
+         short. roster.ts anchors it under the 🟢 button via getBoundingClientRect
+         and sets top/right; it drops downward from the header. */
+      #status-menu {
         position: absolute;
-        top: calc(100% + 6px);
+        top: 0;
+        left: auto;
         right: 0;
         bottom: auto;
-        left: auto;
         min-width: 160px;
-      }
-
-      #roster-toggle {
-        /* no margin-left: the #roster-actions div handles spacing */
+        /* Above the roster (900) / chat (950) / toolbar (1000) so it overlays
+           rather than being clipped. */
+        z-index: 1100;
       }
 
       #roster-list {
@@ -913,15 +910,15 @@
           <span id="roster-count">0</span>
           <div id="roster-actions">
             <button id="btn-chat" title="チャット">💬</button>
-            <div class="roster-status-wrap">
-              <button id="btn-status" title="ステータス">🟢</button>
-              <div id="status-menu" class="device-menu hidden"></div>
-            </div>
+            <button id="btn-status" title="ステータス">🟢</button>
           </div>
           <button id="roster-toggle" title="折りたたむ">⟨</button>
         </div>
         <div id="roster-list"></div>
       </div>
+      <!-- Portaled out of #roster (which is overflow:hidden) so it never clips
+           when the participant list is short. Anchored under #btn-status in JS. -->
+      <div id="status-menu" class="device-menu hidden"></div>
       <div id="toolbar" class="hidden">
         <div class="btn-group">
           <button id="btn-mic" title="マイク">🎤 マイク</button>
