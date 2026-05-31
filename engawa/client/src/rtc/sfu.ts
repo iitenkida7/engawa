@@ -123,6 +123,7 @@ export class SfuManager {
   addLocalStream(stream: MediaStream, kind: StreamKind) {
     const track = kind === 'mic' ? stream.getAudioTracks()[0] : stream.getVideoTracks()[0];
     if (!track) return;
+    this.reopen();
     this.enqueue(() => this.pushTrack(track, kind, stream.id));
   }
 
@@ -133,6 +134,7 @@ export class SfuManager {
   // Reconcile the tracks a group peer is publishing: pull anything new, drop
   // anything that disappeared (e.g. they turned their camera off).
   setPeerTracks(userId: string, sessionId: string, tracks: SfuTrack[]) {
+    this.reopen();
     this.enqueue(async () => {
       const { toPull, toDrop } = reconcilePeerTracks(userId, tracks, this.remoteTracks.keys());
       for (const t of toPull) {
@@ -189,6 +191,17 @@ export class SfuManager {
     this.remoteTracks.clear();
     this.midToRemote.clear();
     this.statsPrev = null;
+  }
+
+  // closeAll() latches `closed` so chainOp skips any still-queued ops while we
+  // tear the transport down (mesh fallback, or leaving the SFU group). But this
+  // manager is reused across mesh↔SFU transitions, so re-entering an SFU group
+  // must clear that latch first — otherwise chainOp skips every push/pull, no
+  // PC/session is ever recreated, and no media flows (issue #138: media stopped
+  // after leaving and re-entering a meeting room). Called by the two
+  // reactivation entry points: publishing our own track and pulling a peer's.
+  private reopen() {
+    this.closed = false;
   }
 
   // Poll the single SFU PC's getStats() and split the per-second diff into
