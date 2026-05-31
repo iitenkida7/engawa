@@ -894,9 +894,11 @@
         background: #e6e8ee;
       }
 
-      /* ===== Debug console (toolbar 🐛) =====
-         A fixed, scrollable monitor of the active transport's RTC connections.
-         Above the toolbar (z1000) so its rows stay readable over the call. */
+      /* ===== Debug console (toolbar "⋯" menu) =====
+         A scrollable monitor of the active transport's RTC connections. Opens
+         top-right but is draggable by its header (makeDraggable normalizes the
+         right/top anchor to left/top on first drag). Above the toolbar (z1000)
+         so its rows stay readable over the call. */
       #debug-console {
         position: fixed;
         top: 16px;
@@ -926,6 +928,8 @@
         font-size: 13px;
         color: #e6e8ee;
         flex-shrink: 0;
+        cursor: grab;
+        user-select: none;
       }
 
       #debug-header button {
@@ -1069,7 +1073,6 @@
         <input id="bg-file" type="file" accept="image/*" class="hidden" />
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" title="録画">⏺ 録画</button>
-        <button id="btn-debug" title="デバッグ（RTC 接続）">🐛</button>
         <div class="btn-group">
           <button id="btn-more" title="その他">⋯</button>
           <div id="more-menu" class="device-menu hidden"></div>

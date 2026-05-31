@@ -190,6 +190,10 @@ export class App {
       view: this.view,
       broadcastStatus: () => this.broadcastStatus(),
       getMe: () => this.me,
+      // The 🐛 debug console lives in the toolbar's "⋯" menu (issue #113). These
+      // resolve lazily on click, so referencing this.debug (built below) is fine.
+      toggleDebug: () => this.debug.toggle(),
+      isDebugOpen: () => this.debug.isOpen(),
     });
 
     this.roster = new RosterPanel({
@@ -206,9 +210,10 @@ export class App {
       onSend: (text) => this.net.send({ type: 'chat', text }),
     });
 
-    // Debug console (toolbar 🐛): polls the active transport's getStats while
-    // open and lists each connection's send/recv rates. resolveName turns a peer
-    // id into the roster name; '' (unknown) lets the console fall back to the id.
+    // Debug console (opened from the toolbar's "⋯" menu): polls the active
+    // transport's getStats while open and lists each connection's send/recv
+    // rates. resolveName turns a peer id into the roster name; '' (unknown) lets
+    // the console fall back to the id.
     this.debug = new DebugConsole({
       collect: () => this.collectRtcStats(),
       resolveName: (id) => this.players.get(id)?.name ?? '',
