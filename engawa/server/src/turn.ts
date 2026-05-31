@@ -5,6 +5,10 @@ const FALLBACK_ICE_SERVERS = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
+// Abort the Cloudflare credential request if it stalls, so a hung upstream
+// doesn't pin the request open — on timeout we fall back to STUN-only.
+const TURN_FETCH_TIMEOUT_MS = 8000;
+
 export async function getTurnCredentials() {
   const id = process.env.CLOUDFLARE_TURN_TOKEN_ID;
   const secret = process.env.CLOUDFLARE_TURN_TOKEN_SECRET;
@@ -23,6 +27,7 @@ export async function getTurnCredentials() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ ttl: 3600 }),
+        signal: AbortSignal.timeout(TURN_FETCH_TIMEOUT_MS),
       },
     );
 
