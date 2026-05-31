@@ -9,7 +9,8 @@ import { isInitiator } from './proximity';
 import type { Point } from './proximity';
 import { findPath } from './pathfind';
 import { computeCamEncoding, computeScreenEncoding, computePreferredRid, isHeldSpeaking } from './cam-bitrate';
-import { formatRtcRates } from './rtcstats';
+import type { RtcConn } from './rtcstats';
+import { DebugConsole } from './debug-console';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
   CLICK_MOVE_MULTIPLIER,
@@ -60,6 +61,7 @@ export class App {
   private toolbar: ToolbarController;
   private roster: RosterPanel;
   private chat: ChatPanel;
+  private debug: DebugConsole;
   private toasts = new Toasts();
   private sounds = new SoundManager();
 
@@ -117,9 +119,6 @@ export class App {
   private serverBootId: string | null = null;
   private reloadBanner = new ReloadBanner();
 
-  // Handle for the ?debug=rtc stats poller, so re-entering start() (e.g. after
-  // an auth-error retry) does not stack a second interval.
-  private rtcStatsTimer: ReturnType<typeof setInterval> | null = null;
   // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
   private lastLayerUpdate = 0;
 
@@ -205,6 +204,14 @@ export class App {
 
     this.chat = new ChatPanel({
       onSend: (text) => this.net.send({ type: 'chat', text }),
+    });
+
+    // Debug console (toolbar 🐛): polls the active transport's getStats while
+    // open and lists each connection's send/recv rates. resolveName turns a peer
+    // id into the roster name; '' (unknown) lets the console fall back to the id.
+    this.debug = new DebugConsole({
+      collect: () => this.collectRtcStats(),
+      resolveName: (id) => this.players.get(id)?.name ?? '',
     });
 
     // Media changes refresh both the toolbar buttons and the self preview;
@@ -357,7 +364,6 @@ export class App {
     requestAnimationFrame(this.loop);
     this.startBackgroundTicker();
     this.setupLifecycle();
-    this.startRtcStatsLogging();
   }
 
   // Keep the simulation alive in a hidden tab. While visible, requestAnimationFrame
@@ -396,20 +402,13 @@ export class App {
     });
   }
 
-  // getStats console telemetry, off unless the page is opened with ?debug=rtc.
-  // Polls every 2s and logs each peer's per-second send rates / RTT / loss /
-  // qualityLimitationReason (see rtcstats.ts) so the bitrate/jitter/codec tuning
-  // can be checked against real numbers. No effect on normal sessions.
-  private startRtcStatsLogging() {
-    if (this.rtcStatsTimer) return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('debug') !== 'rtc') return;
-    this.rtcStatsTimer = setInterval(async () => {
-      const reports = await this.rtc.collectStats();
-      for (const { userId, rates } of reports) {
-        console.log(formatRtcRates(userId, rates));
-      }
-    }, 2000);
+  // Snapshot the active transport's per-connection getStats diff for the debug
+  // console. Only the live path has peers: mesh has one PeerConnection per peer,
+  // the SFU one PC split back into per-peer conns (see each collectStats).
+  private collectRtcStats(): Promise<{ method: GroupMethod; conns: RtcConn[] }> {
+    const conns =
+      this.currentMethod === 'sfu' ? this.sfu.collectStats() : this.rtc.collectStats();
+    return conns.then((c) => ({ method: this.currentMethod, conns: c }));
   }
 
   private onOpen() {
