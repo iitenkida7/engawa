@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { isLoud } from '../speaking';
+import { isLoud } from '@/media/speaking';
 
 describe('isLoud', () => {
   it('is true when the average magnitude exceeds the threshold', () => {

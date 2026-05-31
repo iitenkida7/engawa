@@ -2,9 +2,9 @@
 // state) so the routing rules can be unit-tested in isolation, mirroring the
 // style of proximity.ts. Used by click-to-move to walk around walls/desks.
 
-import type { Point } from './proximity';
-import { TILE_SIZE, MAP_COLS, MAP_ROWS, canOccupy } from './tilemap';
-import { COLLISION_RADIUS } from './types';
+import type { Point } from '@/core/proximity';
+import { TILE_SIZE, MAP_COLS, MAP_ROWS, canOccupy } from '@/world/tilemap';
+import { COLLISION_RADIUS } from '@/core/types';
 
 export type TileWalkable = (col: number, row: number) => boolean;
 

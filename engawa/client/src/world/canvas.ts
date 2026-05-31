@@ -6,9 +6,9 @@ import {
   ZOOM_MIN,
   ZOOM_MAX,
   ZOOM_STEP,
-} from './types';
-import type { PlayerState } from './player';
-import type { Point } from './proximity';
+} from '@/core/types';
+import type { PlayerState } from '@/world/player';
+import type { Point } from '@/core/proximity';
 import {
   TILE_SIZE,
   MAP_COLS,
@@ -19,9 +19,9 @@ import {
   Tile,
   ZONES,
   zoneAt,
-} from './tilemap';
-import { SpriteSheet } from './sprites';
-import { CELL, floorKindAt, propFor } from './decor';
+} from '@/world/tilemap';
+import { SpriteSheet } from '@/world/sprites';
+import { CELL, floorKindAt, propFor } from '@/world/decor';
 
 // Emoji shown as the avatar status badge, matching the toolbar menu labels.
 // `online` has no badge.

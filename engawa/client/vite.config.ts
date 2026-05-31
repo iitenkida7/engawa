@@ -1,3 +1,4 @@
+import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
@@ -28,6 +29,9 @@ export default defineConfig({
       // makes vite 5 swallow the 101 response.
       '/ws': { target, ws: true, changeOrigin: true },
     },
+  },
+  resolve: {
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
   build: {
     outDir: 'dist',

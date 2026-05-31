@@ -3,7 +3,7 @@ import {
   transformSdp,
   transformSdpForLowLatency,
   transformSdpPreferVideoCodec,
-} from '../sdp';
+} from '@/rtc/sdp';
 
 const EXPECTED_FMTP = 'minptime=10;useinbandfec=1;usedtx=0;stereo=0;sprop-stereo=0';
 

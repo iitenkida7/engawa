@@ -1,20 +1,20 @@
 import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
-import type { StreamKind } from './types';
-import type { MediaManager } from './media';
-import { transformSdp } from './sdp';
+import type { StreamKind } from '@/core/types';
+import type { MediaManager } from '@/media/media';
+import { transformSdp } from '@/rtc/sdp';
 import {
   computeCamEncoding,
   computeScreenEncoding,
   computeScreenScale,
   type CamEncoding,
   type ScreenEncoding,
-} from './cam-bitrate';
+} from '@/rtc/cam-bitrate';
 import {
   summarizeRtcStats,
   diffRtcStats,
   type RtcSnapshot,
   type RtcConn,
-} from './rtcstats';
+} from '@/rtc/rtcstats';
 
 // Fixed mic send-bitrate ceiling (bps). The encoder still adapts down to the
 // available bandwidth. Camera and screen ceilings are dynamic and live in the

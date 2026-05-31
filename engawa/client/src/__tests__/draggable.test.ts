@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { followViewportGrowth } from '../draggable';
+import { followViewportGrowth } from '@/ui/draggable';
 
 describe('followViewportGrowth', () => {
   it('shifts left/top by the grown amount to keep distance from the edge', () => {

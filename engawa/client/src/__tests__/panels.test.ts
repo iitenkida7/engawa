@@ -7,7 +7,7 @@ import {
   PANEL_BOTTOM_RESERVED,
   PANEL_HEADER,
   PANEL_MARGIN,
-} from '../panels';
+} from '@/ui/panels';
 
 // A roomy reference viewport so the aspect clamps don't kick in unless intended.
 const VW = 1000;

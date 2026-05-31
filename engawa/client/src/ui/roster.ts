@@ -6,8 +6,8 @@
 // DOM that mirrors the players map; the App owns the map itself, mirroring the
 // RemoteMediaView split.
 
-import type { PlayerState } from './player';
-import type { PlayerStatus } from './types';
+import type { PlayerState } from '@/world/player';
+import type { PlayerStatus } from '@/core/types';
 
 // Status emoji shown in the roster. Unlike the canvas avatar badge, `online`
 // gets an explicit 🟢 so every row carries a status indicator.

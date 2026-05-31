@@ -10,7 +10,7 @@ import {
   isProcessingChoice,
   choiceLabel,
   downscaleSize,
-} from '../vbg';
+} from '@/media/vbg';
 
 describe('vbg preset registry', () => {
   it('preset ids are unique and exclude the reserved values', () => {

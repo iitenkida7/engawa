@@ -5,7 +5,7 @@
 // image has loaded, callers fall back to the procedural tile drawing, so a
 // slow/failed asset never leaves the map blank.
 
-import sheetUrl from './assets/roguelike-indoors.png?url';
+import sheetUrl from '@/assets/roguelike-indoors.png?url';
 
 const SRC_TILE = 16; // source tile size, px
 const SRC_MARGIN = 1; // gap between tiles, px

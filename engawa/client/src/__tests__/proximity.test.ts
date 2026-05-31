@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { isInitiator } from '../proximity';
+import { isInitiator } from '@/core/proximity';
 
 describe('isInitiator', () => {
   it('the lexicographically smaller id initiates', () => {

@@ -4,7 +4,7 @@ import {
   MAX_FRAME_DT,
   computeFrameDt,
   shouldConfirmUnload,
-} from '../lifecycle';
+} from '@/core/lifecycle';
 
 describe('computeFrameDt', () => {
   it('uses the nominal 60fps step on the first frame (no previous timestamp)', () => {

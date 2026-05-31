@@ -1,4 +1,4 @@
-import { App } from './app';
+import { App } from '@/core/app';
 
 const joinOverlay = document.getElementById('join-overlay') as HTMLDivElement;
 const joinForm = document.getElementById('join-form') as HTMLFormElement;

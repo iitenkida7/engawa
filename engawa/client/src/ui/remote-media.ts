@@ -1,5 +1,5 @@
-import { bringToFront, makeDraggable } from './draggable';
-import type { MediaManager } from './media';
+import { bringToFront, makeDraggable } from '@/ui/draggable';
+import type { MediaManager } from '@/media/media';
 import {
   applyPanelGeometry,
   bindCamAspect,
@@ -9,16 +9,16 @@ import {
   type LayoutItem,
   readCamAspect,
   setupPanelModes,
-} from './panels';
-import type { PlayerState } from './player';
-import type { RecorderManager } from './recorder';
+} from '@/ui/panels';
+import type { PlayerState } from '@/world/player';
+import type { RecorderManager } from '@/media/recorder';
 import {
   createSpeakingDetector,
   destroySpeakingDetector,
   isSpeaking,
   type SpeakingDetector,
-} from './speaking';
-import type { StreamKind } from './types';
+} from '@/media/speaking';
+import type { StreamKind } from '@/core/types';
 
 type RemoteTile = {
   container: HTMLDivElement;

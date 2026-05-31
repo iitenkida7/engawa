@@ -1,4 +1,4 @@
-import { EXTRAP_MAX_MS, INTERP_DECAY, type Player, type PlayerStatus } from './types';
+import { EXTRAP_MAX_MS, INTERP_DECAY, type Player, type PlayerStatus } from '@/core/types';
 
 export class PlayerState implements Player {
   userId: string;
