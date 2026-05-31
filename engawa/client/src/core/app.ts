@@ -30,6 +30,7 @@ import {
 } from '@/rtc/cam-bitrate';
 import type { RtcConn } from '@/rtc/rtcstats';
 import { SfuManager } from '@/rtc/sfu';
+import { partitionMembers } from '@/rtc/sfu-logic';
 import { WebRtcManager } from '@/rtc/webrtc';
 import { ChatPanel } from '@/ui/chat';
 import { DebugConsole } from '@/ui/debug-console';
@@ -808,11 +809,10 @@ export class App {
         this.publishLocalToSfu();
       }
       // Forget directory peers no longer in the group.
-      for (const id of [...this.knownSfuPeers]) {
-        if (!this.sfuMembers.has(id)) {
-          this.sfu.removePeer(id);
-          this.knownSfuPeers.delete(id);
-        }
+      const { toClose } = partitionMembers(this.knownSfuPeers, this.sfuMembers);
+      for (const id of toClose) {
+        this.sfu.removePeer(id);
+        this.knownSfuPeers.delete(id);
       }
     } else {
       if (this.currentMethod === 'sfu') {
@@ -827,13 +827,10 @@ export class App {
       // open one to every member we are not yet connected to. createPeer bundles
       // our live streams automatically; initiator election keeps it to one offer.
       const next = new Set(members.filter((id) => id !== this.myId));
-      for (const id of this.rtc.peerIds()) {
-        if (!next.has(id)) this.rtc.closePeer(id);
-      }
-      for (const id of next) {
-        if (!this.rtc.hasPeer(id)) {
-          void this.rtc.createPeer(id, isInitiator(this.myId, id));
-        }
+      const { toClose, toOpen } = partitionMembers(this.rtc.peerIds(), next);
+      for (const id of toClose) this.rtc.closePeer(id);
+      for (const id of toOpen) {
+        void this.rtc.createPeer(id, isInitiator(this.myId, id));
       }
       this.meshMembers = next;
     }
