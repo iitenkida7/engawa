@@ -2,11 +2,17 @@
 // treats it as opaque data — it only sanitizes (sanitizeOutfit) and relays it,
 // never interprets it — so it stays stateless (invariant #2).
 export type Outfit = {
+  sex: number;
   skin: number;
   hair: number;
+  hairColor: number;
   top: number;
+  topColor: number;
   bottom: number;
-  acc: number;
+  bottomColor: number;
+  shoes: number;
+  hat: number;
+  glasses: number;
 };
 
 export type Player = {

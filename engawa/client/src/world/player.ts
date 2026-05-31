@@ -82,6 +82,24 @@ export class PlayerState implements Player {
     this.y += (predY - this.y) * alpha;
   }
 
+  // Walk-cycle phase, advanced by actual on-screen movement so the legs animate
+  // in step with speed regardless of frame rate. Returns the sprite column to
+  // draw: 0 = standing, 1–8 = the walk cycle. Call once per rendered frame.
+  private walkPhase = 0;
+  private lastDrawX?: number;
+  private lastDrawY?: number;
+
+  walkCol(): number {
+    const lx = this.lastDrawX ?? this.x;
+    const ly = this.lastDrawY ?? this.y;
+    const dist = Math.hypot(this.x - lx, this.y - ly);
+    this.lastDrawX = this.x;
+    this.lastDrawY = this.y;
+    if (dist <= 0.15) return 0; // effectively stationary → standing frame
+    this.walkPhase += dist / 6; // ~6px of travel advances one cycle frame
+    return 1 + (Math.floor(this.walkPhase) % 8);
+  }
+
   initials() {
     const name = this.name || '?';
     const parts = name.trim().split(/\s+/);

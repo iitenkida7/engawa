@@ -1207,6 +1207,10 @@
         display: flex;
         flex-direction: column;
         gap: 6px;
+        /* Many categories now (sex/skin/hair/colors/clothes/…) — cap the height
+           and scroll so the card never outgrows the viewport on small screens. */
+        max-height: 42vh;
+        overflow-y: auto;
       }
 
       .avatar-row {

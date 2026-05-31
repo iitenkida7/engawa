@@ -478,7 +478,15 @@ export class CanvasRenderer {
 
     // Composited avatar sprite (#141). Feet planted on the shadow. Falls back to
     // the original colored circle + initials until the sprite layers load.
-    const drewSprite = this.characters.draw(ctx, p.outfit, p.facing, p.x, footY, SPRITE_SCALE);
+    const drewSprite = this.characters.draw(
+      ctx,
+      p.outfit,
+      p.facing,
+      p.walkCol(),
+      p.x,
+      footY,
+      SPRITE_SCALE,
+    );
     if (drewSprite) {
       // Base rings replace the circle's border/ring: green while speaking, else
       // a blue ring under self — read as a glow at the feet, not across the body.

@@ -267,8 +267,8 @@ docker compose up -d
 
 アバター（キャラメイク）のドット絵素材は **LPC（[Universal-LPC-Spritesheet-Character-Generator](https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator)）** を使用しています。
 
-- パーツごとの作者・ライセンス・出典 URL は [`engawa/client/src/assets/lpc/CREDITS.csv`](./engawa/client/src/assets/lpc/CREDITS.csv) に個別に記録しています。各ライセンスの全文も同じディレクトリに同梱しています（`LICENSE-CC-BY-SA-3.0.txt` / `LICENSE-OGA-BY-3.0.txt` / `LICENSE-CC0-1.0.txt` / `LICENSE-GPL-3.0.txt`）。
-- LPC アートのライセンスは **CC-BY-SA 3.0 / OGA-BY 3.0 / CC-BY 3.0 / GPL 3.0 / CC0** がパーツごとに混在します。**CC-BY-SA 3.0 は ShareAlike**（合成・色変えなどの派生も同ライセンス）です。キャラメイク画面の下部にも「素材: LPC · クレジット」リンクを表示しています。
+- パーツごとの作者・ライセンス・出典 URL は [`engawa/client/src/assets/lpc/CREDITS.csv`](./engawa/client/src/assets/lpc/CREDITS.csv) に個別に記録しています。各ライセンスの全文も同じディレクトリに同梱しています（`LICENSE-CC-BY-SA-3.0.txt` / `LICENSE-CC-BY-3.0.txt` / `LICENSE-CC-BY-4.0.txt` / `LICENSE-OGA-BY-3.0.txt` / `LICENSE-CC0-1.0.txt` / `LICENSE-GPL-3.0.txt` / `LICENSE-GPL-2.0.txt`）。
+- LPC アートのライセンスは **CC-BY-SA 3.0 / CC-BY 3.0 / CC-BY 4.0 / OGA-BY 3.0 / GPL 2.0 / GPL 3.0 / CC0** がパーツごとに混在します。**CC-BY-SA 3.0 は ShareAlike**（合成・色変えなどの派生も同ライセンス）です。キャラメイク画面の下部にも「素材: LPC · クレジット」リンクを表示しています。
 - マップのタイル素材は **[Kenney](https://kenney.nl) の Roguelike Indoors（CC0）** を使用しています（[`engawa/client/src/assets/KENNEY-roguelike-indoors-LICENSE.txt`](./engawa/client/src/assets/KENNEY-roguelike-indoors-LICENSE.txt)）。
 - **これらの素材ライセンスは、engawa 本体のコードのライセンスとは分離して扱います。**
 

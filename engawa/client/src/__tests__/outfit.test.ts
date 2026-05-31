@@ -2,12 +2,40 @@ import { describe, expect, it } from 'bun:test';
 import {
   defaultOutfit,
   normalizeOutfit,
+  type Outfit,
   type OutfitCounts,
   randomOutfit,
   wrapIndex,
 } from '@/world/outfit';
 
-const COUNTS: OutfitCounts = { skin: 5, hair: 6, top: 5, bottom: 3, acc: 3 };
+// Test-fixture counts (not the live manifest counts — just small ranges).
+const COUNTS: OutfitCounts = {
+  sex: 2,
+  skin: 5,
+  hair: 6,
+  hairColor: 4,
+  top: 5,
+  topColor: 6,
+  bottom: 3,
+  bottomColor: 6,
+  shoes: 3,
+  hat: 3,
+  glasses: 3,
+};
+
+const ZEROS: Outfit = {
+  sex: 0,
+  skin: 0,
+  hair: 0,
+  hairColor: 0,
+  top: 0,
+  topColor: 0,
+  bottom: 0,
+  bottomColor: 0,
+  shoes: 0,
+  hat: 0,
+  glasses: 0,
+};
 
 describe('wrapIndex', () => {
   it('returns the index unchanged when in range', () => {
@@ -33,38 +61,70 @@ describe('wrapIndex', () => {
 });
 
 describe('defaultOutfit', () => {
-  it('is all zeros', () => {
-    expect(defaultOutfit()).toEqual({ skin: 0, hair: 0, top: 0, bottom: 0, acc: 0 });
+  it('is a sensible clothed default (not all zeros)', () => {
+    expect(defaultOutfit()).toEqual({
+      sex: 0,
+      skin: 0,
+      hair: 1,
+      hairColor: 0,
+      top: 0,
+      topColor: 4,
+      bottom: 0,
+      bottomColor: 2,
+      shoes: 1,
+      hat: 0,
+      glasses: 0,
+    });
   });
 });
 
 describe('normalizeOutfit', () => {
   it('keeps valid in-range indices', () => {
-    const o = { skin: 2, hair: 5, top: 4, bottom: 1, acc: 2 };
+    const o: Outfit = {
+      sex: 1,
+      skin: 2,
+      hair: 5,
+      hairColor: 3,
+      top: 4,
+      topColor: 5,
+      bottom: 1,
+      bottomColor: 2,
+      shoes: 2,
+      hat: 1,
+      glasses: 0,
+    };
     expect(normalizeOutfit(o, COUNTS)).toEqual(o);
   });
 
   it('clamps out-of-range indices into [0, count)', () => {
-    expect(normalizeOutfit({ skin: 99, hair: -3, top: 4, bottom: 10, acc: 1 }, COUNTS)).toEqual({
+    expect(
+      normalizeOutfit(
+        { sex: 9, skin: 99, hair: -3, hairColor: 50, top: 4, topColor: 99, bottom: 10 },
+        COUNTS,
+      ),
+    ).toEqual({
+      sex: 1,
       skin: 4,
       hair: 0,
+      hairColor: 3,
       top: 4,
+      topColor: 5,
       bottom: 2,
-      acc: 1,
+      bottomColor: 0,
+      shoes: 0,
+      hat: 0,
+      glasses: 0,
     });
   });
 
-  it('falls back to defaults for missing / garbage fields', () => {
-    expect(normalizeOutfit({ skin: 1 }, COUNTS)).toEqual({
-      skin: 1,
-      hair: 0,
-      top: 0,
-      bottom: 0,
-      acc: 0,
-    });
-    expect(normalizeOutfit(null, COUNTS)).toEqual(defaultOutfit());
-    expect(normalizeOutfit('nope', COUNTS)).toEqual(defaultOutfit());
-    expect(normalizeOutfit({ skin: 'x', hair: Number.NaN }, COUNTS)).toEqual(defaultOutfit());
+  it('falls back to 0 per field for missing values', () => {
+    expect(normalizeOutfit({ skin: 1, hair: 3 }, COUNTS)).toEqual({ ...ZEROS, skin: 1, hair: 3 });
+  });
+
+  it('yields all zeros for null / garbage input (not the styled default)', () => {
+    expect(normalizeOutfit(null, COUNTS)).toEqual(ZEROS);
+    expect(normalizeOutfit('nope', COUNTS)).toEqual(ZEROS);
+    expect(normalizeOutfit({ skin: 'x', hair: Number.NaN }, COUNTS)).toEqual(ZEROS);
   });
 
   it('truncates fractional indices', () => {
@@ -76,17 +136,28 @@ describe('randomOutfit', () => {
   it('is deterministic given an injected random source', () => {
     // rand() = 0.5 → floor(0.5 * count) per category.
     const half = () => 0.5;
-    expect(randomOutfit(COUNTS, half)).toEqual({ skin: 2, hair: 3, top: 2, bottom: 1, acc: 1 });
+    expect(randomOutfit(COUNTS, half)).toEqual({
+      sex: 1,
+      skin: 2,
+      hair: 3,
+      hairColor: 2,
+      top: 2,
+      topColor: 3,
+      bottom: 1,
+      bottomColor: 3,
+      shoes: 1,
+      hat: 1,
+      glasses: 1,
+    });
   });
 
   it('always produces in-range indices across the random spectrum', () => {
     for (const r of [0, 0.01, 0.25, 0.5, 0.75, 0.999]) {
       const o = randomOutfit(COUNTS, () => r);
-      expect(o.skin).toBeGreaterThanOrEqual(0);
-      expect(o.skin).toBeLessThan(COUNTS.skin);
-      expect(o.hair).toBeLessThan(COUNTS.hair);
-      expect(o.bottom).toBeLessThan(COUNTS.bottom);
-      expect(o.acc).toBeLessThan(COUNTS.acc);
+      for (const key of Object.keys(COUNTS) as (keyof OutfitCounts)[]) {
+        expect(o[key]).toBeGreaterThanOrEqual(0);
+        expect(o[key]).toBeLessThan(COUNTS[key]);
+      }
     }
   });
 });

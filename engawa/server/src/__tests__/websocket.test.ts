@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ServerWebSocket } from 'bun';
-import type { ServerMessage, WsData } from '../types';
+import type { Outfit, ServerMessage, WsData } from '../types';
 import { createWebSocketHandler } from '../websocket';
 
 // Minimal fake of ServerWebSocket<WsData> that records everything the handler
@@ -10,6 +10,23 @@ type FakeWs = ServerWebSocket<WsData> & {
   sent: ServerMessage[];
   closed: { code?: number; reason?: string } | null;
 };
+
+// Build a full Outfit from partial fields (the rest default to 0). Lets tests
+// pass only the indices they care about, and feed junk for sanitize checks.
+const O = (o: Partial<Record<keyof Outfit, unknown>> = {}): Outfit => ({
+  sex: 0,
+  skin: 0,
+  hair: 0,
+  hairColor: 0,
+  top: 0,
+  topColor: 0,
+  bottom: 0,
+  bottomColor: 0,
+  shoes: 0,
+  hat: 0,
+  glasses: 0,
+  ...(o as Partial<Outfit>),
+});
 
 let nextId = 0;
 
@@ -24,7 +41,7 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       x: data.x ?? 0,
       y: data.y ?? 0,
       zoneId: data.zoneId ?? null,
-      outfit: data.outfit ?? { skin: 0, hair: 0, top: 0, bottom: 0, acc: 0 },
+      outfit: data.outfit ?? O(),
       sfuSessionId: data.sfuSessionId ?? null,
       sfuTracks: data.sfuTracks ?? [],
       groupKey: data.groupKey ?? null,
@@ -331,16 +348,16 @@ describe('createWebSocketHandler — outfit-update', () => {
 
     deliver(handler, sender, {
       type: 'outfit-update',
-      outfit: { skin: 2, hair: 1, top: 3, bottom: 0, acc: 1 },
+      outfit: O({ skin: 2, hair: 1, top: 3 }),
     });
 
     expect(peer.sent).toContainEqual({
       type: 'outfit-update',
       userId: sender.data.userId,
-      outfit: { skin: 2, hair: 1, top: 3, bottom: 0, acc: 1 },
+      outfit: O({ skin: 2, hair: 1, top: 3 }),
     });
     // The server keeps the (transient) outfit so a later join/welcome carries it.
-    expect(sender.data.outfit).toEqual({ skin: 2, hair: 1, top: 3, bottom: 0, acc: 1 });
+    expect(sender.data.outfit).toEqual(O({ skin: 2, hair: 1, top: 3 }));
   });
 
   test('sanitizes oversized / garbage indices before relaying', () => {
@@ -351,13 +368,13 @@ describe('createWebSocketHandler — outfit-update', () => {
 
     deliver(handler, sender, {
       type: 'outfit-update',
-      outfit: { skin: 9999, hair: -3, top: 2.9, bottom: 'x', acc: 1 },
+      outfit: O({ skin: 9999, hair: -3, top: 2.9, bottom: 'x' }),
     });
 
     const update = peer.sent.find((m) => m.type === 'outfit-update');
     if (update?.type !== 'outfit-update') throw new Error('expected outfit-update');
-    // 9999 clamps to OUTFIT_MAX_INDEX (63); negatives / fractions / junk → 0 / trunc.
-    expect(update.outfit).toEqual({ skin: 63, hair: 0, top: 2, bottom: 0, acc: 1 });
+    // 9999 clamps to OUTFIT_MAX_INDEX (255); negatives / fractions / junk → 0 / trunc.
+    expect(update.outfit).toEqual(O({ skin: 255, top: 2 }));
   });
 
   test('does not echo the outfit-update back to the sender', () => {
@@ -365,7 +382,7 @@ describe('createWebSocketHandler — outfit-update', () => {
     handler.open!(sender);
     deliver(handler, sender, {
       type: 'outfit-update',
-      outfit: { skin: 1, hair: 0, top: 0, bottom: 0, acc: 0 },
+      outfit: O({ skin: 1 }),
     });
     expect(sender.sent.some((m) => m.type === 'outfit-update')).toBe(false);
   });
@@ -377,7 +394,7 @@ describe('createWebSocketHandler — outfit-update', () => {
     handler.open!(other);
     deliver(handler, sender, {
       type: 'outfit-update',
-      outfit: { skin: 1, hair: 0, top: 0, bottom: 0, acc: 0 },
+      outfit: O({ skin: 1 }),
     });
     expect(other.sent.some((m) => m.type === 'outfit-update')).toBe(false);
   });
@@ -389,11 +406,11 @@ describe('createWebSocketHandler — outfit-update', () => {
     handler.open!(peer);
     deliver(handler, sender, {
       type: 'outfit-update',
-      outfit: { skin: 1, hair: 0, top: 0, bottom: 0, acc: 0 },
+      outfit: O({ skin: 1 }),
     });
     expect(peer.sent).toHaveLength(0);
     // ws.data is untouched (stays the default) when the message is ignored.
-    expect(sender.data.outfit).toEqual({ skin: 0, hair: 0, top: 0, bottom: 0, acc: 0 });
+    expect(sender.data.outfit).toEqual(O());
   });
 
   test('a sanitized join outfit rides the player-joined broadcast to peers', () => {
@@ -406,12 +423,12 @@ describe('createWebSocketHandler — outfit-update', () => {
       type: 'join',
       name: 'Alice',
       workspace: 'ws1',
-      outfit: { skin: 4, hair: 2, top: 1, bottom: 2, acc: 9999 },
+      outfit: O({ skin: 4, hair: 2, top: 1, bottom: 2 }),
     });
 
     const joinedMsg = peer.sent.find((m) => m.type === 'player-joined');
     if (joinedMsg?.type !== 'player-joined') throw new Error('expected player-joined');
-    expect(joinedMsg.player.outfit).toEqual({ skin: 4, hair: 2, top: 1, bottom: 2, acc: 63 });
+    expect(joinedMsg.player.outfit).toEqual(O({ skin: 4, hair: 2, top: 1, bottom: 2 }));
   });
 });
 

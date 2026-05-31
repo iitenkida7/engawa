@@ -179,13 +179,37 @@ export function isAllowedReaction(emoji: unknown): boolean {
  * to its real per-category counts on receipt. Keeps a crafted message from
  * carrying absurd values to peers.
  */
-export const OUTFIT_MAX_INDEX = 63;
+export const OUTFIT_MAX_INDEX = 255;
 
 /** The keys of an Outfit, in a fixed order. Mirrors the client's categories. */
-export const OUTFIT_KEYS = ['skin', 'hair', 'top', 'bottom', 'acc'] as const;
+export const OUTFIT_KEYS = [
+  'sex',
+  'skin',
+  'hair',
+  'hairColor',
+  'top',
+  'topColor',
+  'bottom',
+  'bottomColor',
+  'shoes',
+  'hat',
+  'glasses',
+] as const;
 
-/** The all-zero (default) outfit, used before a client announces one. */
-export const DEFAULT_OUTFIT: Outfit = { skin: 0, hair: 0, top: 0, bottom: 0, acc: 0 };
+/** The default outfit, used before a client announces one (mirrors the client). */
+export const DEFAULT_OUTFIT: Outfit = {
+  sex: 0,
+  skin: 0,
+  hair: 1,
+  hairColor: 0,
+  top: 0,
+  topColor: 4,
+  bottom: 0,
+  bottomColor: 2,
+  shoes: 1,
+  hat: 0,
+  glasses: 0,
+};
 
 /** Clamp one outfit index to an integer in [0, OUTFIT_MAX_INDEX]; junk → 0. */
 function sanitizeIndex(v: unknown): number {
@@ -204,11 +228,17 @@ export function sanitizeOutfit(raw: unknown): Outfit {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_OUTFIT };
   const o = raw as Record<string, unknown>;
   return {
+    sex: sanitizeIndex(o.sex),
     skin: sanitizeIndex(o.skin),
     hair: sanitizeIndex(o.hair),
+    hairColor: sanitizeIndex(o.hairColor),
     top: sanitizeIndex(o.top),
+    topColor: sanitizeIndex(o.topColor),
     bottom: sanitizeIndex(o.bottom),
-    acc: sanitizeIndex(o.acc),
+    bottomColor: sanitizeIndex(o.bottomColor),
+    shoes: sanitizeIndex(o.shoes),
+    hat: sanitizeIndex(o.hat),
+    glasses: sanitizeIndex(o.glasses),
   };
 }
 
