@@ -442,6 +442,35 @@ export class WebRtcManager {
       }
     }
   }
+
+  // Swap the track behind an already-sent stream (device switch, or crossing the
+  // virtual-background on/off boundary) via replaceTrack, instead of a
+  // removeStream+addStream that renegotiates twice and races (the remote could
+  // be left on the torn-down track → blackout, #148). The transceiver and the
+  // remote's stream→kind mapping are untouched, so the peer's existing video
+  // element just starts rendering the new device's frames. New peers that join
+  // later pick up the swapped track automatically (createPeer reads the live
+  // media streams). Matches the sender by the old track reference, falling back
+  // to the sole sender of the right media kind.
+  replaceLocalStream(oldStream: MediaStream, newStream: MediaStream, kind: StreamKind) {
+    const oldTrack = kind === 'mic' ? oldStream.getAudioTracks()[0] : oldStream.getVideoTracks()[0];
+    const newTrack = kind === 'mic' ? newStream.getAudioTracks()[0] : newStream.getVideoTracks()[0];
+    if (!newTrack) return;
+    const mediaKind = kind === 'mic' ? 'audio' : 'video';
+    for (const entry of this.peers.values()) {
+      const pc = getPc(entry.peer);
+      if (!pc) continue;
+      const senders = pc.getSenders();
+      const sender =
+        senders.find((s) => s.track === oldTrack) ??
+        senders.find(
+          (s) => s.track?.kind === mediaKind && s.track.contentHint === newTrack.contentHint,
+        );
+      if (!sender) continue;
+      sender.replaceTrack(newTrack).catch((err) => console.warn('[rtc] replaceTrack failed', err));
+      queueMicrotask(() => this.retunePeer(entry));
+    }
+  }
 }
 
 function inferKind(stream: MediaStream): StreamKind {

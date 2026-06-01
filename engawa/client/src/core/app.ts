@@ -215,6 +215,12 @@ export class App {
         (this.currentMethod === 'sfu' ? this.sfu : this.rtc).addLocalStream(stream, kind),
       removeLocalStream: (stream) =>
         (this.currentMethod === 'sfu' ? this.sfu : this.rtc).removeLocalStream(stream),
+      replaceLocalStream: (oldStream, newStream, kind) =>
+        (this.currentMethod === 'sfu' ? this.sfu : this.rtc).replaceLocalStream(
+          oldStream,
+          newStream,
+          kind,
+        ),
     };
 
     this.toolbar = new ToolbarController({

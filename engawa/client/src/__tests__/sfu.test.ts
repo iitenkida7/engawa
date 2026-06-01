@@ -9,14 +9,18 @@ function makeFakeSender() {
     encodings: Record<string, unknown>[];
     degradationPreference?: string;
   } = { encodings: [{}] };
+  const replaced: (MediaStreamTrack | null)[] = [];
   return {
-    replaceTrack: async () => {},
+    replaceTrack: async (t: MediaStreamTrack | null) => {
+      replaced.push(t);
+    },
     getParameters: () => params,
     setParameters: async (p: typeof params) => {
       params.encodings = p.encodings;
       params.degradationPreference = p.degradationPreference;
     },
     _params: () => params,
+    _replaced: () => replaced,
   };
 }
 
@@ -28,11 +32,13 @@ const createdPcs: FakeRTCPeerConnection[] = [];
 class FakeRTCPeerConnection {
   localDescription = { type: 'offer', sdp: 'v=0\r\n' };
   lastSender: ReturnType<typeof makeFakeSender> | null = null;
+  transceiverCount = 0;
   constructor() {
     createdPcs.push(this);
   }
   addEventListener() {}
   addTransceiver() {
+    this.transceiverCount++;
     const sender = makeFakeSender();
     this.lastSender = sender;
     return { mid: '0', sender };
@@ -182,5 +188,46 @@ describe('SfuManager sender tuning (issue #146)', () => {
     const params = createdPcs[0].lastSender!._params();
     expect(params.degradationPreference).toBe('balanced');
     expect(events.onFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe('SfuManager replaceLocalStream device switch (issue #148)', () => {
+  it('swaps the published track in place — no new transceiver, no duplicate publish', async () => {
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+    const published = waitPublish();
+    const camA = makeStream('cam');
+    sfu.addLocalStream(camA, 'cam');
+    await published;
+    const pc = createdPcs[0];
+    expect(pc.transceiverCount).toBe(1);
+    const sender = pc.lastSender!;
+    fetchMock.mockClear();
+
+    // Switch the camera device: replaceLocalStream must replaceTrack in place.
+    const camB = makeStream('cam');
+    sfu.replaceLocalStream(camA, camB, 'cam');
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The new device's track was swapped onto the existing sender...
+    expect(sender._replaced()).toContain(camB.getVideoTracks()[0]);
+    // ...with no new transceiver and no second tracks/new POST. A repush would
+    // duplicate the 'cam' trackName in the session and black the remote out.
+    expect(pc.transceiverCount).toBe(1);
+    const repushed = fetchMock.mock.calls.some((c) => String(c[0]).includes('/tracks/new'));
+    expect(repushed).toBe(false);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('publishes fresh when nothing of that kind is live yet', async () => {
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+    const published = waitPublish();
+    const cam = makeStream('cam');
+    sfu.replaceLocalStream(cam, cam, 'cam');
+    await published;
+    expect(events.onPublished).toHaveBeenCalledTimes(1);
+    expect(createdPcs[0].transceiverCount).toBe(1);
   });
 });
