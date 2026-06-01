@@ -24,6 +24,9 @@ import type { PlayerState } from '@/world/player';
 export interface MediaSink {
   addLocalStream(stream: MediaStream, kind: StreamKind): void;
   removeLocalStream(stream: MediaStream): void;
+  // Swap the track behind an already-published stream in place (device switch /
+  // background toggle) without a remove+add, which blacks the remote out (#148).
+  replaceLocalStream(oldStream: MediaStream, newStream: MediaStream, kind: StreamKind): void;
 }
 
 // Owns the bottom toolbar, trimmed to the core call controls: mic, cam, screen
@@ -421,9 +424,7 @@ export class ToolbarController {
     if (this.media.selectedMicId === deviceId) return;
     this.media.selectedMicId = deviceId;
     if (!this.media.micOn) return;
-    // Re-acquire from the new device, swapping the live RTC stream.
-    this.stopMic();
-    await this.startMic();
+    await this.reacquire('mic');
     this.broadcastStatus();
   }
 
@@ -431,9 +432,32 @@ export class ToolbarController {
     if (this.media.selectedCamId === deviceId) return;
     this.media.selectedCamId = deviceId;
     if (!this.media.camOn) return;
-    this.stopCam();
-    await this.startCam();
+    await this.reacquire('cam');
     this.broadcastStatus();
+  }
+
+  // Re-acquire mic/cam from the currently-selected device (or the new background
+  // mode) and swap the live RTC track in place via replaceLocalStream, rather
+  // than removeLocalStream + addLocalStream. The remove+add path made the SFU
+  // republish the same trackName on a new transceiver (peers pulled the stale,
+  // black track) and the mesh renegotiate twice — both blacked the remote out
+  // (#148). On acquisition failure we fall back to dropping the dead stream.
+  private async reacquire(kind: 'mic' | 'cam') {
+    const old = kind === 'mic' ? this.media.micStream : this.media.camStream;
+    if (kind === 'mic') this.media.disableMic();
+    else this.media.disableCam();
+    try {
+      const stream = kind === 'mic' ? await this.media.enableMic() : await this.media.enableCam();
+      if (old) this.rtc.replaceLocalStream(old, stream, kind);
+      else this.rtc.addLocalStream(stream, kind);
+      if (kind === 'mic') this.view.setLocalMicStream(stream);
+    } catch (e) {
+      if (old) this.rtc.removeLocalStream(old);
+      if (kind === 'mic') this.view.setLocalMicStream(null);
+      this.toasts.error(
+        `${kind === 'mic' ? 'マイク' : 'カメラ'}を使えません: ${(e as Error).message}`,
+      );
+    }
   }
 
   // ============= Virtual background =============
@@ -453,9 +477,8 @@ export class ToolbarController {
       return;
     }
     // Crossing the on/off boundary swaps the camera track, so re-acquire just
-    // like a device switch.
-    this.stopCam();
-    await this.startCam();
+    // like a device switch (replaceTrack in place — no remote blackout, #148).
+    await this.reacquire('cam');
     this.broadcastStatus();
   }
 

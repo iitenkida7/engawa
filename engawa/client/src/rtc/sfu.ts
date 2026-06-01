@@ -132,6 +132,30 @@ export class SfuManager {
     this.enqueue(() => this.unpublishStream(stream.id));
   }
 
+  // Swap the track behind an already-published stream (a camera/mic device
+  // switch, or crossing the virtual-background on/off boundary) WITHOUT a
+  // remove+repush. The old path unpublished the track (leaving an idle slot of
+  // the same trackName) and pushed a fresh transceiver under that same name, so
+  // the Cloudflare session ended up with two tracks called e.g. 'cam' and peers
+  // pulled the stale, frame-less one — a remote blackout (#148). replaceTrack
+  // keeps the same transceiver, simulcast encodings and trackName, so peers keep
+  // pulling the same track and just receive the new device's frames. Falls back
+  // to a fresh publish when nothing of that kind is published yet.
+  replaceLocalStream(_oldStream: MediaStream, newStream: MediaStream, kind: StreamKind) {
+    const track = kind === 'mic' ? newStream.getAudioTracks()[0] : newStream.getVideoTracks()[0];
+    if (!track) return;
+    this.reopen();
+    this.enqueue(async () => {
+      const entry = this.localTracks.get(kind);
+      if (!entry) {
+        await this.pushTrack(track, kind, newStream.id);
+        return;
+      }
+      await entry.sender.replaceTrack(track);
+      entry.streamId = newStream.id;
+    });
+  }
+
   // Reconcile the tracks a group peer is publishing: pull anything new, drop
   // anything that disappeared (e.g. they turned their camera off).
   setPeerTracks(userId: string, sessionId: string, tracks: SfuTrack[]) {
