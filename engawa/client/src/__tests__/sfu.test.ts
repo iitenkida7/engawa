@@ -54,13 +54,16 @@ class FakeRTCPeerConnection {
   close() {}
 }
 
-// Fake local stream carrying one track of the requested kind.
-function makeStream(kind: 'mic' | 'cam') {
-  const track = { kind: kind === 'mic' ? 'audio' : 'video', id: `trk-${kind}` };
+// Fake local stream carrying one track of the requested kind. `suffix`
+// distinguishes two streams of the same kind (e.g. the before/after of a
+// device switch or a screen re-share) by giving them distinct ids.
+function makeStream(kind: 'mic' | 'cam' | 'screen', suffix = '') {
+  const isAudio = kind === 'mic';
+  const track = { kind: isAudio ? 'audio' : 'video', id: `trk-${kind}${suffix}` };
   return {
-    id: `stream-${kind}`,
-    getAudioTracks: () => (kind === 'mic' ? [track] : []),
-    getVideoTracks: () => (kind === 'mic' ? [] : [track]),
+    id: `stream-${kind}${suffix}`,
+    getAudioTracks: () => (isAudio ? [track] : []),
+    getVideoTracks: () => (isAudio ? [] : [track]),
   } as unknown as MediaStream;
 }
 
@@ -229,5 +232,49 @@ describe('SfuManager replaceLocalStream device switch (issue #148)', () => {
     await published;
     expect(events.onPublished).toHaveBeenCalledTimes(1);
     expect(createdPcs[0].transceiverCount).toBe(1);
+  });
+});
+
+describe('SfuManager re-publish after unpublish (issue #150)', () => {
+  it('reuses the transceiver on screen off → on instead of pushing a duplicate trackName', async () => {
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    // Share the screen: one transceiver, one tracks/new push, announced.
+    let published = waitPublish();
+    const screenA = makeStream('screen', '-a');
+    sfu.addLocalStream(screenA, 'screen');
+    await published;
+    const pc = createdPcs[0];
+    expect(pc.transceiverCount).toBe(1);
+    const sender = pc.lastSender!;
+
+    // Stop sharing: halts the track (replaceTrack(null)) and drops it from the
+    // announced directory, but keeps the transceiver for reuse.
+    published = waitPublish();
+    sfu.removeLocalStream(screenA);
+    await published;
+    expect(events.onPublished).toHaveBeenLastCalledWith('sess-1', []);
+    expect(sender._replaced()).toContain(null);
+
+    fetchMock.mockClear();
+
+    // Share again: must resume the SAME transceiver via replaceTrack, NOT add a
+    // second one or push a duplicate 'screen' (which left Cloudflare with two
+    // 'screen' tracks and blacked the remote out — #150).
+    published = waitPublish();
+    const screenB = makeStream('screen', '-b');
+    sfu.addLocalStream(screenB, 'screen');
+    await published;
+
+    expect(sender._replaced()).toContain(screenB.getVideoTracks()[0]);
+    expect(pc.transceiverCount).toBe(1);
+    const repushed = fetchMock.mock.calls.some((c) => String(c[0]).includes('/tracks/new'));
+    expect(repushed).toBe(false);
+    // 'screen' is back in the directory, so peers re-pull it.
+    expect(events.onPublished).toHaveBeenLastCalledWith('sess-1', [
+      { kind: 'screen', trackName: 'screen' },
+    ]);
+    expect(events.onFailed).not.toHaveBeenCalled();
   });
 });
