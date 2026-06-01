@@ -1178,7 +1178,7 @@
         border: 1px solid #353a47;
         border-radius: 12px;
         padding: 20px 22px;
-        width: 320px;
+        width: 380px;
         max-width: calc(100vw - 24px);
         box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
         display: flex;
@@ -1207,48 +1207,114 @@
         display: flex;
         flex-direction: column;
         gap: 6px;
-        /* Many categories now (sex/skin/hair/colors/clothes/…) — cap the height
-           and scroll so the card never outgrows the viewport on small screens. */
-        max-height: 42vh;
+        /* Many categories (sex/skin/hair/colors/clothes/…), and an expanded grid
+           can be tall — cap the height and scroll so the card never outgrows the
+           viewport. The IntersectionObserver lazy-paints thumbnails as they
+           scroll into this container. */
+        max-height: 50vh;
         overflow-y: auto;
       }
 
-      .avatar-row {
+      /* A collapsible category: clickable header + a grid of option thumbnails. */
+      .avatar-cat {
+        width: 100%;
+      }
+
+      .avatar-cat-head {
+        width: 100%;
         display: flex;
         align-items: center;
         gap: 8px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid #3a4050;
+        background: #2a2f3a;
+        color: #e6e8ee;
+        font-size: 13px;
+        cursor: pointer;
       }
 
-      .avatar-row-label {
-        width: 56px;
+      .avatar-cat-head:hover {
+        background: #313643;
+      }
+
+      .avatar-cat-label {
         flex-shrink: 0;
-        font-size: 13px;
         color: #9da3b0;
       }
 
-      .avatar-row-value {
+      .avatar-cat-current {
         flex: 1;
-        text-align: center;
-        font-size: 13px;
+        text-align: right;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
 
-      .avatar-step {
-        width: 30px;
+      .avatar-cat-chevron {
         flex-shrink: 0;
-        padding: 6px 0;
-        border-radius: 6px;
-        border: 1px solid #3a4050;
-        background: #2a2f3a;
-        color: #e6e8ee;
-        font-size: 12px;
-        cursor: pointer;
+        color: #7a8090;
+        font-size: 11px;
       }
 
-      .avatar-step:hover {
-        background: #353a47;
+      .avatar-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+        gap: 6px;
+        padding: 8px 2px 4px;
+      }
+
+      .avatar-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 4px 2px;
+        border-radius: 6px;
+        border: 1px solid #2f3540;
+        background: #1f232c;
+        color: #9da3b0;
+        cursor: pointer;
+        overflow: hidden;
+      }
+
+      .avatar-cell:hover {
+        border-color: #4f8cff;
+      }
+
+      .avatar-cell.selected {
+        border-color: #4f8cff;
+        background: #2a3340;
+        box-shadow: inset 0 0 0 1px #4f8cff;
+      }
+
+      .avatar-thumb {
+        image-rendering: pixelated;
+        background: #15181e;
+        border-radius: 4px;
+      }
+
+      .avatar-cell-swatch {
+        width: 100%;
+        height: 40px;
+        border-radius: 4px;
+        border: 1px solid rgba(0, 0, 0, 0.35);
+      }
+
+      .avatar-cell-label {
+        max-width: 100%;
+        font-size: 10px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .avatar-swatch {
+        width: 13px;
+        height: 13px;
+        flex-shrink: 0;
+        border-radius: 3px;
+        border: 1px solid rgba(0, 0, 0, 0.35);
       }
 
       .avatar-actions {
