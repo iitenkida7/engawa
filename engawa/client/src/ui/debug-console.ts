@@ -113,6 +113,12 @@ export class DebugConsole {
       rtt.textContent = `RTT ${conn.rttMs}ms`;
       head.appendChild(rtt);
     }
+    if (conn.transport) {
+      const transport = document.createElement('span');
+      transport.className = 'debug-rtt';
+      transport.textContent = conn.transport;
+      head.appendChild(transport);
+    }
     card.appendChild(head);
 
     if (conn.streams.length === 0) {

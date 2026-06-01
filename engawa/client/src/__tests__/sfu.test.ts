@@ -1,14 +1,41 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { SfuManager } from '@/rtc/sfu';
 
+// A sender whose getParameters/setParameters round-trip so tuneSfuSender's
+// priority / degradationPreference writes can be observed (issue #146). Each
+// addTransceiver call returns a fresh one; the last is captured per test.
+function makeFakeSender() {
+  const params: {
+    encodings: Record<string, unknown>[];
+    degradationPreference?: string;
+  } = { encodings: [{}] };
+  return {
+    replaceTrack: async () => {},
+    getParameters: () => params,
+    setParameters: async (p: typeof params) => {
+      params.encodings = p.encodings;
+      params.degradationPreference = p.degradationPreference;
+    },
+    _params: () => params,
+  };
+}
+
 // Minimal RTCPeerConnection good enough to drive SfuManager.pushTrack to the
 // point it announces a publish: the SFU logic only needs a mid, a sender, an
 // SDP string, and the lifecycle/track listeners (which we ignore here).
+const createdPcs: FakeRTCPeerConnection[] = [];
+
 class FakeRTCPeerConnection {
   localDescription = { type: 'offer', sdp: 'v=0\r\n' };
+  lastSender: ReturnType<typeof makeFakeSender> | null = null;
+  constructor() {
+    createdPcs.push(this);
+  }
   addEventListener() {}
   addTransceiver() {
-    return { mid: '0', sender: { replaceTrack: async () => {} } };
+    const sender = makeFakeSender();
+    this.lastSender = sender;
+    return { mid: '0', sender };
   }
   async createOffer() {
     return { type: 'offer', sdp: 'v=0\r\n' };
@@ -49,6 +76,7 @@ beforeEach(() => {
     }
     return jsonRes({});
   });
+  createdPcs.length = 0;
   originalFetch = globalThis.fetch;
   originalRTC = globalThis.RTCPeerConnection;
   globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
@@ -127,6 +155,32 @@ describe('SfuManager reopen after closeAll (issue #138)', () => {
 
     const pulled = fetchMock.mock.calls.some((c) => String(c[0]).includes('/tracks/new'));
     expect(pulled).toBe(true);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe('SfuManager sender tuning (issue #146)', () => {
+  it('gives the published mic top network priority', async () => {
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+    const published = waitPublish();
+    sfu.addLocalStream(makeStream('mic'), 'mic');
+    await published;
+    const params = createdPcs[0].lastSender!._params();
+    const enc = params.encodings[0] as { networkPriority?: string; priority?: string };
+    expect(enc.networkPriority).toBe('high');
+    expect(enc.priority).toBe('high');
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('sets a balanced degradation preference for the published camera', async () => {
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+    const published = waitPublish();
+    sfu.addLocalStream(makeStream('cam'), 'cam');
+    await published;
+    const params = createdPcs[0].lastSender!._params();
+    expect(params.degradationPreference).toBe('balanced');
     expect(events.onFailed).not.toHaveBeenCalled();
   });
 });

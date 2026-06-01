@@ -52,6 +52,11 @@ export type RtcRemoteInbound = {
 export type RtcSnapshot = {
   tMs: number; // representative timestamp (max across entries)
   rttMs?: number;
+  // ICE candidate types of the nominated pair ('host'|'srflx'|'prflx'|'relay'),
+  // used to tell a direct P2P path from a TURN relay — the latter adds a hop and
+  // is the prime suspect when an internet call feels laggy (#146).
+  localCandidateType?: string;
+  remoteCandidateType?: string;
   outbound: RtcOutbound[];
   inbound: RtcInbound[];
   remoteInbound: RtcRemoteInbound[];
@@ -90,6 +95,11 @@ export function summarizeRtcStats(stats: Iterable<StatLike>): RtcSnapshot {
   let tMs = 0;
   let rttNominated: number | undefined;
   let rttFallback: number | undefined;
+  // candidate stat id → candidateType, plus the nominated pair's local/remote
+  // candidate ids (resolved after the loop, since stat order is not guaranteed).
+  const candidateTypes = new Map<string, string>();
+  let nominatedLocalId: string | undefined;
+  let nominatedRemoteId: string | undefined;
 
   for (const s of stats) {
     const ts = num(s.timestamp);
@@ -139,11 +149,22 @@ export function summarizeRtcStats(stats: Iterable<StatLike>): RtcSnapshot {
           jitter: num(s.jitter),
         });
         break;
+      case 'local-candidate':
+      case 'remote-candidate': {
+        const id = str(s.id);
+        const type = str(s.candidateType);
+        if (id && type) candidateTypes.set(id, type);
+        break;
+      }
       case 'candidate-pair': {
         const rtt = num(s.currentRoundTripTime);
         if (rtt !== undefined) {
           if (s.nominated) rttNominated = rtt * 1000;
           else if (rttFallback === undefined) rttFallback = rtt * 1000;
+        }
+        if (s.nominated) {
+          nominatedLocalId = str(s.localCandidateId);
+          nominatedRemoteId = str(s.remoteCandidateId);
         }
         break;
       }
@@ -159,7 +180,29 @@ export function summarizeRtcStats(stats: Iterable<StatLike>): RtcSnapshot {
     if (id) o.codec = codecs.get(id) || undefined;
   });
 
-  return { tMs, rttMs: rttNominated ?? rttFallback, outbound, inbound, remoteInbound };
+  return {
+    tMs,
+    rttMs: rttNominated ?? rttFallback,
+    localCandidateType: nominatedLocalId ? candidateTypes.get(nominatedLocalId) : undefined,
+    remoteCandidateType: nominatedRemoteId ? candidateTypes.get(nominatedRemoteId) : undefined,
+    outbound,
+    inbound,
+    remoteInbound,
+  };
+}
+
+// Pure: a short label for the transport path from the nominated pair's candidate
+// types. Either end being a TURN relay means media takes an extra hop (higher
+// latency) — flagged explicitly; anything else is a direct P2P path, tagged with
+// the local candidate type (host = same LAN, srflx/prflx = NAT-traversed).
+// Returns undefined until the pair is known (no candidate-pair stat yet).
+export function describeTransport(
+  localType: string | undefined,
+  remoteType: string | undefined,
+): string | undefined {
+  if (!localType && !remoteType) return undefined;
+  if (localType === 'relay' || remoteType === 'relay') return 'TURN中継';
+  return `P2P(${localType ?? remoteType})`;
 }
 
 // One stream's human-friendly per-second rates, in either direction.
@@ -181,6 +224,7 @@ export type RtcStreamRate = {
 export type RtcConnRates = {
   dtMs: number;
   rttMs?: number;
+  transport?: string; // 'TURN中継' | 'P2P(...)' — see describeTransport
   streams: RtcStreamRate[];
 };
 
@@ -191,6 +235,7 @@ export type RtcConn = {
   id: string; // remote userId, or a sentinel for the SFU upstream/unknown
   label?: string; // overrides the resolved peer name (SFU synthetic entries)
   rttMs?: number;
+  transport?: string; // 'TURN中継' | 'P2P(...)' — see describeTransport
   streams: RtcStreamRate[];
 };
 
@@ -274,6 +319,7 @@ export function diffRtcStats(prev: RtcSnapshot, cur: RtcSnapshot): RtcConnRates 
   return {
     dtMs,
     rttMs: cur.rttMs !== undefined ? round1(cur.rttMs) : undefined,
+    transport: describeTransport(cur.localCandidateType, cur.remoteCandidateType),
     streams,
   };
 }

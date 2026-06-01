@@ -10,6 +10,7 @@ import {
 } from '@/rtc/cam-bitrate';
 import { diffRtcStats, type RtcConn, type RtcSnapshot, summarizeRtcStats } from '@/rtc/rtcstats';
 import { transformSdp } from '@/rtc/sdp';
+import { tuneReceivers } from '@/rtc/tune';
 
 // Fixed mic send-bitrate ceiling (bps). The encoder still adapts down to the
 // available bandwidth. Camera and screen ceilings are dynamic and live in the
@@ -20,28 +21,8 @@ function getPc(peer: PeerInstance): RTCPeerConnection | undefined {
   return (peer as unknown as { _pc?: RTCPeerConnection })._pc;
 }
 
-// Receiver playout/jitter buffer floor. Lower = less perceived lag, but small
-// jitter bursts cause clicks. The low-latency recommendation is to start around
-// 100–150ms; we use 100ms — well below Chrome's adaptive default but high
-// enough to survive typical Wi-Fi / consumer ISP jitter without underrun clicks
-// (50ms was too aggressive for that).
-const PLAYOUT_DELAY_HINT_S = 0.1; // 100ms (seconds)
-const JITTER_BUFFER_TARGET_MS = 100;
-
-function tuneReceivers(pc: RTCPeerConnection) {
-  for (const r of pc.getReceivers()) {
-    try {
-      (r as unknown as { playoutDelayHint: number }).playoutDelayHint = PLAYOUT_DELAY_HINT_S;
-    } catch {
-      /* unsupported */
-    }
-    try {
-      (r as unknown as { jitterBufferTarget: number }).jitterBufferTarget = JITTER_BUFFER_TARGET_MS;
-    } catch {
-      /* unsupported */
-    }
-  }
-}
+// Receiver playout/jitter buffer floor lives in rtc/tune.ts now, shared with the
+// SFU path so both transports get the same low-latency receiver tuning.
 
 // Apply per-kind encoding ceilings / priority / degradationPreference to every
 // sender. kind is inferred from track.kind (audio→mic) and contentHint
@@ -256,7 +237,12 @@ export class WebRtcManager {
       this.statsPrev.set(entry.remoteUserId, cur);
       if (prev) {
         const rates = diffRtcStats(prev, cur);
-        out.push({ id: entry.remoteUserId, rttMs: rates.rttMs, streams: rates.streams });
+        out.push({
+          id: entry.remoteUserId,
+          rttMs: rates.rttMs,
+          transport: rates.transport,
+          streams: rates.streams,
+        });
       }
     }
     return out;
