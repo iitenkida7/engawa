@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { describeStream, diffRtcStats, type RtcSnapshot, summarizeRtcStats } from '@/rtc/rtcstats';
+import {
+  describeStream,
+  describeTransport,
+  diffRtcStats,
+  type RtcSnapshot,
+  summarizeRtcStats,
+} from '@/rtc/rtcstats';
 
 describe('summarizeRtcStats', () => {
   it('extracts outbound, inbound, remote-inbound, codecs and RTT, ignoring unknown types', () => {
@@ -80,6 +86,30 @@ describe('summarizeRtcStats', () => {
       { type: 'candidate-pair', timestamp: 10, currentRoundTripTime: 0.2 },
     ]);
     expect(snap.rttMs).toBe(200);
+  });
+
+  it('resolves the nominated pair candidate types from local/remote-candidate ids', () => {
+    const snap = summarizeRtcStats([
+      { type: 'local-candidate', id: 'L1', candidateType: 'relay' },
+      { type: 'remote-candidate', id: 'R1', candidateType: 'srflx' },
+      // a non-nominated pair must be ignored
+      { type: 'candidate-pair', localCandidateId: 'Lx', remoteCandidateId: 'Rx' },
+      {
+        type: 'candidate-pair',
+        nominated: true,
+        currentRoundTripTime: 0.05,
+        localCandidateId: 'L1',
+        remoteCandidateId: 'R1',
+      },
+    ]);
+    expect(snap.localCandidateType).toBe('relay');
+    expect(snap.remoteCandidateType).toBe('srflx');
+  });
+
+  it('leaves candidate types undefined when there is no nominated pair', () => {
+    const snap = summarizeRtcStats([{ type: 'local-candidate', id: 'L1', candidateType: 'host' }]);
+    expect(snap.localCandidateType).toBeUndefined();
+    expect(snap.remoteCandidateType).toBeUndefined();
   });
 
   it('tolerates missing optional fields', () => {
@@ -282,5 +312,35 @@ describe('describeStream', () => {
       qualityLimitationReason: 'none',
     });
     expect(chips).toEqual(['40 kbps']);
+  });
+});
+
+describe('describeTransport', () => {
+  it('flags a TURN relay when either end is a relay candidate', () => {
+    expect(describeTransport('relay', 'srflx')).toBe('TURN中継');
+    expect(describeTransport('host', 'relay')).toBe('TURN中継');
+  });
+
+  it('labels a direct path with the local candidate type', () => {
+    expect(describeTransport('host', 'host')).toBe('P2P(host)');
+    expect(describeTransport('srflx', 'srflx')).toBe('P2P(srflx)');
+  });
+
+  it('falls back to the remote type when the local is unknown', () => {
+    expect(describeTransport(undefined, 'srflx')).toBe('P2P(srflx)');
+  });
+
+  it('is undefined until a candidate pair is known', () => {
+    expect(describeTransport(undefined, undefined)).toBeUndefined();
+  });
+});
+
+describe('diffRtcStats — transport', () => {
+  it('carries the transport label derived from the snapshot candidate types', () => {
+    const rates = diffRtcStats(
+      snap({ tMs: 1000 }),
+      snap({ tMs: 2000, localCandidateType: 'relay', remoteCandidateType: 'host' }),
+    );
+    expect(rates.transport).toBe('TURN中継');
   });
 });

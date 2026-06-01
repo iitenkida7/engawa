@@ -16,6 +16,7 @@ import {
   sfuSessionError,
   shouldFallbackToMesh,
 } from '@/rtc/sfu-logic';
+import { tuneReceiver, tuneSfuSender } from '@/rtc/tune';
 
 // Sentinel conn ids for the debug console. The SFU is one PC, so our published
 // tracks aren't per-peer: they go to one synthetic "upstream" conn. Received
@@ -254,7 +255,13 @@ export class SfuManager {
     for (const [uid, streams] of byUser) out.push({ id: uid, streams });
     if (unknown.length) out.push({ id: SFU_DOWNSTREAM_ID, label: 'SFU 受信', streams: unknown });
     if (upstream.length) {
-      out.push({ id: SFU_UPSTREAM_ID, label: '自分 → SFU', rttMs: rates.rttMs, streams: upstream });
+      out.push({
+        id: SFU_UPSTREAM_ID,
+        label: '自分 → SFU',
+        rttMs: rates.rttMs,
+        transport: rates.transport,
+        streams: upstream,
+      });
     }
     return out;
   }
@@ -308,6 +315,11 @@ export class SfuManager {
         if (!key) return;
         const entry = this.remoteTracks.get(key);
         if (!entry) return;
+        // Pin this pulled track's playout/jitter buffer to the low-latency floor,
+        // the same tuning the mesh applies to its receivers. Without it the SFU
+        // path inherits Chrome's (higher) adaptive default, adding perceived
+        // audio/video lag over the internet (#146).
+        tuneReceiver(event.receiver);
         const stream = new MediaStream([event.track]);
         entry.streamId = stream.id;
         entry.trackId = event.track.id;
@@ -410,6 +422,15 @@ export class SfuManager {
     if (resp.sessionDescription) await pc.setRemoteDescription(resp.sessionDescription);
 
     this.localTracks.set(trackName, { kind, trackName, sender: tx.sender, streamId });
+    // Layer on the per-kind priority / congestion-degradation policy (mic gets
+    // top network priority; cam=balanced, screen=maintain-resolution). The
+    // bitrate ceilings already went in via sendEncodings above. Best-effort: a
+    // setParameters failure must not fail the push and trip the mesh fallback.
+    try {
+      await tuneSfuSender(tx.sender, kind);
+    } catch (err) {
+      console.warn('[sfu] sender tune failed', err);
+    }
     this.announcePublished();
   }
 
