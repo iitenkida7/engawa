@@ -67,7 +67,17 @@ export type SfuEvents = {
   onFailed: () => void;
 };
 
-type LocalEntry = { kind: StreamKind; trackName: string; sender: RTCRtpSender; streamId: string };
+// `published` is false while the track is in the directory we announce to peers
+// and true otherwise. An unpublished entry is kept (not deleted) so its
+// transceiver / Cloudflare track slot can be reused on the next publish of the
+// same kind — see pushTrack / unpublishStream (issue #150).
+type LocalEntry = {
+  kind: StreamKind;
+  trackName: string;
+  sender: RTCRtpSender;
+  streamId: string;
+  published: boolean;
+};
 type RemoteEntry = {
   userId: string;
   kind: StreamKind;
@@ -153,6 +163,12 @@ export class SfuManager {
       }
       await entry.sender.replaceTrack(track);
       entry.streamId = newStream.id;
+      // Normally a switch is between two live streams (entry stays published), but
+      // if the kind had been unpublished, re-announce so peers pull it again.
+      if (!entry.published) {
+        entry.published = true;
+        this.announcePublished();
+      }
     });
   }
 
@@ -421,11 +437,29 @@ export class SfuManager {
   }
 
   private async pushTrack(track: MediaStreamTrack, kind: StreamKind, streamId: string) {
-    const pc = await this.ensurePc();
-    const sid = await this.ensureSession();
     // trackName only needs to be unique within our own session; the session id
     // already disambiguates us from other publishers, so the kind alone suffices.
     const trackName = kind;
+
+    // A prior track of this kind may still be wired into the PC: unpublishStream
+    // halts it with replaceTrack(null) but keeps the transceiver and the
+    // Cloudflare track slot alive. Resume it in place rather than adding a second
+    // transceiver under the same trackName — that left the session with two
+    // 'screen'/'cam' tracks and made peers pull the stale, frame-less one, so a
+    // re-share (screen off → on) showed nothing on the remote (issue #150, same
+    // root cause as the #148 device switch). Reuse also avoids leaking a fresh
+    // transceiver on every toggle.
+    const existing = this.localTracks.get(trackName);
+    if (existing) {
+      await existing.sender.replaceTrack(track);
+      existing.streamId = streamId;
+      existing.published = true;
+      this.announcePublished();
+      return;
+    }
+
+    const pc = await this.ensurePc();
+    const sid = await this.ensureSession();
 
     const tx = pc.addTransceiver(track, {
       direction: 'sendonly',
@@ -445,7 +479,13 @@ export class SfuManager {
     if (pushErr) throw new Error(`sfu push: ${pushErr}`);
     if (resp.sessionDescription) await pc.setRemoteDescription(resp.sessionDescription);
 
-    this.localTracks.set(trackName, { kind, trackName, sender: tx.sender, streamId });
+    this.localTracks.set(trackName, {
+      kind,
+      trackName,
+      sender: tx.sender,
+      streamId,
+      published: true,
+    });
     // Layer on the per-kind priority / congestion-degradation policy (mic gets
     // top network priority; cam=balanced, screen=maintain-resolution). The
     // bitrate ceilings already went in via sendEncodings above. Best-effort: a
@@ -459,18 +499,21 @@ export class SfuManager {
   }
 
   private async unpublishStream(streamId: string) {
-    for (const [trackName, lt] of [...this.localTracks]) {
+    for (const lt of this.localTracks.values()) {
       if (lt.streamId !== streamId) continue;
       // Stop sending without renegotiating the whole session: replaceTrack(null)
       // halts media immediately, and announcePublished() drops it from the
-      // directory so peers stop pulling it. (Cloudflare keeps the now-idle slot;
-      // it is reclaimed when the group disbands and the session closes.)
+      // directory (published=false) so peers stop pulling it. The entry and its
+      // transceiver are KEPT, not deleted: Cloudflare keeps the now-idle track
+      // slot (reclaimed when the group disbands and the session closes), so the
+      // next publish of this kind reuses it via replaceTrack instead of pushing
+      // a duplicate trackName (issue #150).
       try {
         await lt.sender.replaceTrack(null);
       } catch {
         /* noop */
       }
-      this.localTracks.delete(trackName);
+      lt.published = false;
     }
     this.announcePublished();
   }
@@ -536,10 +579,12 @@ export class SfuManager {
 
   private announcePublished() {
     if (!this.sessionId) return;
-    const tracks: SfuTrack[] = [...this.localTracks.values()].map((l) => ({
-      kind: l.kind,
-      trackName: l.trackName,
-    }));
+    // Idle (unpublished) entries are retained for transceiver reuse but must not
+    // appear in the directory — peers would otherwise pull a track carrying no
+    // media (issue #150).
+    const tracks: SfuTrack[] = [...this.localTracks.values()]
+      .filter((l) => l.published)
+      .map((l) => ({ kind: l.kind, trackName: l.trackName }));
     this.events.onPublished(this.sessionId, tracks);
   }
 }
