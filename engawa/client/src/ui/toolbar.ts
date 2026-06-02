@@ -14,6 +14,7 @@ import {
   VBG_STORAGE_KEY,
 } from '@/media/vbg';
 import type { Toasts } from '@/ui/notify';
+import type { LayoutMode } from '@/ui/panels';
 import type { RemoteMediaView } from '@/ui/remote-media';
 import type { PlayerState } from '@/world/player';
 
@@ -31,7 +32,7 @@ export interface MediaSink {
 
 // Owns the bottom toolbar, trimmed to the core call controls: mic, cam, screen
 // share, record, and a "⋯" overflow menu for low-frequency actions
-// (window-arrange + the RTC debug console toggle). Device selection and
+// (window-layout modes + the RTC debug console toggle). Device selection and
 // virtual-background live in the cam caret menu; status and chat moved to the
 // roster panel (issue #99). Each button also owns the media orchestration behind
 // it (enable the device, wire it into WebRTC, update the screenshare stage).
@@ -224,7 +225,7 @@ export class ToolbarController {
 
   // ============= Device menus + "more" overflow =============
   // Mic caret → device list. Cam caret → device list + virtual-background
-  // section. "⋯" → window-arrange actions. All three share one outside-click
+  // section. "⋯" → window-layout modes + debug. All three share one outside-click
   // handler and a single closeMenus(), mirroring the old toolbar behaviour.
   private setupDeviceMenus() {
     const micMenu = document.getElementById('mic-menu') as HTMLDivElement;
@@ -395,11 +396,12 @@ export class ToolbarController {
     addBg('📁 画像をアップロード…', () => this.bgFileInput.click());
   }
 
-  // The "⋯" overflow menu: low-frequency actions. The two arrange items are
-  // one-shot batch window moves (nothing is locked or persisted — windows stay
-  // draggable after); the debug item toggles the RTC debug console (issue #113),
-  // its label reflecting the current open state since the menu re-populates on
-  // each open.
+  // The "⋯" overflow menu: low-frequency actions. The layout items pick a
+  // persistent window-layout mode (the active one is marked); selecting one
+  // re-flows every window and keeps it tidy on resize/join/leave until the user
+  // drags a window (which drops back to 自由配置). The debug item toggles the
+  // RTC debug console (issue #113). Labels reflect current state since the menu
+  // re-populates on each open.
   private populateMoreMenu(menu: HTMLDivElement) {
     menu.replaceChildren();
     const addItem = (text: string, onClick: () => void) => {
@@ -413,8 +415,14 @@ export class ToolbarController {
       });
       menu.appendChild(item);
     };
-    addItem('✨ スマート整列', () => this.view.arrange('smart'));
-    addItem('▦ グリッド整列', () => this.view.arrange('grid'));
+    const active = this.view.getLayoutMode();
+    const addMode = (mode: LayoutMode, label: string) => {
+      addItem(`${active === mode ? '✓' : '　'} ${label}`, () => this.view.setLayoutMode(mode));
+    };
+    addMode('free', '🪟 自由配置');
+    addMode('grid', '▦ グリッド');
+    addMode('presentation', '🖥 プレゼン');
+    addMode('sidebar', '▤ サイドバー');
     addItem(this.isDebugOpen() ? '🐛 デバッグを閉じる' : '🐛 デバッグ（RTC 接続）', () =>
       this.toggleDebug(),
     );

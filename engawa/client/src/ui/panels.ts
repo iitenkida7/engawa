@@ -5,6 +5,12 @@
 
 export type PanelPreset = 'pip' | 'side' | 'full';
 
+// A persistent window-layout mode. 'free' is the default (windows are freely
+// draggable/resizable, nothing reflows). The others auto-arrange every window
+// and re-arrange on viewport/membership/screenshare changes until the user
+// drags a window (which drops back to 'free'). See RemoteMediaView.reflowLayout.
+export type LayoutMode = 'free' | 'grid' | 'presentation' | 'sidebar';
+
 // Layout margin used when computing presets (px).
 export const PANEL_MARGIN = 12;
 // Space reserved at the bottom for the toolbar, so presets never sit under it.
@@ -153,6 +159,26 @@ export function computeGridLayout(items: LayoutItem[], vw: number, vh: number): 
     const row = Math.floor(i / cols);
     return fitInCell(item, area.x + col * cellW, area.y + row * cellH, cellW, cellH);
   });
+}
+
+// Min/max width of the sidebar column (px). The column scales with the viewport
+// but is clamped so it stays usable on small screens and leaves the 2D map
+// visible on large ones.
+export const SIDEBAR_MIN_WIDTH = 200;
+export const SIDEBAR_MAX_WIDTH = 360;
+
+// Pure: sidebar layout — every window stacks in a single column pinned to the
+// right edge, so the 2D map stays visible on the left. The column width scales
+// with the viewport (clamped). Windows split the column height evenly.
+export function computeSidebarLayout(items: LayoutItem[], vw: number, vh: number): PanelGeometry[] {
+  const n = items.length;
+  if (n === 0) return [];
+  const area = usableArea(vw, vh);
+  const colW = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(vw * 0.25)));
+  const w = Math.min(colW, area.w);
+  const colX = area.x + area.w - w;
+  const cellH = area.h / n;
+  return items.map((item, i) => fitInCell(item, colX, area.y + i * cellH, w, cellH));
 }
 
 // Pure: presentation layout — the (first) screenshare fills a large main area on

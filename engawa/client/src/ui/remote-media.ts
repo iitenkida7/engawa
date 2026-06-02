@@ -13,8 +13,10 @@ import {
   bindCamAspect,
   computeGridLayout,
   computePresentationLayout,
+  computeSidebarLayout,
   createModeControls,
   type LayoutItem,
+  type LayoutMode,
   readCamAspect,
   setupPanelModes,
 } from '@/ui/panels';
@@ -89,6 +91,12 @@ export class RemoteMediaView {
   private localSpeakingDetector: SpeakingDetector | null = null;
   private remoteSpeakingDetectors = new Map<string, SpeakingDetector>();
 
+  // The active window-layout mode. 'free' (default) leaves every window where
+  // the user put it; the others auto-arrange and re-flow on viewport/membership/
+  // screenshare changes. Grabbing a window (drag or a per-panel preset) drops
+  // back to 'free' so manual placement always wins.
+  private layoutMode: LayoutMode = 'free';
+
   constructor(opts: {
     players: Map<string, PlayerState>;
     media: MediaManager;
@@ -108,6 +116,10 @@ export class RemoteMediaView {
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
 
     this.setupSelfPreview();
+    // Re-flow the active layout when the viewport changes. In 'free' mode this
+    // is a no-op (draggable.ts owns clamping); in an auto mode it keeps the
+    // arrangement fitting the new size.
+    window.addEventListener('resize', () => this.reflowLayout());
   }
 
   // Make the self-preview draggable/resizable by its header. The CSS keeps its
@@ -116,13 +128,22 @@ export class RemoteMediaView {
   private setupSelfPreview() {
     makeDraggable(this.selfPreviewEl, {
       handle: this.selfPreviewHeaderEl,
-      onStart: () => bringToFront(this.selfPreviewEl),
+      onStart: () => this.grabPanel(this.selfPreviewEl),
     });
     setupPanelModes(this.selfPreviewEl, {
       aspectLocked: true,
-      onActivate: () => bringToFront(this.selfPreviewEl),
+      onActivate: () => this.grabPanel(this.selfPreviewEl),
     });
     bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
+  }
+
+  // Brings a panel to front and drops out of any auto-layout mode. A drag or a
+  // per-panel preset is explicit manual placement, so it always wins over
+  // auto-arrange: future reflows (resize/join/leave) leave the windows alone
+  // until the user re-selects a layout mode.
+  private grabPanel(el: HTMLElement) {
+    bringToFront(el);
+    this.layoutMode = 'free';
   }
 
   // Sets the label shown under the self preview (the local user's name).
@@ -150,6 +171,7 @@ export class RemoteMediaView {
       if (oldDet) destroySpeakingDetector(oldDet);
       const det = createSpeakingDetector(stream);
       if (det) this.remoteSpeakingDetectors.set(userId, det);
+      this.reflowLayout();
       return;
     }
     // cam → tile with <video>
@@ -168,6 +190,7 @@ export class RemoteMediaView {
     });
     const p = this.players.get(userId);
     tile.label.textContent = p?.name || userId.slice(0, 6);
+    this.reflowLayout();
   }
 
   detachRemoteStream(userId: string, streamId: string) {
@@ -220,6 +243,7 @@ export class RemoteMediaView {
       const p = this.players.get(userId);
       if (p) p.isSharingScreen = false;
     }
+    this.reflowLayout();
   }
 
   private attachRemoteMic(userId: string, stream: MediaStream) {
@@ -294,11 +318,11 @@ export class RemoteMediaView {
     // Drag by the header only (matches the other panels).
     const cleanupDrag = makeDraggable(container, {
       handle: header,
-      onStart: () => bringToFront(container),
+      onStart: () => this.grabPanel(container),
     });
     setupPanelModes(container, {
       aspectLocked: true,
-      onActivate: () => bringToFront(container),
+      onActivate: () => this.grabPanel(container),
     });
     return { container, video, placeholder, label, hasCam: false, cleanupDrag };
   }
@@ -332,6 +356,7 @@ export class RemoteMediaView {
       this.remoteSpeakingDetectors.delete(userId);
     }
     this.removeScreenshare(userId);
+    this.reflowLayout();
   }
 
   // ============= Screenshare stages (one per sharing user) =============
@@ -355,6 +380,7 @@ export class RemoteMediaView {
     const isSelf = userId === this.getMyId();
     const p = this.players.get(userId);
     ss.label.textContent = isSelf ? 'あなたの画面' : `${p?.name || userId.slice(0, 6)} の画面`;
+    this.reflowLayout();
   }
 
   // Removes a user's screenshare stage (no-op if they aren't sharing). When the
@@ -373,7 +399,10 @@ export class RemoteMediaView {
     }
     ss.container.remove();
     this.screenshares.delete(userId);
-    if (!wasMain) return;
+    if (!wasMain) {
+      this.reflowLayout();
+      return;
+    }
     // Promote the next-oldest remaining share (Map keeps insertion order).
     const nextId = this.screenshares.keys().next().value ?? null;
     this.mainScreenshareUserId = nextId;
@@ -383,6 +412,7 @@ export class RemoteMediaView {
       applyPanelGeometry(next.container, vacated!);
       bringToFront(next.container);
     }
+    this.reflowLayout();
   }
 
   // Makes a non-main share the main one by swapping window geometry with the
@@ -455,9 +485,9 @@ export class RemoteMediaView {
     this.stageLayerEl.appendChild(container);
     const cleanupDrag = makeDraggable(container, {
       handle: header,
-      onStart: () => bringToFront(container),
+      onStart: () => this.grabPanel(container),
     });
-    setupPanelModes(container, { onActivate: () => bringToFront(container) });
+    setupPanelModes(container, { onActivate: () => this.grabPanel(container) });
     // Double-click anywhere on the stage (except the preset buttons) promotes it.
     const onDblClick = (e: MouseEvent) => {
       if ((e.target as HTMLElement).closest('.stage-controls')) return;
@@ -541,17 +571,49 @@ export class RemoteMediaView {
     return streams;
   }
 
-  // ============= Batch arrange (one-shot "tidy all windows") =============
-  // Re-lays every visible window in one shot: 'grid' tiles them evenly; 'smart'
-  // uses a presentation layout when a screenshare is on stage, else a grid.
-  // Like the header presets this only writes position/size — windows stay
-  // freely draggable/resizable afterwards (nothing is locked or persisted).
-  arrange(mode: 'smart' | 'grid') {
-    const hasScreen = this.screenshares.size > 0;
-    // Collect visible panels with the element to move and its layout item, in a
-    // stable order: the main screenshare first (so the presentation layout
-    // features it), then the other screenshares, then camera/mic tiles, then the
-    // self preview.
+  // ============= Layout modes (auto-arrange) =============
+  // The active layout mode. The toolbar reads this to mark the current mode in
+  // its menu.
+  getLayoutMode(): LayoutMode {
+    return this.layoutMode;
+  }
+
+  // Switches the window-layout mode and immediately re-flows. 'free' just stops
+  // auto-arranging (windows stay where they are); the others tile every window
+  // to fit the viewport. Unlike the old one-shot arrange, the chosen mode sticks
+  // and re-flows on viewport/membership/screenshare changes until the user
+  // grabs a window (drag/preset → back to 'free').
+  setLayoutMode(mode: LayoutMode) {
+    this.layoutMode = mode;
+    this.reflowLayout();
+  }
+
+  // Re-lays every visible window according to the active mode. No-op in 'free'.
+  // Called on viewport resize and whenever the set of windows changes (peer
+  // join/leave, screenshare start/stop) so the arrangement stays tidy.
+  private reflowLayout() {
+    if (this.layoutMode === 'free') return;
+    const panels = this.collectPanels();
+    if (panels.length === 0) return;
+    const items = panels.map((p) => p.item);
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const geos =
+      this.layoutMode === 'presentation'
+        ? computePresentationLayout(items, vw, vh)
+        : this.layoutMode === 'sidebar'
+          ? computeSidebarLayout(items, vw, vh)
+          : computeGridLayout(items, vw, vh);
+    panels.forEach((p, i) => {
+      applyPanelGeometry(p.el, geos[i]);
+    });
+  }
+
+  // Collects visible panels with the element to move and its layout item, in a
+  // stable order: the main screenshare first (so the presentation layout
+  // features it), then the other screenshares, then camera/mic tiles, then the
+  // self preview.
+  private collectPanels(): Array<{ el: HTMLElement; item: LayoutItem }> {
     const panels: Array<{ el: HTMLElement; item: LayoutItem }> = [];
     for (const userId of this.orderedScreenshareIds()) {
       const ss = this.screenshares.get(userId)!;
@@ -569,18 +631,7 @@ export class RemoteMediaView {
         item: { aspectLocked: true, aspect: readCamAspect(this.selfPreviewEl) },
       });
     }
-    if (panels.length === 0) return;
-
-    const items = panels.map((p) => p.item);
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const geos =
-      mode === 'smart' && hasScreen
-        ? computePresentationLayout(items, vw, vh)
-        : computeGridLayout(items, vw, vh);
-    panels.forEach((p, i) => {
-      applyPanelGeometry(p.el, geos[i]);
-    });
+    return panels;
   }
 
   // Screenshare userIds in layout order: the main share first, then the rest in
