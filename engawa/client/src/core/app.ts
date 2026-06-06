@@ -233,6 +233,10 @@ export class App {
       broadcastStatus: () => this.broadcastStatus(),
       getMe: () => this.me,
       onReaction: (emoji) => this.sendReaction(emoji),
+      // The 🧍 avatar editor and 🐛 debug console both live in the toolbar's "⋯"
+      // menu now; reopening the character maker in-room relays the new outfit to
+      // peers (see onOutfitApplied).
+      onOpenAvatar: () => this.editor.open({ onApply: (o) => this.onOutfitApplied(o) }),
       // The 🐛 debug console lives in the toolbar's "⋯" menu (issue #113). These
       // resolve lazily on click, so referencing this.debug (built below) is fine.
       toggleDebug: () => this.debug.toggle(),
@@ -282,14 +286,6 @@ export class App {
     });
     this.recorder.on(() => this.toolbar.refresh());
     this.view.refreshSelfPreview();
-
-    // The toolbar 🧍 button reopens the character maker in-room; applying relays
-    // the new outfit to peers (see onOutfitApplied).
-    document
-      .getElementById('btn-avatar')
-      ?.addEventListener('click', () =>
-        this.editor.open({ onApply: (o) => this.onOutfitApplied(o) }),
-      );
 
     // Double-click the map to walk to that point (A* around walls, boosted speed).
     this.canvas.addEventListener('dblclick', this.onCanvasDblClick);

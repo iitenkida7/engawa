@@ -50,6 +50,7 @@ export class ToolbarController {
   private broadcastStatus: () => void;
   private getMe: () => PlayerState | null;
   private onReaction: (emoji: string) => void;
+  private onOpenAvatar: () => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
 
@@ -73,6 +74,7 @@ export class ToolbarController {
     broadcastStatus: () => void;
     getMe: () => PlayerState | null;
     onReaction: (emoji: string) => void;
+    onOpenAvatar: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
   }) {
@@ -85,6 +87,7 @@ export class ToolbarController {
     this.broadcastStatus = opts.broadcastStatus;
     this.getMe = opts.getMe;
     this.onReaction = opts.onReaction;
+    this.onOpenAvatar = opts.onOpenAvatar;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
 
@@ -132,6 +135,33 @@ export class ToolbarController {
     });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
+    this.setupLayoutControls();
+  }
+
+  // Wire the icon-only layout-mode buttons (🪟 自由 / ▦ グリッド / 🖥 プレゼン /
+  // ▤ サイドバー). Like the zoom pill these live directly on the toolbar (labels
+  // were too long for a button row, so they are icons with titles). Clicking one
+  // switches the view's layout mode; the active button is highlighted. The view
+  // also drops back to 'free' when the user drags a window, so we re-highlight on
+  // its change callback too.
+  private setupLayoutControls() {
+    const buttons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.layout-group > button[data-mode]'),
+    );
+    const refresh = () => {
+      const active = this.view.getLayoutMode();
+      for (const btn of buttons) {
+        btn.classList.toggle('active', btn.dataset.mode === active);
+      }
+    };
+    for (const btn of buttons) {
+      btn.addEventListener('click', () => {
+        this.view.setLayoutMode(btn.dataset.mode as LayoutMode);
+        refresh();
+      });
+    }
+    this.view.setOnLayoutModeChange(refresh);
+    refresh();
   }
 
   refresh() {
@@ -396,12 +426,11 @@ export class ToolbarController {
     addBg('📁 画像をアップロード…', () => this.bgFileInput.click());
   }
 
-  // The "⋯" overflow menu: low-frequency actions. The layout items pick a
-  // persistent window-layout mode (the active one is marked); selecting one
-  // re-flows every window and keeps it tidy on resize/join/leave until the user
-  // drags a window (which drops back to 自由配置). The debug item toggles the
-  // RTC debug console (issue #113). Labels reflect current state since the menu
-  // re-populates on each open.
+  // The "⋯" overflow menu: low-frequency actions. アバター編集（in-room の
+  // キャラメイク再オープン）と、🐛 RTC デバッグコンソールのトグル（issue #113）。
+  // Labels reflect current state since the menu re-populates on each open.
+  // (Window-layout modes moved out to the always-visible icon pill on the
+  // toolbar — see setupLayoutControls.)
   private populateMoreMenu(menu: HTMLDivElement) {
     menu.replaceChildren();
     const addItem = (text: string, onClick: () => void) => {
@@ -415,14 +444,7 @@ export class ToolbarController {
       });
       menu.appendChild(item);
     };
-    const active = this.view.getLayoutMode();
-    const addMode = (mode: LayoutMode, label: string) => {
-      addItem(`${active === mode ? '✓' : '　'} ${label}`, () => this.view.setLayoutMode(mode));
-    };
-    addMode('free', '🪟 自由配置');
-    addMode('grid', '▦ グリッド');
-    addMode('presentation', '🖥 プレゼン');
-    addMode('sidebar', '▤ サイドバー');
+    addItem('🧍 アバターを編集', () => this.onOpenAvatar());
     addItem(this.isDebugOpen() ? '🐛 デバッグを閉じる' : '🐛 デバッグ（RTC 接続）', () =>
       this.toggleDebug(),
     );

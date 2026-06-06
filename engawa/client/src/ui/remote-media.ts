@@ -96,6 +96,10 @@ export class RemoteMediaView {
   // screenshare changes. Grabbing a window (drag or a per-panel preset) drops
   // back to 'free' so manual placement always wins.
   private layoutMode: LayoutMode = 'free';
+  // Fired whenever layoutMode changes (toolbar selection OR an auto-revert to
+  // 'free' when the user grabs a window) so the toolbar can re-highlight the
+  // active layout button.
+  private onLayoutModeChange: ((mode: LayoutMode) => void) | null = null;
 
   constructor(opts: {
     players: Map<string, PlayerState>;
@@ -143,7 +147,10 @@ export class RemoteMediaView {
   // until the user re-selects a layout mode.
   private grabPanel(el: HTMLElement) {
     bringToFront(el);
-    this.layoutMode = 'free';
+    if (this.layoutMode !== 'free') {
+      this.layoutMode = 'free';
+      this.onLayoutModeChange?.('free');
+    }
   }
 
   // Sets the label shown under the self preview (the local user's name).
@@ -578,13 +585,22 @@ export class RemoteMediaView {
     return this.layoutMode;
   }
 
+  // Registers a callback fired whenever the layout mode changes (used by the
+  // toolbar to keep its active-mode highlight in sync).
+  setOnLayoutModeChange(cb: (mode: LayoutMode) => void) {
+    this.onLayoutModeChange = cb;
+  }
+
   // Switches the window-layout mode and immediately re-flows. 'free' just stops
   // auto-arranging (windows stay where they are); the others tile every window
   // to fit the viewport. Unlike the old one-shot arrange, the chosen mode sticks
   // and re-flows on viewport/membership/screenshare changes until the user
   // grabs a window (drag/preset → back to 'free').
   setLayoutMode(mode: LayoutMode) {
-    this.layoutMode = mode;
+    if (this.layoutMode !== mode) {
+      this.layoutMode = mode;
+      this.onLayoutModeChange?.(mode);
+    }
     this.reflowLayout();
   }
 
