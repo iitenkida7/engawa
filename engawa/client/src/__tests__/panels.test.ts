@@ -3,10 +3,13 @@ import {
   computeGridLayout,
   computePanelPreset,
   computePresentationLayout,
+  computeSidebarLayout,
   type LayoutItem,
   PANEL_BOTTOM_RESERVED,
   PANEL_HEADER,
   PANEL_MARGIN,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
 } from '@/ui/panels';
 
 // A roomy reference viewport so the aspect clamps don't kick in unless intended.
@@ -211,5 +214,48 @@ describe('computePresentationLayout', () => {
         expect(overlaps(boxes[i], boxes[j])).toBe(false);
       }
     }
+  });
+});
+
+describe('computeSidebarLayout', () => {
+  it('returns nothing for zero windows', () => {
+    expect(computeSidebarLayout([], VW, VH)).toEqual([]);
+  });
+
+  it('pins a single window to the right edge inside the usable area', () => {
+    const items = [cam()];
+    const [g] = computeSidebarLayout(items, VW, VH);
+    const b = box(g, items[0]);
+    expect(withinArea(b)).toBe(true);
+    // Sits in the right-hand column: its right edge hugs the usable right edge.
+    expect(b.x + b.w).toBeGreaterThan(VW * 0.6);
+  });
+
+  it('stacks every window in a single right-hand column without overlap', () => {
+    const items = [cam(), screen(), cam(16 / 9), cam()];
+    const geos = computeSidebarLayout(items, VW, VH);
+    const boxes = geos.map((g, i) => box(g, items[i]));
+    boxes.forEach((b) => expect(withinArea(b)).toBe(true));
+    // Each window starts below the previous one (single column), none overlap.
+    for (let i = 1; i < boxes.length; i++) {
+      expect(boxes[i].y).toBeGreaterThanOrEqual(boxes[i - 1].y);
+    }
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        expect(overlaps(boxes[i], boxes[j])).toBe(false);
+      }
+    }
+    // The free-aspect window fills the clamped column width (minus the gap).
+    const colW = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(VW * 0.25)));
+    expect(geos[1].width).toBe(colW - 8 /* PANEL_GAP */);
+  });
+
+  it('clamps the column width between the min and max', () => {
+    // Wide viewport → capped at the max (25% of 4000 would be 1000).
+    const wide = computeSidebarLayout([screen()], 4000, VH);
+    expect(wide[0].width).toBe(SIDEBAR_MAX_WIDTH - 8 /* PANEL_GAP */);
+    // Narrow viewport → floored at the min (25% of 400 would be 100).
+    const narrow = computeSidebarLayout([screen()], 400, VH);
+    expect(narrow[0].width).toBe(SIDEBAR_MIN_WIDTH - 8 /* PANEL_GAP */);
   });
 });

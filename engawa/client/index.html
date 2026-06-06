@@ -188,18 +188,22 @@
         background: #2a2f3a;
       }
 
-      /* Zoom controls: a slim [🔍+] [🔍−] pill at the toolbar's right edge. */
-      #toolbar .zoom-group>button {
+      /* Joined-pill button groups: the zoom [🔍+][🔍−] and the icon-only layout
+         modes [🪟][▦][🖥][▤]. Buttons sit flush; only the ends get rounded. */
+      #toolbar .zoom-group>button,
+      #toolbar .layout-group>button {
         border-radius: 0;
         border-right: none;
       }
 
-      #toolbar .zoom-group>button:first-child {
+      #toolbar .zoom-group>button:first-child,
+      #toolbar .layout-group>button:first-child {
         border-top-left-radius: 8px;
         border-bottom-left-radius: 8px;
       }
 
-      #toolbar .zoom-group>button:last-child {
+      #toolbar .zoom-group>button:last-child,
+      #toolbar .layout-group>button:last-child {
         border-top-right-radius: 8px;
         border-bottom-right-radius: 8px;
         border-right: 1px solid #3a4050;
@@ -1423,7 +1427,6 @@
         <input id="bg-file" type="file" accept="image/*" class="hidden" />
         <button id="btn-screen" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" title="録画">⏺ 録画</button>
-        <button id="btn-avatar" title="アバターを編集">🧍 アバター</button>
         <div class="btn-group">
           <button id="btn-reaction" title="リアクション">😀</button>
           <div id="reaction-menu" class="device-menu hidden"></div>
@@ -1431,6 +1434,12 @@
         <div class="btn-group">
           <button id="btn-more" title="その他">⋯</button>
           <div id="more-menu" class="device-menu hidden"></div>
+        </div>
+        <div class="btn-group layout-group">
+          <button id="btn-layout-free" data-mode="free" title="自由配置">🪟</button>
+          <button id="btn-layout-grid" data-mode="grid" title="グリッド整列">▦</button>
+          <button id="btn-layout-presentation" data-mode="presentation" title="プレゼン整列">🖥</button>
+          <button id="btn-layout-sidebar" data-mode="sidebar" title="サイドバー整列">▤</button>
         </div>
         <div class="btn-group zoom-group">
           <button id="btn-zoom-in" title="拡大">🔍＋</button>

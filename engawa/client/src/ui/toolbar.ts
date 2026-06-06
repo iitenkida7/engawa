@@ -14,6 +14,7 @@ import {
   VBG_STORAGE_KEY,
 } from '@/media/vbg';
 import type { Toasts } from '@/ui/notify';
+import type { LayoutMode } from '@/ui/panels';
 import type { RemoteMediaView } from '@/ui/remote-media';
 import type { PlayerState } from '@/world/player';
 
@@ -31,7 +32,7 @@ export interface MediaSink {
 
 // Owns the bottom toolbar, trimmed to the core call controls: mic, cam, screen
 // share, record, and a "⋯" overflow menu for low-frequency actions
-// (window-arrange + the RTC debug console toggle). Device selection and
+// (window-layout modes + the RTC debug console toggle). Device selection and
 // virtual-background live in the cam caret menu; status and chat moved to the
 // roster panel (issue #99). Each button also owns the media orchestration behind
 // it (enable the device, wire it into WebRTC, update the screenshare stage).
@@ -49,6 +50,7 @@ export class ToolbarController {
   private broadcastStatus: () => void;
   private getMe: () => PlayerState | null;
   private onReaction: (emoji: string) => void;
+  private onOpenAvatar: () => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
 
@@ -72,6 +74,7 @@ export class ToolbarController {
     broadcastStatus: () => void;
     getMe: () => PlayerState | null;
     onReaction: (emoji: string) => void;
+    onOpenAvatar: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
   }) {
@@ -84,6 +87,7 @@ export class ToolbarController {
     this.broadcastStatus = opts.broadcastStatus;
     this.getMe = opts.getMe;
     this.onReaction = opts.onReaction;
+    this.onOpenAvatar = opts.onOpenAvatar;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
 
@@ -131,6 +135,33 @@ export class ToolbarController {
     });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
+    this.setupLayoutControls();
+  }
+
+  // Wire the icon-only layout-mode buttons (🪟 自由 / ▦ グリッド / 🖥 プレゼン /
+  // ▤ サイドバー). Like the zoom pill these live directly on the toolbar (labels
+  // were too long for a button row, so they are icons with titles). Clicking one
+  // switches the view's layout mode; the active button is highlighted. The view
+  // also drops back to 'free' when the user drags a window, so we re-highlight on
+  // its change callback too.
+  private setupLayoutControls() {
+    const buttons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.layout-group > button[data-mode]'),
+    );
+    const refresh = () => {
+      const active = this.view.getLayoutMode();
+      for (const btn of buttons) {
+        btn.classList.toggle('active', btn.dataset.mode === active);
+      }
+    };
+    for (const btn of buttons) {
+      btn.addEventListener('click', () => {
+        this.view.setLayoutMode(btn.dataset.mode as LayoutMode);
+        refresh();
+      });
+    }
+    this.view.setOnLayoutModeChange(refresh);
+    refresh();
   }
 
   refresh() {
@@ -224,7 +255,7 @@ export class ToolbarController {
 
   // ============= Device menus + "more" overflow =============
   // Mic caret → device list. Cam caret → device list + virtual-background
-  // section. "⋯" → window-arrange actions. All three share one outside-click
+  // section. "⋯" → window-layout modes + debug. All three share one outside-click
   // handler and a single closeMenus(), mirroring the old toolbar behaviour.
   private setupDeviceMenus() {
     const micMenu = document.getElementById('mic-menu') as HTMLDivElement;
@@ -395,11 +426,11 @@ export class ToolbarController {
     addBg('📁 画像をアップロード…', () => this.bgFileInput.click());
   }
 
-  // The "⋯" overflow menu: low-frequency actions. The two arrange items are
-  // one-shot batch window moves (nothing is locked or persisted — windows stay
-  // draggable after); the debug item toggles the RTC debug console (issue #113),
-  // its label reflecting the current open state since the menu re-populates on
-  // each open.
+  // The "⋯" overflow menu: low-frequency actions. アバター編集（in-room の
+  // キャラメイク再オープン）と、🐛 RTC デバッグコンソールのトグル（issue #113）。
+  // Labels reflect current state since the menu re-populates on each open.
+  // (Window-layout modes moved out to the always-visible icon pill on the
+  // toolbar — see setupLayoutControls.)
   private populateMoreMenu(menu: HTMLDivElement) {
     menu.replaceChildren();
     const addItem = (text: string, onClick: () => void) => {
@@ -413,8 +444,7 @@ export class ToolbarController {
       });
       menu.appendChild(item);
     };
-    addItem('✨ スマート整列', () => this.view.arrange('smart'));
-    addItem('▦ グリッド整列', () => this.view.arrange('grid'));
+    addItem('🧍 アバターを編集', () => this.onOpenAvatar());
     addItem(this.isDebugOpen() ? '🐛 デバッグを閉じる' : '🐛 デバッグ（RTC 接続）', () =>
       this.toggleDebug(),
     );
