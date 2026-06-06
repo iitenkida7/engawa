@@ -195,5 +195,16 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   必ずフィーチャーブランチを切ってから作業する（main 上で直接作業しない）。
   改修後は必ずテストを実行し、失敗があれば修正してから進める。
 
+## リリース（GHCR イメージ公開）
+engawa は **host 非依存の OSS**。リリースとは「**バージョンタグを打って GHCR にコンテナイメージを publish する**」
+ところまでを指す。どの基盤にどうデプロイするか（ホスト固有設定・本番 URL・クレデンシャル）は **OSS リポジトリには一切持ち込まない**。
+
+- `scripts/release.sh`（引数なし）= 未リリースコミット・main CI・次バージョン候補を表示（バージョン決定の材料）。
+- `scripts/release.sh vX.Y.Z "subject"` = ガード（clean / origin/main 一致 / CI green / タグ未存在）→
+  annotated タグ `vX.Y.Z` を push → `release.yml` が `ghcr.io/<owner>/engawa:vX.Y.Z` を build & push → 完了まで待機。
+
+**新機能はマイナー（vX.Y+1.0）、バグ修正はパッチ（vX.Y.Z+1）**。バージョンはユーザーに確認してから打つ。
+通常どおりフィーチャーブランチ→PR で進める。GHCR publish 後の本番反映は OSS の外（デプロイ専用の別環境）が GHCR の成果物を引いて行う。
+
 ## ツール利用方針
 - Chrome DevTools MCP は遅いので極力使わない。代替（ログ確認・テスト実行）を優先する。
