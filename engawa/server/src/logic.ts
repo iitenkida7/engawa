@@ -181,7 +181,10 @@ export function isAllowedReaction(emoji: unknown): boolean {
  */
 export const OUTFIT_MAX_INDEX = 255;
 
-/** The keys of an Outfit, in a fixed order. Mirrors the client's categories. */
+/**
+ * The keys of an Outfit, in a fixed order. Mirrors the client's categories;
+ * `satisfies` turns any drift against the Outfit type into a compile error.
+ */
 export const OUTFIT_KEYS = [
   'sex',
   'skin',
@@ -194,7 +197,7 @@ export const OUTFIT_KEYS = [
   'shoes',
   'hat',
   'glasses',
-] as const;
+] as const satisfies readonly (keyof Outfit)[];
 
 /** The default outfit, used before a client announces one (mirrors the client). */
 export const DEFAULT_OUTFIT: Outfit = {
@@ -227,19 +230,7 @@ function sanitizeIndex(v: unknown): number {
 export function sanitizeOutfit(raw: unknown): Outfit {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_OUTFIT };
   const o = raw as Record<string, unknown>;
-  return {
-    sex: sanitizeIndex(o.sex),
-    skin: sanitizeIndex(o.skin),
-    hair: sanitizeIndex(o.hair),
-    hairColor: sanitizeIndex(o.hairColor),
-    top: sanitizeIndex(o.top),
-    topColor: sanitizeIndex(o.topColor),
-    bottom: sanitizeIndex(o.bottom),
-    bottomColor: sanitizeIndex(o.bottomColor),
-    shoes: sanitizeIndex(o.shoes),
-    hat: sanitizeIndex(o.hat),
-    glasses: sanitizeIndex(o.glasses),
-  };
+  return Object.fromEntries(OUTFIT_KEYS.map((k) => [k, sanitizeIndex(o[k])])) as Outfit;
 }
 
 /**

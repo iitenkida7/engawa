@@ -42,6 +42,39 @@ function send(ws: ServerWebSocket<WsData>, msg: ServerMessage) {
   ws.send(JSON.stringify(msg));
 }
 
+// The joined clients of one workspace. This "joined && same workspace" filter
+// is the visibility rule behind every broadcast/grouping path, so it lives
+// here once.
+function joinedClientsIn(
+  clients: Map<string, ServerWebSocket<WsData>>,
+  workspace: string,
+): ServerWebSocket<WsData>[] {
+  const result: ServerWebSocket<WsData>[] = [];
+  for (const c of clients.values()) {
+    if (c.data.joined && c.data.workspace === workspace) result.push(c);
+  }
+  return result;
+}
+
+// Resolve the target of a 1:1 relay: the sender must have joined and the
+// target must exist and have joined. signal / stream-meta historically do NOT
+// require the target to share the sender's workspace (mesh peers are already
+// matched by group-update), while knock / knock-reply DO — `sameWorkspace`
+// preserves that asymmetry exactly. Returns null when the message must be
+// dropped.
+function relayTarget(
+  clients: Map<string, ServerWebSocket<WsData>>,
+  ws: ServerWebSocket<WsData>,
+  to: string,
+  sameWorkspace: boolean,
+): ServerWebSocket<WsData> | null {
+  if (!ws.data.joined) return null;
+  const target = clients.get(to);
+  if (!target?.data.joined) return null;
+  if (sameWorkspace && target.data.workspace !== ws.data.workspace) return null;
+  return target;
+}
+
 function broadcast(
   clients: Map<string, ServerWebSocket<WsData>>,
   workspace: string,
@@ -49,10 +82,8 @@ function broadcast(
   exceptUserId?: string,
 ) {
   const str = JSON.stringify(msg);
-  for (const [id, c] of clients) {
-    if (id === exceptUserId) continue;
-    if (!c.data.joined) continue;
-    if (c.data.workspace !== workspace) continue;
+  for (const c of joinedClientsIn(clients, workspace)) {
+    if (c.data.userId === exceptUserId) continue;
     c.send(str);
   }
 }
@@ -77,11 +108,12 @@ function proximityGroupMemberIds(
   workspace: string,
   userId: string,
 ): string[] {
-  const members: GroupMember[] = [];
-  for (const c of clients.values()) {
-    if (!c.data.joined || c.data.workspace !== workspace) continue;
-    members.push({ userId: c.data.userId, x: c.data.x, y: c.data.y, zoneId: c.data.zoneId });
-  }
+  const members: GroupMember[] = joinedClientsIn(clients, workspace).map((c) => ({
+    userId: c.data.userId,
+    x: c.data.x,
+    y: c.data.y,
+    zoneId: c.data.zoneId,
+  }));
   const groups = computeProximityGroups(members, { sfuEnabled: false });
   const g = groups.find((grp) => grp.memberIds.includes(userId));
   return g ? g.memberIds : [userId];
@@ -101,13 +133,13 @@ function broadcastGroups(
   workspace: string,
   groupState: GroupState,
 ): Map<string, ProximityGroup> {
-  const members: GroupMember[] = [];
-  const wsClients: ServerWebSocket<WsData>[] = [];
-  for (const c of clients.values()) {
-    if (!c.data.joined || c.data.workspace !== workspace) continue;
-    members.push({ userId: c.data.userId, x: c.data.x, y: c.data.y, zoneId: c.data.zoneId });
-    wsClients.push(c);
-  }
+  const wsClients = joinedClientsIn(clients, workspace);
+  const members: GroupMember[] = wsClients.map((c) => ({
+    userId: c.data.userId,
+    x: c.data.x,
+    y: c.data.y,
+    zoneId: c.data.zoneId,
+  }));
 
   const state = groupState.get(workspace) ?? { prevSfuMemberSets: [], prevGroupMemberSets: [] };
   const groups = computeProximityGroups(members, {
@@ -207,10 +239,8 @@ export function createWebSocketHandler(
           ws.data.joined = true;
 
           const existing: Player[] = [];
-          for (const [id, c] of clients) {
-            if (id === ws.data.userId) continue;
-            if (!c.data.joined) continue;
-            if (c.data.workspace !== ws.data.workspace) continue;
+          for (const c of joinedClientsIn(clients, ws.data.workspace)) {
+            if (c.data.userId === ws.data.userId) continue;
             existing.push(playerFromWs(c));
           }
 
@@ -287,9 +317,8 @@ export function createWebSocketHandler(
         }
 
         case 'signal': {
-          if (!ws.data.joined) return;
-          const target = clients.get(msg.to);
-          if (!target?.data.joined) return;
+          const target = relayTarget(clients, ws, msg.to, false);
+          if (!target) return;
           send(target, {
             type: 'signal',
             from: ws.data.userId,
@@ -299,9 +328,8 @@ export function createWebSocketHandler(
         }
 
         case 'stream-meta': {
-          if (!ws.data.joined) return;
-          const target = clients.get(msg.to);
-          if (!target?.data.joined) return;
+          const target = relayTarget(clients, ws, msg.to, false);
+          if (!target) return;
           send(target, {
             type: 'stream-meta',
             from: ws.data.userId,
@@ -347,17 +375,15 @@ export function createWebSocketHandler(
         }
 
         case 'knock': {
-          if (!ws.data.joined) return;
-          const target = clients.get(msg.to);
-          if (!target?.data.joined || target.data.workspace !== ws.data.workspace) return;
+          const target = relayTarget(clients, ws, msg.to, true);
+          if (!target) return;
           send(target, { type: 'knock', from: ws.data.userId, name: ws.data.name });
           break;
         }
 
         case 'knock-reply': {
-          if (!ws.data.joined) return;
-          const target = clients.get(msg.to);
-          if (!target?.data.joined || target.data.workspace !== ws.data.workspace) return;
+          const target = relayTarget(clients, ws, msg.to, true);
+          if (!target) return;
           send(target, {
             type: 'knock-reply',
             from: ws.data.userId,
@@ -387,9 +413,8 @@ export function createWebSocketHandler(
           ws.data.sfuTracks = tracks;
           if (ws.data.groupKey?.startsWith('sfu:')) {
             const members = ws.data.groupKey.slice('sfu:'.length).split(',');
-            for (const c of clients.values()) {
+            for (const c of joinedClientsIn(clients, ws.data.workspace)) {
               if (c.data.userId === ws.data.userId) continue;
-              if (!c.data.joined || c.data.workspace !== ws.data.workspace) continue;
               if (!members.includes(c.data.userId)) continue;
               send(c, {
                 type: 'sfu-peer-tracks',
