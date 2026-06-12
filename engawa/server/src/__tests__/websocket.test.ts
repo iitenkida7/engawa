@@ -69,13 +69,35 @@ function deliver(handler: ReturnType<typeof createWebSocketHandler>, ws: FakeWs,
   handler.message!(ws, JSON.stringify(msg));
 }
 
+/** A fresh clients map + handler pair; every suite rebuilds both per test. */
+function freshHandler() {
+  const clients = new Map<string, ServerWebSocket<WsData>>();
+  const handler = createWebSocketHandler(clients);
+  return { clients, handler };
+}
+
+// Join a client into ws1 and move it to (x, y[, zone]) so the server has a
+// position + zone to group on. The grouping / chat suites wrap this with their
+// own handler so call sites stay short.
+function joinWorkspaceAt(
+  handler: ReturnType<typeof createWebSocketHandler>,
+  x: number,
+  y: number,
+  zoneId: string | null = null,
+): FakeWs {
+  const ws = makeWs();
+  handler.open!(ws);
+  deliver(handler, ws, { type: 'join', name: 'U', workspace: 'ws1' });
+  deliver(handler, ws, { type: 'move', x, y, vx: 0, vy: 0, zoneId });
+  return ws;
+}
+
 describe('createWebSocketHandler — open/close lifecycle', () => {
   let clients: Map<string, ServerWebSocket<WsData>>;
   let handler: ReturnType<typeof createWebSocketHandler>;
 
   beforeEach(() => {
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
+    ({ clients, handler } = freshHandler());
   });
 
   test('open registers the client in the map', () => {
@@ -273,8 +295,7 @@ describe('createWebSocketHandler — move', () => {
   let handler: ReturnType<typeof createWebSocketHandler>;
 
   beforeEach(() => {
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
+    ({ clients, handler } = freshHandler());
   });
 
   test('clamps out-of-range coordinates and broadcasts to peers', () => {
@@ -336,8 +357,7 @@ describe('createWebSocketHandler — outfit-update', () => {
   let handler: ReturnType<typeof createWebSocketHandler>;
 
   beforeEach(() => {
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
+    ({ clients, handler } = freshHandler());
   });
 
   test('relays a sanitized outfit to same-workspace peers and updates ws.data', () => {
@@ -437,8 +457,7 @@ describe('createWebSocketHandler — signal (targeted relay)', () => {
   let handler: ReturnType<typeof createWebSocketHandler>;
 
   beforeEach(() => {
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
+    ({ clients, handler } = freshHandler());
   });
 
   test('relays a signal only to the named target', () => {
@@ -494,8 +513,7 @@ describe('createWebSocketHandler — status & stream-meta', () => {
   let handler: ReturnType<typeof createWebSocketHandler>;
 
   beforeEach(() => {
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
+    ({ clients, handler } = freshHandler());
   });
 
   test('broadcasts player-status to peers in the same workspace', () => {
@@ -609,8 +627,7 @@ describe('createWebSocketHandler — error handling', () => {
   let handler: ReturnType<typeof createWebSocketHandler>;
 
   beforeEach(() => {
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
+    ({ clients, handler } = freshHandler());
   });
 
   test('ignores malformed JSON without throwing', () => {
@@ -655,8 +672,7 @@ describe('createWebSocketHandler — SFU grouping', () => {
     // Enable SFU for this suite so group-update / sfu-peer-tracks are emitted.
     process.env.CLOUDFLARE_REALTIME_APP_ID = 'test-app';
     process.env.CLOUDFLARE_REALTIME_APP_TOKEN = 'test-token';
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
+    ({ clients, handler } = freshHandler());
   });
 
   afterEach(() => {
@@ -664,15 +680,8 @@ describe('createWebSocketHandler — SFU grouping', () => {
     delete process.env.CLOUDFLARE_REALTIME_APP_TOKEN;
   });
 
-  // Join a client into ws1 and move it to (x, y[, zone]) so the server has a
-  // position + zone to group on.
-  const joinAt = (x: number, y: number, zoneId: string | null = null): FakeWs => {
-    const ws = makeWs();
-    handler.open!(ws);
-    deliver(handler, ws, { type: 'join', name: 'U', workspace: 'ws1' });
-    deliver(handler, ws, { type: 'move', x, y, vx: 0, vy: 0, zoneId });
-    return ws;
-  };
+  const joinAt = (x: number, y: number, zoneId: string | null = null): FakeWs =>
+    joinWorkspaceAt(handler, x, y, zoneId);
 
   const lastGroupUpdate = (ws: FakeWs) =>
     [...ws.sent].reverse().find((m) => m.type === 'group-update');
@@ -807,19 +816,12 @@ describe('createWebSocketHandler — chat', () => {
   let handler: ReturnType<typeof createWebSocketHandler>;
 
   beforeEach(() => {
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
+    ({ clients, handler } = freshHandler());
   });
 
   // Join + position a client so the proximity grouping has coordinates to work
   // with (chat is scoped to the sender's proximity group).
-  const joinAt = (x: number, y: number): FakeWs => {
-    const ws = makeWs();
-    handler.open!(ws);
-    deliver(handler, ws, { type: 'join', name: 'U', workspace: 'ws1' });
-    deliver(handler, ws, { type: 'move', x, y, vx: 0, vy: 0 });
-    return ws;
-  };
+  const joinAt = (x: number, y: number): FakeWs => joinWorkspaceAt(handler, x, y);
 
   test('relays a chat line to the sender and a nearby peer, but not a distant one', () => {
     const a = joinAt(100, 100);
@@ -861,8 +863,7 @@ describe('createWebSocketHandler — reaction', () => {
   let handler: ReturnType<typeof createWebSocketHandler>;
 
   beforeEach(() => {
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
+    ({ clients, handler } = freshHandler());
   });
 
   test('broadcasts a whitelisted reaction to the whole workspace, including the sender', () => {
@@ -915,8 +916,7 @@ describe('createWebSocketHandler — knock', () => {
   let handler: ReturnType<typeof createWebSocketHandler>;
 
   beforeEach(() => {
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
+    ({ clients, handler } = freshHandler());
   });
 
   test('relays a knock only to the named target with sender name', () => {
