@@ -4,6 +4,7 @@ import {
   computePanelPreset,
   computePresentationLayout,
   computeSidebarLayout,
+  createPanelShell,
   type LayoutItem,
   PANEL_BOTTOM_RESERVED,
   PANEL_HEADER,
@@ -257,5 +258,25 @@ describe('computeSidebarLayout', () => {
     // Narrow viewport → floored at the min (25% of 400 would be 100).
     const narrow = computeSidebarLayout([screen()], 400, VH);
     expect(narrow[0].width).toBe(SIDEBAR_MIN_WIDTH - 8 /* PANEL_GAP */);
+  });
+});
+
+describe('createPanelShell', () => {
+  it('builds the shared shell: .panel > [.panel-header > .label + .stage-controls], .panel-body', () => {
+    const { container, header, label, body } = createPanelShell('panel remote-tile');
+    expect(container.className).toBe('panel remote-tile');
+    expect(container.children[0]).toBe(header);
+    expect(container.children[1]).toBe(body);
+    expect(header.className).toBe('panel-header');
+    expect(header.children[0]).toBe(label);
+    expect(label.className).toBe('label');
+    expect(header.children[1]?.className).toBe('stage-controls');
+    expect(header.children[1]?.querySelectorAll('button').length).toBe(3);
+    expect(body.className).toBe('panel-body');
+  });
+
+  it('passes the class string through verbatim (screenshare main variant)', () => {
+    const { container } = createPanelShell('panel screenshare-stage main');
+    expect(container.className).toBe('panel screenshare-stage main');
   });
 });

@@ -229,6 +229,36 @@ export function bindCamAspect(panel: HTMLElement, video: HTMLVideoElement) {
   update();
 }
 
+export type PanelShell = {
+  container: HTMLDivElement;
+  header: HTMLDivElement;
+  label: HTMLSpanElement;
+  body: HTMLDivElement;
+};
+
+// The shared floating-panel shell: .panel container + .panel-header (label +
+// pip/side/full preset buttons) + .panel-body. Used by the remote camera tiles
+// and the screenshare stages; the self preview ships the same markup statically
+// in index.html so the CSS is shared.
+export function createPanelShell(className: string): PanelShell {
+  const container = document.createElement('div');
+  container.className = className;
+
+  const header = document.createElement('div');
+  header.className = 'panel-header';
+  const label = document.createElement('span');
+  label.className = 'label';
+  header.appendChild(label);
+  header.appendChild(createModeControls());
+  container.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'panel-body';
+  container.appendChild(body);
+
+  return { container, header, label, body };
+}
+
 // The pip/side/full preset buttons shown in every panel header. Markup matches
 // the static .stage-controls block in index.html so CSS is shared.
 export function createModeControls(): HTMLDivElement {

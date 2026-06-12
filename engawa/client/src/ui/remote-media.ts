@@ -14,13 +14,23 @@ import {
   computeGridLayout,
   computePresentationLayout,
   computeSidebarLayout,
-  createModeControls,
+  createPanelShell,
   type LayoutItem,
   type LayoutMode,
   readCamAspect,
   setupPanelModes,
 } from '@/ui/panels';
 import type { PlayerState } from '@/world/player';
+
+// Detach a media element's stream. The try guards browser states where
+// assigning srcObject on a removed element throws.
+function clearSrcObject(media: HTMLMediaElement) {
+  try {
+    media.srcObject = null;
+  } catch {
+    /* noop */
+  }
+}
 
 type RemoteTile = {
   container: HTMLDivElement;
@@ -203,11 +213,7 @@ export class RemoteMediaView {
   detachRemoteStream(userId: string, streamId: string) {
     const audio = this.remoteAudios.get(userId);
     if (audio && audio.streamId === streamId) {
-      try {
-        audio.audio.srcObject = null;
-      } catch {
-        /* noop */
-      }
+      clearSrcObject(audio.audio);
       audio.audio.remove();
       this.remoteAudios.delete(userId);
       this.recorder.removeAudioStream(streamId);
@@ -229,11 +235,7 @@ export class RemoteMediaView {
     if (tile && tile.camStreamId === streamId) {
       tile.hasCam = false;
       tile.camStreamId = undefined;
-      try {
-        tile.video.srcObject = null;
-      } catch {
-        /* noop */
-      }
+      clearSrcObject(tile.video);
       // If still has mic, show placeholder; otherwise remove tile
       if (this.remoteAudios.has(userId)) {
         tile.video.style.display = 'none';
@@ -283,22 +285,9 @@ export class RemoteMediaView {
     // Panel shell: header bar (grab handle + name) + body (video / no-video).
     // Shares the .panel / .panel-header / .panel-body chrome with the
     // screenshare stage and self preview.
-    const container = document.createElement('div');
-    container.className = 'panel remote-tile';
+    const { container, header, label, body } = createPanelShell('panel remote-tile');
     container.dataset.userId = userId;
-
-    const header = document.createElement('div');
-    header.className = 'panel-header';
-    const label = document.createElement('span');
-    label.className = 'label';
     label.textContent = name;
-    header.appendChild(label);
-    header.appendChild(createModeControls());
-    container.appendChild(header);
-
-    const body = document.createElement('div');
-    body.className = 'panel-body';
-    container.appendChild(body);
 
     const video = document.createElement('video');
     video.autoplay = true;
@@ -339,21 +328,13 @@ export class RemoteMediaView {
     const t = this.remoteTiles.get(userId);
     if (t) {
       t.cleanupDrag();
-      try {
-        t.video.srcObject = null;
-      } catch {
-        /* noop */
-      }
+      clearSrcObject(t.video);
       t.container.remove();
       this.remoteTiles.delete(userId);
     }
     const a = this.remoteAudios.get(userId);
     if (a) {
-      try {
-        a.audio.srcObject = null;
-      } catch {
-        /* noop */
-      }
+      clearSrcObject(a.audio);
       a.audio.remove();
       this.remoteAudios.delete(userId);
     }
@@ -399,11 +380,7 @@ export class RemoteMediaView {
     const wasMain = this.mainScreenshareUserId === userId;
     const vacated = wasMain ? this.snapshotGeometry(ss.container) : null;
     ss.cleanup();
-    try {
-      ss.video.srcObject = null;
-    } catch {
-      /* noop */
-    }
+    clearSrcObject(ss.video);
     ss.container.remove();
     this.screenshares.delete(userId);
     if (!wasMain) {
@@ -457,22 +434,11 @@ export class RemoteMediaView {
   // `isMain` keeps the CSS default placement + the "main" accent; later shares
   // open smaller and offset so they don't cover the main one.
   private createScreenshareStage(userId: string, isMain: boolean): Screenshare {
-    const container = document.createElement('div');
-    container.className = isMain ? 'panel screenshare-stage main' : 'panel screenshare-stage';
+    const { container, header, label, body } = createPanelShell(
+      isMain ? 'panel screenshare-stage main' : 'panel screenshare-stage',
+    );
     container.dataset.userId = userId;
-
-    const header = document.createElement('div');
-    header.className = 'panel-header';
     header.title = 'ダブルクリックでメイン表示に切り替え';
-    const label = document.createElement('span');
-    label.className = 'label';
-    header.appendChild(label);
-    header.appendChild(createModeControls());
-    container.appendChild(header);
-
-    const body = document.createElement('div');
-    body.className = 'panel-body';
-    container.appendChild(body);
 
     const video = document.createElement('video');
     video.autoplay = true;
@@ -521,11 +487,7 @@ export class RemoteMediaView {
       }
       this.selfPreviewEl.classList.remove('hidden');
     } else {
-      try {
-        this.selfVideoEl.srcObject = null;
-      } catch {
-        /* noop */
-      }
+      clearSrcObject(this.selfVideoEl);
       this.selfPreviewEl.classList.add('hidden');
     }
   }
