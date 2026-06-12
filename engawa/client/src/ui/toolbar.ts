@@ -13,6 +13,8 @@ import {
   VBG_OFF,
   VBG_STORAGE_KEY,
 } from '@/media/vbg';
+import { el } from '@/ui/dom';
+import { addMenuItem, wireMenuToggle } from '@/ui/menu';
 import type { Toasts } from '@/ui/notify';
 import type { LayoutMode } from '@/ui/panels';
 import type { RemoteMediaView } from '@/ui/remote-media';
@@ -269,11 +271,11 @@ export class ToolbarController {
       this.reactionMenu.classList.add('hidden');
       this.moreMenu.classList.add('hidden');
     };
-    // No stopPropagation on the toggles below: the click bubbles to document so
-    // the roster's status menu (a separate outside-click handler) also closes,
-    // and vice-versa — keeping the two menu groups mutually exclusive. Each
-    // handler is guarded by "t !== its own button", so a toggle never closes
-    // the menu it just opened.
+    // The toggles are wired via wireMenuToggle, which deliberately lets the
+    // click bubble to document so the roster's status menu (a separate
+    // outside-click handler) also closes, and vice-versa — keeping the two menu
+    // groups mutually exclusive (see ui/menu.ts). Each handler is guarded by
+    // "t !== its own button", so a toggle never closes the menu it just opened.
     document.addEventListener('click', (e) => {
       const t = e.target as Node;
       if (
@@ -290,45 +292,21 @@ export class ToolbarController {
       }
     });
 
-    btnMicDevices.addEventListener('click', async () => {
-      const open = micMenu.classList.contains('hidden');
-      closeMenus();
-      if (open) {
-        await this.populateDeviceMenu(
-          micMenu,
-          await this.media.listMics(),
-          this.media.selectedMicId,
-          (id) => this.switchMic(id),
-        );
-        micMenu.classList.remove('hidden');
-      }
-    });
-    btnCamDevices.addEventListener('click', async () => {
-      const open = camMenu.classList.contains('hidden');
-      closeMenus();
-      if (open) {
-        await this.populateCamMenu(camMenu);
-        camMenu.classList.remove('hidden');
-      }
-    });
-
-    this.btnReaction.addEventListener('click', () => {
-      const open = this.reactionMenu.classList.contains('hidden');
-      closeMenus();
-      if (open) {
-        this.populateReactionMenu(this.reactionMenu);
-        this.reactionMenu.classList.remove('hidden');
-      }
-    });
-
-    this.btnMore.addEventListener('click', () => {
-      const open = this.moreMenu.classList.contains('hidden');
-      closeMenus();
-      if (open) {
-        this.populateMoreMenu(this.moreMenu);
-        this.moreMenu.classList.remove('hidden');
-      }
-    });
+    wireMenuToggle(btnMicDevices, micMenu, closeMenus, async () =>
+      this.populateDeviceMenu(
+        micMenu,
+        await this.media.listMics(),
+        this.media.selectedMicId,
+        (id) => this.switchMic(id),
+      ),
+    );
+    wireMenuToggle(btnCamDevices, camMenu, closeMenus, () => this.populateCamMenu(camMenu));
+    wireMenuToggle(this.btnReaction, this.reactionMenu, closeMenus, () =>
+      this.populateReactionMenu(this.reactionMenu),
+    );
+    wireMenuToggle(this.btnMore, this.moreMenu, closeMenus, () =>
+      this.populateMoreMenu(this.moreMenu),
+    );
   }
 
   // The 😀 reaction menu: one button per whitelisted emoji. Clicking sends the
@@ -337,16 +315,18 @@ export class ToolbarController {
   private populateReactionMenu(menu: HTMLDivElement) {
     menu.replaceChildren();
     REACTION_EMOJIS.forEach((emoji, i) => {
-      const item = document.createElement('button');
-      item.className = 'reaction-item';
-      item.title = `リアクション (${i + 1})`;
-      item.textContent = emoji;
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        menu.classList.add('hidden');
-        this.onReaction(emoji);
-      });
-      menu.appendChild(item);
+      menu.appendChild(
+        el('button', {
+          className: 'reaction-item',
+          title: `リアクション (${i + 1})`,
+          textContent: emoji,
+          onClick: (e) => {
+            e.stopPropagation();
+            menu.classList.add('hidden');
+            this.onReaction(emoji);
+          },
+        }),
+      );
     });
   }
 
@@ -358,26 +338,16 @@ export class ToolbarController {
   ) {
     menu.replaceChildren();
     if (devices.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'device-empty';
-      empty.textContent = 'デバイスが見つかりません';
-      menu.appendChild(empty);
+      menu.appendChild(
+        el('div', { className: 'device-empty', textContent: 'デバイスが見つかりません' }),
+      );
       return;
     }
     devices.forEach((d, i) => {
-      const item = document.createElement('button');
-      item.className = 'device-item';
       // The first listed device represents the browser default when nothing
       // has been explicitly selected.
       const isSelected = d.deviceId === selectedId || (!selectedId && i === 0);
-      if (isSelected) item.classList.add('selected');
-      item.textContent = (isSelected ? '✓ ' : '') + (d.label || `デバイス ${i + 1}`);
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        menu.classList.add('hidden');
-        onPick(d.deviceId);
-      });
-      menu.appendChild(item);
+      addMenuItem(menu, d.label || `デバイス ${i + 1}`, () => onPick(d.deviceId), isSelected);
     });
   }
 
@@ -392,28 +362,12 @@ export class ToolbarController {
       (id) => this.switchCam(id),
     );
 
-    const sep = document.createElement('div');
-    sep.className = 'menu-separator';
-    menu.appendChild(sep);
-    const label = document.createElement('div');
-    label.className = 'menu-label';
-    label.textContent = '背景';
-    menu.appendChild(label);
+    menu.appendChild(el('div', { className: 'menu-separator' }));
+    menu.appendChild(el('div', { className: 'menu-label', textContent: '背景' }));
 
     const current = this.media.bgChoice;
-    const addBg = (text: string, onPick: () => void, selectedId?: string) => {
-      const item = document.createElement('button');
-      item.className = 'device-item';
-      const isSelected = selectedId !== undefined && selectedId === current;
-      if (isSelected) item.classList.add('selected');
-      item.textContent = (isSelected ? '✓ ' : '') + text;
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        menu.classList.add('hidden');
-        onPick();
-      });
-      menu.appendChild(item);
-    };
+    const addBg = (text: string, onPick: () => void, selectedId?: string) =>
+      addMenuItem(menu, text, onPick, selectedId !== undefined && selectedId === current);
 
     addBg('🚫 オフ', () => void this.setBackground(VBG_OFF), VBG_OFF);
     addBg('🌫 ぼかし', () => void this.setBackground(VBG_BLUR), VBG_BLUR);
@@ -433,19 +387,8 @@ export class ToolbarController {
   // toolbar — see setupLayoutControls.)
   private populateMoreMenu(menu: HTMLDivElement) {
     menu.replaceChildren();
-    const addItem = (text: string, onClick: () => void) => {
-      const item = document.createElement('button');
-      item.className = 'device-item';
-      item.textContent = text;
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        menu.classList.add('hidden');
-        onClick();
-      });
-      menu.appendChild(item);
-    };
-    addItem('🧍 アバターを編集', () => this.onOpenAvatar());
-    addItem(this.isDebugOpen() ? '🐛 デバッグを閉じる' : '🐛 デバッグ（RTC 接続）', () =>
+    addMenuItem(menu, '🧍 アバターを編集', () => this.onOpenAvatar());
+    addMenuItem(menu, this.isDebugOpen() ? '🐛 デバッグを閉じる' : '🐛 デバッグ（RTC 接続）', () =>
       this.toggleDebug(),
     );
   }

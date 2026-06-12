@@ -9,6 +9,7 @@
 import type { PlayerStatus } from '@/core/types';
 import { formatUntil, STATUS_NOTE_MAX_LEN, STATUS_UNTIL_PRESETS_MIN } from '@/core/types';
 import { el } from '@/ui/dom';
+import { addMenuItem } from '@/ui/menu';
 import type { PlayerState } from '@/world/player';
 
 // Status emoji shown in the roster. Unlike the canvas avatar badge, `online`
@@ -257,19 +258,16 @@ export class RosterPanel {
 
     this.statusMenu.appendChild(el('div', { className: 'status-divider' }));
 
-    // Status buttons — selecting one commits the draft and closes.
+    // Status buttons — selecting one commits the draft and closes (commitStatus
+    // re-hides the menu; addMenuItem's own hide is the same, just earlier).
     const current = this.getStatus();
     for (const status of STATUS_ORDER) {
-      const item = document.createElement('button');
-      item.className = 'device-item';
-      const isSelected = status === current;
-      if (isSelected) item.classList.add('selected');
-      item.textContent = (isSelected ? '✓ ' : '') + STATUS_LABELS[status];
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.commitStatus(status);
-      });
-      this.statusMenu.appendChild(item);
+      addMenuItem(
+        this.statusMenu,
+        STATUS_LABELS[status],
+        () => this.commitStatus(status),
+        status === current,
+      );
     }
   }
 
