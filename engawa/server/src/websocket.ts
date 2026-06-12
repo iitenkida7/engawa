@@ -56,22 +56,22 @@ function joinedClientsIn(
   return result;
 }
 
-// Resolve the target of a 1:1 relay: the sender must have joined and the
-// target must exist and have joined. signal / stream-meta historically do NOT
-// require the target to share the sender's workspace (mesh peers are already
-// matched by group-update), while knock / knock-reply DO — `sameWorkspace`
-// preserves that asymmetry exactly. Returns null when the message must be
+// Resolve the target of a 1:1 relay (signal / stream-meta / knock /
+// knock-reply): the sender must have joined, the target must exist, have
+// joined, and share the sender's workspace — workspaces are isolation
+// boundaries, so no relay may cross them. (Legitimate signal/stream-meta
+// traffic is always same-workspace anyway: mesh peers are matched by
+// group-update within one workspace.) Returns null when the message must be
 // dropped.
 function relayTarget(
   clients: Map<string, ServerWebSocket<WsData>>,
   ws: ServerWebSocket<WsData>,
   to: string,
-  sameWorkspace: boolean,
 ): ServerWebSocket<WsData> | null {
   if (!ws.data.joined) return null;
   const target = clients.get(to);
   if (!target?.data.joined) return null;
-  if (sameWorkspace && target.data.workspace !== ws.data.workspace) return null;
+  if (target.data.workspace !== ws.data.workspace) return null;
   return target;
 }
 
@@ -317,7 +317,7 @@ export function createWebSocketHandler(
         }
 
         case 'signal': {
-          const target = relayTarget(clients, ws, msg.to, false);
+          const target = relayTarget(clients, ws, msg.to);
           if (!target) return;
           send(target, {
             type: 'signal',
@@ -328,7 +328,7 @@ export function createWebSocketHandler(
         }
 
         case 'stream-meta': {
-          const target = relayTarget(clients, ws, msg.to, false);
+          const target = relayTarget(clients, ws, msg.to);
           if (!target) return;
           send(target, {
             type: 'stream-meta',
@@ -375,14 +375,14 @@ export function createWebSocketHandler(
         }
 
         case 'knock': {
-          const target = relayTarget(clients, ws, msg.to, true);
+          const target = relayTarget(clients, ws, msg.to);
           if (!target) return;
           send(target, { type: 'knock', from: ws.data.userId, name: ws.data.name });
           break;
         }
 
         case 'knock-reply': {
-          const target = relayTarget(clients, ws, msg.to, true);
+          const target = relayTarget(clients, ws, msg.to);
           if (!target) return;
           send(target, {
             type: 'knock-reply',

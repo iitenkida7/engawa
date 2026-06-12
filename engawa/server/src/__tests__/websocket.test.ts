@@ -475,20 +475,17 @@ describe('createWebSocketHandler — signal (targeted relay)', () => {
     expect(target.sent).toHaveLength(0);
   });
 
-  // Characterization: signal historically does NOT require the target to share
-  // the sender's workspace (unlike knock). Pinned so the relay refactor cannot
-  // change it silently.
-  test('currently relays a signal across workspaces (no workspace check)', () => {
+  // Workspaces are isolation boundaries: a signal must never cross into
+  // another workspace (the same rule knock always had). Mesh peers are matched
+  // by group-update within one workspace, so a legitimate signal is always
+  // same-workspace.
+  test('drops a signal whose target is in another workspace', () => {
     const sender = makeWs({ workspace: 'ws1', joined: true });
     const target = makeWs({ workspace: 'ws2', joined: true });
     handler.open!(sender);
     handler.open!(target);
     deliver(handler, sender, { type: 'signal', to: target.data.userId, data: { sdp: 'x' } });
-    expect(target.sent).toContainEqual({
-      type: 'signal',
-      from: sender.data.userId,
-      data: { sdp: 'x' },
-    });
+    expect(target.sent).toHaveLength(0);
   });
 });
 
@@ -588,10 +585,9 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     });
   });
 
-  // Characterization: stream-meta, like signal, historically does NOT require
-  // the target to share the sender's workspace (unlike knock). Pinned so the
-  // relay refactor cannot change it silently.
-  test('currently relays stream-meta across workspaces (no workspace check)', () => {
+  // Workspaces are isolation boundaries: stream-meta must never cross into
+  // another workspace (the same rule as signal and knock).
+  test('drops stream-meta whose target is in another workspace', () => {
     const sender = makeWs({ workspace: 'ws1', joined: true });
     const target = makeWs({ workspace: 'ws2', joined: true });
     handler.open!(sender);
@@ -604,12 +600,7 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       kind: 'cam',
     });
 
-    expect(target.sent).toContainEqual({
-      type: 'stream-meta',
-      from: sender.data.userId,
-      streamId: 's1',
-      kind: 'cam',
-    });
+    expect(target.sent).toHaveLength(0);
   });
 });
 
