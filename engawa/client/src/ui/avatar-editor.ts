@@ -12,6 +12,7 @@
 // CharacterSheet for the preview + thumbnails (the image fetches are browser-
 // cached, so the renderer's sheet and this one don't double-download).
 
+import { el } from '@/ui/dom';
 import {
   CATEGORY_LABELS,
   CharacterSheet,
@@ -134,33 +135,20 @@ export class AvatarEditor {
 
   /** Build one collapsible category: a clickable header + a hidden options grid. */
   private buildCategory(list: HTMLDivElement, cat: OutfitCategory) {
-    const wrap = document.createElement('div');
-    wrap.className = 'avatar-cat';
-
-    const head = document.createElement('button');
-    head.type = 'button';
-    head.className = 'avatar-cat-head';
-
-    const label = document.createElement('span');
-    label.className = 'avatar-cat-label';
-    label.textContent = CATEGORY_LABELS[cat];
-
-    const swatch = document.createElement('span');
-    swatch.className = 'avatar-swatch';
+    const swatch = el('span', { className: 'avatar-swatch' });
     swatch.style.display = 'none';
+    const current = el('span', { className: 'avatar-cat-current' });
+    const chevron = el('span', { className: 'avatar-cat-chevron', textContent: '▾' });
 
-    const current = document.createElement('span');
-    current.className = 'avatar-cat-current';
+    const head = el('button', { className: 'avatar-cat-head', onClick: () => this.toggle(cat) }, [
+      el('span', { className: 'avatar-cat-label', textContent: CATEGORY_LABELS[cat] }),
+      swatch,
+      current,
+      chevron,
+    ]);
+    head.type = 'button';
 
-    const chevron = document.createElement('span');
-    chevron.className = 'avatar-cat-chevron';
-    chevron.textContent = '▾';
-
-    head.append(label, swatch, current, chevron);
-    head.addEventListener('click', () => this.toggle(cat));
-
-    const grid = document.createElement('div');
-    grid.className = 'avatar-grid hidden';
+    const grid = el('div', { className: 'avatar-grid hidden' });
 
     // Color categories (skin / hair / cloth) show a swatch; part categories show
     // a mini avatar wearing that option. colorSwatch() is the discriminator.
@@ -168,39 +156,36 @@ export class AvatarEditor {
     const cells: HTMLButtonElement[] = [];
     const count = OUTFIT_COUNTS[cat];
     for (let i = 0; i < count; i++) {
-      const cell = document.createElement('button');
+      const cell = el('button', {
+        className: 'avatar-cell',
+        title: optionLabel(cat, i),
+        onClick: () => this.choose(cat, i),
+      });
       cell.type = 'button';
-      cell.className = 'avatar-cell';
-      cell.title = optionLabel(cat, i);
 
       if (isColor) {
-        const sw = document.createElement('span');
-        sw.className = 'avatar-cell-swatch';
+        const sw = el('span', { className: 'avatar-cell-swatch' });
         sw.style.background = colorSwatch(cat, i) ?? '#000';
         cell.appendChild(sw);
       } else {
-        const canvas = document.createElement('canvas');
-        canvas.className = 'avatar-thumb';
+        const canvas = el('canvas', {
+          className: 'avatar-thumb',
+          dataset: { cat, index: String(i) },
+        });
         canvas.width = THUMB_W;
         canvas.height = THUMB_H;
-        canvas.dataset.cat = cat;
-        canvas.dataset.index = String(i);
         cell.appendChild(canvas);
         this.observer.observe(canvas);
       }
 
-      const cl = document.createElement('span');
-      cl.className = 'avatar-cell-label';
-      cl.textContent = optionLabel(cat, i);
-      cell.appendChild(cl);
-
-      cell.addEventListener('click', () => this.choose(cat, i));
+      cell.appendChild(
+        el('span', { className: 'avatar-cell-label', textContent: optionLabel(cat, i) }),
+      );
       cells.push(cell);
       grid.appendChild(cell);
     }
 
-    wrap.append(head, grid);
-    list.appendChild(wrap);
+    list.appendChild(el('div', { className: 'avatar-cat' }, [head, grid]));
     this.cats.set(cat, { current, swatch, chevron, grid, cells });
   }
 

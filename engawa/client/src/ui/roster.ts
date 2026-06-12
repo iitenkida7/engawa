@@ -8,6 +8,7 @@
 
 import type { PlayerStatus } from '@/core/types';
 import { formatUntil, STATUS_NOTE_MAX_LEN, STATUS_UNTIL_PRESETS_MIN } from '@/core/types';
+import { el } from '@/ui/dom';
 import type { PlayerState } from '@/world/player';
 
 // Status emoji shown in the roster. Unlike the canvas avatar badge, `online`
@@ -204,18 +205,14 @@ export class RosterPanel {
     this.untilMinDraft = this.getUntilMin();
 
     // One-liner input.
-    const noteField = document.createElement('label');
-    noteField.className = 'status-field';
-    const noteLabel = document.createElement('span');
-    noteLabel.className = 'status-field-label';
-    noteLabel.textContent = '一言メッセージ';
-    const note = document.createElement('input');
+    const note = el('input', {
+      className: 'status-note-input',
+      onClick: (e) => e.stopPropagation(),
+    });
     note.type = 'text';
-    note.className = 'status-note-input';
     note.maxLength = STATUS_NOTE_MAX_LEN;
     note.placeholder = '例: ランチ';
     note.value = this.getNote();
-    note.addEventListener('click', (e) => e.stopPropagation());
     // Enter commits with the current status, for a quick note-only update.
     note.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -224,40 +221,41 @@ export class RosterPanel {
       }
     });
     this.noteInput = note;
-    noteField.append(noteLabel, note);
-    this.statusMenu.appendChild(noteField);
+    this.statusMenu.appendChild(
+      el('label', { className: 'status-field' }, [
+        el('span', { className: 'status-field-label', textContent: '一言メッセージ' }),
+        note,
+      ]),
+    );
 
     // Return-time presets.
-    const untilField = document.createElement('div');
-    untilField.className = 'status-field';
-    const untilLabel = document.createElement('span');
-    untilLabel.className = 'status-field-label';
-    untilLabel.textContent = '戻り時刻';
-    const untilRow = document.createElement('div');
-    untilRow.className = 'status-until-row';
+    const untilRow = el('div', { className: 'status-until-row' });
     const presets: { min: number | null; text: string }[] = [
       { min: null, text: 'なし' },
       ...STATUS_UNTIL_PRESETS_MIN.map((min) => ({ min, text: `${min}分` })),
     ];
     for (const preset of presets) {
-      const btn = document.createElement('button');
-      btn.className = 'status-until-btn';
-      btn.textContent = preset.text;
-      if (preset.min === this.untilMinDraft) btn.classList.add('selected');
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.untilMinDraft = preset.min;
-        for (const b of untilRow.children) b.classList.remove('selected');
-        btn.classList.add('selected');
+      const btn = el('button', {
+        className:
+          preset.min === this.untilMinDraft ? 'status-until-btn selected' : 'status-until-btn',
+        textContent: preset.text,
+        onClick: (e) => {
+          e.stopPropagation();
+          this.untilMinDraft = preset.min;
+          for (const b of untilRow.children) b.classList.remove('selected');
+          btn.classList.add('selected');
+        },
       });
       untilRow.appendChild(btn);
     }
-    untilField.append(untilLabel, untilRow);
-    this.statusMenu.appendChild(untilField);
+    this.statusMenu.appendChild(
+      el('div', { className: 'status-field' }, [
+        el('span', { className: 'status-field-label', textContent: '戻り時刻' }),
+        untilRow,
+      ]),
+    );
 
-    const divider = document.createElement('div');
-    divider.className = 'status-divider';
-    this.statusMenu.appendChild(divider);
+    this.statusMenu.appendChild(el('div', { className: 'status-divider' }));
 
     // Status buttons — selecting one commits the draft and closes.
     const current = this.getStatus();
@@ -350,60 +348,53 @@ export class RosterPanel {
   }
 
   private createRow(p: PlayerState): RosterRow {
-    const el = document.createElement('div');
-    el.className = 'roster-row';
-    el.dataset.userId = p.userId;
-
-    const dot = document.createElement('span');
-    dot.className = 'roster-dot';
+    const dot = el('span', { className: 'roster-dot' });
+    const name = el('span', { className: 'roster-name' });
+    const note = el('span', { className: 'roster-note hidden' });
+    const status = el('span', { className: 'roster-status' });
 
     // Name and the optional status one-liner stack in a column so the note (#85)
     // sits under the name without pushing the status emoji / buttons around.
-    const main = document.createElement('div');
-    main.className = 'roster-main';
-
-    const name = document.createElement('span');
-    name.className = 'roster-name';
-
-    const note = document.createElement('span');
-    note.className = 'roster-note hidden';
-
-    main.append(name, note);
-
-    const status = document.createElement('span');
-    status.className = 'roster-status';
-
-    el.append(dot, main, status);
+    // Clicking the row (anywhere but the → button) focuses the avatar on the
+    // map — a light, non-destructive action; moving requires the explicit →.
+    const row = el(
+      'div',
+      {
+        className: 'roster-row',
+        dataset: { userId: p.userId },
+        onClick: () => this.onFocus(p.userId),
+      },
+      [dot, el('div', { className: 'roster-main' }, [name, note]), status],
+    );
 
     // Self can't knock or walk to itself, so its row has neither button.
     if (!p.isSelf) {
-      const knock = document.createElement('button');
-      knock.className = 'roster-knock';
-      knock.textContent = '🔔';
-      knock.title = `${p.name} さんにノック（話したいと伝える）`;
-      knock.addEventListener('click', (e) => {
-        // Don't let the button click bubble up to the row's focus handler.
-        e.stopPropagation();
-        this.onKnock(p.userId);
-      });
-      el.appendChild(knock);
-
-      const go = document.createElement('button');
-      go.className = 'roster-go';
-      go.textContent = '→';
-      go.title = `${p.name} のそばへ移動`;
-      go.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.onGoTo(p.userId);
-      });
-      el.appendChild(go);
+      row.appendChild(
+        el('button', {
+          className: 'roster-knock',
+          textContent: '🔔',
+          title: `${p.name} さんにノック（話したいと伝える）`,
+          onClick: (e) => {
+            // Don't let the button click bubble up to the row's focus handler.
+            e.stopPropagation();
+            this.onKnock(p.userId);
+          },
+        }),
+      );
+      row.appendChild(
+        el('button', {
+          className: 'roster-go',
+          textContent: '→',
+          title: `${p.name} のそばへ移動`,
+          onClick: (e) => {
+            e.stopPropagation();
+            this.onGoTo(p.userId);
+          },
+        }),
+      );
     }
 
-    // Clicking the row (anywhere but the → button) focuses the avatar on the
-    // map — a light, non-destructive action; moving requires the explicit →.
-    el.addEventListener('click', () => this.onFocus(p.userId));
-
-    return { el, dot, name, note, status, cache: {} };
+    return { el: row, dot, name, note, status, cache: {} };
   }
 
   private syncRow(row: RosterRow, p: PlayerState, focused: boolean) {
