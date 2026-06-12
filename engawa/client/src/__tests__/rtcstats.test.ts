@@ -4,6 +4,7 @@ import {
   describeTransport,
   diffRtcStats,
   type RtcSnapshot,
+  statsReportToArray,
   summarizeRtcStats,
 } from '@/rtc/rtcstats';
 
@@ -342,5 +343,22 @@ describe('diffRtcStats — transport', () => {
       snap({ tMs: 2000, localCandidateType: 'relay', remoteCandidateType: 'host' }),
     );
     expect(rates.transport).toBe('TURN中継');
+  });
+});
+
+describe('statsReportToArray', () => {
+  it('flattens a map-like stats report into its stat records', () => {
+    const report = new Map<string, Record<string, unknown>>([
+      ['a', { type: 'codec', id: 'c1' }],
+      ['b', { type: 'outbound-rtp', ssrc: 1 }],
+    ]);
+    expect(statsReportToArray(report as unknown as RTCStatsReport)).toEqual([
+      { type: 'codec', id: 'c1' },
+      { type: 'outbound-rtp', ssrc: 1 },
+    ]);
+  });
+
+  it('returns an empty array for an empty report', () => {
+    expect(statsReportToArray(new Map() as unknown as RTCStatsReport)).toEqual([]);
   });
 });

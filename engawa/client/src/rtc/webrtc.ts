@@ -6,16 +6,19 @@ import {
   computeCamEncoding,
   computeScreenEncoding,
   computeScreenScale,
+  MIC_BITRATE,
   type ScreenEncoding,
 } from '@/rtc/cam-bitrate';
-import { diffRtcStats, type RtcConn, type RtcSnapshot, summarizeRtcStats } from '@/rtc/rtcstats';
+import { fetchIceServers } from '@/rtc/ice';
+import {
+  diffRtcStats,
+  type RtcConn,
+  type RtcSnapshot,
+  statsReportToArray,
+  summarizeRtcStats,
+} from '@/rtc/rtcstats';
 import { transformSdp } from '@/rtc/sdp';
 import { tuneReceivers } from '@/rtc/tune';
-
-// Fixed mic send-bitrate ceiling (bps). The encoder still adapts down to the
-// available bandwidth. Camera and screen ceilings are dynamic and live in the
-// per-instance send policy (see cam-bitrate.ts / setCamEncoding / setScreenEncoding).
-const MIC_BITRATE = 64_000;
 
 function getPc(peer: PeerInstance): RTCPeerConnection | undefined {
   return (peer as unknown as { _pc?: RTCPeerConnection })._pc;
@@ -137,13 +140,7 @@ export class WebRtcManager {
 
   async ensureIceServers(): Promise<RTCIceServer[]> {
     if (this.iceServers) return this.iceServers;
-    try {
-      const res = await fetch('/api/turn-credentials');
-      this.iceServers = (await res.json()) as RTCIceServer[];
-    } catch (err) {
-      console.error('[rtc] failed to fetch ice servers', err);
-      this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
-    }
+    this.iceServers = await fetchIceServers('[rtc]');
     return this.iceServers;
   }
 
@@ -228,11 +225,7 @@ export class WebRtcManager {
       } catch {
         continue;
       }
-      const arr: Record<string, unknown>[] = [];
-      report.forEach((s) => {
-        arr.push(s as Record<string, unknown>);
-      });
-      const cur = summarizeRtcStats(arr);
+      const cur = summarizeRtcStats(statsReportToArray(report));
       const prev = this.statsPrev.get(entry.remoteUserId);
       this.statsPrev.set(entry.remoteUserId, cur);
       if (prev) {

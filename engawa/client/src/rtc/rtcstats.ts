@@ -80,6 +80,16 @@ function shortCodec(mime: string | undefined): string | undefined {
   return slash >= 0 ? mime.slice(slash + 1) : mime;
 }
 
+// Flatten an RTCStatsReport (a read-only map of stat records) into the plain
+// records summarizeRtcStats consumes. Map-like, so tests can feed a plain Map.
+export function statsReportToArray(report: RTCStatsReport): Record<string, unknown>[] {
+  const arr: Record<string, unknown>[] = [];
+  report.forEach((s) => {
+    arr.push(s as Record<string, unknown>);
+  });
+  return arr;
+}
+
 // Pure: collapse a getStats report (any iterable of stat entries) into the
 // counters we care about. Unknown/irrelevant entry types are ignored. Codec
 // names are resolved from the 'codec' entries referenced by codecId.

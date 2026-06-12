@@ -1,10 +1,12 @@
 import type { SfuTrack, StreamKind } from '@/core/types';
-import { SFU_CAM_LAYERS, SFU_SCREEN_MAX_BITRATE } from '@/rtc/cam-bitrate';
+import { MIC_BITRATE, SFU_CAM_LAYERS, SFU_SCREEN_MAX_BITRATE } from '@/rtc/cam-bitrate';
+import { fetchIceServers } from '@/rtc/ice';
 import {
   diffRtcStats,
   type RtcConn,
   type RtcSnapshot,
   type RtcStreamRate,
+  statsReportToArray,
   summarizeRtcStats,
 } from '@/rtc/rtcstats';
 import { transformSdpForLowLatency } from '@/rtc/sdp';
@@ -43,8 +45,6 @@ export const SFU_DOWNSTREAM_ID = '__sfu_down__';
 //     and requiresImmediateRenegotiation → we answer via PUT renegotiate.
 // Every op mutates the single PC, so they are serialized on one chain to avoid
 // interleaved offer/answer races.
-
-const MIC_BITRATE = 64_000;
 
 type SessionResponse = { sessionId?: string; errorCode?: string; errorDescription?: string };
 
@@ -258,11 +258,7 @@ export class SfuManager {
     } catch {
       return [];
     }
-    const arr: Record<string, unknown>[] = [];
-    report.forEach((s) => {
-      arr.push(s as Record<string, unknown>);
-    });
-    const cur = summarizeRtcStats(arr);
+    const cur = summarizeRtcStats(statsReportToArray(report));
     const prev = this.statsPrev;
     this.statsPrev = cur;
     if (!prev) return [];
@@ -329,13 +325,7 @@ export class SfuManager {
 
   private async ensureIceServers(): Promise<RTCIceServer[]> {
     if (this.iceServers) return this.iceServers;
-    try {
-      const res = await fetch('/api/turn-credentials');
-      this.iceServers = (await res.json()) as RTCIceServer[];
-    } catch (err) {
-      console.error('[sfu] failed to fetch ice servers', err);
-      this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
-    }
+    this.iceServers = await fetchIceServers('[sfu]');
     return this.iceServers;
   }
 

@@ -24,6 +24,11 @@ export const CAM_THROTTLE_MIN_PEERS = 3;
 export const CAM_BITRATE_SPEAKING = 600_000;
 export const CAM_BITRATE_QUIET = 150_000;
 
+// Fixed mic send-bitrate ceiling (bps), shared by both transports (mesh and
+// SFU). The encoder still adapts down to the available bandwidth; unlike the
+// camera/screen ceilings above, the mic ceiling never throttles by headcount.
+export const MIC_BITRATE = 64_000;
+
 // Camera framerate / resolution-downscale ceilings. The quiet (throttled) state
 // halves the framerate and each spatial dimension; the capture itself stays at
 // its full rate so a speaker gets the smooth/sharp picture immediately.
