@@ -1,5 +1,6 @@
 import type { GroupMethod } from '@/core/types';
 import { describeStream, type RtcConn, type RtcStreamRate } from '@/rtc/rtcstats';
+import { el } from '@/ui/dom';
 import { makeDraggable } from '@/ui/draggable';
 
 // The debug console modal: a panel toggled from the toolbar's "⋯" overflow menu
@@ -71,22 +72,23 @@ export class DebugConsole {
   private render(method: GroupMethod, conns: RtcConn[]) {
     this.body.replaceChildren();
 
-    const summary = document.createElement('div');
-    summary.className = 'debug-summary';
-    const badge = document.createElement('span');
-    badge.className = `debug-badge debug-badge-${method}`;
-    badge.textContent = method === 'sfu' ? 'SFU' : 'メッシュ';
-    summary.appendChild(badge);
-    const count = document.createElement('span');
-    count.textContent = `接続 ${conns.length}`;
-    summary.appendChild(count);
-    this.body.appendChild(summary);
+    this.body.appendChild(
+      el('div', { className: 'debug-summary' }, [
+        el('span', {
+          className: `debug-badge debug-badge-${method}`,
+          textContent: method === 'sfu' ? 'SFU' : 'メッシュ',
+        }),
+        el('span', { textContent: `接続 ${conns.length}` }),
+      ]),
+    );
 
     if (conns.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'debug-empty';
-      empty.textContent = '接続はありません（近くに誰かがいると表示されます）';
-      this.body.appendChild(empty);
+      this.body.appendChild(
+        el('div', {
+          className: 'debug-empty',
+          textContent: '接続はありません（近くに誰かがいると表示されます）',
+        }),
+      );
       return;
     }
 
@@ -96,36 +98,26 @@ export class DebugConsole {
   }
 
   private renderConn(conn: RtcConn): HTMLElement {
-    const card = document.createElement('div');
-    card.className = 'debug-conn';
-
-    const head = document.createElement('div');
-    head.className = 'debug-conn-head';
-    const name = document.createElement('span');
-    name.className = 'debug-conn-name';
-    // label wins (SFU synthetic entries), then the resolved peer name, then a
-    // truncated id for a peer we don't have in the roster yet.
-    name.textContent = conn.label ?? (this.resolveName(conn.id) || conn.id.slice(0, 8));
-    head.appendChild(name);
+    const head = el('div', { className: 'debug-conn-head' }, [
+      el('span', {
+        className: 'debug-conn-name',
+        // label wins (SFU synthetic entries), then the resolved peer name, then a
+        // truncated id for a peer we don't have in the roster yet.
+        textContent: conn.label ?? (this.resolveName(conn.id) || conn.id.slice(0, 8)),
+      }),
+    ]);
     if (conn.rttMs !== undefined) {
-      const rtt = document.createElement('span');
-      rtt.className = 'debug-rtt';
-      rtt.textContent = `RTT ${conn.rttMs}ms`;
-      head.appendChild(rtt);
+      head.appendChild(el('span', { className: 'debug-rtt', textContent: `RTT ${conn.rttMs}ms` }));
     }
     if (conn.transport) {
-      const transport = document.createElement('span');
-      transport.className = 'debug-rtt';
-      transport.textContent = conn.transport;
-      head.appendChild(transport);
+      head.appendChild(el('span', { className: 'debug-rtt', textContent: conn.transport }));
     }
-    card.appendChild(head);
 
+    const card = el('div', { className: 'debug-conn' }, [head]);
     if (conn.streams.length === 0) {
-      const idle = document.createElement('div');
-      idle.className = 'debug-stream-empty';
-      idle.textContent = 'ストリームなし';
-      card.appendChild(idle);
+      card.appendChild(
+        el('div', { className: 'debug-stream-empty', textContent: 'ストリームなし' }),
+      );
     }
     for (const s of conn.streams) {
       card.appendChild(this.renderStream(s));
@@ -134,18 +126,11 @@ export class DebugConsole {
   }
 
   private renderStream(s: RtcStreamRate): HTMLElement {
-    const row = document.createElement('div');
-    row.className = `debug-stream debug-stream-${s.dir}`;
-    const tag = document.createElement('span');
-    tag.className = 'debug-stream-tag';
     const arrow = s.dir === 'send' ? '⬆' : '⬇';
     const icon = s.kind === 'audio' ? '🎤' : '🎥';
-    tag.textContent = `${arrow}${icon}`;
-    row.appendChild(tag);
-    const detail = document.createElement('span');
-    detail.className = 'debug-stream-detail';
-    detail.textContent = describeStream(s).join(' · ');
-    row.appendChild(detail);
-    return row;
+    return el('div', { className: `debug-stream debug-stream-${s.dir}` }, [
+      el('span', { className: 'debug-stream-tag', textContent: `${arrow}${icon}` }),
+      el('span', { className: 'debug-stream-detail', textContent: describeStream(s).join(' · ') }),
+    ]);
   }
 }

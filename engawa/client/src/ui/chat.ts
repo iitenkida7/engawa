@@ -5,6 +5,8 @@
 // has seen this session and never backfills. The App owns the network; this
 // view owns the DOM and reports sends through the onSend callback.
 
+import { el } from '@/ui/dom';
+
 // How many message rows to keep in the DOM before dropping the oldest.
 const MAX_MESSAGES = 40;
 
@@ -57,19 +59,11 @@ export class ChatPanel {
   // Render one received (or self-echoed) message and trim the backlog. While the
   // panel is closed, a remote message lights the toolbar button's unread dot.
   addMessage(m: ChatMessage) {
-    const row = document.createElement('div');
-    row.className = m.isSelf ? 'chat-msg self' : 'chat-msg';
-
-    const who = document.createElement('span');
-    who.className = 'chat-who';
-    who.textContent = m.name || m.from.slice(0, 6);
-
-    const body = document.createElement('span');
-    body.className = 'chat-text';
-    // textContent (not innerHTML) so message text is never interpreted as HTML.
-    body.textContent = m.text;
-
-    row.append(who, body);
+    const row = el('div', { className: m.isSelf ? 'chat-msg self' : 'chat-msg' }, [
+      el('span', { className: 'chat-who', textContent: m.name || m.from.slice(0, 6) }),
+      // textContent (not innerHTML) so message text is never interpreted as HTML.
+      el('span', { className: 'chat-text', textContent: m.text }),
+    ]);
     this.listEl.appendChild(row);
     while (this.listEl.childElementCount > MAX_MESSAGES) {
       this.listEl.firstElementChild?.remove();

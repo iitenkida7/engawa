@@ -4,13 +4,15 @@
 // is a singleton with its own chrome. The container is created lazily on first
 // use and reused for the page's lifetime.
 
+import { el } from '@/ui/dom';
+
 export type ToastAction = { label: string; primary?: boolean; onClick: () => void };
 
 export class Toasts {
   private container: HTMLDivElement;
 
   constructor() {
-    this.container = document.createElement('div');
+    this.container = el('div');
     this.container.id = 'toasts';
     document.body.appendChild(this.container);
   }
@@ -40,13 +42,9 @@ export class Toasts {
     timeoutMs: number,
     variant?: 'error',
   ): () => void {
-    const el = document.createElement('div');
-    el.className = variant ? `toast ${variant}` : 'toast';
-
-    const msg = document.createElement('span');
-    msg.className = 'toast-msg';
-    msg.textContent = text;
-    el.appendChild(msg);
+    const toast = el('div', { className: variant ? `toast ${variant}` : 'toast' }, [
+      el('span', { className: 'toast-msg', textContent: text }),
+    ]);
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     const dismiss = () => {
@@ -54,26 +52,29 @@ export class Toasts {
         clearTimeout(timer);
         timer = null;
       }
-      el.remove();
+      toast.remove();
     };
 
     if (actions.length) {
-      const row = document.createElement('div');
-      row.className = 'toast-actions';
-      for (const a of actions) {
-        const btn = document.createElement('button');
-        btn.textContent = a.label;
-        if (a.primary) btn.className = 'primary';
-        btn.addEventListener('click', () => {
-          dismiss();
-          a.onClick();
-        });
-        row.appendChild(btn);
-      }
-      el.appendChild(row);
+      toast.appendChild(
+        el(
+          'div',
+          { className: 'toast-actions' },
+          actions.map((a) =>
+            el('button', {
+              className: a.primary ? 'primary' : undefined,
+              textContent: a.label,
+              onClick: () => {
+                dismiss();
+                a.onClick();
+              },
+            }),
+          ),
+        ),
+      );
     }
 
-    this.container.appendChild(el);
+    this.container.appendChild(toast);
     if (timeoutMs > 0) timer = setTimeout(dismiss, timeoutMs);
     return dismiss;
   }
