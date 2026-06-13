@@ -1,22 +1,15 @@
 import BackgroundTicker from '@/core/background-ticker?worker';
 import { ConnectionManager } from '@/core/connection';
 import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
+import { MovementController } from '@/core/movement';
 import { NetworkClient } from '@/core/network';
-import type { Point } from '@/core/proximity';
 import { isInitiator } from '@/core/proximity';
 import { evaluateBoot, ReloadBanner } from '@/core/reload';
 import { StatusManager } from '@/core/status';
 import {
-  CLICK_MOVE_ARRIVE_THRESHOLD,
-  CLICK_MOVE_MULTIPLIER,
-  COLLISION_RADIUS,
   type GroupMethod,
-  MAP_HEIGHT,
-  MAP_WIDTH,
   type Outfit,
   PLAYER_RADIUS,
-  PLAYER_SPEED,
-  POSITION_SEND_INTERVAL_MS,
   REACTION_DEBOUNCE_MS,
   REACTION_EMOJIS,
   type ServerMessage,
@@ -47,9 +40,8 @@ import { CanvasRenderer } from '@/world/canvas';
 import { OUTFIT_COUNTS } from '@/world/character';
 import { InputManager } from '@/world/input';
 import { normalizeOutfit } from '@/world/outfit';
-import { findPath } from '@/world/pathfind';
 import { PlayerState } from '@/world/player';
-import { canOccupy, findWalkableSpawn, zoneAt } from '@/world/tilemap';
+import { findWalkableSpawn } from '@/world/tilemap';
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
@@ -80,15 +72,9 @@ export class App {
   private me: PlayerState | null = null;
   private players = new Map<string, PlayerState>();
 
-  private lastSent = 0;
-  private lastSentX = 0;
-  private lastSentY = 0;
-  private lastSentVx = 0;
-  private lastSentVy = 0;
-
-  // Click-to-move: remaining waypoint tile-centers and the current index.
-  private movePath: Point[] | null = null;
-  private moveIndex = 0;
+  // Self-movement physics, click-to-move route, and the position-broadcast
+  // throttle (core/movement.ts).
+  private movement: MovementController;
 
   // The roster row the user last clicked: that avatar gets a highlight ring on
   // the map. Cleared when the player leaves or the same row is clicked again.
@@ -185,6 +171,10 @@ export class App {
     this.conn = new ConnectionManager({
       connect: () => this.net.connect(),
       toasts: this.toasts,
+    });
+
+    this.movement = new MovementController({
+      send: (msg) => this.net.send(msg),
     });
 
     // Status changes go out through the network; the roster re-highlights via
@@ -350,15 +340,7 @@ export class App {
     if (!this.me) return;
     e.preventDefault();
     const world = this.renderer.screenToWorld(e.clientX, e.clientY, this.me);
-    // Snap a click on a wall/desk to the nearest walkable tile.
-    const goal = findWalkableSpawn(world.x, world.y, PLAYER_RADIUS);
-    const path = findPath({ x: this.me.x, y: this.me.y }, goal);
-    if (path.length === 0) {
-      this.movePath = null;
-      return;
-    }
-    this.movePath = path;
-    this.moveIndex = 0;
+    this.movement.setDestination(this.me, world.x, world.y);
   }
 
   // Roster row click: toggle the highlight ring on that avatar. A light,
@@ -373,14 +355,7 @@ export class App {
     if (!this.me) return;
     const target = this.players.get(userId);
     if (!target || target.isSelf) return;
-    const goal = findWalkableSpawn(target.x, target.y, PLAYER_RADIUS);
-    const path = findPath({ x: this.me.x, y: this.me.y }, goal);
-    if (path.length === 0) {
-      this.movePath = null;
-      return;
-    }
-    this.movePath = path;
-    this.moveIndex = 0;
+    if (!this.movement.setDestination(this.me, target.x, target.y)) return;
     // Keep them highlighted while walking over so they're easy to spot.
     this.focusedId = userId;
   }
@@ -638,31 +613,23 @@ export class App {
     this.lastFrameMs = nowMs;
     this.update(dt);
     if (render) {
-      const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
-      this.renderer.render(this.me, this.players.values(), dest, this.focusedId);
+      this.renderer.render(
+        this.me,
+        this.players.values(),
+        this.movement.destination,
+        this.focusedId,
+      );
     }
   }
 
   private update(dt: number) {
-    // Move self by input (frame-rate independent: dt × speed-per-second)
+    // Move self by input / click-to-move (core/movement.ts owns the physics).
     let selfVx = 0;
     let selfVy = 0;
     if (this.me) {
-      const { dx, dy } = this.input.getDirection();
-      if (dx !== 0 || dy !== 0) {
-        // Manual keyboard input cancels click-to-move and takes over.
-        this.movePath = null;
-        selfVx = dx * PLAYER_SPEED;
-        selfVy = dy * PLAYER_SPEED;
-        this.applyVelocity(selfVx, selfVy, dt);
-      } else if (this.movePath) {
-        const v = this.followPath(dt);
-        selfVx = v.vx;
-        selfVy = v.vy;
-      }
-      // Face the way we're moving so our own avatar's sprite turns (remote
-      // players turn via setTarget). Idle keeps the last facing.
-      this.me.updateFacing(selfVx, selfVy);
+      const v = this.movement.update(this.me, this.input.getDirection(), dt);
+      selfVx = v.vx;
+      selfVy = v.vy;
     }
 
     // Interpolate remote players (also frame-rate independent).
@@ -670,33 +637,9 @@ export class App {
       if (!p.isSelf) p.interpolate(dt);
     }
 
-    // Periodic position broadcast. Also send when velocity changes (especially
-    // when it transitions to 0) so the receiver stops extrapolating.
+    // Broadcast our position (throttled; immediate on velocity change).
     const now = performance.now();
-    if (this.me) {
-      const velChanged = selfVx !== this.lastSentVx || selfVy !== this.lastSentVy;
-      const posMoved =
-        Math.abs(this.me.x - this.lastSentX) > 0.5 || Math.abs(this.me.y - this.lastSentY) > 0.5;
-      const intervalElapsed = now - this.lastSent > POSITION_SEND_INTERVAL_MS;
-      // Send immediately on velocity change (e.g. key released → stop signal);
-      // otherwise send at the regular cadence while moving.
-      if (velChanged || (intervalElapsed && posMoved)) {
-        this.net.send({
-          type: 'move',
-          x: this.me.x,
-          y: this.me.y,
-          vx: selfVx,
-          vy: selfVy,
-          // Report our meeting-room zone so the server can group us (SFU vs mesh).
-          zoneId: zoneAt(this.me.x, this.me.y)?.id ?? null,
-        });
-        this.lastSentX = this.me.x;
-        this.lastSentY = this.me.y;
-        this.lastSentVx = selfVx;
-        this.lastSentVy = selfVy;
-        this.lastSent = now;
-      }
-    }
+    if (this.me) this.movement.maybeSendPosition(this.me, selfVx, selfVy, now);
 
     // Speaking detection (local + remote tiles) is owned by the media view.
     this.view.updateSpeaking();
@@ -758,46 +701,6 @@ export class App {
     const peerCount = this.rtc.peerCount;
     this.rtc.setCamEncoding(computeCamEncoding(peerCount, speaking));
     this.rtc.setScreenEncoding(computeScreenEncoding(peerCount));
-  }
-
-  // Moves self by a velocity for one frame, sliding along walls (per-axis
-  // canOccupy). Returns whether the position actually changed.
-  private applyVelocity(vx: number, vy: number, dt: number): boolean {
-    if (!this.me || (vx === 0 && vy === 0)) return false;
-    const prevX = this.me.x;
-    const prevY = this.me.y;
-    const newX = clamp(this.me.x + vx * dt, PLAYER_RADIUS, MAP_WIDTH - PLAYER_RADIUS);
-    const newY = clamp(this.me.y + vy * dt, PLAYER_RADIUS, MAP_HEIGHT - PLAYER_RADIUS);
-    if (canOccupy(newX, this.me.y, COLLISION_RADIUS)) this.me.x = newX;
-    if (canOccupy(this.me.x, newY, COLLISION_RADIUS)) this.me.y = newY;
-    this.me.targetX = this.me.x;
-    this.me.targetY = this.me.y;
-    return this.me.x !== prevX || this.me.y !== prevY;
-  }
-
-  // Advances along the click-to-move waypoints at boosted speed. Returns the
-  // velocity applied this frame (zero on arrival) so the caller can broadcast it.
-  private followPath(dt: number): { vx: number; vy: number } {
-    if (!this.me || !this.movePath) return { vx: 0, vy: 0 };
-    const target = this.movePath[this.moveIndex];
-    const ddx = target.x - this.me.x;
-    const ddy = target.y - this.me.y;
-    const dist = Math.hypot(ddx, ddy);
-    if (dist <= CLICK_MOVE_ARRIVE_THRESHOLD) {
-      this.moveIndex++;
-      if (this.moveIndex >= this.movePath.length) this.movePath = null;
-      return { vx: 0, vy: 0 };
-    }
-    // Cap the speed so a large frame step never overshoots the waypoint.
-    const speed = Math.min(PLAYER_SPEED * CLICK_MOVE_MULTIPLIER, dist / dt);
-    const vx = (ddx / dist) * speed;
-    const vy = (ddy / dist) * speed;
-    if (!this.applyVelocity(vx, vy, dt)) {
-      // Unexpectedly blocked: abandon the route and stop.
-      this.movePath = null;
-      return { vx: 0, vy: 0 };
-    }
-    return { vx, vy };
   }
 
   // Last time we sent a reaction, for the debounce below.
@@ -897,8 +800,4 @@ export class App {
       this.sfu.setPreferredLayer(userId, 'cam', computePreferredRid(width));
     }
   }
-}
-
-function clamp(v: number, lo: number, hi: number) {
-  return v < lo ? lo : v > hi ? hi : v;
 }
