@@ -5,24 +5,13 @@
 // (loaded by world/character.ts); this module takes the counts as data so it
 // stays pure.
 
-// One avatar configuration: an integer index per category. Parts (hair/top/…)
-// index into the manifest's part lists; the *Color fields index into a shared
-// palette (skin→body palette, hairColor→hair palette, top/bottomColor→cloth).
-// A handful of small integers, so the whole thing relays as JSON and the server
-// can stay stateless (invariant #2).
-export type Outfit = {
-  sex: number; // 0 = male, 1 = female (selects body/head/face + bodytype paths)
-  skin: number; // body palette color index (applied to body/head/face)
-  hair: number; // hair part index (0 = none)
-  hairColor: number; // hair palette color index
-  top: number; // torso part index
-  topColor: number; // cloth palette color index
-  bottom: number; // legs part index
-  bottomColor: number; // cloth palette color index
-  shoes: number; // feet part index (0 = barefoot)
-  hat: number; // headwear part index (0 = none)
-  glasses: number; // glasses part index (0 = none)
-};
+// One avatar configuration: an integer index per category. The type itself is
+// part of the wire protocol (the server relays outfits), so it lives in
+// shared/protocol.ts — re-exported here because this module is the home of all
+// outfit logic.
+import type { Outfit } from '@shared/protocol';
+
+export type { Outfit };
 
 // The number of options available in each category. Supplied by character.ts
 // (the manifest source of truth) so this module never hard-codes counts.

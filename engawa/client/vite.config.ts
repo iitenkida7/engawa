@@ -29,9 +29,15 @@ export default defineConfig({
       // makes vite 5 swallow the 101 response.
       '/ws': { target, ws: true, changeOrigin: true },
     },
+    // The shared wire-protocol types live one level above the Vite root
+    // (../shared); widen the dev-server FS allowlist so they can be served.
+    fs: { allow: ['..'] },
   },
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@shared': fileURLToPath(new URL('../shared', import.meta.url)),
+    },
   },
   build: {
     outDir: 'dist',

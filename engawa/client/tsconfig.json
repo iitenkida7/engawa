@@ -13,7 +13,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client", "bun-types"],
     "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"] }
+    "paths": { "@/*": ["./src/*"], "@shared/*": ["../shared/*"] }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "../shared/**/*"]
 }

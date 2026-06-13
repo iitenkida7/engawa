@@ -12,15 +12,18 @@ services:
       - server
       - client
 
+  # Both services mount the whole ./engawa tree (not just their own package) so
+  # the shared wire-protocol types in engawa/shared resolve at the same relative
+  # path on the host and inside the containers.
   server:
     image: oven/bun:1.2-alpine
-    working_dir: /app
+    working_dir: /engawa/server
     command: bun --watch src/index.ts
     ports:
       - "3000:3000"
     volumes:
-      - ./engawa/server:/app
-      - server_node_modules:/app/node_modules
+      - ./engawa:/engawa
+      - server_node_modules:/engawa/server/node_modules
     environment:
       - PORT=3000
       - CLOUDFLARE_TURN_TOKEN_ID=${CLOUDFLARE_TURN_TOKEN_ID:-}
@@ -31,13 +34,13 @@ services:
 
   client:
     image: oven/bun:1.2-alpine
-    working_dir: /app
+    working_dir: /engawa/client
     command: sh -c "bun install && bun run dev --host 0.0.0.0"
     ports:
       - "5173:5173"
     volumes:
-      - ./engawa/client:/app
-      - client_node_modules:/app/node_modules
+      - ./engawa:/engawa
+      - client_node_modules:/engawa/client/node_modules
     depends_on:
       - server
 

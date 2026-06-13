@@ -6,18 +6,22 @@
 # state is in-memory, so it must not be scaled horizontally).
 
 # ---- build the client bundle ----
+# The shared wire-protocol types (engawa/shared) sit one level above each
+# package, matching the source tree, so the ../shared imports resolve.
 FROM oven/bun:1.2-alpine AS client
-WORKDIR /client
+WORKDIR /repo/client
 COPY engawa/client/package.json engawa/client/bun.lockb ./
 RUN bun install --frozen-lockfile
+COPY engawa/shared/ /repo/shared/
 COPY engawa/client/ ./
 RUN bun run build
 
 # ---- runtime: Bun server serves the built client + signaling ----
 FROM oven/bun:1.2-alpine AS runtime
-WORKDIR /app
+WORKDIR /app/server
+COPY engawa/shared/ /app/shared/
 COPY engawa/server/ ./
-COPY --from=client /client/dist ./public
+COPY --from=client /repo/client/dist ./public
 ENV PORT=3000
 EXPOSE 3000
 CMD ["bun", "src/index.ts"]

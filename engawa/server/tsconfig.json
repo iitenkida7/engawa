@@ -9,5 +9,5 @@
     "types": ["bun-types"],
     "lib": ["ESNext"]
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "../shared/**/*"]
 }
