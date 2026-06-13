@@ -28,7 +28,8 @@ Slack のハドルや Gather.town のような「ばったり話す」体験を�
 ├ .env.example
 └ engawa/
    ├ client/src/          # フロントエンド
-   └ server/src/          # シグナリングサーバー
+   ├ server/src/          # シグナリングサーバー
+   └ shared/              # ワイヤープロトコル型（client/server で共有）
 ```
 
 ## コマンド（すべて Docker 経由）
@@ -108,28 +109,46 @@ P2P メッシュ、会議室ゾーンと 5 人以上の屋外クラスタは Clo
 - `sfu.ts` — Cloudflare Realtime SFU の制御プレーン（セッション/トラック）を**プロキシ**する。
   App ID/Token はサーバーのみ保持しブラウザに渡さない（turn.ts と同じ作法）。転送先パスはホワイト
   リスト化（SSRF 対策）。メディアは通さずシグナリングのみ。
-- `types.ts` — `WsData`（接続ごとの状態）, `ClientMessage` / `ServerMessage`。
+- `types.ts` — `WsData`（接続ごとの状態）。ワイヤープロトコル型は re-export（下記 shared 参照）。
+
+### 共有プロトコル型（`engawa/shared/`）
+- `protocol.ts` — **WebSocket ワイヤープロトコルの唯一の定義**（`ClientMessage` / `ServerMessage` /
+  `Player` / `Outfit` 等。型のみでランタイムコードなし）。サーバーは `server/src/types.ts`、クライアントは
+  `client/src/core/types.ts` がそれぞれ re-export するので、アプリコードの import 先は従来どおり。
+  docker-compose は `./engawa` ごとマウント（working_dir は各パッケージ）するため、ホストとコンテナで
+  `../shared` が同じ相対パスで解決する。クライアントは `@shared/*` エイリアス（tsconfig + vite）も持つ。
 
 ### クライアント（`engawa/client/src/`）
 ファイルは責務ごとに **5 フォルダ**へ分割し、import は **`@/` エイリアス**（`@/<folder>/<name>` 形式。
 `tsconfig.json` の `paths` と `vite.config.ts` の `resolve.alias` で定義。Bun test も `paths` を解決する）で
 参照する。エントリは `core/main.ts`（`index.html` が読む）。同一フォルダ内でも `@/` で参照し位置非依存にしてある。
-- **`core/`** — オーケストレーションと基盤: `app.ts`, `main.ts`, `types.ts`, `lifecycle.ts`, `network.ts`, `proximity.ts`, `reload.ts`, `background-ticker.ts`
-- **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`
+- **`core/`** — オーケストレーションと基盤: `app.ts`, `main.ts`, `types.ts`, `connection.ts`, `movement.ts`, `status.ts`, `transport.ts`, `lifecycle.ts`, `network.ts`, `proximity.ts`, `reconnect.ts`, `reload.ts`, `background-ticker.ts`
+- **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `sfu-logic.ts`, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`, `tune.ts`, `ice.ts`
 - **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`
-- **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`
-- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `debug-console.ts`, `sounds.ts`
+- **`world/`** — 2D マップ描画・移動・アバター: `canvas.ts`, `tilemap.ts`, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`, `character.ts`, `outfit.ts`
+- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `debug-console.ts`, `sounds.ts`, `avatar-editor.ts`, `knock.ts`, `dom.ts`, `menu.ts`
 
-`core/app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・移動・近接判定・
+`core/app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・近接チャイム・
 サーバーメッセージのルーティング・各サブシステムの配線を担う。サブシステム同士は直接参照せず
-App が仲介する（既存の Manager-callback パターン）。主なモジュール:
+App が仲介する（既存の Manager-callback パターン）。凝集度の高い責務は `core/` の専用クラスに分割済み:
+- `core/connection.ts`（`ConnectionManager`）— 再接続バックオフ・認証失敗の消費・接続断トースト。
+  純粋な遅延計算は `core/reconnect.ts`。
+- `core/movement.ts`（`MovementController`）— 自機の移動物理（壁スライド）・クリック移動（A* 経路追従）・
+  位置送信スロットル。
+- `core/status.ts`（`StatusManager`）— ステータス/一言/戻り時刻とその broadcast・自動復帰タイマー。
+- `core/transport.ts`（`TransportCoordinator`）— mesh/SFU 両トランスポートの所有と group-update による
+  切替（SFU 一方向ラッチ・失敗時 mesh フォールバック）、迷子シグナルのガード、話者連動送信ポリシー、
+  simulcast レイヤ選択。ツールバーの `MediaSink` も兼ねる。テストはフェイクトランスポートを factory 注入。
+
+主なモジュール:
 - `core/network.ts` — WebSocket。**dev では Vite プロキシが Bun の 101 升級を正しく中継できない**ため
   Bun サーバーへ直結し、prod では `window.location.host` を使う（コード中コメント参照）。
 - `rtc/webrtc.ts` — simple-peer のラッパ（**mesh 経路**）。kind（mic/cam/screen）ごとの送信ビットレート
   上限、受信ジッタバッファ下限などを調整。
 - `rtc/sfu.ts`（`SfuManager`）— **SFU 経路**。単一 RTCPeerConnection で自分のトラックを push（カメラは
   simulcast 多レイヤ）＋他者を pull。`rtc/webrtc.ts` と同じイベント面（`onRemoteStream` 等）に乗せるので
-  下流（`ui/remote-media`・録画）は無変更。App が mesh と排他的に切り替える（`/api/sfu/*` プロキシ経由）。
+  下流（`ui/remote-media`・録画）は無変更。`core/transport.ts` が mesh と排他的に切り替える
+  （`/api/sfu/*` プロキシ経由）。ICE 取得は両トランスポート共通の `rtc/ice.ts`。
 - `rtc/cam-bitrate.ts` — mesh のピア数連動ビットレート throttle に加え、**SFU の画質フロア／simulcast
   レイヤ構成 `SFU_CAM_LAYERS`・受信タイルサイズ→レイヤ選択 `computePreferredRid`**（純粋関数）。
 - `rtc/sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=20, in-band FEC など）。
@@ -144,12 +163,19 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   `media/speaking.ts` — `SpeakingDetector` と純粋なしきい値判定 `isLoud()`。
 - `world/tilemap.ts` — オフィスのタイルマップと `canOccupy`（衝突判定）。`world/pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
 - `world/canvas.ts` — Canvas 2D 描画。`world/input.ts` — キー入力。`world/player.ts` — プレイヤー状態。
+  `world/character.ts` — LPC アバターの合成スプライト。`world/outfit.ts` — 衣装の純粋ロジック（正規化/ランダム）。
   `ui/draggable.ts` — ビデオ/画面共有パネルのドラッグ。`media/compositor.ts` — 録画用の映像合成。`ui/sounds.ts` — 効果音。
-- `core/types.ts` — クライアント側の共有定数/型。`core/main.ts` — エントリ。
+- `ui/avatar-editor.ts` — キャラメイク画面（#141/#144）。`ui/knock.ts` — ノック（通話リクエスト）。
+- `ui/dom.ts` — `el()`（createElement の薄い糖衣。UI 層の DOM 生成はこれを使う）。
+  `ui/menu.ts` — ドロップダウン共通部品 `addMenuItem` / `wireMenuToggle`（**トグルは stopPropagation
+  しない**＝メニューグループ相互排他の要。理由はモジュール内コメント参照）。
+- `core/types.ts` — クライアント側の共有定数 + `@shared/protocol` の re-export。`core/main.ts` — エントリ。
 
 **「純粋ロジックをモジュールに切り出してテストする」パターン**が server(`logic.ts` の各正規化関数と
 `computeProximityGroups`)/client(`core/proximity.ts`, `world/pathfind.ts`, `rtc/sdp.ts`, `media/speaking.ts` の `isLoud()`,
 `ui/panels.ts` の `computePanelPreset()`, `rtc/cam-bitrate.ts` の `computePreferredRid()`) の両方で採られている。
+状態を持つ責務も同様に小さなクラスへ切り出してテストする（`core/connection.ts` / `core/movement.ts` /
+`core/status.ts` / `core/transport.ts`。transport はフェイクの注入口あり）。
 テストは `src/__tests__/`（フラット）に集約し、`@/<folder>/<name>` で対象を import する。
 挙動を変えずにテストしやすくするのが目的なので、ロジックを触るときはこの分離を保ち、対応するテストも更新する。
 
