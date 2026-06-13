@@ -1,10 +1,11 @@
 import BackgroundTicker from '@/core/background-ticker?worker';
+import { ConnectionManager } from '@/core/connection';
 import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
 import { NetworkClient } from '@/core/network';
 import type { Point } from '@/core/proximity';
 import { isInitiator } from '@/core/proximity';
-import { computeReconnectDelay, RECONNECT_MAX_ATTEMPTS } from '@/core/reconnect';
 import { evaluateBoot, ReloadBanner } from '@/core/reload';
+import { StatusManager } from '@/core/status';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
   CLICK_MOVE_MULTIPLIER,
@@ -15,7 +16,6 @@ import {
   type Outfit,
   PLAYER_RADIUS,
   PLAYER_SPEED,
-  type PlayerStatus,
   POSITION_SEND_INTERVAL_MS,
   REACTION_DEBOUNCE_MS,
   REACTION_EMOJIS,
@@ -96,14 +96,10 @@ export class App {
 
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
-  private myStatus: PlayerStatus = 'online';
-  // Status one-liner and return time (#85). `myUntil` is an absolute epoch ms
-  // (null = none); `myUntilMin` is the chosen preset in minutes, kept so the
-  // status menu can re-highlight it. A timer auto-returns to online at `myUntil`.
-  private myNote = '';
-  private myUntil: number | null = null;
-  private myUntilMin: number | null = null;
-  private untilTimer: ReturnType<typeof setTimeout> | null = null;
+  // Own status / one-liner / return time + their broadcast (core/status.ts).
+  private playerStatus: StatusManager;
+  // Socket reconnect backoff + auth-failure handling (core/connection.ts).
+  private conn: ConnectionManager;
 
   // Server-driven transport for our current proximity group. 'mesh' uses the
   // per-peer WebRtcManager; 'sfu' routes everything through Cloudflare Realtime
@@ -159,8 +155,8 @@ export class App {
     // Bun keeps the socket alive with protocol pings, but a long background
     // stint can still drop it. On return, reconnect immediately (clearing any
     // pending backoff) rather than waiting on the close-handler's retry timer.
-    if (!document.hidden && !this.authFailed && !this.net.isConnected()) {
-      this.manualReconnect();
+    if (!document.hidden && !this.conn.authFailed && !this.net.isConnected()) {
+      this.conn.manualReconnect();
     }
   };
 
@@ -183,7 +179,22 @@ export class App {
     this.net = new NetworkClient({
       onMessage: (m) => this.onServerMessage(m),
       onOpen: () => this.onOpen(),
-      onClose: () => this.onClose(),
+      onClose: () => this.conn.onClose(),
+    });
+
+    this.conn = new ConnectionManager({
+      connect: () => this.net.connect(),
+      toasts: this.toasts,
+    });
+
+    // Status changes go out through the network; the roster re-highlights via
+    // onChanged (this.roster is built below — the callback resolves lazily).
+    this.playerStatus = new StatusManager({
+      send: (msg) => this.net.send(msg),
+      getMe: () => this.me,
+      isMicOn: () => this.media.micOn,
+      isCamOn: () => this.media.camOn,
+      onChanged: () => this.roster.refreshStatus(),
     });
 
     this.rtc = new WebRtcManager(this.media, {
@@ -230,7 +241,7 @@ export class App {
       compositor: this.compositor,
       view: this.view,
       toasts: this.toasts,
-      broadcastStatus: () => this.broadcastStatus(),
+      broadcastStatus: () => this.playerStatus.broadcast(),
       getMe: () => this.me,
       onReaction: (emoji) => this.sendReaction(emoji),
       // The 🧍 avatar editor and 🐛 debug console both live in the toolbar's "⋯"
@@ -249,10 +260,10 @@ export class App {
       onFocus: (userId) => this.focusPlayer(userId),
       onGoTo: (userId) => this.goToPlayer(userId),
       onKnock: (userId) => this.knocks.request(userId),
-      getStatus: () => this.myStatus,
-      getNote: () => this.myNote,
-      getUntilMin: () => this.myUntilMin,
-      onSetStatus: (status, note, untilMin) => this.setStatus(status, note, untilMin),
+      getStatus: () => this.playerStatus.status,
+      getNote: () => this.playerStatus.note,
+      getUntilMin: () => this.playerStatus.untilMin,
+      onSetStatus: (status, note, untilMin) => this.playerStatus.set(status, note, untilMin),
     });
 
     this.chat = new ChatPanel({
@@ -435,11 +446,7 @@ export class App {
   }
 
   private onOpen() {
-    // Connected: the backoff resets and any "connection lost" toast clears. If
-    // auth then fails the auth-error handler re-shows the join overlay.
-    this.reconnectAttempt = 0;
-    this.dismissConnToast?.();
-    this.dismissConnToast = null;
+    this.conn.onOpen();
     const params = new URLSearchParams(window.location.search);
     const workspace = params.get('workspace') || 'default';
     this.net.send({
@@ -459,73 +466,10 @@ export class App {
     this.net.send({ type: 'outfit-update', outfit });
   }
 
-  private authFailed = false;
-
-  // Exponential-backoff reconnect state (issue #126). `reconnectAttempt` counts
-  // consecutive failures (reset on a successful open); `reconnectTimer` holds the
-  // pending retry so we never stack timers; `dismissConnToast` closes the active
-  // "connection lost" toast.
-  private reconnectAttempt = 0;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private dismissConnToast: (() => void) | null = null;
-
-  private onClose() {
-    if (this.authFailed) {
-      this.authFailed = false;
-      return;
-    }
-    this.scheduleReconnect();
-  }
-
-  // Reconnect with exponential backoff + jitter (computeReconnectDelay), bounded
-  // by RECONNECT_MAX_ATTEMPTS. Past the cap we stop auto-retrying and leave a
-  // persistent toast with a manual 再接続 button, so a long-down server isn't
-  // pinged forever (the old code retried every 2s with no ceiling).
-  private scheduleReconnect() {
-    // A retry is already pending: 'error' and 'close' can both fire, so don't
-    // stack timers.
-    if (this.reconnectTimer != null) return;
-    if (this.reconnectAttempt >= RECONNECT_MAX_ATTEMPTS) {
-      this.dismissConnToast?.();
-      this.dismissConnToast = this.toasts.action(
-        'サーバーに接続できません。',
-        [{ label: '再接続', primary: true, onClick: () => this.manualReconnect() }],
-        0,
-      );
-      return;
-    }
-    const delay = computeReconnectDelay(this.reconnectAttempt);
-    this.reconnectAttempt++;
-    console.warn(
-      `[ws] connection closed; retrying in ${delay}ms (attempt ${this.reconnectAttempt})`,
-    );
-    // Show the (persistent) reconnecting notice once; later attempts reuse it.
-    if (!this.dismissConnToast) {
-      this.dismissConnToast = this.toasts.action('接続が切れました。再接続しています…', [], 0);
-    }
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.net.connect();
-    }, delay);
-  }
-
-  // User asked to retry (manual button) or returned to a backgrounded tab whose
-  // socket dropped: clear any pending backoff, reset the counter, and reconnect now.
-  private manualReconnect() {
-    this.dismissConnToast?.();
-    this.dismissConnToast = null;
-    this.reconnectAttempt = 0;
-    if (this.reconnectTimer != null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.net.connect();
-  }
-
   private onServerMessage(msg: ServerMessage) {
     switch (msg.type) {
       case 'auth-error': {
-        this.authFailed = true;
+        this.conn.markAuthFailed();
         alert(msg.message || '認証に失敗しました');
         // Show join overlay again so user can retry
         document.getElementById('join-overlay')?.classList.remove('hidden');
@@ -562,7 +506,7 @@ export class App {
         document.getElementById('toolbar')?.classList.remove('hidden');
         this.roster.show();
         this.roster.refreshStatus();
-        this.broadcastStatus();
+        this.playerStatus.broadcast();
         break;
       }
       case 'player-joined': {
@@ -868,54 +812,6 @@ export class App {
     if (now - this.lastReactionAt < REACTION_DEBOUNCE_MS) return;
     this.lastReactionAt = now;
     this.net.send({ type: 'reaction', emoji });
-  }
-
-  private broadcastStatus() {
-    if (!this.me) return;
-    this.me.status = this.myStatus;
-    this.me.note = this.myNote;
-    this.me.until = this.myUntil;
-    this.me.isMuted = !this.media.micOn;
-    this.me.isVideoOn = this.media.camOn;
-    this.net.send({
-      type: 'status',
-      status: this.myStatus,
-      isMuted: !this.media.micOn,
-      isVideoOn: this.media.camOn,
-      note: this.myNote,
-      until: this.myUntil,
-    });
-  }
-
-  // Set status plus optional one-liner and return time (#85). `untilMin` is a
-  // preset in minutes (null = no time); it's resolved to an absolute epoch ms so
-  // every peer shows the same clock target. A timer flips us back to online when
-  // the time arrives. No-ops only when status, note, and time all match.
-  private setStatus(status: PlayerStatus, note = '', untilMin: number | null = null) {
-    const until = untilMin == null ? null : Date.now() + untilMin * 60_000;
-    if (this.myStatus === status && this.myNote === note && this.myUntilMin === untilMin) return;
-    this.myStatus = status;
-    this.myNote = note;
-    this.myUntil = until;
-    this.myUntilMin = untilMin;
-    this.broadcastStatus();
-    this.roster.refreshStatus();
-    this.scheduleAutoReturn();
-  }
-
-  // (Re)arm the auto-return-to-online timer for the current `myUntil`. Cleared
-  // and reset on every status change; on fire it broadcasts online with no note.
-  private scheduleAutoReturn() {
-    if (this.untilTimer != null) {
-      clearTimeout(this.untilTimer);
-      this.untilTimer = null;
-    }
-    if (this.myUntil == null) return;
-    const delay = Math.max(0, this.myUntil - Date.now());
-    this.untilTimer = setTimeout(() => {
-      this.untilTimer = null;
-      this.setStatus('online');
-    }, delay);
   }
 
   // Apply a server group-update: the server is the single source of truth for
