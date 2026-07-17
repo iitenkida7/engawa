@@ -63,7 +63,10 @@ const ROOMS: RoomDef[] = [
     r: 1,
     w: 4,
     h: 4,
-    doors: [[2, 5]],
+    doors: [
+      [2, 5],
+      [3, 5],
+    ],
     // Same meeting-table footprint as the other rooms.
     desks: [
       [2, 2],
@@ -102,7 +105,10 @@ const ROOMS: RoomDef[] = [
     r: 1,
     w: 4,
     h: 4,
-    doors: [[20, 5]],
+    doors: [
+      [20, 5],
+      [21, 5],
+    ],
     desks: [
       [20, 2],
       [21, 2],
@@ -117,7 +123,10 @@ const ROOMS: RoomDef[] = [
     r: 1,
     w: 4,
     h: 4,
-    doors: [[25, 5]],
+    doors: [
+      [25, 5],
+      [26, 5],
+    ],
     desks: [
       [25, 2],
       [26, 2],
@@ -132,7 +141,10 @@ const ROOMS: RoomDef[] = [
     r: 1,
     w: 4,
     h: 4,
-    doors: [[30, 5]],
+    doors: [
+      [30, 5],
+      [31, 5],
+    ],
     desks: [
       [30, 2],
       [31, 2],
@@ -148,7 +160,10 @@ const ROOMS: RoomDef[] = [
     r: 20,
     w: 4,
     h: 3,
-    doors: [[2, 19]],
+    doors: [
+      [2, 19],
+      [3, 19],
+    ],
     desks: [[2, 21]],
   },
   {
@@ -158,7 +173,10 @@ const ROOMS: RoomDef[] = [
     r: 20,
     w: 4,
     h: 3,
-    doors: [[7, 19]],
+    doors: [
+      [7, 19],
+      [8, 19],
+    ],
     desks: [[7, 21]],
   },
   {
@@ -168,7 +186,10 @@ const ROOMS: RoomDef[] = [
     r: 20,
     w: 4,
     h: 3,
-    doors: [[12, 19]],
+    doors: [
+      [12, 19],
+      [13, 19],
+    ],
     desks: [[12, 21]],
   },
   {
@@ -178,7 +199,10 @@ const ROOMS: RoomDef[] = [
     r: 20,
     w: 5,
     h: 3,
-    doors: [[18, 19]],
+    doors: [
+      [18, 19],
+      [19, 19],
+    ],
     desks: [
       [18, 21],
       [19, 21],
@@ -191,7 +215,10 @@ const ROOMS: RoomDef[] = [
     r: 20,
     w: 5,
     h: 3,
-    doors: [[24, 19]],
+    doors: [
+      [24, 19],
+      [25, 19],
+    ],
     desks: [
       [24, 21],
       [25, 21],
@@ -204,7 +231,10 @@ const ROOMS: RoomDef[] = [
     r: 20,
     w: 5,
     h: 3,
-    doors: [[30, 19]],
+    doors: [
+      [30, 19],
+      [31, 19],
+    ],
     desks: [
       [30, 21],
       [31, 21],
