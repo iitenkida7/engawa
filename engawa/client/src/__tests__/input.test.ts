@@ -71,4 +71,27 @@ describe('InputManager.getDirection', () => {
     window.dispatchEvent(new Event('blur'));
     expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
   });
+
+  it('clears a held key even when keyup fires from a text input (no stuck key)', () => {
+    const im = new InputManager();
+    press('w');
+    expect(im.getDirection()).toEqual({ dx: 0, dy: -1 });
+
+    // Focus moved into the chat box between keydown and keyup: the keyup now
+    // targets the INPUT and bubbles to window. It must still clear the key.
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'w', bubbles: true }));
+    input.remove();
+
+    expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
+  });
+
+  it('ignores modifier combos so browser shortcuts are not treated as movement', () => {
+    const im = new InputManager();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', altKey: true }));
+    expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
+  });
 });
