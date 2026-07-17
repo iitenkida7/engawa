@@ -89,14 +89,21 @@ describe('findWalkableSpawn', () => {
 });
 
 describe('ZONES / zoneAt (meeting-room zones)', () => {
-  // One interior tile per walled-off MEETING room: the 3 top rooms
-  // (offices + lounge) and the 2 bottom meeting rooms.
+  // One interior MEETING tile per walled-off room: the top strip (all-hands +
+  // three meeting rooms + president's office) and the bottom strip (three 1-on-1
+  // rooms + three negotiation booths).
   const roomSamples: { col: number; row: number }[] = [
-    { col: 1, row: 1 }, // office 1
-    { col: 8, row: 1 }, // office 2
-    { col: 29, row: 1 }, // lounge
-    { col: 1, row: 24 }, // meeting room 1
-    { col: 27, row: 24 }, // meeting room 2
+    { col: 1, row: 1 }, // 大会議室
+    { col: 14, row: 1 }, // 会議室1
+    { col: 19, row: 1 }, // 会議室2
+    { col: 24, row: 1 }, // 会議室3
+    { col: 29, row: 1 }, // 社長室
+    { col: 1, row: 20 }, // 1on1ルーム1
+    { col: 6, row: 20 }, // 1on1ルーム2
+    { col: 11, row: 20 }, // 1on1ルーム3
+    { col: 16, row: 20 }, // 商談ブース1
+    { col: 22, row: 20 }, // 商談ブース2
+    { col: 28, row: 20 }, // 商談ブース3
   ];
 
   it('derives one zone per walled-off MEETING room', () => {

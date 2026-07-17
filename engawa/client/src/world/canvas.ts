@@ -12,7 +12,17 @@ import {
 import { CharacterSheet } from '@/world/character';
 import { floorKindAt, propFor } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
-import { MAP_COLS, MAP_ROWS, officeMap, TILE_SIZE, Tile, ZONES, zoneAt } from '@/world/tilemap';
+import {
+  MAP_COLS,
+  MAP_ROWS,
+  officeMap,
+  ROOM_FURNITURE,
+  type RoomFurniture,
+  TILE_SIZE,
+  Tile,
+  ZONES,
+  zoneAt,
+} from '@/world/tilemap';
 
 // ─── Interior theme: 北欧ミニマル / 青山カフェ ───────────────────────────────
 // Clean, bright, natural. Light oak plank floors in the open office, soft cream
@@ -31,6 +41,8 @@ const PALETTE = {
   deskEdge: '#d8c6a4',
   monitor: '#3b414c',
   monitorScreen: '#6f93a3',
+  tableTop: '#f4efe6', // meeting-table surface (warm off-white)
+  chair: '#8f9c8a', // sage-gray chairs around meeting tables
   pot: '#c98a5e',
   potShade: '#b2764a',
   leaf: '#7d9b6a',
@@ -325,14 +337,21 @@ export class CanvasRenderer {
           continue;
         }
         // Floor first (rooms read as a cream rug, the open office as oak)...
-        if (floorKindAt(c, r) === 'carpet') this.drawRugFloor(cx, tx, ty);
+        const inRoom = floorKindAt(c, r) === 'carpet';
+        if (inRoom) this.drawRugFloor(cx, tx, ty);
         else this.drawWoodFloor(cx, tx, ty);
-        // ...then the prop on top, if this tile carries one.
+        // ...then the prop on top. Open-office desks are workstations (monitor);
+        // in-room desks are drawn as designed tables/chairs by the furniture pass
+        // below, so skip them here.
         const prop = propFor(tile);
-        if (prop === 'desk') this.drawDesk(cx, tx, ty);
+        if (prop === 'desk' && !inRoom) this.drawWorkstation(cx, tx, ty);
         else if (prop === 'plant') this.drawPlant(cx, tx, ty);
       }
     }
+
+    // Meeting-room furniture: proper tables with chairs (and an exec desk for the
+    // president's office), drawn over the rug once the tiles are laid down.
+    for (const f of ROOM_FURNITURE) this.drawRoomFurniture(cx, f);
 
     // Soft map border — a thin warm frame, no heavy vignette (a clean office is
     // bright, so the old dark corner shading is gone).
@@ -342,6 +361,72 @@ export class CanvasRenderer {
 
     this.mapCache = cache;
     this.mapCacheDpr = dpr;
+  }
+
+  // A meeting room's furniture: a table with chairs around it, or (president's
+  // office) a workstation-style exec desk with a chair.
+  private drawRoomFurniture(cx: CanvasRenderingContext2D, f: RoomFurniture) {
+    if (f.kind === 'desk') {
+      this.drawExecDesk(cx, f);
+      return;
+    }
+    // Chairs first (behind the table), then the table top over the rug.
+    this.drawChairs(cx, f);
+    const inset = 7;
+    this.roundRect(cx, f.x + inset, f.y + inset, f.w - inset * 2, f.h - inset * 2, 8);
+    cx.fillStyle = PALETTE.tableTop;
+    cx.fill();
+    cx.strokeStyle = PALETTE.deskEdge;
+    cx.lineWidth = 1;
+    cx.stroke();
+  }
+
+  // Chairs along the table's long (top & bottom) sides, one per table column,
+  // clamped to the room interior so they never land on a wall.
+  private drawChairs(cx: CanvasRenderingContext2D, f: RoomFurniture) {
+    const chair = 15;
+    const gap = 5;
+    const cols = Math.max(1, Math.round(f.w / TILE_SIZE));
+    cx.fillStyle = PALETTE.chair;
+    for (let i = 0; i < cols; i++) {
+      const cxp = f.x + (i + 0.5) * (f.w / cols);
+      const topY = f.y - gap - chair;
+      if (topY >= f.iy) {
+        this.roundRect(cx, cxp - chair / 2, topY, chair, chair, 4);
+        cx.fill();
+      }
+      const botY = f.y + f.h + gap;
+      if (botY + chair <= f.iy + f.ih) {
+        this.roundRect(cx, cxp - chair / 2, botY, chair, chair, 4);
+        cx.fill();
+      }
+    }
+  }
+
+  // President's office: a wider desk with a monitor and a single chair behind.
+  private drawExecDesk(cx: CanvasRenderingContext2D, f: RoomFurniture) {
+    const pad = 6;
+    this.roundRect(cx, f.x + pad, f.y + pad, f.w - pad * 2, f.h - pad * 2, 6);
+    cx.fillStyle = PALETTE.deskTop;
+    cx.fill();
+    cx.strokeStyle = PALETTE.deskEdge;
+    cx.lineWidth = 1;
+    cx.stroke();
+    const mw = Math.min(f.w * 0.5, 40);
+    const mh = 12;
+    cx.fillStyle = PALETTE.monitor;
+    cx.fillRect(f.x + f.w / 2 - mw / 2, f.y + pad + 3, mw, mh);
+    cx.fillStyle = PALETTE.monitorScreen;
+    cx.fillRect(f.x + f.w / 2 - mw / 2 + 2, f.y + pad + 5, mw - 4, mh - 4);
+    // Exec chair below the desk.
+    const chair = 16;
+    const gap = 5;
+    const cyb = f.y + f.h + gap;
+    if (cyb + chair <= f.iy + f.ih) {
+      cx.fillStyle = PALETTE.chair;
+      this.roundRect(cx, f.x + f.w / 2 - chair / 2, cyb, chair, chair, 4);
+      cx.fill();
+    }
   }
 
   // Light oak plank floor: a warm base plus faint, world-aligned horizontal plank
@@ -383,9 +468,9 @@ export class CanvasRenderer {
     cx.strokeRect(tx + 0.5, ty + 0.5, S - 1, S - 1);
   }
 
-  // Minimal white desk with a monitor: a rounded off-white top on the floor, a
-  // dark monitor with a soft screen, and a hint of a keyboard.
-  private drawDesk(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+  // Open-office workstation: a rounded off-white desk top on the floor, a dark
+  // monitor with a soft screen, and a hint of a keyboard.
+  private drawWorkstation(cx: CanvasRenderingContext2D, tx: number, ty: number) {
     const S = TILE_SIZE;
     const pad = 5;
     this.roundRect(cx, tx + pad, ty + pad, S - pad * 2, S - pad * 2, 6);

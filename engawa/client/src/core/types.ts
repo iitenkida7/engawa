@@ -101,8 +101,10 @@ export type ServerMessage =
   // their tracks by (sessionId, trackName).
   | { type: 'sfu-peer-tracks'; userId: string; sessionId: string; tracks: SfuTrack[] };
 
-export const MAP_WIDTH = 2000;
-export const MAP_HEIGHT = 1500;
+// Compact floor to keep walking short. Must equal MAP_COLS/ROWS × TILE_SIZE in
+// world/tilemap.ts (34×24 tiles) and match the server's MAP_WIDTH/HEIGHT.
+export const MAP_WIDTH = 1700;
+export const MAP_HEIGHT = 1200;
 export const PLAYER_RADIUS = 20;
 // Collision uses a smaller radius than the drawn avatar so squeezing between
 // solid tiles is forgiving: a one-tile (50px) gap leaves an 18px window for the
