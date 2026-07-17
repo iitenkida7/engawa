@@ -1,6 +1,7 @@
 import { mediaAuthHeaders } from '@/core/media-auth';
 import type { SfuTrack, StreamKind } from '@/core/types';
 import { SFU_CAM_LAYERS, SFU_SCREEN_MAX_BITRATE } from '@/rtc/cam-bitrate';
+import { fetchIceServers } from '@/rtc/ice';
 import {
   diffRtcStats,
   type RtcConn,
@@ -15,6 +16,7 @@ import {
   remoteKey,
   sfuErrorMessage,
   sfuSessionError,
+  sfuTrackError,
   shouldFallbackToMesh,
 } from '@/rtc/sfu-logic';
 import { tuneReceiver, tuneSfuSender } from '@/rtc/tune';
@@ -101,7 +103,6 @@ export class SfuManager {
   // outlive the closed PC (issue #127). Recreated alongside the PC in ensurePc.
   private pcAbort: AbortController | null = null;
   private sessionId: string | null = null;
-  private iceServers: RTCIceServer[] | null = null;
   private closed = false;
 
   // Our published tracks, keyed by trackName.
@@ -182,7 +183,7 @@ export class SfuManager {
       for (const t of toPull) {
         await this.pullTrack(userId, sessionId, t.kind, t.trackName);
       }
-      for (const key of toDrop) this.dropRemote(key);
+      for (const key of toDrop) await this.dropRemote(key);
     });
   }
 
@@ -190,7 +191,7 @@ export class SfuManager {
   removePeer(userId: string) {
     this.enqueue(async () => {
       for (const key of [...this.remoteTracks.keys()]) {
-        if (this.remoteTracks.get(key)!.userId === userId) this.dropRemote(key);
+        if (this.remoteTracks.get(key)!.userId === userId) await this.dropRemote(key);
       }
       this.events.onPeerClosed(userId);
     });
@@ -222,6 +223,16 @@ export class SfuManager {
     this.closed = true;
     this.pcAbort?.abort();
     this.pcAbort = null;
+    // Emit the same closure events the mesh transport does (WebRtcManager.closeAll
+    // → onPeerClosed per peer), so the UI removes tiles/stages for members who
+    // won't reappear in the next mesh group. pc.close() fires no 'ended' events,
+    // and pcAbort just detached the per-track listeners, so without this their
+    // tiles would freeze on the last frame forever (SFU→mesh ghost tiles).
+    const peerIds = new Set<string>();
+    for (const entry of this.remoteTracks.values()) {
+      if (entry.streamId) this.events.onRemoteStreamRemoved(entry.userId, entry.streamId);
+      peerIds.add(entry.userId);
+    }
     try {
       this.pc?.close();
     } catch {
@@ -233,6 +244,7 @@ export class SfuManager {
     this.remoteTracks.clear();
     this.midToRemote.clear();
     this.statsPrev = null;
+    for (const userId of peerIds) this.events.onPeerClosed(userId);
   }
 
   // closeAll() latches `closed` so chainOp skips any still-queued ops while we
@@ -328,21 +340,11 @@ export class SfuManager {
     );
   }
 
-  private async ensureIceServers(): Promise<RTCIceServer[]> {
-    if (this.iceServers) return this.iceServers;
-    try {
-      const res = await fetch('/api/turn-credentials', { headers: mediaAuthHeaders() });
-      this.iceServers = (await res.json()) as RTCIceServer[];
-    } catch (err) {
-      console.error('[sfu] failed to fetch ice servers', err);
-      this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
-    }
-    return this.iceServers;
-  }
-
   private async ensurePc(): Promise<RTCPeerConnection> {
     if (this.pc) return this.pc;
-    const iceServers = await this.ensureIceServers();
+    // Shared, TTL-refreshed ICE fetch (rtc/ice.ts) — same helper the mesh uses,
+    // so a long-lived tab never builds this PC with expired TURN credentials.
+    const iceServers = await fetchIceServers();
     const pc = new RTCPeerConnection({ iceServers, bundlePolicy: 'max-bundle' });
     const abort = new AbortController();
     this.pcAbort = abort;
@@ -535,6 +537,12 @@ export class SfuManager {
     });
     const pullErr = sfuErrorMessage(resp);
     if (pullErr) throw new Error(`sfu pull: ${pullErr}`);
+    // A per-track failure (200 top-level, error inside resp.tracks[], no mid) must
+    // also throw — otherwise we'd store an unroutable entry that gives no media and
+    // blocks every future re-pull. Throwing before remoteTracks.set leaves the key
+    // un-recorded so a later directory update can retry.
+    const trackErr = sfuTrackError(resp);
+    if (trackErr) throw new Error(`sfu pull ${trackName}: ${trackErr}`);
 
     // Cloudflare returns, in resp.tracks, the mid it assigned this remote track
     // in the offer SDP it just sent us — the same mid the browser exposes on the
@@ -570,12 +578,37 @@ export class SfuManager {
     }
   }
 
-  private dropRemote(key: string) {
+  private async dropRemote(key: string) {
     const entry = this.remoteTracks.get(key);
     if (!entry) return;
     if (entry.streamId) this.events.onRemoteStreamRemoved(entry.userId, entry.streamId);
     if (entry.mid) this.midToRemote.delete(entry.mid);
     this.remoteTracks.delete(key);
+    // Tell Cloudflare to stop delivering this pulled track and free the local
+    // transceiver. Without it every remote cam/screen toggle (drop → re-pull under
+    // a fresh mid) leaks a downlink subscription that keeps receiving media. This
+    // is cleanup, not call-critical: swallow errors like setPreferredLayer so a
+    // failed close never trips the op-chain mesh fallback. force:true closes
+    // immediately without a renegotiation round-trip.
+    const mid = entry.mid;
+    if (mid && this.sessionId && this.pc) {
+      try {
+        await this.api<TracksResponse>(`/${this.sessionId}/tracks/close`, 'PUT', {
+          tracks: [{ mid }],
+          force: true,
+        });
+      } catch (err) {
+        console.warn('[sfu] track close failed', err);
+      }
+      const tx = this.pc.getTransceivers().find((t) => t.mid === mid);
+      if (tx) {
+        try {
+          tx.stop();
+        } catch {
+          /* noop */
+        }
+      }
+    }
   }
 
   private announcePublished() {

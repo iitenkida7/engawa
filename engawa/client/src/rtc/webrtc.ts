@@ -1,5 +1,4 @@
 import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
-import { mediaAuthHeaders } from '@/core/media-auth';
 import type { StreamKind } from '@/core/types';
 import type { MediaManager } from '@/media/media';
 import {
@@ -9,6 +8,7 @@ import {
   computeScreenScale,
   type ScreenEncoding,
 } from '@/rtc/cam-bitrate';
+import { fetchIceServers } from '@/rtc/ice';
 import { diffRtcStats, type RtcConn, type RtcSnapshot, summarizeRtcStats } from '@/rtc/rtcstats';
 import { transformSdp } from '@/rtc/sdp';
 import { tuneReceivers } from '@/rtc/tune';
@@ -113,7 +113,10 @@ export type WebRtcEvents = {
 
 export class WebRtcManager {
   private peers = new Map<string, PeerEntry>();
-  private iceServers: RTCIceServer[] | null = null;
+  // In-flight createPeer promises, keyed by remote id, so concurrent create calls
+  // for the same peer (e.g. applyGroupMethod racing an inbound signal during the
+  // ICE-credential fetch) return the same peer instead of building two.
+  private creating = new Map<string, Promise<PeerEntry>>();
   private media: MediaManager;
   private events: WebRtcEvents;
 
@@ -137,15 +140,9 @@ export class WebRtcManager {
   }
 
   async ensureIceServers(): Promise<RTCIceServer[]> {
-    if (this.iceServers) return this.iceServers;
-    try {
-      const res = await fetch('/api/turn-credentials', { headers: mediaAuthHeaders() });
-      this.iceServers = (await res.json()) as RTCIceServer[];
-    } catch (err) {
-      console.error('[rtc] failed to fetch ice servers', err);
-      this.iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
-    }
-    return this.iceServers;
+    // Shared, TTL-refreshed fetch (rtc/ice.ts) so long-lived tabs don't keep
+    // using expired TURN credentials.
+    return fetchIceServers();
   }
 
   hasPeer(remoteUserId: string) {
@@ -249,10 +246,23 @@ export class WebRtcManager {
     return out;
   }
 
+  // Idempotent per remote id across the async ICE fetch: a second call while the
+  // first is still awaiting credentials returns the same in-flight promise, so we
+  // never build two SimplePeers for one peer (the loser would leak and its stray
+  // 'signal' events would confuse the remote's negotiation).
   async createPeer(remoteUserId: string, initiator: boolean): Promise<PeerEntry> {
     const existing = this.peers.get(remoteUserId);
     if (existing) return existing;
+    const pending = this.creating.get(remoteUserId);
+    if (pending) return pending;
+    const p = this.doCreatePeer(remoteUserId, initiator).finally(() => {
+      this.creating.delete(remoteUserId);
+    });
+    this.creating.set(remoteUserId, p);
+    return p;
+  }
 
+  private async doCreatePeer(remoteUserId: string, initiator: boolean): Promise<PeerEntry> {
     const iceServers = await this.ensureIceServers();
 
     // Bundle whatever local streams we already have so the peer is created with
@@ -432,14 +442,44 @@ export class WebRtcManager {
   }
 
   // Remove a local stream from every connected peer.
+  //
+  // Tiles on the remote are keyed by the stream id we ANNOUNCED to that peer. A
+  // device switch swaps the track via replaceTrack, which preserves the SDP msid
+  // — so the remote keeps rendering the ORIGINAL id, while this manager's live
+  // stream.id has since changed. Each peer therefore keeps the announced id in
+  // its own localStreamKinds (per kind); resolve that id and send the 'removed'
+  // meta for it, otherwise the remote's tile never clears (a frozen ghost). If
+  // simple-peer doesn't know the (swapped-in) live stream, remove the track at
+  // the PC level so media actually stops and the peer renegotiates.
   removeLocalStream(stream: MediaStream) {
+    const kind = inferOutgoingKind(stream);
     for (const entry of this.peers.values()) {
-      entry.localStreamKinds.delete(stream.id);
-      this.events.onStreamMeta(entry.remoteUserId, stream.id, 'removed');
+      let announcedId: string | undefined;
+      for (const [id, k] of entry.localStreamKinds) {
+        if (k === kind) {
+          announcedId = id;
+          break;
+        }
+      }
+      announcedId ??= stream.id;
+      entry.localStreamKinds.delete(announcedId);
+      this.events.onStreamMeta(entry.remoteUserId, announcedId, 'removed');
       try {
         entry.peer.removeStream(stream);
-      } catch (err) {
-        console.warn('[rtc] removeStream failed', err);
+      } catch {
+        // The stream was swapped in via replaceTrack, so simple-peer never knew
+        // this exact object. Remove the live track directly; simple-peer picks up
+        // the resulting negotiationneeded and renegotiates.
+        const pc = getPc(entry.peer);
+        const track = stream.getTracks()[0];
+        const sender = pc?.getSenders().find((s) => s.track === track);
+        if (pc && sender) {
+          try {
+            pc.removeTrack(sender);
+          } catch (err) {
+            console.warn('[rtc] removeTrack failed', err);
+          }
+        }
       }
     }
   }
@@ -478,4 +518,13 @@ function inferKind(stream: MediaStream): StreamKind {
   // Fallback when no meta has arrived. Streams without video are mic; with
   // video we default to cam (screen will normally be announced via meta).
   return stream.getVideoTracks().length === 0 ? 'mic' : 'cam';
+}
+
+// Kind of one of OUR outgoing streams, used to match it against a peer's
+// announced-stream map. Mirrors the sender-tuning inference: audio → mic, video
+// tagged contentHint 'detail' → screen (MediaManager sets it), else cam.
+function inferOutgoingKind(stream: MediaStream): StreamKind {
+  const video = stream.getVideoTracks()[0];
+  if (!video) return 'mic';
+  return video.contentHint === 'detail' ? 'screen' : 'cam';
 }

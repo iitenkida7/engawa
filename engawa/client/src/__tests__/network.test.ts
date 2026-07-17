@@ -23,6 +23,12 @@ class FakeWebSocket {
   send(data: string) {
     this.sent.push(data);
   }
+  // A real WebSocket.close() transitions the socket and later fires 'close';
+  // mirror that so the identity-guard tests can drive a stale close.
+  close() {
+    this.readyState = FakeWebSocket.CLOSED;
+    this.emit('close');
+  }
   // Test helpers to drive events.
   emit(type: string, e?: any) {
     for (const fn of this.listeners[type] ?? []) fn(e);
@@ -112,5 +118,32 @@ describe('NetworkClient', () => {
     FakeWebSocket.instances[0].readyState = FakeWebSocket.CLOSED;
     client.send({ type: 'move', x: 0, y: 0, vx: 0, vy: 0 });
     expect(FakeWebSocket.instances[0].sent).toEqual([]);
+  });
+
+  it('ignores events from an abandoned socket after reconnect', () => {
+    const client = make();
+    client.connect();
+    const first = FakeWebSocket.instances[0];
+
+    // Reconnect: the second connect() closes the first socket (firing its close),
+    // but the identity guard must suppress onClose so it doesn't schedule a
+    // spurious reconnect over the live one.
+    client.connect();
+    const second = FakeWebSocket.instances[1];
+    expect(onClose).not.toHaveBeenCalled();
+
+    // A late open/message/close from the abandoned first socket is ignored.
+    first.emit('open');
+    first.emit('message', { data: JSON.stringify({ type: 'player-left', userId: 'x' }) });
+    first.emit('close');
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // The live (second) socket still drives the callbacks.
+    second.emit('open');
+    second.emit('close');
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

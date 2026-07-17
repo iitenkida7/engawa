@@ -23,11 +23,24 @@ export class NetworkClient {
   }
 
   connect() {
-    this.ws = new WebSocket(this.url);
-    this.ws.addEventListener('open', () => this.onOpen());
-    this.ws.addEventListener('close', () => this.onClose());
-    this.ws.addEventListener('error', (e) => console.error('[ws] error', e));
-    this.ws.addEventListener('message', (e) => {
+    // Abandon any previous socket: swap in the new one FIRST, then close the old.
+    // Every listener checks socket identity, so the old socket's close (and any
+    // late open/message) is ignored once `this.ws` points at the new socket —
+    // preventing an orphaned socket from driving a stale join or a spurious
+    // reconnect over the live one (which would force-rejoin with a new userId and
+    // spawn ghosts).
+    const prev = this.ws;
+    const ws = new WebSocket(this.url);
+    this.ws = ws;
+    ws.addEventListener('open', () => {
+      if (this.ws === ws) this.onOpen();
+    });
+    ws.addEventListener('close', () => {
+      if (this.ws === ws) this.onClose();
+    });
+    ws.addEventListener('error', (e) => console.error('[ws] error', e));
+    ws.addEventListener('message', (e) => {
+      if (this.ws !== ws) return;
       try {
         const msg = JSON.parse(e.data) as ServerMessage;
         this.onMsg(msg);
@@ -35,6 +48,13 @@ export class NetworkClient {
         console.error('[ws] parse error', err);
       }
     });
+    if (prev) {
+      try {
+        prev.close();
+      } catch {
+        /* noop */
+      }
+    }
   }
 
   send(msg: ClientMessage) {
