@@ -118,10 +118,40 @@
         padding: 8px;
         border-radius: 12px;
         backdrop-filter: blur(8px);
+        /* Never let the row clip off-screen: cap it to the viewport and wrap to
+           more rows when it can't fit (it stays a single centered row on wide
+           screens, where the content is narrower than the cap). Keeps every
+           control reachable on phones/tablets. */
+        flex-wrap: wrap;
+        justify-content: center;
+        max-width: calc(100vw - 16px);
         /* Stay above the draggable panels (their shared counter starts at 10
            and only climbs) so the toolbar is always clickable. The join
            overlay sits above this as the entry gate. */
         z-index: 1000;
+      }
+
+      /* Phones / narrow viewports: span the width and tighten the controls so the
+         (now wrapping) toolbar packs into as few rows as possible. */
+      @media (max-width: 640px) {
+        #toolbar {
+          left: 8px;
+          right: 8px;
+          bottom: 8px;
+          transform: none;
+          max-width: none;
+          gap: 6px;
+          padding: 6px;
+        }
+
+        #toolbar button {
+          padding: 7px 10px;
+          font-size: 12px;
+        }
+
+        #toolbar .btn-caret {
+          padding: 7px 7px;
+        }
       }
 
       #toolbar button {
