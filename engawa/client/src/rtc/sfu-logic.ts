@@ -22,6 +22,22 @@ export function sfuErrorMessage(resp: {
   return resp.errorDescription ?? resp.errorCode;
 }
 
+// Interpret the per-track result of a tracks/new (pull) response: null when the
+// single track came back cleanly with a routable mid, otherwise the reason it
+// failed. Cloudflare can report a per-track failure (e.g. pulling a trackName the
+// publisher's session no longer has) inside resp.tracks[] with a 200 top-level
+// status and no mid — SfuManager must throw on that instead of storing an
+// unroutable entry that would silently give no media and block every re-pull.
+export function sfuTrackError(resp: {
+  tracks?: { mid?: string; errorCode?: string }[];
+}): string | null {
+  const t = resp.tracks?.[0];
+  if (!t) return 'no track in response';
+  if (t.errorCode) return t.errorCode;
+  if (!t.mid) return 'no mid';
+  return null;
+}
+
 // Interpret a session/new response: null when a session id came back, otherwise
 // the reason creation failed. A missing id with no description still fails.
 export function sfuSessionError(resp: {

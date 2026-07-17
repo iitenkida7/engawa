@@ -51,6 +51,9 @@ class FakeRTCPeerConnection {
   async getStats() {
     return new Map();
   }
+  getTransceivers() {
+    return [] as unknown[];
+  }
   close() {}
 }
 
@@ -81,7 +84,12 @@ beforeEach(() => {
     if (u.includes('/api/turn-credentials')) return jsonRes([]);
     if (u.includes('/sessions/new')) return jsonRes({ sessionId: 'sess-1' });
     if (u.includes('/tracks/new')) {
-      return jsonRes({ sessionDescription: { type: 'answer', sdp: 'v=0\r\n' } });
+      // Cloudflare always returns the assigned mid per track; pullTrack now
+      // requires it (a missing mid / per-track errorCode is a hard failure).
+      return jsonRes({
+        sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
+        tracks: [{ mid: '0' }],
+      });
     }
     return jsonRes({});
   });
@@ -275,6 +283,42 @@ describe('SfuManager re-publish after unpublish (issue #150)', () => {
     expect(events.onPublished).toHaveBeenLastCalledWith('sess-1', [
       { kind: 'screen', trackName: 'screen' },
     ]);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+});
+
+const settle = async () => {
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+};
+
+describe('SfuManager closeAll emits closure events (SFU→mesh ghost tiles)', () => {
+  it('emits onPeerClosed for each pulled remote peer so the UI drops their tile', async () => {
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+    sfu.setPeerTracks('peer-1', 'their-sess', [{ kind: 'cam', trackName: 'cam' }]);
+    await settle();
+
+    sfu.closeAll();
+    expect(events.onPeerClosed).toHaveBeenCalledWith('peer-1');
+  });
+});
+
+describe('SfuManager dropRemote closes the pulled track (downlink leak)', () => {
+  it('sends tracks/close to Cloudflare when a peer stops publishing a track', async () => {
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+    sfu.setPeerTracks('peer-1', 'their-sess', [{ kind: 'cam', trackName: 'cam' }]);
+    await settle();
+    fetchMock.mockClear();
+
+    // The peer turns their camera off: reconcile drops it → dropRemote must ask
+    // Cloudflare to stop delivering the pulled track, not just forget it locally.
+    sfu.setPeerTracks('peer-1', 'their-sess', []);
+    await settle();
+
+    const closed = fetchMock.mock.calls.some((c) => String(c[0]).includes('/tracks/close'));
+    expect(closed).toBe(true);
     expect(events.onFailed).not.toHaveBeenCalled();
   });
 });

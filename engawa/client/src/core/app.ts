@@ -142,6 +142,9 @@ export class App {
   // Guards beforeunload/visibilitychange registration so an auth-error retry
   // (start() called again) doesn't stack duplicate window listeners.
   private lifecycleReady = false;
+  // Guards the rAF loop so an auth-error retry (start() called again) doesn't
+  // stack a second requestAnimationFrame chain that double-drives step()/render.
+  private loopStarted = false;
   // Set by dispose() to stop the rAF loop from rescheduling itself.
   private disposed = false;
 
@@ -382,7 +385,13 @@ export class App {
     this.joinedName = name;
     this.joinedPassword = password;
     this.net.connect();
-    requestAnimationFrame(this.loop);
+    // Guard like startBackgroundTicker/setupLifecycle: an auth-error retry calls
+    // start() again on the same App, and a second rAF chain would double-drive
+    // the loop for the rest of the session.
+    if (!this.loopStarted) {
+      this.loopStarted = true;
+      requestAnimationFrame(this.loop);
+    }
     this.startBackgroundTicker();
     this.setupLifecycle();
   }
@@ -408,6 +417,30 @@ export class App {
     this.lifecycleReady = true;
     window.addEventListener('beforeunload', this.onBeforeUnload);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
+  }
+
+  // Drop every bit of state tied to the previous WS session. The server mints a
+  // NEW userId per connection, so a same-boot reconnect (network blip, or return
+  // from a long-backgrounded tab) would otherwise leave a ghost of our old self
+  // and any peer that left during the outage in the players map — plus stale mesh
+  // peers, SFU tracks, and a self-screenshare stage keyed by the dead id. Called
+  // at the top of every welcome; a no-op on the first join since everything is
+  // already empty (so there's no first/reconnect branch to keep).
+  private resetSessionState() {
+    for (const id of [...this.players.keys()]) {
+      this.knocks.onPlayerLeft(id);
+      this.view.removePeer(id);
+    }
+    this.players.clear();
+    this.me = null;
+    this.rtc.closeAll();
+    this.sfu.closeAll();
+    this.knownSfuPeers.clear();
+    this.meshMembers.clear();
+    this.sfuMembers.clear();
+    this.inProximity.clear();
+    this.currentMethod = 'mesh';
+    this.focusedId = null;
   }
 
   // Symmetric teardown for the App's long-lived resources: stops the rAF loop,
@@ -544,6 +577,9 @@ export class App {
           this.reloadBanner.show();
           break;
         }
+        // Clear any prior-session state before adopting the new one, so a same-boot
+        // reconnect (new userId) doesn't leave ghosts of our old self / stale peers.
+        this.resetSessionState();
         // Store the fresh media token so the RTC transports can authenticate to
         // /api/turn-credentials and /api/sfu/* for this (re)connected session.
         setMediaToken(msg.token);
@@ -648,6 +684,12 @@ export class App {
         break;
       }
       case 'sfu-peer-tracks': {
+        // Ignore unless we're actually on SFU. setPeerTracks calls reopen(), which
+        // would resurrect a ghost SFU PeerConnection while we run mesh — the server
+        // keeps relaying these after a unilateral mesh fallback because it still
+        // believes the group is SFU-latched (invariant #2, it can't know we fell
+        // back).
+        if (this.currentMethod !== 'sfu') break;
         this.knownSfuPeers.add(msg.userId);
         this.sfu.setPeerTracks(msg.userId, msg.sessionId, msg.tracks);
         break;
@@ -669,7 +711,13 @@ export class App {
     // the joiner in meshMembers by the time the offer arrives. If that invariant
     // ever broke, the offer would be dropped here (simple-peer does not resend)
     // and the pair would fail to connect.
-    if (!this.rtc.hasPeer(from) && !this.meshMembers.has(from)) {
+    //
+    // sfuMembers is included so the SFU→mesh fallback works from the healthy side:
+    // when a peer's SFU connection fails it meshes directly to us, but we are still
+    // on SFU (meshMembers empty). Accepting their offer because they're in our
+    // sfuMembers lets the call survive. During normal SFU operation members never
+    // send mesh signals, so this only ever admits a genuine fallback offer.
+    if (!this.rtc.hasPeer(from) && !this.meshMembers.has(from) && !this.sfuMembers.has(from)) {
       return;
     }
     // If we have no peer for this user, create as non-initiator.
@@ -946,12 +994,12 @@ export class App {
         this.knownSfuPeers.delete(id);
       }
     } else {
-      if (this.currentMethod === 'sfu') {
-        // SFU → mesh: the group dispersed/reformed. Tear the SFU transport down
-        // before rebuilding the mesh below.
-        this.sfu.closeAll();
-        this.knownSfuPeers.clear();
-      }
+      // Always tear the SFU transport down when running mesh — even mesh→mesh — so
+      // a ghost PC that a stray sfu-peer-tracks might have resurrected can't linger
+      // pulling media next to the mesh path. closeAll is idempotent and cheap, and
+      // group-updates only arrive on real topology changes (not every move).
+      this.sfu.closeAll();
+      this.knownSfuPeers.clear();
       this.currentMethod = 'mesh';
       this.sfuMembers.clear();
       // Reconcile mesh peers against the group: close peers no longer in it,
@@ -978,7 +1026,12 @@ export class App {
   // (the same set the SFU was serving). (App-token-less environments never reach
   // SFU, so never get here.)
   private onSfuFailed() {
-    if (this.currentMethod !== 'sfu') return;
+    if (this.currentMethod !== 'sfu') {
+      // Not on SFU, but a resurrected/ghost SFU transport may have failed. Ensure
+      // it's torn down (idempotent) rather than left leaking, then bail.
+      this.sfu.closeAll();
+      return;
+    }
     console.warn('[sfu] connection failed; falling back to mesh');
     this.toasts.info('通話サーバーに接続できないため、P2P 接続に切り替えました。');
     // Reuse the mesh reconciliation (it tears the SFU transport down and opens a

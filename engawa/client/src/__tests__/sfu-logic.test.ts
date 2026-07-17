@@ -7,6 +7,7 @@ import {
   remoteKey,
   sfuErrorMessage,
   sfuSessionError,
+  sfuTrackError,
   shouldFallbackToMesh,
 } from '@/rtc/sfu-logic';
 
@@ -29,6 +30,25 @@ describe('sfuErrorMessage', () => {
 
   it('falls back to the code when no description is given', () => {
     expect(sfuErrorMessage({ errorCode: 'E1' })).toBe('E1');
+  });
+});
+
+describe('sfuTrackError', () => {
+  it('returns null for a clean track with a mid', () => {
+    expect(sfuTrackError({ tracks: [{ mid: '0' }] })).toBeNull();
+  });
+
+  it('reports a per-track errorCode (200 top-level, error inside tracks[])', () => {
+    expect(sfuTrackError({ tracks: [{ errorCode: 'no_such_track' }] })).toBe('no_such_track');
+  });
+
+  it("reports 'no mid' when the track came back without a routable mid", () => {
+    expect(sfuTrackError({ tracks: [{}] })).toBe('no mid');
+  });
+
+  it("reports 'no track in response' when tracks is empty or missing", () => {
+    expect(sfuTrackError({ tracks: [] })).toBe('no track in response');
+    expect(sfuTrackError({})).toBe('no track in response');
   });
 });
 
