@@ -1,18 +1,9 @@
-// Pure decoration mapping for the map renderer: which Kenney tilesheet cell to
-// use for each floor/prop, and how to classify a tile cell. Kept free of DOM /
-// asset imports so the placement logic is unit-testable; canvas.ts feeds these
-// cells to SpriteSheet.draw when baking the static map cache. Decoration is
+// Pure decoration mapping for the map renderer: classifies each tile cell into a
+// floor kind / prop. Kept free of DOM / asset imports so the placement logic is
+// unit-testable; canvas.ts uses these to draw the map procedurally. Decoration is
 // purely visual — it never touches SOLID/collision (that stays in tilemap.ts).
 
 import { TILE_SIZE, Tile, ZONES } from '@/world/tilemap';
-
-// Cell coordinates [col, row] in the Kenney "Roguelike Indoors" sheet.
-export const CELL = {
-  woodFloor: [24, 1], // orange wood planks → open office floor
-  carpetFloor: [24, 5], // green floor → meeting rooms / lounge
-  desk: [6, 12], // desk with a monitor
-  plant: [16, 0], // potted plant
-} as const;
 
 export type FloorKind = 'wood' | 'carpet';
 

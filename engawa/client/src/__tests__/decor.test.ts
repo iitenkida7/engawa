@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { CELL, floorKindAt, propFor } from '@/world/decor';
+import { floorKindAt, propFor } from '@/world/decor';
 import { Tile } from '@/world/tilemap';
 
 describe('propFor', () => {
@@ -22,15 +22,5 @@ describe('floorKindAt', () => {
   it('uses wood in the open office (no zone)', () => {
     // (col 20, row 11) is open floor in the central office, outside every zone.
     expect(floorKindAt(20, 11)).toBe('wood');
-  });
-});
-
-describe('CELL', () => {
-  it('exposes a [col,row] cell for every decoration the renderer draws', () => {
-    for (const cell of [CELL.woodFloor, CELL.carpetFloor, CELL.desk, CELL.plant]) {
-      expect(cell).toHaveLength(2);
-      expect(cell[0]).toBeGreaterThanOrEqual(0);
-      expect(cell[1]).toBeGreaterThanOrEqual(0);
-    }
   });
 });

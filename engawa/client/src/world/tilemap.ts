@@ -13,20 +13,8 @@ export const Tile = {
 
 export const SOLID = new Set<number>([Tile.WALL, Tile.DESK, Tile.PLANT]);
 
-export const TILE_FILL: Record<number, string> = {
-  [Tile.FLOOR]: '#2e3440',
-  [Tile.WALL]: '#1a1d24',
-  [Tile.DESK]: '#6b5332',
-  [Tile.MEETING]: '#2a3445',
-  [Tile.LOUNGE]: '#3d3028',
-  [Tile.PLANT]: '#2d5a35',
-};
-
-export const TILE_BORDER: Record<number, string> = {
-  [Tile.WALL]: '#252830',
-  [Tile.DESK]: '#55412a',
-  [Tile.PLANT]: '#1e4425',
-};
+// Tile colours live with the renderer (world/canvas.ts PALETTE), which draws the
+// map procedurally. tilemap.ts stays pure layout + collision.
 
 export function isSolid(px: number, py: number): boolean {
   const col = Math.floor(px / TILE_SIZE);
