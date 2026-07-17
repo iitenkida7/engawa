@@ -747,7 +747,9 @@ export class App {
     this.update(dt);
     if (render) {
       const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
-      this.renderer.render(this.me, this.players.values(), dest, this.focusedId);
+      // Show the media-reach ring only while we're actually publishing something.
+      const mediaActive = this.media.micOn || this.media.camOn || this.media.screenOn;
+      this.renderer.render(this.me, this.players.values(), dest, this.focusedId, mediaActive);
     }
   }
 

@@ -270,6 +270,9 @@ export class CanvasRenderer {
     players: Iterable<PlayerState>,
     moveTarget: Point | null = null,
     highlightId: string | null = null,
+    // Draw the media-reach ring only when the local user is actually publishing
+    // something (mic / camera / screen). With nothing on it's just noise.
+    mediaActive = false,
   ) {
     const ctx = this.ctx;
     const w = this.viewW;
@@ -309,9 +312,10 @@ export class CanvasRenderer {
       this.drawZone(ctx, zone, selfZone?.id === zone.id);
     }
 
-    // Self proximity ring — hidden inside a meeting room, where the call is
+    // Self proximity ring — shown only while publishing media (the reach is
+    // meaningless otherwise), and hidden inside a meeting room, where the call is
     // governed by room membership (everyone in / nobody out), not radius.
-    if (self && !selfZone) {
+    if (self && !selfZone && mediaActive) {
       ctx.beginPath();
       ctx.arc(self.x, self.y, CONNECT_RADIUS, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(79,140,255,0.08)';
