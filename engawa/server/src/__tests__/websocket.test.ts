@@ -337,13 +337,13 @@ describe('createWebSocketHandler — move', () => {
     if (moved?.type !== 'player-moved') throw new Error('expected player-moved');
     expect(moved).toMatchObject({
       userId: mover.data.userId,
-      x: 2000,
+      x: 1700,
       y: 0,
       vx: 1,
       vy: -2,
     });
     // Server-side state is updated to the clamped value.
-    expect(mover.data.x).toBe(2000);
+    expect(mover.data.x).toBe(1700);
     expect(mover.data.y).toBe(0);
   });
 

@@ -747,7 +747,9 @@ export class App {
     this.update(dt);
     if (render) {
       const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
-      this.renderer.render(this.me, this.players.values(), dest, this.focusedId);
+      // Show the media-reach ring only while we're actually publishing something.
+      const mediaActive = this.media.micOn || this.media.camOn || this.media.screenOn;
+      this.renderer.render(this.me, this.players.values(), dest, this.focusedId, mediaActive);
     }
   }
 
@@ -771,6 +773,9 @@ export class App {
       // Face the way we're moving so our own avatar's sprite turns (remote
       // players turn via setTarget). Idle keeps the last facing.
       this.me.updateFacing(selfVx, selfVy);
+      // Moving re-centers the camera on self, so a map drag-pan is undone the
+      // moment the player acts (walk / click-to-move).
+      if (selfVx !== 0 || selfVy !== 0) this.renderer.recenter();
     }
 
     // Interpolate remote players (also frame-rate independent).

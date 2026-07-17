@@ -4,9 +4,10 @@
 
 import type { GroupMethod, Outfit, PlayerStatus, SfuTrack, StreamKind } from './types';
 
-/** Map bounds used to clamp player positions. */
-export const MAP_WIDTH = 2000;
-export const MAP_HEIGHT = 1500;
+/** Map bounds used to clamp player positions. Must match the client (core/types.ts
+ * MAP_WIDTH/HEIGHT) and world/tilemap.ts MAP_COLS/ROWS × TILE_SIZE (34×24 tiles). */
+export const MAP_WIDTH = 1700;
+export const MAP_HEIGHT = 1200;
 
 /**
  * Validate a workspace password against the configured password table.

@@ -1,6 +1,8 @@
 export const TILE_SIZE = 50;
-export const MAP_COLS = 40;
-export const MAP_ROWS = 30;
+// A compact floor (1700×1200) keeps walking short. Must stay in sync with
+// MAP_WIDTH/MAP_HEIGHT (client core/types.ts and server logic.ts).
+export const MAP_COLS = 34;
+export const MAP_ROWS = 24;
 
 export const Tile = {
   FLOOR: 0,
@@ -13,20 +15,8 @@ export const Tile = {
 
 export const SOLID = new Set<number>([Tile.WALL, Tile.DESK, Tile.PLANT]);
 
-export const TILE_FILL: Record<number, string> = {
-  [Tile.FLOOR]: '#2e3440',
-  [Tile.WALL]: '#1a1d24',
-  [Tile.DESK]: '#6b5332',
-  [Tile.MEETING]: '#2a3445',
-  [Tile.LOUNGE]: '#3d3028',
-  [Tile.PLANT]: '#2d5a35',
-};
-
-export const TILE_BORDER: Record<number, string> = {
-  [Tile.WALL]: '#252830',
-  [Tile.DESK]: '#55412a',
-  [Tile.PLANT]: '#1e4425',
-};
+// Tile colours live with the renderer (world/canvas.ts PALETTE), which draws the
+// map procedurally. tilemap.ts stays pure layout + collision.
 
 export function isSolid(px: number, py: number): boolean {
   const col = Math.floor(px / TILE_SIZE);
@@ -44,6 +34,287 @@ export function canOccupy(cx: number, cy: number, radius: number): boolean {
   );
 }
 
+// ── Rooms: walled-off MEETING zones (isolated call bubbles) ──
+// Each room is stamped as a wall ring + MEETING interior + door gap(s) + desks.
+// The layout lives here once; buildZones() derives the named Zone from it, so
+// adding/moving a room needs no other edits.
+type RoomDef = {
+  id: string;
+  name: string;
+  // Interior rect, in tiles (the wall ring is stamped just outside it).
+  c: number;
+  r: number;
+  w: number;
+  h: number;
+  doors: [number, number][]; // wall tiles opened to FLOOR (col, row)
+  desks: [number, number][]; // furniture inside (col, row)
+};
+
+// Rooms fill the top and bottom edges edge-to-edge: neighbours share a single
+// wall column and the perimeter reuses the outer wall (no double walls, no dead
+// space). Every room's door opens into the central open office. Desks define the
+// table/desk footprint; the renderer draws chairs around it.
+const ROOMS: RoomDef[] = [
+  // ── Top strip (rows 1-4): president's office + all-hands + three meeting rooms.
+  {
+    id: 'ceo',
+    name: '社長室',
+    c: 1,
+    r: 1,
+    w: 4,
+    h: 4,
+    doors: [
+      [2, 5],
+      [3, 5],
+    ],
+    // Same meeting-table footprint as the other rooms.
+    desks: [
+      [2, 2],
+      [3, 2],
+      [2, 3],
+      [3, 3],
+    ],
+  },
+  {
+    id: 'all-hands',
+    name: '大会議室',
+    c: 6,
+    r: 1,
+    w: 12,
+    h: 4,
+    doors: [
+      [11, 5],
+      [12, 5],
+    ],
+    // 4×2 boardroom table (chairs drawn around it), leaving standing room for ~25.
+    desks: [
+      [10, 2],
+      [11, 2],
+      [12, 2],
+      [13, 2],
+      [10, 3],
+      [11, 3],
+      [12, 3],
+      [13, 3],
+    ],
+  },
+  {
+    id: 'meeting-1',
+    name: '会議室1',
+    c: 19,
+    r: 1,
+    w: 4,
+    h: 4,
+    doors: [
+      [20, 5],
+      [21, 5],
+    ],
+    desks: [
+      [20, 2],
+      [21, 2],
+      [20, 3],
+      [21, 3],
+    ],
+  },
+  {
+    id: 'meeting-2',
+    name: '会議室2',
+    c: 24,
+    r: 1,
+    w: 4,
+    h: 4,
+    doors: [
+      [25, 5],
+      [26, 5],
+    ],
+    desks: [
+      [25, 2],
+      [26, 2],
+      [25, 3],
+      [26, 3],
+    ],
+  },
+  {
+    id: 'meeting-3',
+    name: '会議室3',
+    c: 29,
+    r: 1,
+    w: 4,
+    h: 4,
+    doors: [
+      [30, 5],
+      [31, 5],
+    ],
+    desks: [
+      [30, 2],
+      [31, 2],
+      [30, 3],
+      [31, 3],
+    ],
+  },
+  // ── Bottom strip (rows 20-22): three 1-on-1 rooms + three negotiation booths.
+  {
+    id: '1on1-1',
+    name: '1on1ルーム1',
+    c: 1,
+    r: 20,
+    w: 4,
+    h: 3,
+    doors: [
+      [2, 19],
+      [3, 19],
+    ],
+    desks: [[2, 21]],
+  },
+  {
+    id: '1on1-2',
+    name: '1on1ルーム2',
+    c: 6,
+    r: 20,
+    w: 4,
+    h: 3,
+    doors: [
+      [7, 19],
+      [8, 19],
+    ],
+    desks: [[7, 21]],
+  },
+  {
+    id: '1on1-3',
+    name: '1on1ルーム3',
+    c: 11,
+    r: 20,
+    w: 4,
+    h: 3,
+    doors: [
+      [12, 19],
+      [13, 19],
+    ],
+    desks: [[12, 21]],
+  },
+  {
+    id: 'booth-1',
+    name: '商談ブース1',
+    c: 16,
+    r: 20,
+    w: 5,
+    h: 3,
+    doors: [
+      [18, 19],
+      [19, 19],
+    ],
+    desks: [
+      [18, 21],
+      [19, 21],
+    ],
+  },
+  {
+    id: 'booth-2',
+    name: '商談ブース2',
+    c: 22,
+    r: 20,
+    w: 5,
+    h: 3,
+    doors: [
+      [24, 19],
+      [25, 19],
+    ],
+    desks: [
+      [24, 21],
+      [25, 21],
+    ],
+  },
+  {
+    id: 'booth-3',
+    name: '商談ブース3',
+    c: 28,
+    r: 20,
+    w: 5,
+    h: 3,
+    doors: [
+      [30, 19],
+      [31, 19],
+    ],
+    desks: [
+      [30, 21],
+      [31, 21],
+    ],
+  },
+];
+
+// Furniture footprint for the renderer: the bounding rect of a room's desk tiles
+// (the meeting-table surface) plus the room interior rect (to bound chair
+// placement). Every room — including the president's office — gets a meeting
+// table with chairs.
+export type RoomFurniture = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  ix: number;
+  iy: number;
+  iw: number;
+  ih: number;
+};
+
+export const ROOM_FURNITURE: RoomFurniture[] = ROOMS.map((room) => {
+  const cols = room.desks.map((d) => d[0]);
+  const rows = room.desks.map((d) => d[1]);
+  const minC = Math.min(...cols);
+  const maxC = Math.max(...cols);
+  const minR = Math.min(...rows);
+  const maxR = Math.max(...rows);
+  return {
+    x: minC * TILE_SIZE,
+    y: minR * TILE_SIZE,
+    w: (maxC - minC + 1) * TILE_SIZE,
+    h: (maxR - minR + 1) * TILE_SIZE,
+    ix: room.c * TILE_SIZE,
+    iy: room.r * TILE_SIZE,
+    iw: room.w * TILE_SIZE,
+    ih: room.h * TILE_SIZE,
+  };
+});
+
+// 25 open-office seats: four 2-desk benches per row across three rows (24) plus
+// one extra → 25, matching a ~25-person team.
+const OPEN_DESKS: [number, number][] = [
+  [5, 8],
+  [6, 8],
+  [12, 8],
+  [13, 8],
+  [19, 8],
+  [20, 8],
+  [26, 8],
+  [27, 8],
+  [5, 11],
+  [6, 11],
+  [12, 11],
+  [13, 11],
+  [19, 11],
+  [20, 11],
+  [26, 11],
+  [27, 11],
+  [5, 14],
+  [6, 14],
+  [12, 14],
+  [13, 14],
+  [19, 14],
+  [20, 14],
+  [26, 14],
+  [27, 14],
+  [16, 11],
+];
+
+// A little greenery down the open floor's sides and center.
+const OPEN_PLANTS: [number, number][] = [
+  [2, 9],
+  [31, 9],
+  [2, 16],
+  [31, 16],
+  [16, 17],
+];
+
 function buildOfficeMap(): number[][] {
   const m: number[][] = [];
   for (let r = 0; r < MAP_ROWS; r++) {
@@ -55,6 +326,9 @@ function buildOfficeMap(): number[][] {
       for (let cc = c; cc < c + w; cc++)
         if (rr >= 0 && rr < MAP_ROWS && cc >= 0 && cc < MAP_COLS) m[rr][cc] = t;
   };
+  const set = (c: number, r: number, t: number) => {
+    if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS) m[r][c] = t;
+  };
 
   // ── Outer walls ──
   fill(0, 0, MAP_COLS, 1, Tile.WALL);
@@ -62,83 +336,21 @@ function buildOfficeMap(): number[][] {
   fill(0, 0, 1, MAP_ROWS, Tile.WALL);
   fill(MAP_COLS - 1, 0, 1, MAP_ROWS, Tile.WALL);
 
-  // ── Top section (rows 1-4): meeting rooms (offices + lounge) ──
-  // These three walled-off rooms are MEETING tiles so they become isolated
-  // call bubbles (see ZONES / zoneAt). The interior is filled with MEETING
-  // before desks/plants are stamped back on top.
-
-  // Office 1 (cols 1-6)
-  fill(7, 0, 1, 6, Tile.WALL);
-  fill(0, 5, 8, 1, Tile.WALL);
-  m[5][3] = Tile.FLOOR;
-  m[5][4] = Tile.FLOOR;
-  fill(1, 1, 6, 4, Tile.MEETING);
-  fill(3, 2, 2, 2, Tile.DESK);
-
-  // Office 2 (cols 8-13)
-  fill(14, 0, 1, 6, Tile.WALL);
-  fill(8, 5, 7, 1, Tile.WALL);
-  m[5][10] = Tile.FLOOR;
-  m[5][11] = Tile.FLOOR;
-  fill(8, 1, 6, 4, Tile.MEETING);
-  fill(10, 2, 2, 2, Tile.DESK);
-
-  // Lounge (cols 29-38)
-  fill(28, 0, 1, 6, Tile.WALL);
-  fill(28, 5, 12, 1, Tile.WALL);
-  m[5][32] = Tile.FLOOR;
-  m[5][33] = Tile.FLOOR;
-  fill(29, 1, 10, 4, Tile.MEETING);
-  fill(31, 2, 4, 1, Tile.DESK);
-  m[2][37] = Tile.PLANT;
-
-  // ── Open office area (rows 6-22): desk clusters ──
-  const deskCols = [
-    [2, 3],
-    [5, 6],
-    [11, 12],
-    [14, 15],
-    [24, 25],
-    [27, 28],
-    [33, 34],
-    [36, 37],
-  ];
-  const deskRows = [7, 9, 13, 15, 19, 21];
-  for (const row of deskRows) {
-    for (const [c1, c2] of deskCols) {
-      m[row][c1] = Tile.DESK;
-      m[row][c2] = Tile.DESK;
-    }
+  // ── Rooms: wall ring → MEETING interior → doors → desks ──
+  for (const room of ROOMS) {
+    const { c, r, w, h } = room;
+    fill(c - 1, r - 1, w + 2, 1, Tile.WALL); // top wall
+    fill(c - 1, r + h, w + 2, 1, Tile.WALL); // bottom wall
+    fill(c - 1, r - 1, 1, h + 2, Tile.WALL); // left wall
+    fill(c + w, r - 1, 1, h + 2, Tile.WALL); // right wall
+    fill(c, r, w, h, Tile.MEETING); // interior
+    for (const [dc, dr] of room.doors) set(dc, dr, Tile.FLOOR);
+    for (const [dc, dr] of room.desks) set(dc, dr, Tile.DESK);
   }
 
-  // Plants along center aisle and edges
-  m[10][1] = Tile.PLANT;
-  m[10][19] = Tile.PLANT;
-  m[10][20] = Tile.PLANT;
-  m[10][38] = Tile.PLANT;
-  m[16][1] = Tile.PLANT;
-  m[16][19] = Tile.PLANT;
-  m[16][20] = Tile.PLANT;
-  m[16][38] = Tile.PLANT;
-
-  // ── Bottom section (rows 23-28): meeting rooms ──
-  fill(0, 23, MAP_COLS, 1, Tile.WALL);
-  m[23][5] = Tile.FLOOR;
-  m[23][6] = Tile.FLOOR;
-  m[23][19] = Tile.FLOOR;
-  m[23][20] = Tile.FLOOR;
-  m[23][33] = Tile.FLOOR;
-  m[23][34] = Tile.FLOOR;
-
-  // Meeting room 1 (cols 1-12)
-  fill(13, 23, 1, 7, Tile.WALL);
-  fill(1, 24, 12, 5, Tile.MEETING);
-  fill(4, 25, 5, 3, Tile.DESK);
-
-  // Meeting room 2 (cols 27-38)
-  fill(26, 23, 1, 7, Tile.WALL);
-  fill(27, 24, 12, 5, Tile.MEETING);
-  fill(30, 25, 5, 3, Tile.DESK);
+  // ── Open office: ~25 seats + greenery ──
+  for (const [c, r] of OPEN_DESKS) set(c, r, Tile.DESK);
+  for (const [c, r] of OPEN_PLANTS) set(c, r, Tile.PLANT);
 
   return m;
 }
@@ -148,64 +360,35 @@ export const officeMap = buildOfficeMap();
 /**
  * Named meeting-room zone. Rooms act as isolated call bubbles: everyone inside
  * the same zone is connected regardless of distance, and audio/video never
- * leaks to/from people outside (see proximity.ts). The pixel rect is the
- * bounding box of the room's tiles, used only for drawing the frame/label.
+ * leaks to/from people outside (see proximity.ts). The pixel rect is the room's
+ * interior bounding box, used for drawing the frame/label and the floor rug.
  */
 export type Zone = { id: string; name: string; x: number; y: number; w: number; h: number };
 
 /**
- * Derive zones from the map by flood-filling contiguous MEETING tiles into
- * connected components. The room coordinates live in exactly one place
- * (buildOfficeMap): adding or moving a MEETING room needs no edits here — only
- * the display names are assigned, in left-to-right / top-to-bottom order.
+ * Build one named Zone per ROOM. zoneGrid marks only the actual MEETING tiles of
+ * each room (not the desks stamped inside), so zoneAt returns a room only where a
+ * person can actually stand — while the Zone rect still spans the full interior
+ * for drawing the frame/label and the carpet.
  */
 function buildZones(): { zones: Zone[]; grid: number[][] } {
   const grid: number[][] = officeMap.map((row) => row.map(() => -1));
-  const zones: Zone[] = [];
-
-  for (let r = 0; r < MAP_ROWS; r++) {
-    for (let c = 0; c < MAP_COLS; c++) {
-      if (officeMap[r][c] !== Tile.MEETING || grid[r][c] !== -1) continue;
-
-      const idx = zones.length;
-      let minC = c,
-        maxC = c,
-        minR = r,
-        maxR = r;
-      const stack: [number, number][] = [[r, c]];
-      grid[r][c] = idx;
-      while (stack.length) {
-        const [rr, cc] = stack.pop()!;
-        if (cc < minC) minC = cc;
-        if (cc > maxC) maxC = cc;
-        if (rr < minR) minR = rr;
-        if (rr > maxR) maxR = rr;
-        for (const [dr, dc] of [
-          [-1, 0],
-          [1, 0],
-          [0, -1],
-          [0, 1],
-        ] as const) {
-          const nr = rr + dr;
-          const nc = cc + dc;
-          if (nr < 0 || nr >= MAP_ROWS || nc < 0 || nc >= MAP_COLS) continue;
-          if (officeMap[nr][nc] !== Tile.MEETING || grid[nr][nc] !== -1) continue;
-          grid[nr][nc] = idx;
-          stack.push([nr, nc]);
-        }
+  const zones: Zone[] = ROOMS.map((room, idx) => {
+    for (let rr = room.r; rr < room.r + room.h; rr++) {
+      for (let cc = room.c; cc < room.c + room.w; cc++) {
+        if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) continue;
+        if (officeMap[rr][cc] === Tile.MEETING) grid[rr][cc] = idx;
       }
-
-      zones.push({
-        id: `meeting-${idx + 1}`,
-        name: `会議室${String.fromCharCode(65 + idx)}`,
-        x: minC * TILE_SIZE,
-        y: minR * TILE_SIZE,
-        w: (maxC - minC + 1) * TILE_SIZE,
-        h: (maxR - minR + 1) * TILE_SIZE,
-      });
     }
-  }
-
+    return {
+      id: room.id,
+      name: room.name,
+      x: room.c * TILE_SIZE,
+      y: room.r * TILE_SIZE,
+      w: room.w * TILE_SIZE,
+      h: room.h * TILE_SIZE,
+    };
+  });
   return { zones, grid };
 }
 
