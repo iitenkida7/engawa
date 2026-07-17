@@ -5,6 +5,7 @@ import {
   type GroupMember,
   generateSpawn,
   isAllowedReaction,
+  isValidStreamMetaKind,
   MAP_HEIGHT,
   MAP_WIDTH,
   normalizeBool,
@@ -13,6 +14,7 @@ import {
   normalizePlayerStatus,
   normalizeSfuTracks,
   normalizeStatusNote,
+  normalizeStreamId,
   normalizeUntil,
   normalizeVelocity,
   normalizeWorkspace,
@@ -29,6 +31,14 @@ import type { ClientMessage, Player, ServerMessage, WsData } from './types';
 // Workspace passwords from env: JSON object like {"ws1":"pass1","ws2":"pass2"}
 // If empty or not set, all workspaces are open (no auth required).
 const workspacePasswords = parseWorkspacePasswords(process.env.WORKSPACE_PASSWORDS);
+
+// Minimum gap (ms) between proximity-group recomputes triggered by one socket's
+// `move` messages. The client sends moves at ~20Hz, so a legitimate mover always
+// clears this; it only caps a single connection that floods moves at wire speed
+// (the O(n²) recompute is the expensive part). Position updates and player-moved
+// relays are never throttled, so movement stays fully responsive and the group
+// hysteresis tolerates the ≤33ms lag.
+const GROUP_RECOMPUTE_MIN_INTERVAL_MS = 33;
 
 // Per-workspace transient grouping state, memory-only, reset on restart
 // (stateless invariant #2):
@@ -67,24 +77,19 @@ function playerFromWs(ws: ServerWebSocket<WsData>): Player {
   };
 }
 
-// The member ids of the proximity group `userId` currently belongs to — the
-// same connected component the call uses (meeting-room isolation included).
-// Reuses computeProximityGroups; membership is independent of the SFU/mesh
-// method, so sfuEnabled is irrelevant here. Always includes `userId` itself, so
-// a chat from someone standing alone still echoes back to them.
-function proximityGroupMemberIds(
-  clients: Map<string, ServerWebSocket<WsData>>,
-  workspace: string,
-  userId: string,
-): string[] {
-  const members: GroupMember[] = [];
-  for (const c of clients.values()) {
-    if (!c.data.joined || c.data.workspace !== workspace) continue;
-    members.push({ userId: c.data.userId, x: c.data.x, y: c.data.y, zoneId: c.data.zoneId });
-  }
-  const groups = computeProximityGroups(members, { sfuEnabled: false });
-  const g = groups.find((grp) => grp.memberIds.includes(userId));
-  return g ? g.memberIds : [userId];
+// The member ids of the proximity group this connection currently belongs to,
+// read straight off the last group signature the server sent it
+// (groupKey = "<method>:<id1>,<id2>,..."). broadcastGroups keeps groupKey in
+// sync on every join / move / close, so it is the authoritative current group —
+// crucially including the open-floor hysteresis (connect 120px, disconnect
+// 150px) and the SFU latch that a fresh, option-less computeProximityGroups
+// would drop, silently splitting a pair still held together in the same call.
+// Always includes this user, so a solo speaker still sees their own chat echo.
+function groupMemberIdsOf(ws: ServerWebSocket<WsData>): string[] {
+  const key = ws.data.groupKey;
+  if (!key) return [ws.data.userId];
+  const sep = key.indexOf(':');
+  return sep < 0 ? [ws.data.userId] : key.slice(sep + 1).split(',');
 }
 
 // Recompute one workspace's proximity groups and notify every client whose
@@ -169,6 +174,13 @@ export function createWebSocketHandler(
   // Unique per server process start. Sent in every `welcome`; the client reloads
   // when it sees a different id after reconnecting (see client reload.ts).
   bootId: string = 'dev',
+  // Valid media tokens (see WsData.mediaToken). Shared with the HTTP layer
+  // (index.ts) so /api/turn-credentials and /api/sfu/* can require one. Defaults
+  // to a private set so unit tests need not pass it. Transient (invariant #2).
+  mediaTokens: Set<string> = new Set(),
+  // Injectable clock for the per-connection move throttle, so tests are
+  // deterministic. Production uses Date.now.
+  now: () => number = Date.now,
 ): WebSocketHandler<WsData> {
   // Per-workspace SFU latch state. Lives for the handler's lifetime (one server
   // process); reset on restart, never persisted (invariant #2).
@@ -187,9 +199,18 @@ export function createWebSocketHandler(
       } catch {
         return;
       }
+      // JSON.parse succeeds for `null`, `123`, `"x"` etc.; the switch below would
+      // then throw on property access. Require an object with a string `type`.
+      if (typeof msg !== 'object' || msg === null || typeof msg.type !== 'string') return;
 
       switch (msg.type) {
         case 'join': {
+          // One socket joins exactly once (the client sends join once per
+          // connection; a reconnect uses a fresh socket). Without this guard a
+          // non-standard client could re-join with a different workspace, leaving
+          // ghost avatars in the old one and leaking per-workspace group state.
+          if (ws.data.joined) return;
+
           const workspace = normalizeWorkspace(msg.workspace);
           if (!verifyWorkspacePassword(workspace, msg.password, passwordTable)) {
             send(ws, { type: 'auth-error', message: 'パスワードが正しくありません' });
@@ -205,6 +226,12 @@ export function createWebSocketHandler(
           ws.data.x = spawn.x;
           ws.data.y = spawn.y;
           ws.data.joined = true;
+          // Mint the short-lived media token now that auth passed, register it as
+          // valid, and hand it to the client in `welcome`. It gates the billable
+          // Cloudflare HTTP endpoints to live joined sessions; dropped on close.
+          const mediaToken = crypto.randomUUID();
+          ws.data.mediaToken = mediaToken;
+          mediaTokens.add(mediaToken);
 
           const existing: Player[] = [];
           for (const [id, c] of clients) {
@@ -220,6 +247,7 @@ export function createWebSocketHandler(
             players: existing,
             bootId,
             sfuEnabled: isSfuEnabled(),
+            token: mediaToken,
           });
 
           broadcast(
@@ -282,14 +310,23 @@ export function createWebSocketHandler(
             { type: 'player-moved', userId: ws.data.userId, x, y, vx, vy },
             ws.data.userId,
           );
-          broadcastGroups(clients, ws.data.workspace, groupState);
+          // Throttle only the expensive O(n²) group recompute per connection; the
+          // position update and player-moved relay above always run so movement
+          // stays responsive. The group hysteresis absorbs the ≤33ms lag.
+          const t = now();
+          if (t - ws.data.lastGroupAt >= GROUP_RECOMPUTE_MIN_INTERVAL_MS) {
+            ws.data.lastGroupAt = t;
+            broadcastGroups(clients, ws.data.workspace, groupState);
+          }
           break;
         }
 
         case 'signal': {
           if (!ws.data.joined) return;
           const target = clients.get(msg.to);
-          if (!target?.data.joined) return;
+          // Same-workspace guard (mirrors knock): signaling must not cross the
+          // workspace isolation boundary to a userId learned elsewhere.
+          if (!target?.data.joined || target.data.workspace !== ws.data.workspace) return;
           send(target, {
             type: 'signal',
             from: ws.data.userId,
@@ -301,11 +338,17 @@ export function createWebSocketHandler(
         case 'stream-meta': {
           if (!ws.data.joined) return;
           const target = clients.get(msg.to);
-          if (!target?.data.joined) return;
+          if (!target?.data.joined || target.data.workspace !== ws.data.workspace) return;
+          // Validate the relayed fields (the server forwards them verbatim): an
+          // unknown kind or an oversized/empty streamId is dropped rather than
+          // propagated to the peer.
+          if (!isValidStreamMetaKind(msg.kind)) return;
+          const streamId = normalizeStreamId(msg.streamId);
+          if (streamId === null) return;
           send(target, {
             type: 'stream-meta',
             from: ws.data.userId,
-            streamId: msg.streamId,
+            streamId,
             kind: msg.kind,
           });
           break;
@@ -317,7 +360,7 @@ export function createWebSocketHandler(
           if (!text) return;
           // Scope to the sender's proximity group so chat stays spatial; the
           // group always includes the sender, so they see their own line too.
-          const memberIds = proximityGroupMemberIds(clients, ws.data.workspace, ws.data.userId);
+          const memberIds = groupMemberIdsOf(ws);
           const out: ServerMessage = {
             type: 'chat',
             from: ws.data.userId,
@@ -405,6 +448,13 @@ export function createWebSocketHandler(
     },
 
     close(ws) {
+      // Invalidate this socket's media token regardless of the identity check
+      // below: the socket is gone, so its token must stop working immediately
+      // (each connection has its own; a reconnect minted a different one).
+      if (ws.data.mediaToken) {
+        mediaTokens.delete(ws.data.mediaToken);
+        ws.data.mediaToken = null;
+      }
       // Identity check: a reconnect with the same userId may have already
       // replaced this entry in the map. Only remove (and announce the leave)
       // when the stored socket is *this* one, so a stale close does not evict

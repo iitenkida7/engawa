@@ -1,4 +1,5 @@
 import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
+import { mediaAuthHeaders } from '@/core/media-auth';
 import type { StreamKind } from '@/core/types';
 import type { MediaManager } from '@/media/media';
 import {
@@ -138,7 +139,7 @@ export class WebRtcManager {
   async ensureIceServers(): Promise<RTCIceServer[]> {
     if (this.iceServers) return this.iceServers;
     try {
-      const res = await fetch('/api/turn-credentials');
+      const res = await fetch('/api/turn-credentials', { headers: mediaAuthHeaders() });
       this.iceServers = (await res.json()) as RTCIceServer[];
     } catch (err) {
       console.error('[rtc] failed to fetch ice servers', err);

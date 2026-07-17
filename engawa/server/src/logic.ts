@@ -2,7 +2,7 @@
 // unit-tested in isolation. Behaviour must stay identical to the inline code
 // that previously lived in websocket.ts.
 
-import type { GroupMethod, Outfit, PlayerStatus, SfuTrack } from './types';
+import type { GroupMethod, Outfit, PlayerStatus, SfuTrack, StreamKind } from './types';
 
 /** Map bounds used to clamp player positions. */
 export const MAP_WIDTH = 2000;
@@ -42,14 +42,23 @@ export function parseWorkspacePasswords(raw: string | undefined): Map<string, st
   }
 }
 
-/** Normalize a workspace name: default fallback and length cap. */
-export function normalizeWorkspace(workspace: string | undefined): string {
-  return (workspace || 'default').slice(0, 64);
+/**
+ * Normalize a workspace name: default fallback and length cap. Accepts `unknown`
+ * so a non-string wire value (e.g. `{"type":"join","workspace":{}}`) can't throw
+ * on `.slice` inside the join handler — it falls back to 'default' like every
+ * other normalizer in this module.
+ */
+export function normalizeWorkspace(workspace: unknown): string {
+  return (typeof workspace === 'string' && workspace ? workspace : 'default').slice(0, 64);
 }
 
-/** Normalize a player name: default fallback and length cap. */
-export function normalizeName(name: string | undefined): string {
-  return (name || 'anon').slice(0, 24);
+/**
+ * Normalize a player name: default fallback and length cap. Accepts `unknown` for
+ * the same reason as normalizeWorkspace — a numeric/object `name` on the wire must
+ * degrade to 'anon', not crash the handler.
+ */
+export function normalizeName(name: unknown): string {
+  return (typeof name === 'string' && name ? name : 'anon').slice(0, 24);
 }
 
 /** Max length (chars) of a single chat message after trimming. */
@@ -158,6 +167,29 @@ export function normalizeSfuTracks(raw: unknown): SfuTrack[] {
     if (out.length >= SFU_MAX_TRACKS) break;
   }
   return out;
+}
+
+/** Max length (chars) of a relayed `stream-meta` streamId. */
+export const STREAM_ID_MAX_LENGTH = 128;
+
+/**
+ * True when `kind` is a valid `stream-meta` kind — a StreamKind or the 'removed'
+ * sentinel. The server relays stream-meta verbatim to a peer, so an unknown kind
+ * (or non-string) must be dropped here rather than propagated.
+ */
+export function isValidStreamMetaKind(kind: unknown): kind is StreamKind | 'removed' {
+  return kind === 'mic' || kind === 'cam' || kind === 'screen' || kind === 'removed';
+}
+
+/**
+ * Validate a relayed `stream-meta` streamId: a non-empty string within the length
+ * cap, else null (the caller drops the message). Mirrors the normalize-everything
+ * convention the rest of this module follows for relayed fields.
+ */
+export function normalizeStreamId(raw: unknown): string | null {
+  return typeof raw === 'string' && raw.length > 0 && raw.length <= STREAM_ID_MAX_LENGTH
+    ? raw
+    : null;
 }
 
 /**
