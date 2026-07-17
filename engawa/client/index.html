@@ -131,29 +131,6 @@
         z-index: 1000;
       }
 
-      /* Phones / narrow viewports: span the width and tighten the controls so the
-         (now wrapping) toolbar packs into as few rows as possible. */
-      @media (max-width: 640px) {
-        #toolbar {
-          left: 8px;
-          right: 8px;
-          bottom: 8px;
-          transform: none;
-          max-width: none;
-          gap: 6px;
-          padding: 6px;
-        }
-
-        #toolbar button {
-          padding: 7px 10px;
-          font-size: 12px;
-        }
-
-        #toolbar .btn-caret {
-          padding: 7px 7px;
-        }
-      }
-
       #toolbar button {
         padding: 8px 14px;
         border-radius: 8px;
@@ -1420,6 +1397,37 @@
 
       .hidden {
         display: none !important;
+      }
+
+      /* ── Mobile / narrow viewports ──────────────────────────────────────────
+         Placed last so these overrides win at equal specificity over the base
+         rules above. The toolbar is a many-button row; on a phone it must span
+         the width and pack tightly (it already wraps via #toolbar's flex-wrap),
+         and pop-up menus must stay within the screen. */
+      @media (max-width: 640px) {
+        #toolbar {
+          left: 8px;
+          right: 8px;
+          bottom: 8px;
+          transform: none;
+          max-width: none;
+          gap: 6px;
+          padding: 6px;
+        }
+
+        #toolbar button {
+          padding: 7px 10px;
+          font-size: 12px;
+        }
+
+        #toolbar .btn-caret {
+          padding: 7px 7px;
+        }
+
+        /* Keep pop-up menus (device / reactions / more) within the viewport. */
+        .device-menu {
+          max-width: calc(100vw - 24px);
+        }
       }
     </style>
   </head>
