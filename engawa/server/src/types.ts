@@ -67,7 +67,17 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'auth-error'; message: string }
-  | { type: 'welcome'; self: Player; players: Player[]; bootId: string; sfuEnabled: boolean }
+  // `token` is a short-lived, per-connection media token the client must present
+  // on /api/turn-credentials and /api/sfu/* (transient, minted on join). It gates
+  // consumption of the billable Cloudflare endpoints to live joined sessions.
+  | {
+      type: 'welcome';
+      self: Player;
+      players: Player[];
+      bootId: string;
+      sfuEnabled: boolean;
+      token: string;
+    }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
   // A peer's new avatar configuration, relayed from their `outfit-update`.
@@ -120,5 +130,12 @@ export type WsData = {
   // Signature (method + sorted members) of the last group-update sent to this
   // client, so we only re-send when it actually changes.
   groupKey: string | null;
+  // Short-lived media token minted on join (null until joined). Required on the
+  // Cloudflare-backed HTTP endpoints; removed from the valid-token set on close.
+  mediaToken: string | null;
+  // Last time (ms) this connection triggered a proximity-group recompute, so a
+  // burst of `move` messages from one socket can't force the O(n²) recompute at
+  // wire speed. Position updates and player-moved broadcasts are never throttled.
+  lastGroupAt: number;
   joined: boolean;
 };

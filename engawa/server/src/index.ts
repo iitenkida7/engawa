@@ -7,6 +7,27 @@ import { createWebSocketHandler } from './websocket';
 const clients = new Map<string, ServerWebSocket<WsData>>();
 const PUBLIC_DIR = './public';
 
+// Valid short-lived media tokens, minted per connection on a successful join and
+// removed on close (see websocket.ts). Requiring one on the Cloudflare-backed
+// endpoints ties consumption of the billable TURN/SFU resources to a live joined
+// session, so an anonymous HTTP client can't farm credentials or run sessions.
+// Transient in-memory only — reset on restart (invariant #2).
+const mediaTokens = new Set<string>();
+
+// Header the client presents on /api/turn-credentials and /api/sfu/*, carrying
+// the token from `welcome` (see client core/media-auth.ts).
+const MEDIA_TOKEN_HEADER = 'x-engawa-token';
+
+function hasValidMediaToken(req: Request): boolean {
+  const token = req.headers.get(MEDIA_TOKEN_HEADER);
+  return token !== null && mediaTokens.has(token);
+}
+
+const UNAUTHORIZED = Response.json(
+  { errorCode: 'unauthorized', errorDescription: 'join required' },
+  { status: 401 },
+);
+
 // Unique per process start. Sent to clients in `welcome`; when a client sees a
 // different boot id after an automatic reconnect, it knows the server restarted
 // or was redeployed and fully reloads — clearing stale ghost avatars (the old
@@ -47,6 +68,8 @@ const server = Bun.serve({
           sfuSessionId: null,
           sfuTracks: [],
           groupKey: null,
+          mediaToken: null,
+          lastGroupAt: 0,
           joined: false,
         } satisfies WsData,
       });
@@ -55,6 +78,7 @@ const server = Bun.serve({
     }
 
     if (url.pathname === '/api/turn-credentials') {
+      if (!hasValidMediaToken(req)) return UNAUTHORIZED;
       const iceServers = await getTurnCredentials();
       return Response.json(iceServers, {
         headers: { 'Cache-Control': 'no-store' },
@@ -70,6 +94,7 @@ const server = Bun.serve({
     // media never traverses our server. The path after /sessions is whitelisted
     // to the documented endpoints (SSRF / traversal guard, see sfu.ts).
     if (url.pathname.startsWith('/api/sfu/sessions')) {
+      if (!hasValidMediaToken(req)) return UNAUTHORIZED;
       if (!isSfuEnabled()) {
         return Response.json(
           { errorCode: 'sfu_disabled', errorDescription: 'SFU disabled' },
@@ -104,7 +129,7 @@ const server = Bun.serve({
     return new Response('Not Found', { status: 404 });
   },
 
-  websocket: createWebSocketHandler(clients, undefined, BOOT_ID),
+  websocket: createWebSocketHandler(clients, undefined, BOOT_ID, mediaTokens),
 });
 
 console.log(`Server running on http://${server.hostname}:${server.port}`);

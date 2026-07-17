@@ -45,6 +45,8 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       sfuSessionId: data.sfuSessionId ?? null,
       sfuTracks: data.sfuTracks ?? [],
       groupKey: data.groupKey ?? null,
+      mediaToken: data.mediaToken ?? null,
+      lastGroupAt: data.lastGroupAt ?? 0,
       joined: data.joined ?? false,
     } satisfies WsData,
     send(payload: string | Bun.BufferSource) {
@@ -266,6 +268,52 @@ describe('createWebSocketHandler — join', () => {
     expect(joiner.data.y).toBeGreaterThanOrEqual(400);
     expect(joiner.data.y).toBeLessThan(1000);
   });
+
+  test('ignores a second join on the same socket (no workspace switch)', () => {
+    const handler = createWebSocketHandler(clients);
+    const joiner = makeWs();
+    handler.open!(joiner);
+    deliver(handler, joiner, { type: 'join', name: 'Alice', workspace: 'ws1' });
+    expect(joiner.data.workspace).toBe('ws1');
+
+    // A second join (e.g. a non-standard client trying to switch workspaces) is
+    // ignored: the connection stays in its original workspace and no second
+    // welcome is emitted.
+    deliver(handler, joiner, { type: 'join', name: 'Mallory', workspace: 'ws2' });
+    expect(joiner.data.workspace).toBe('ws1');
+    expect(joiner.data.name).toBe('Alice');
+    expect(joiner.sent.filter((m) => m.type === 'welcome')).toHaveLength(1);
+  });
+
+  test('coerces non-string join name/workspace instead of throwing', () => {
+    const handler = createWebSocketHandler(clients);
+    const joiner = makeWs();
+    handler.open!(joiner);
+    // Numeric name and object workspace on the wire must not crash the handler.
+    expect(() =>
+      deliver(handler, joiner, { type: 'join', name: 123, workspace: {} }),
+    ).not.toThrow();
+    expect(joiner.data.joined).toBe(true);
+    expect(joiner.data.name).toBe('anon');
+    expect(joiner.data.workspace).toBe('default');
+  });
+
+  test('welcome carries a media token, added to the shared set and removed on close', () => {
+    const tokens = new Set<string>();
+    const handler = createWebSocketHandler(clients, undefined, 'dev', tokens);
+    const joiner = makeWs();
+    handler.open!(joiner);
+    deliver(handler, joiner, { type: 'join', name: 'Alice', workspace: 'ws1' });
+
+    const welcome = joiner.sent.find((m) => m.type === 'welcome');
+    if (welcome?.type !== 'welcome') throw new Error('expected welcome');
+    expect(typeof welcome.token).toBe('string');
+    expect(welcome.token.length).toBeGreaterThan(0);
+    expect(tokens.has(welcome.token)).toBe(true);
+
+    handler.close!(joiner, 1000, '');
+    expect(tokens.has(welcome.token)).toBe(false);
+  });
 });
 
 describe('createWebSocketHandler — move', () => {
@@ -474,6 +522,15 @@ describe('createWebSocketHandler — signal (targeted relay)', () => {
     deliver(handler, sender, { type: 'signal', to: target.data.userId, data: {} });
     expect(target.sent).toHaveLength(0);
   });
+
+  test('drops a signal to a target in a different workspace', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const target = makeWs({ workspace: 'ws2', joined: true });
+    handler.open!(sender);
+    handler.open!(target);
+    deliver(handler, sender, { type: 'signal', to: target.data.userId, data: { sdp: 'x' } });
+    expect(target.sent).toHaveLength(0);
+  });
 });
 
 describe('createWebSocketHandler — status & stream-meta', () => {
@@ -571,6 +628,60 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       kind: 'cam',
     });
   });
+
+  test('drops stream-meta to a target in a different workspace', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const target = makeWs({ workspace: 'ws2', joined: true });
+    handler.open!(sender);
+    handler.open!(target);
+    deliver(handler, sender, {
+      type: 'stream-meta',
+      to: target.data.userId,
+      streamId: 's1',
+      kind: 'cam',
+    });
+    expect(target.sent).toHaveLength(0);
+  });
+
+  test('drops stream-meta with an invalid kind or oversized streamId', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const target = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(target);
+
+    deliver(handler, sender, {
+      type: 'stream-meta',
+      to: target.data.userId,
+      streamId: 's1',
+      kind: 'bogus',
+    });
+    deliver(handler, sender, {
+      type: 'stream-meta',
+      to: target.data.userId,
+      streamId: 'x'.repeat(200),
+      kind: 'cam',
+    });
+    expect(target.sent).toHaveLength(0);
+  });
+
+  test('relays stream-meta with the removed sentinel kind', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const target = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(target);
+    deliver(handler, sender, {
+      type: 'stream-meta',
+      to: target.data.userId,
+      streamId: 's1',
+      kind: 'removed',
+    });
+    expect(target.sent).toContainEqual({
+      type: 'stream-meta',
+      from: sender.data.userId,
+      streamId: 's1',
+      kind: 'removed',
+    });
+  });
 });
 
 describe('createWebSocketHandler — error handling', () => {
@@ -593,6 +704,22 @@ describe('createWebSocketHandler — error handling', () => {
     const ws = makeWs({ workspace: 'ws1', joined: true });
     handler.open!(ws);
     expect(() => deliver(handler, ws, { type: 'totally-unknown', foo: 1 })).not.toThrow();
+    expect(ws.sent).toHaveLength(0);
+  });
+
+  test('ignores a non-object JSON payload (null / number / string) without throwing', () => {
+    const ws = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(ws);
+    expect(() => handler.message!(ws, 'null')).not.toThrow();
+    expect(() => handler.message!(ws, '123')).not.toThrow();
+    expect(() => handler.message!(ws, '"hello"')).not.toThrow();
+    expect(ws.sent).toHaveLength(0);
+  });
+
+  test('ignores a message whose type is not a string', () => {
+    const ws = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(ws);
+    expect(() => deliver(handler, ws, { type: 42 })).not.toThrow();
     expect(ws.sent).toHaveLength(0);
   });
 
@@ -822,6 +949,73 @@ describe('createWebSocketHandler — chat', () => {
     handler.open!(a);
     deliver(handler, a, { type: 'chat', text: 'hi' });
     expect(a.sent.some((m) => m.type === 'chat')).toBe(false);
+  });
+
+  test('a peer held in the call by hysteresis (120-150px) still receives chat', () => {
+    // Uses an injected clock so the second move actually recomputes groups
+    // (past the per-connection throttle). The pair forms at the same spot, then
+    // one drifts to 135px — beyond the 120px connect radius but within the 150px
+    // disconnect radius, so the group hysteresis keeps them together. Chat must
+    // follow that real call group, not a fresh connect-radius-only recompute.
+    let t = 1000;
+    const now = () => t;
+    const clients2 = new Map<string, ServerWebSocket<WsData>>();
+    const h = createWebSocketHandler(clients2, undefined, 'dev', new Set(), now);
+    const move = (ws: FakeWs, x: number, y: number) =>
+      deliver(h, ws, { type: 'move', x, y, vx: 0, vy: 0 });
+
+    const a = makeWs();
+    h.open!(a);
+    deliver(h, a, { type: 'join', name: 'A', workspace: 'ws1' });
+    move(a, 100, 100);
+
+    const b = makeWs();
+    h.open!(b);
+    deliver(h, b, { type: 'join', name: 'B', workspace: 'ws1' });
+    move(b, 100, 100); // same spot → grouped
+
+    t = 2000;
+    move(b, 235, 100); // 135px from a: past connect (120), within disconnect (150)
+
+    deliver(h, a, { type: 'chat', text: 'still here?' });
+    expect(b.sent.some((m) => m.type === 'chat' && m.text === 'still here?')).toBe(true);
+  });
+});
+
+describe('createWebSocketHandler — move group-recompute throttle', () => {
+  test('a burst of moves from one socket within the window recomputes groups once', () => {
+    let t = 1000;
+    const now = () => t;
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const h = createWebSocketHandler(clients, undefined, 'dev', new Set(), now);
+
+    const mover = makeWs();
+    const peer = makeWs();
+    h.open!(mover);
+    h.open!(peer);
+    deliver(h, mover, { type: 'join', name: 'M', workspace: 'ws1' });
+    deliver(h, peer, { type: 'join', name: 'P', workspace: 'ws1' });
+    // Position both far apart so they start as separate single-member groups.
+    deliver(h, mover, { type: 'move', x: 900, y: 100, vx: 0, vy: 0 });
+    deliver(h, peer, { type: 'move', x: 100, y: 100, vx: 0, vy: 0 });
+
+    const groupMembersLen = (ws: FakeWs): number => {
+      const g = [...ws.sent].reverse().find((m) => m.type === 'group-update');
+      return g?.type === 'group-update' ? g.members.length : 0;
+    };
+    expect(groupMembersLen(mover)).toBe(1);
+
+    // A move into range 10ms later is throttled: the position/relay happen but the
+    // O(n²) group recompute is skipped, so the pairing is not reflected yet.
+    t = 1010;
+    deliver(h, mover, { type: 'move', x: 140, y: 100, vx: 0, vy: 0 });
+    expect(peer.sent.some((m) => m.type === 'player-moved')).toBe(true);
+    expect(groupMembersLen(mover)).toBe(1);
+
+    // Past the window the recompute runs and the pair is grouped.
+    t = 1050;
+    deliver(h, mover, { type: 'move', x: 141, y: 100, vx: 0, vy: 0 });
+    expect(groupMembersLen(mover)).toBe(2);
   });
 });
 

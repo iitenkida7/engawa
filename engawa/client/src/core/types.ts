@@ -58,7 +58,16 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'auth-error'; message: string }
-  | { type: 'welcome'; self: Player; players: Player[]; bootId: string; sfuEnabled: boolean }
+  // `token` is the short-lived media token required on /api/turn-credentials and
+  // /api/sfu/* (see core/media-auth.ts). Refreshed on every (re)connect.
+  | {
+      type: 'welcome';
+      self: Player;
+      players: Player[];
+      bootId: string;
+      sfuEnabled: boolean;
+      token: string;
+    }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
   // A peer's new avatar configuration, relayed from their `outfit-update`.

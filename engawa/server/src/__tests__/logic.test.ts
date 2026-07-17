@@ -6,6 +6,7 @@ import {
   type GroupMember,
   generateSpawn,
   isAllowedReaction,
+  isValidStreamMetaKind,
   MAP_HEIGHT,
   MAP_WIDTH,
   MAX_VELOCITY,
@@ -16,6 +17,7 @@ import {
   normalizePlayerStatus,
   normalizeSfuTracks,
   normalizeStatusNote,
+  normalizeStreamId,
   normalizeUntil,
   normalizeVelocity,
   normalizeWorkspace,
@@ -27,6 +29,7 @@ import {
   SFU_PROMOTE_AT,
   SFU_TRACK_NAME_MAX_LENGTH,
   STATUS_NOTE_MAX_LENGTH,
+  STREAM_ID_MAX_LENGTH,
   sfuLatchSeeds,
   verifyWorkspacePassword,
 } from '../logic';
@@ -92,6 +95,12 @@ describe('normalizeWorkspace', () => {
     const long = 'x'.repeat(100);
     expect(normalizeWorkspace(long)).toHaveLength(64);
   });
+
+  test('falls back to "default" for a non-string wire value (no throw)', () => {
+    expect(normalizeWorkspace({} as unknown)).toBe('default');
+    expect(normalizeWorkspace(123 as unknown)).toBe('default');
+    expect(normalizeWorkspace(null as unknown)).toBe('default');
+  });
 });
 
 describe('normalizeName', () => {
@@ -107,6 +116,45 @@ describe('normalizeName', () => {
   test('caps the name at 24 chars', () => {
     const long = 'n'.repeat(50);
     expect(normalizeName(long)).toHaveLength(24);
+  });
+
+  test('falls back to "anon" for a non-string wire value (no throw)', () => {
+    expect(normalizeName(123 as unknown)).toBe('anon');
+    expect(normalizeName({} as unknown)).toBe('anon');
+    expect(normalizeName(null as unknown)).toBe('anon');
+  });
+});
+
+describe('isValidStreamMetaKind', () => {
+  test('accepts the stream kinds and the removed sentinel', () => {
+    for (const k of ['mic', 'cam', 'screen', 'removed']) {
+      expect(isValidStreamMetaKind(k)).toBe(true);
+    }
+  });
+
+  test('rejects unknown or non-string kinds', () => {
+    expect(isValidStreamMetaKind('bogus')).toBe(false);
+    expect(isValidStreamMetaKind(1)).toBe(false);
+    expect(isValidStreamMetaKind(undefined)).toBe(false);
+    expect(isValidStreamMetaKind(null)).toBe(false);
+  });
+});
+
+describe('normalizeStreamId', () => {
+  test('passes through a normal stream id', () => {
+    expect(normalizeStreamId('abc-123')).toBe('abc-123');
+  });
+
+  test('rejects empty, oversized, or non-string ids', () => {
+    expect(normalizeStreamId('')).toBeNull();
+    expect(normalizeStreamId('x'.repeat(STREAM_ID_MAX_LENGTH + 1))).toBeNull();
+    expect(normalizeStreamId(42)).toBeNull();
+    expect(normalizeStreamId(null)).toBeNull();
+  });
+
+  test('accepts an id exactly at the length cap', () => {
+    const id = 'x'.repeat(STREAM_ID_MAX_LENGTH);
+    expect(normalizeStreamId(id)).toBe(id);
   });
 });
 

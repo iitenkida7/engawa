@@ -1,5 +1,6 @@
 import BackgroundTicker from '@/core/background-ticker?worker';
 import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
+import { setMediaToken } from '@/core/media-auth';
 import { NetworkClient } from '@/core/network';
 import type { Point } from '@/core/proximity';
 import { isInitiator } from '@/core/proximity';
@@ -543,6 +544,9 @@ export class App {
           this.reloadBanner.show();
           break;
         }
+        // Store the fresh media token so the RTC transports can authenticate to
+        // /api/turn-credentials and /api/sfu/* for this (re)connected session.
+        setMediaToken(msg.token);
         this.myId = msg.self.userId;
         const spawn = findWalkableSpawn(msg.self.x, msg.self.y, PLAYER_RADIUS);
         msg.self.x = spawn.x;

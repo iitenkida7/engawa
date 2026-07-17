@@ -1,3 +1,4 @@
+import { mediaAuthHeaders } from '@/core/media-auth';
 import type { SfuTrack, StreamKind } from '@/core/types';
 import { SFU_CAM_LAYERS, SFU_SCREEN_MAX_BITRATE } from '@/rtc/cam-bitrate';
 import {
@@ -330,7 +331,7 @@ export class SfuManager {
   private async ensureIceServers(): Promise<RTCIceServer[]> {
     if (this.iceServers) return this.iceServers;
     try {
-      const res = await fetch('/api/turn-credentials');
+      const res = await fetch('/api/turn-credentials', { headers: mediaAuthHeaders() });
       this.iceServers = (await res.json()) as RTCIceServer[];
     } catch (err) {
       console.error('[sfu] failed to fetch ice servers', err);
@@ -406,7 +407,7 @@ export class SfuManager {
     try {
       res = await fetch(`/api/sfu/sessions${sessionPath}`, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...mediaAuthHeaders() },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch (err) {
