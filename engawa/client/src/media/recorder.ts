@@ -94,7 +94,21 @@ export class RecorderManager {
     this.recorder.ondataavailable = (e) => {
       if (e.data.size > 0) this.chunks.push(e.data);
     };
-    this.recorder.onstop = () => this.save();
+    // onstop covers BOTH an explicit stop() and a spontaneous stop (encoder
+    // error, out of storage, all tracks ending): save the partial recording and
+    // reclaim state so a new recording can start (previously a spontaneous stop
+    // left recorder non-null and mixCtx open, so start() no-op'd forever and the
+    // AudioContext leaked).
+    this.recorder.onstop = () => {
+      this.save();
+      this.teardown();
+    };
+    // A fatal recorder error fires 'error' then (per spec) 'stop'. Log it and
+    // tear down here too, in case a browser doesn't follow with 'stop'.
+    this.recorder.onerror = (e) => {
+      console.warn('[recorder] error', (e as Event & { error?: unknown }).error ?? e);
+      this.teardown();
+    };
     this.recorder.start(1000); // collect data every second
     this.emit();
   }
@@ -122,9 +136,22 @@ export class RecorderManager {
   }
 
   stop() {
-    if (this.recorder?.state !== 'recording') return;
-    this.recorder.stop();
-    // Cleanup audio context
+    const rec = this.recorder;
+    if (!rec) return;
+    if (rec.state === 'recording') {
+      // Fires a final ondataavailable, then onstop → save() + teardown().
+      rec.stop();
+    } else {
+      // Already stopped on its own (and onstop may have been missed): reclaim
+      // state directly so recording can be restarted.
+      this.teardown();
+    }
+  }
+
+  // Idempotent teardown of the audio mix + recorder state. Safe to call more than
+  // once (e.g. onerror then onstop): a second call finds the sources/context
+  // already cleared.
+  private teardown() {
     for (const src of this.sources.values()) src.disconnect();
     this.sources.clear();
     if (this.mixCtx) {

@@ -81,6 +81,29 @@ describe('MediaManager mic', () => {
     expect(getUserMedia).toHaveBeenCalledTimes(1);
   });
 
+  it('coalesces concurrent enable calls into one acquisition (in-flight guard)', async () => {
+    const stream = makeStream([makeTrack('audio')]);
+    // Defer resolution so both calls overlap while the acquisition is pending —
+    // the window a double-click lands in (getUserMedia null until it resolves).
+    let resolve!: (s: MediaStream) => void;
+    getUserMedia.mockReturnValue(new Promise<MediaStream>((r) => (resolve = r)));
+    const m = new MediaManager();
+
+    const p1 = m.enableMic();
+    const p2 = m.enableMic();
+    resolve(stream);
+    const [s1, s2] = await Promise.all([p1, p2]);
+
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(s1).toBe(stream);
+    expect(s2).toBe(stream);
+    // A later call after settling can acquire again if needed (guard cleared).
+    getUserMedia.mockResolvedValue(stream);
+    m.disableMic();
+    await m.enableMic();
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+  });
+
   it('stops every track and clears state on disable', async () => {
     const track = makeTrack('audio');
     getUserMedia.mockResolvedValue(makeStream([track]));

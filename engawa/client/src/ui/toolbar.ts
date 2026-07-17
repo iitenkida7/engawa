@@ -181,13 +181,19 @@ export class ToolbarController {
       const stream = await this.media.enableMic();
       this.rtc.addLocalStream(stream, 'mic');
       this.view.setLocalMicStream(stream);
+      // Enabling the mic mid-recording must fold our own voice into the mix
+      // (addAudioStream no-ops when not recording).
+      this.recorder.addAudioStream(stream);
     } catch (e) {
       this.toasts.error(`マイクを使えません: ${(e as Error).message}`);
     }
   }
   private stopMic() {
     const old = this.media.disableMic();
-    if (old) this.rtc.removeLocalStream(old);
+    if (old) {
+      this.rtc.removeLocalStream(old);
+      this.recorder.removeAudioStream(old.id);
+    }
     this.view.setLocalMicStream(null);
   }
   private async startCam() {
@@ -480,7 +486,14 @@ export class ToolbarController {
       const stream = kind === 'mic' ? await this.media.enableMic() : await this.media.enableCam();
       if (old) this.rtc.replaceLocalStream(old, stream, kind);
       else this.rtc.addLocalStream(stream, kind);
-      if (kind === 'mic') this.view.setLocalMicStream(stream);
+      if (kind === 'mic') {
+        this.view.setLocalMicStream(stream);
+        // Keep the recording mix on the new device: drop the old stream's source
+        // (stopped by disableMic above, so it would otherwise sit silent in the
+        // mix) and fold in the new one.
+        if (old) this.recorder.removeAudioStream(old.id);
+        this.recorder.addAudioStream(stream);
+      }
     } catch (e) {
       if (old) this.rtc.removeLocalStream(old);
       if (kind === 'mic') this.view.setLocalMicStream(null);

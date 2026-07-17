@@ -11,6 +11,8 @@
 // It reuses the already-rendered floor canvas (no second world render) and
 // throttles its own draw loop to 30fps so it never starves the main game loop.
 
+import { FrameDriver } from '@/media/frame-driver';
+
 export type ObjectFit = 'cover' | 'contain';
 
 export interface Box {
@@ -134,7 +136,10 @@ export class SceneCompositor {
   private canvas = document.createElement('canvas');
   private ctx: CanvasRenderingContext2D;
   private stream: MediaStream | null = null;
-  private raf = 0;
+  // rAF while visible, timer while hidden — so a backgrounded tab doesn't freeze
+  // the recording's video track (the audio keeps recording, so a frozen composite
+  // is worse than none).
+  private driver = new FrameDriver((now) => this.loop(now));
   private running = false;
   private lastDrawMs = 0;
   private width = REC_WIDTH;
@@ -164,14 +169,13 @@ export class SceneCompositor {
     this.lastDrawMs = 0;
     this.drawFrame(); // paint an initial frame before capture starts
     this.stream = this.canvas.captureStream(FPS);
-    this.raf = requestAnimationFrame(this.loop);
+    this.driver.start();
     return this.stream;
   }
 
   stop() {
     this.running = false;
-    if (this.raf) cancelAnimationFrame(this.raf);
-    this.raf = 0;
+    this.driver.stop();
     if (this.stream) {
       for (const t of this.stream.getTracks()) t.stop();
       this.stream = null;
@@ -180,7 +184,6 @@ export class SceneCompositor {
 
   private loop = (now: number) => {
     if (!this.running) return;
-    this.raf = requestAnimationFrame(this.loop);
     // Throttle to 30fps so the composite never doubles the main loop's cost.
     if (now - this.lastDrawMs < FRAME_INTERVAL_MS) return;
     this.lastDrawMs = now;

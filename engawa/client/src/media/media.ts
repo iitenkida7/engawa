@@ -28,6 +28,14 @@ export class MediaManager {
   // these hold the underlying capture + processor for teardown.
   private vbg: VirtualBackground | null = null;
   private rawCam: MediaStream | null = null;
+  // In-flight acquisitions, per kind. The permission prompt / hardware warm-up
+  // doesn't block page clicks, so without these a double-click on a toggle would
+  // run two concurrent getUserMedia/getDisplayMedia calls — the second overwrites
+  // the first, whose live track then leaks (camera LED stays on, stale track keeps
+  // publishing). A pending call is shared instead of started twice.
+  private micPending: Promise<MediaStream> | null = null;
+  private camPending: Promise<MediaStream> | null = null;
+  private screenPending: Promise<MediaStream> | null = null;
   private listeners = new Set<MediaListener>();
   // Notified when the screen share ends on its own (OS/browser "stop sharing"),
   // with the just-stopped stream. Lets the owner run the same teardown as the
@@ -71,22 +79,28 @@ export class MediaManager {
 
   async enableMic() {
     if (this.micStream) return this.micStream;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: 1,
-        // Hint to the audio capture stack to keep its buffer short.
-        // Chrome respects this; Firefox/Safari currently ignore it but it
-        // does no harm.
-        latency: { ideal: 0.01 },
-        ...(this.selectedMicId ? { deviceId: { exact: this.selectedMicId } } : {}),
-      } as MediaTrackConstraints,
+    if (this.micPending) return this.micPending;
+    this.micPending = (async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          // Hint to the audio capture stack to keep its buffer short.
+          // Chrome respects this; Firefox/Safari currently ignore it but it
+          // does no harm.
+          latency: { ideal: 0.01 },
+          ...(this.selectedMicId ? { deviceId: { exact: this.selectedMicId } } : {}),
+        } as MediaTrackConstraints,
+      });
+      this.micStream = stream;
+      this.emit();
+      return stream;
+    })().finally(() => {
+      this.micPending = null;
     });
-    this.micStream = stream;
-    this.emit();
-    return stream;
+    return this.micPending;
   }
   disableMic() {
     const old = this.micStream;
@@ -100,45 +114,51 @@ export class MediaManager {
 
   async enableCam() {
     if (this.camStream) return this.camStream;
-    const raw = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 320 },
-        height: { ideal: 240 },
-        // Higher fps target keeps per-frame interval short → less wait.
-        frameRate: { ideal: 30, max: 30 },
-        ...(this.selectedCamId ? { deviceId: { exact: this.selectedCamId } } : {}),
-      },
-    });
-    for (const t of raw.getVideoTracks()) {
-      // Tell encoders to optimize for motion (low-latency over crisp text).
-      t.contentHint = 'motion';
-    }
+    if (this.camPending) return this.camPending;
+    this.camPending = (async () => {
+      const raw = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 320 },
+          height: { ideal: 240 },
+          // Higher fps target keeps per-frame interval short → less wait.
+          frameRate: { ideal: 30, max: 30 },
+          ...(this.selectedCamId ? { deviceId: { exact: this.selectedCamId } } : {}),
+        },
+      });
+      for (const t of raw.getVideoTracks()) {
+        // Tell encoders to optimize for motion (low-latency over crisp text).
+        t.contentHint = 'motion';
+      }
 
-    // Background off → use the raw stream directly (zero added cost).
-    if (!isProcessingChoice(this.bgChoice)) {
-      this.camStream = raw;
+      // Background off → use the raw stream directly (zero added cost).
+      if (!isProcessingChoice(this.bgChoice)) {
+        this.camStream = raw;
+        this.emit();
+        return raw;
+      }
+
+      // Background on → process through VirtualBackground; on any failure
+      // (model/WASM unavailable, no WebGL) fall back to the raw camera so the
+      // camera still works.
+      if (this.bgChoice === VBG_CUSTOM) await this.ensureCustomImg();
+      try {
+        const vbg = new VirtualBackground(raw, this.buildBgSpec());
+        const processed = await vbg.start();
+        this.vbg = vbg;
+        this.rawCam = raw;
+        this.camStream = processed;
+      } catch (e) {
+        console.warn('virtual background unavailable, using raw camera', e);
+        this.vbg = null;
+        this.rawCam = null;
+        this.camStream = raw;
+      }
       this.emit();
-      return raw;
-    }
-
-    // Background on → process through VirtualBackground; on any failure
-    // (model/WASM unavailable, no WebGL) fall back to the raw camera so the
-    // camera still works.
-    if (this.bgChoice === VBG_CUSTOM) await this.ensureCustomImg();
-    try {
-      const vbg = new VirtualBackground(raw, this.buildBgSpec());
-      const processed = await vbg.start();
-      this.vbg = vbg;
-      this.rawCam = raw;
-      this.camStream = processed;
-    } catch (e) {
-      console.warn('virtual background unavailable, using raw camera', e);
-      this.vbg = null;
-      this.rawCam = null;
-      this.camStream = raw;
-    }
-    this.emit();
-    return this.camStream;
+      return this.camStream;
+    })().finally(() => {
+      this.camPending = null;
+    });
+    return this.camPending;
   }
   disableCam() {
     const old = this.camStream;
@@ -205,26 +225,32 @@ export class MediaManager {
 
   async enableScreen() {
     if (this.screenStream) return this.screenStream;
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: 30, max: 60 } },
-      audio: false,
-    });
-    const track = stream.getVideoTracks()[0];
-    if (track) {
-      // Tell encoders to optimize for crisp text/UI rather than low bitrate.
-      track.contentHint = 'detail';
-      // OS/browser "stop sharing": stop the stream, then notify so the owner
-      // can run the full teardown (remove from peers, clear the stage, drop the
-      // sharing flag) — the same path as the toolbar stop button. track.stop()
-      // does not re-fire 'ended', so this can't loop.
-      track.addEventListener('ended', () => {
-        const old = this.disableScreen();
-        if (old) this.screenEndedHandler?.(old);
+    if (this.screenPending) return this.screenPending;
+    this.screenPending = (async () => {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 30, max: 60 } },
+        audio: false,
       });
-    }
-    this.screenStream = stream;
-    this.emit();
-    return stream;
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        // Tell encoders to optimize for crisp text/UI rather than low bitrate.
+        track.contentHint = 'detail';
+        // OS/browser "stop sharing": stop the stream, then notify so the owner
+        // can run the full teardown (remove from peers, clear the stage, drop the
+        // sharing flag) — the same path as the toolbar stop button. track.stop()
+        // does not re-fire 'ended', so this can't loop.
+        track.addEventListener('ended', () => {
+          const old = this.disableScreen();
+          if (old) this.screenEndedHandler?.(old);
+        });
+      }
+      this.screenStream = stream;
+      this.emit();
+      return stream;
+    })().finally(() => {
+      this.screenPending = null;
+    });
+    return this.screenPending;
   }
   disableScreen() {
     const old = this.screenStream;

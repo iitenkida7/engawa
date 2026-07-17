@@ -217,6 +217,8 @@ export class RemoteMediaView {
         destroySpeakingDetector(det);
         this.remoteSpeakingDetectors.delete(userId);
       }
+      // Reset a possibly-latched speaking ring (peer muted while flagged loud).
+      this.clearSpeaking(userId);
       // If no cam either, remove the tile entirely
       const tile = this.remoteTiles.get(userId);
       if (tile && !tile.hasCam) {
@@ -263,6 +265,11 @@ export class RemoteMediaView {
       document.body.appendChild(audio);
       entry = { audio, streamId: stream.id };
       this.remoteAudios.set(userId, entry);
+    } else if (entry.streamId !== stream.id) {
+      // Re-attaching a different stream (e.g. after an SFU→mesh switch): drop the
+      // old stream id from the recording mix before swapping, so its source node
+      // doesn't linger connected to the mix.
+      this.recorder.removeAudioStream(entry.streamId);
     }
     entry.streamId = stream.id;
     entry.audio.srcObject = stream;
@@ -355,6 +362,12 @@ export class RemoteMediaView {
         /* noop */
       }
       a.audio.remove();
+      // Drop this peer's mic from the recording mix. removePeer is the common
+      // path (proximity walk-away, mesh→SFU switch, abrupt disconnect) and, unlike
+      // detachRemoteStream, previously never told the recorder — so the source
+      // node stayed connected to the mix and kept the detached stream referenced
+      // until the recording stopped.
+      this.recorder.removeAudioStream(a.streamId);
       this.remoteAudios.delete(userId);
     }
     const det = this.remoteSpeakingDetectors.get(userId);
@@ -362,8 +375,21 @@ export class RemoteMediaView {
       destroySpeakingDetector(det);
       this.remoteSpeakingDetectors.delete(userId);
     }
+    // Clear a possibly-stuck speaking flag/ring: a peer cut off mid-speech (they
+    // walk out of range → removePeer, but stay in the players map) would otherwise
+    // keep a lit ring on the map/roster forever.
+    this.clearSpeaking(userId);
     this.removeScreenshare(userId);
     this.reflowLayout();
+  }
+
+  // Reset a peer's (or self's) speaking flag and tile ring. Used wherever a mic
+  // detaches so updateSpeaking — which only iterates LIVE detectors — can't leave
+  // the last 'speaking' state latched on.
+  private clearSpeaking(userId: string) {
+    const p = this.players.get(userId);
+    if (p) p.isSpeaking = false;
+    this.remoteTiles.get(userId)?.container.classList.remove('speaking');
   }
 
   // ============= Screenshare stages (one per sharing user) =============
