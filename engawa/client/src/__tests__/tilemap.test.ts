@@ -93,11 +93,11 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
   // three meeting rooms + president's office) and the bottom strip (three 1-on-1
   // rooms + three negotiation booths).
   const roomSamples: { col: number; row: number }[] = [
-    { col: 1, row: 1 }, // 大会議室
-    { col: 14, row: 1 }, // 会議室1
-    { col: 19, row: 1 }, // 会議室2
-    { col: 24, row: 1 }, // 会議室3
-    { col: 29, row: 1 }, // 社長室
+    { col: 1, row: 1 }, // 社長室
+    { col: 6, row: 1 }, // 大会議室
+    { col: 19, row: 1 }, // 会議室1
+    { col: 24, row: 1 }, // 会議室2
+    { col: 29, row: 1 }, // 会議室3
     { col: 1, row: 20 }, // 1on1ルーム1
     { col: 6, row: 20 }, // 1on1ルーム2
     { col: 11, row: 20 }, // 1on1ルーム3

@@ -771,6 +771,9 @@ export class App {
       // Face the way we're moving so our own avatar's sprite turns (remote
       // players turn via setTarget). Idle keeps the last facing.
       this.me.updateFacing(selfVx, selfVy);
+      // Moving re-centers the camera on self, so a map drag-pan is undone the
+      // moment the player acts (walk / click-to-move).
+      if (selfVx !== 0 || selfVy !== 0) this.renderer.recenter();
     }
 
     // Interpolate remote players (also frame-rate independent).

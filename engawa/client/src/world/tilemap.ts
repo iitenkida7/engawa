@@ -55,48 +55,49 @@ type RoomDef = {
 // space). Every room's door opens into the central open office. Desks define the
 // table/desk footprint; the renderer draws chairs around it.
 const ROOMS: RoomDef[] = [
-  // ── Top strip (rows 1-4): all-hands + president's office + three meeting rooms.
+  // ── Top strip (rows 1-4): president's office + all-hands + three meeting rooms.
+  {
+    id: 'ceo',
+    name: '社長室',
+    c: 1,
+    r: 1,
+    w: 4,
+    h: 4,
+    doors: [[2, 5]],
+    // Same meeting-table footprint as the other rooms.
+    desks: [
+      [2, 2],
+      [3, 2],
+      [2, 3],
+      [3, 3],
+    ],
+  },
   {
     id: 'all-hands',
     name: '大会議室',
-    c: 1,
+    c: 6,
     r: 1,
     w: 12,
     h: 4,
     doors: [
-      [6, 5],
-      [7, 5],
+      [11, 5],
+      [12, 5],
     ],
     // 4×2 boardroom table (chairs drawn around it), leaving standing room for ~25.
     desks: [
-      [5, 2],
-      [6, 2],
-      [7, 2],
-      [8, 2],
-      [5, 3],
-      [6, 3],
-      [7, 3],
-      [8, 3],
+      [10, 2],
+      [11, 2],
+      [12, 2],
+      [13, 2],
+      [10, 3],
+      [11, 3],
+      [12, 3],
+      [13, 3],
     ],
   },
   {
     id: 'meeting-1',
     name: '会議室1',
-    c: 14,
-    r: 1,
-    w: 4,
-    h: 4,
-    doors: [[15, 5]],
-    desks: [
-      [15, 2],
-      [16, 2],
-      [15, 3],
-      [16, 3],
-    ],
-  },
-  {
-    id: 'meeting-2',
-    name: '会議室2',
     c: 19,
     r: 1,
     w: 4,
@@ -110,8 +111,8 @@ const ROOMS: RoomDef[] = [
     ],
   },
   {
-    id: 'meeting-3',
-    name: '会議室3',
+    id: 'meeting-2',
+    name: '会議室2',
     c: 24,
     r: 1,
     w: 4,
@@ -125,8 +126,8 @@ const ROOMS: RoomDef[] = [
     ],
   },
   {
-    id: 'ceo',
-    name: '社長室',
+    id: 'meeting-3',
+    name: '会議室3',
     c: 29,
     r: 1,
     w: 4,
@@ -135,6 +136,8 @@ const ROOMS: RoomDef[] = [
     desks: [
       [30, 2],
       [31, 2],
+      [30, 3],
+      [31, 3],
     ],
   },
   // ── Bottom strip (rows 20-22): three 1-on-1 rooms + three negotiation booths.
@@ -210,11 +213,10 @@ const ROOMS: RoomDef[] = [
 ];
 
 // Furniture footprint for the renderer: the bounding rect of a room's desk tiles
-// (the table/desk surface) plus the room interior rect (to bound chair placement).
-// The president's office gets a workstation-style desk; every other room gets a
-// meeting table with chairs.
+// (the meeting-table surface) plus the room interior rect (to bound chair
+// placement). Every room — including the president's office — gets a meeting
+// table with chairs.
 export type RoomFurniture = {
-  kind: 'table' | 'desk';
   x: number;
   y: number;
   w: number;
@@ -233,7 +235,6 @@ export const ROOM_FURNITURE: RoomFurniture[] = ROOMS.map((room) => {
   const minR = Math.min(...rows);
   const maxR = Math.max(...rows);
   return {
-    kind: room.id === 'ceo' ? 'desk' : 'table',
     x: minC * TILE_SIZE,
     y: minR * TILE_SIZE,
     w: (maxC - minC + 1) * TILE_SIZE,

@@ -132,10 +132,20 @@ export class CanvasRenderer {
   private mapCache: HTMLCanvasElement | null = null;
   private mapCacheDpr = 0;
 
-  // Zoom-out factor about the self-centered camera. ZOOM_MAX (1.0) is the
-  // default 1:1 view; smaller surveys more of the office. The map cache is
+  // Zoom-out factor about the camera center. ZOOM_MAX (1.0) is the default 1:1
+  // view; smaller surveys more of the office. The map cache is
   // viewport-independent, so zooming never invalidates it.
   private zoomLevel = ZOOM_MAX;
+
+  // Camera center (world px). While `following` (the default) it tracks self each
+  // frame; dragging the map turns following off and pans camX/camY freely
+  // (clamped to the map), and any self-movement re-centers (recenter()).
+  private camX = MAP_WIDTH / 2;
+  private camY = MAP_HEIGHT / 2;
+  private following = true;
+  private dragging = false;
+  private dragLastX = 0;
+  private dragLastY = 0;
 
   // Live emoji reactions, anchored to a userId so the bubble tracks that avatar
   // as it moves. Each is drawn floating up + fading; expired ones are pruned in
@@ -150,6 +160,51 @@ export class CanvasRenderer {
     this.dpr = window.devicePixelRatio || 1;
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    this.setupPan();
+  }
+
+  // Drag the map to pan the view. A press starts a free-pan (stops following
+  // self); each move shifts the camera by the drag delta (in world px, so it
+  // tracks the cursor regardless of zoom), clamped so the map can't be lost.
+  // Moving your avatar re-centers (see recenter(), called by the App). This is a
+  // press-drag-release gesture, so it never conflicts with double-click-to-move.
+  private setupPan() {
+    this.canvas.style.cursor = 'grab';
+    this.canvas.addEventListener('pointerdown', (e) => {
+      this.dragging = true;
+      this.following = false;
+      this.dragLastX = e.clientX;
+      this.dragLastY = e.clientY;
+      this.canvas.style.cursor = 'grabbing';
+      this.canvas.setPointerCapture(e.pointerId);
+    });
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (!this.dragging) return;
+      this.camX -= (e.clientX - this.dragLastX) / this.zoomLevel;
+      this.camY -= (e.clientY - this.dragLastY) / this.zoomLevel;
+      this.dragLastX = e.clientX;
+      this.dragLastY = e.clientY;
+      this.camX = Math.max(0, Math.min(MAP_WIDTH, this.camX));
+      this.camY = Math.max(0, Math.min(MAP_HEIGHT, this.camY));
+    });
+    const end = (e: PointerEvent) => {
+      if (!this.dragging) return;
+      this.dragging = false;
+      this.canvas.style.cursor = 'grab';
+      try {
+        this.canvas.releasePointerCapture(e.pointerId);
+      } catch {
+        /* pointer already released */
+      }
+    };
+    this.canvas.addEventListener('pointerup', end);
+    this.canvas.addEventListener('pointercancel', end);
+  }
+
+  // Snap the camera back to self and resume following. Called by the App whenever
+  // the local avatar moves, so acting re-centers the view after a pan.
+  recenter() {
+    this.following = true;
   }
 
   resize() {
@@ -196,15 +251,16 @@ export class CanvasRenderer {
     this.reactions.push({ userId, emoji, start: performance.now() });
   }
 
-  /** Map a click position (clientX/Y) to a world coordinate. */
-  screenToWorld(clientX: number, clientY: number, self: PlayerState | null): Point {
+  /** Map a click position (clientX/Y) to a world coordinate, honoring the current
+   * (possibly panned) camera center. */
+  screenToWorld(clientX: number, clientY: number, _self: PlayerState | null): Point {
     const rect = this.canvas.getBoundingClientRect();
     return worldFromScreen(
       clientX,
       clientY,
       rect,
       { w: this.viewW, h: this.viewH },
-      self,
+      { x: this.camX, y: this.camY },
       this.zoomLevel,
     );
   }
@@ -220,14 +276,20 @@ export class CanvasRenderer {
     const h = this.viewH;
     ctx.clearRect(0, 0, w, h);
 
-    // Camera centers on self (or the map center before join) and zooms about it.
+    // Camera: while following, track self (or the map center before join); while
+    // panning, camX/camY are driven by the drag. Zoom is about the camera center.
     const zoom = this.zoomLevel;
-    const centerX = self ? self.x : MAP_WIDTH / 2;
-    const centerY = self ? self.y : MAP_HEIGHT / 2;
+    if (this.following) {
+      this.camX = self ? self.x : MAP_WIDTH / 2;
+      this.camY = self ? self.y : MAP_HEIGHT / 2;
+    }
+    const centerX = this.camX;
+    const centerY = this.camY;
 
     ctx.save();
-    // Move origin to the viewport center, scale, then put self at the origin, so
-    // self stays centered and only the scale changes (inverse: worldFromScreen).
+    // Move origin to the viewport center, scale, then put the camera center at the
+    // origin, so it stays centered and only the scale changes (inverse:
+    // worldFromScreen).
     ctx.translate(w / 2, h / 2);
     ctx.scale(zoom, zoom);
     ctx.translate(-centerX, -centerY);
@@ -363,13 +425,9 @@ export class CanvasRenderer {
     this.mapCacheDpr = dpr;
   }
 
-  // A meeting room's furniture: a table with chairs around it, or (president's
-  // office) a workstation-style exec desk with a chair.
+  // A meeting room's furniture: a table with chairs around it (every room,
+  // including the president's office).
   private drawRoomFurniture(cx: CanvasRenderingContext2D, f: RoomFurniture) {
-    if (f.kind === 'desk') {
-      this.drawExecDesk(cx, f);
-      return;
-    }
     // Chairs first (behind the table), then the table top over the rug.
     this.drawChairs(cx, f);
     const inset = 7;
@@ -400,32 +458,6 @@ export class CanvasRenderer {
         this.roundRect(cx, cxp - chair / 2, botY, chair, chair, 4);
         cx.fill();
       }
-    }
-  }
-
-  // President's office: a wider desk with a monitor and a single chair behind.
-  private drawExecDesk(cx: CanvasRenderingContext2D, f: RoomFurniture) {
-    const pad = 6;
-    this.roundRect(cx, f.x + pad, f.y + pad, f.w - pad * 2, f.h - pad * 2, 6);
-    cx.fillStyle = PALETTE.deskTop;
-    cx.fill();
-    cx.strokeStyle = PALETTE.deskEdge;
-    cx.lineWidth = 1;
-    cx.stroke();
-    const mw = Math.min(f.w * 0.5, 40);
-    const mh = 12;
-    cx.fillStyle = PALETTE.monitor;
-    cx.fillRect(f.x + f.w / 2 - mw / 2, f.y + pad + 3, mw, mh);
-    cx.fillStyle = PALETTE.monitorScreen;
-    cx.fillRect(f.x + f.w / 2 - mw / 2 + 2, f.y + pad + 5, mw - 4, mh - 4);
-    // Exec chair below the desk.
-    const chair = 16;
-    const gap = 5;
-    const cyb = f.y + f.h + gap;
-    if (cyb + chair <= f.iy + f.ih) {
-      cx.fillStyle = PALETTE.chair;
-      this.roundRect(cx, f.x + f.w / 2 - chair / 2, cyb, chair, chair, 4);
-      cx.fill();
     }
   }
 
