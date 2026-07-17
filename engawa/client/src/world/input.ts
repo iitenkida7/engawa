@@ -4,6 +4,12 @@ export class InputManager {
   constructor() {
     window.addEventListener('keydown', (e) => {
       if (this.isTextInput(e.target)) return;
+      // Ignore modifier combos — they're browser/OS shortcuts (Cmd+D, Ctrl+S,
+      // Cmd/Alt+Arrow to navigate), not movement. Treating them as movement both
+      // hijacks the shortcut (preventDefault) and, on macOS, sticks the key:
+      // keyup for a letter is suppressed while Cmd is held, so the avatar would
+      // walk indefinitely.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       const key = e.key.toLowerCase();
       if (this.isMovementKey(key)) {
         this.keys.add(key);
@@ -11,7 +17,10 @@ export class InputManager {
       }
     });
     window.addEventListener('keyup', (e) => {
-      if (this.isTextInput(e.target)) return;
+      // Always clear on keyup — even when focus has moved into a text input
+      // between the keydown and this keyup (e.g. clicking the chat box while
+      // holding a movement key). Filtering here would leave the key "held" and
+      // the avatar walking; deleting a key that was never added is a harmless no-op.
       this.keys.delete(e.key.toLowerCase());
     });
     window.addEventListener('blur', () => this.keys.clear());
