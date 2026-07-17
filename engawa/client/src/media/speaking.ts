@@ -13,16 +13,27 @@ const SPEAKING_THRESHOLD = 15;
 const SPEAKING_SMOOTHING = 0.85;
 
 export type SpeakingDetector = {
-  ctx: AudioContext;
   analyser: AnalyserNode;
   source: MediaStreamAudioSourceNode;
   buf: Uint8Array<ArrayBuffer>;
 };
 
+// One AudioContext shared by every detector. A 5-person SFU group would otherwise
+// open ~6-8 contexts (one per remote mic + local + recorder), a range where
+// browsers cap/throw. Also resumed on each use: a context created while the
+// autoplay gate is closed starts 'suspended' and reads all-zero frequency data,
+// so the speaking ring would silently never light (recorder.ts does the same).
+let sharedCtx: AudioContext | null = null;
+function getSharedAudioContext(): AudioContext {
+  if (!sharedCtx) sharedCtx = new AudioContext();
+  if (sharedCtx.state === 'suspended') void sharedCtx.resume();
+  return sharedCtx;
+}
+
 export function createSpeakingDetector(stream: MediaStream): SpeakingDetector | null {
   const audioTrack = stream.getAudioTracks()[0];
   if (!audioTrack) return null;
-  const ctx = new AudioContext();
+  const ctx = getSharedAudioContext();
   const analyser = ctx.createAnalyser();
   analyser.fftSize = 256;
   analyser.smoothingTimeConstant = SPEAKING_SMOOTHING;
@@ -30,7 +41,6 @@ export function createSpeakingDetector(stream: MediaStream): SpeakingDetector | 
   source.connect(analyser);
   // Don't connect to destination — we only analyse, not play.
   return {
-    ctx,
     analyser,
     source,
     buf: new Uint8Array(analyser.frequencyBinCount) as Uint8Array<ArrayBuffer>,
@@ -52,6 +62,8 @@ export function isSpeaking(det: SpeakingDetector): boolean {
 }
 
 export function destroySpeakingDetector(det: SpeakingDetector) {
+  // Disconnect just this detector's nodes; the AudioContext is shared, so it is
+  // NOT closed here (it lives for the page, like the sound-effects context).
   det.source.disconnect();
-  void det.ctx.close();
+  det.analyser.disconnect();
 }

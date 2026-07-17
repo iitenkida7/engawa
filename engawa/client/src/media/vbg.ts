@@ -15,6 +15,18 @@
 
 import type { ImageSegmenter, ImageSegmenterResult } from '@mediapipe/tasks-vision';
 import { fitRect } from '@/media/compositor';
+import { FrameDriver } from '@/media/frame-driver';
+
+// Whether the 2D context supports the `filter` property (checked on the prototype
+// so a per-instance expando can't give a false positive). Safari < 18 and some
+// WebViews lack it; there, assigning ctx.filter silently no-ops and the blur
+// background would paint the RAW room — a privacy break. Detected once.
+const CTX_FILTER_SUPPORTED =
+  typeof CanvasRenderingContext2D !== 'undefined' && 'filter' in CanvasRenderingContext2D.prototype;
+
+// Segmentation runs at most this often. The output captureStream is 30fps, so
+// running the (GPU-heavy) segmenter on every 60/120Hz rAF tick was pure waste.
+const SEG_INTERVAL_MS = 1000 / 30;
 
 // A background choice is a single string: the reserved values 'off'/'blur', or a
 // preset id (including 'custom' for a user-uploaded image). Stored as-is.
@@ -204,7 +216,13 @@ export class VirtualBackground {
   private segmenter: ImageSegmenter | null = null;
   private outStream: MediaStream | null = null;
   private running = false;
-  private raf = 0;
+  // rAF while visible, timer while hidden, so the outgoing camera doesn't freeze
+  // on the last frame when the user switches tabs during a call (C7).
+  private driver = new FrameDriver(() => this.tick(), SEG_INTERVAL_MS);
+  private lastSegMs = 0;
+  // Reused per-frame mask ImageData (re-allocated only when the mask size
+  // changes), so we don't churn ~0.5MB/frame of garbage.
+  private maskData: ImageData | null = null;
   private w = 320;
   private h = 240;
 
@@ -244,14 +262,13 @@ export class VirtualBackground {
     this.outStream = this.out.captureStream(30);
     for (const t of this.outStream.getVideoTracks()) t.contentHint = 'motion';
     this.running = true;
-    this.raf = requestAnimationFrame(this.loop);
+    this.driver.start();
     return this.outStream;
   }
 
   stop() {
     this.running = false;
-    if (this.raf) cancelAnimationFrame(this.raf);
-    this.raf = 0;
+    this.driver.stop();
     if (this.outStream) {
       for (const t of this.outStream.getTracks()) t.stop();
       this.outStream = null;
@@ -265,13 +282,17 @@ export class VirtualBackground {
     this.srcVideo.srcObject = null;
   }
 
-  private loop = () => {
+  private tick = () => {
     if (!this.running) return;
-    this.raf = requestAnimationFrame(this.loop);
+    const now = performance.now();
+    // Throttle to the output frame rate: the driver may fire faster (rAF on a
+    // 120Hz display), but there's no point segmenting more often than we capture.
+    if (now - this.lastSegMs < SEG_INTERVAL_MS) return;
+    this.lastSegMs = now;
     const v = this.srcVideo;
     if (!this.segmenter || v.readyState < 2 || v.videoWidth === 0) return;
     try {
-      this.segmenter.segmentForVideo(v, performance.now(), (res) => this.onResult(res));
+      this.segmenter.segmentForVideo(v, now, (res) => this.onResult(res));
     } catch {
       // A dropped/late frame is harmless; the next tick retries.
     }
@@ -292,8 +313,12 @@ export class VirtualBackground {
     if (this.maskCanvas.width !== mw || this.maskCanvas.height !== mh) {
       this.maskCanvas.width = mw;
       this.maskCanvas.height = mh;
+      this.maskData = null; // size changed → the cached buffer no longer fits
     }
-    const id = this.mctx.createImageData(mw, mh);
+    // Reuse one ImageData across frames (only its alpha channel changes), instead
+    // of allocating a fresh mw×mh buffer every frame.
+    const id = this.maskData ?? this.mctx.createImageData(mw, mh);
+    this.maskData = id;
     for (let i = 0; i < conf.length; i++) {
       id.data[i * 4 + 3] = Math.round(conf[i] * 255); // encode mask into alpha
     }
@@ -321,11 +346,19 @@ export class VirtualBackground {
   private paintBackground(w: number, h: number) {
     const ctx = this.octx;
     if (this.spec.kind === 'blur') {
-      ctx.save();
-      ctx.filter = 'blur(8px)';
-      // Overscan so the blur doesn't reveal transparent canvas at the edges.
-      ctx.drawImage(this.srcVideo, -12, -12, w + 24, h + 24);
-      ctx.restore();
+      if (CTX_FILTER_SUPPORTED) {
+        ctx.save();
+        ctx.filter = 'blur(8px)';
+        // Overscan so the blur doesn't reveal transparent canvas at the edges.
+        ctx.drawImage(this.srcVideo, -12, -12, w + 24, h + 24);
+        ctx.restore();
+      } else {
+        // No 2D-context filter support (older Safari/WebViews): a raw drawImage
+        // here would expose the un-blurred room the user asked to hide. Fall back
+        // to an opaque fill so privacy is never silently broken.
+        ctx.fillStyle = '#1a1d24';
+        ctx.fillRect(0, 0, w, h);
+      }
     } else {
       this.spec.paint(ctx, w, h);
     }
