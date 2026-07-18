@@ -1,4 +1,5 @@
 import type { ServerWebSocket } from 'bun';
+import { isPasswordRequired, verifyAccessPassword } from './logic';
 import { isAllowedSessionPath, isSfuEnabled, proxySfuRequest } from './sfu';
 import { getTurnCredentials } from './turn';
 import type { WsData } from './types';
@@ -6,6 +7,10 @@ import { createWebSocketHandler } from './websocket';
 
 const clients = new Map<string, ServerWebSocket<WsData>>();
 const PUBLIC_DIR = './public';
+
+// Single optional access password. When unset the space is open (no password is
+// ever requested); the client asks /api/config whether to show the gate.
+const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD;
 
 // Valid short-lived media tokens, minted per connection on a successful join and
 // removed on close (see websocket.ts). Requiring one on the Cloudflare-backed
@@ -89,6 +94,28 @@ const server = Bun.serve({
       return Response.json({ ok: true, clients: clients.size });
     }
 
+    // Public pre-join config: whether the space requires a password. The client
+    // uses this to decide whether to show the password gate before the name step.
+    if (url.pathname === '/api/config') {
+      return Response.json(
+        { passwordRequired: isPasswordRequired(ACCESS_PASSWORD) },
+        { headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
+
+    // Public password check for the pre-join gate. Reveals only whether the
+    // supplied password is correct (open space → always ok). The join over WS
+    // re-validates, so this is a UX helper, not the sole gate.
+    if (url.pathname === '/api/verify-password') {
+      if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+      const body = (await req.json().catch(() => ({}))) as { password?: unknown };
+      const password = typeof body.password === 'string' ? body.password : undefined;
+      return Response.json(
+        { ok: verifyAccessPassword(password, ACCESS_PASSWORD) },
+        { headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
+
     // SFU control-plane proxy: forwards to Cloudflare Realtime with the app id +
     // token attached server-side (the browser never sees them). Signaling only —
     // media never traverses our server. The path after /sessions is whitelisted
@@ -129,7 +156,7 @@ const server = Bun.serve({
     return new Response('Not Found', { status: 404 });
   },
 
-  websocket: createWebSocketHandler(clients, undefined, BOOT_ID, mediaTokens),
+  websocket: createWebSocketHandler(clients, ACCESS_PASSWORD, BOOT_ID, mediaTokens),
 });
 
 console.log(`Server running on http://${server.hostname}:${server.port}`);

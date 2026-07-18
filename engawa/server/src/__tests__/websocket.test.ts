@@ -223,15 +223,10 @@ describe('createWebSocketHandler — join', () => {
   });
 
   test('rejects a join with a wrong password and closes the socket', () => {
-    const handler = createWebSocketHandler(clients, new Map([['locked', 'secret']]));
+    const handler = createWebSocketHandler(clients, 'secret');
     const joiner = makeWs();
     handler.open!(joiner);
-    deliver(handler, joiner, {
-      type: 'join',
-      name: 'Alice',
-      workspace: 'locked',
-      password: 'wrong',
-    });
+    deliver(handler, joiner, { type: 'join', name: 'Alice', password: 'wrong' });
 
     expect(joiner.sent).toContainEqual({
       type: 'auth-error',
@@ -242,15 +237,10 @@ describe('createWebSocketHandler — join', () => {
   });
 
   test('accepts a join with the correct password', () => {
-    const handler = createWebSocketHandler(clients, new Map([['locked', 'secret']]));
+    const handler = createWebSocketHandler(clients, 'secret');
     const joiner = makeWs();
     handler.open!(joiner);
-    deliver(handler, joiner, {
-      type: 'join',
-      name: 'Alice',
-      workspace: 'locked',
-      password: 'secret',
-    });
+    deliver(handler, joiner, { type: 'join', name: 'Alice', password: 'secret' });
 
     expect(joiner.data.joined).toBe(true);
     expect(joiner.sent.some((m) => m.type === 'welcome')).toBe(true);

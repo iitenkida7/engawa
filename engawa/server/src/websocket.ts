@@ -20,17 +20,16 @@ import {
   normalizeWorkspace,
   PROXIMITY_DISCONNECT_RADIUS,
   type ProximityGroup,
-  parseWorkspacePasswords,
   sanitizeOutfit,
   sfuLatchSeeds,
-  verifyWorkspacePassword,
+  verifyAccessPassword,
 } from './logic';
 import { isSfuEnabled } from './sfu';
 import type { ClientMessage, Player, ServerMessage, WsData } from './types';
 
-// Workspace passwords from env: JSON object like {"ws1":"pass1","ws2":"pass2"}
-// If empty or not set, all workspaces are open (no auth required).
-const workspacePasswords = parseWorkspacePasswords(process.env.WORKSPACE_PASSWORDS);
+// Single optional access password from env. Empty/unset → the space is open and
+// no password is ever requested.
+const accessPasswordEnv = process.env.ACCESS_PASSWORD;
 
 // Minimum gap (ms) between proximity-group recomputes triggered by one socket's
 // `move` messages. The client sends moves at ~20Hz, so a legitimate mover always
@@ -170,7 +169,7 @@ function broadcastGroups(
 
 export function createWebSocketHandler(
   clients: Map<string, ServerWebSocket<WsData>>,
-  passwordTable: Map<string, string> = workspacePasswords,
+  accessPassword: string | undefined = accessPasswordEnv,
   // Unique per server process start. Sent in every `welcome`; the client reloads
   // when it sees a different id after reconnecting (see client reload.ts).
   bootId: string = 'dev',
@@ -212,7 +211,9 @@ export function createWebSocketHandler(
           if (ws.data.joined) return;
 
           const workspace = normalizeWorkspace(msg.workspace);
-          if (!verifyWorkspacePassword(workspace, msg.password, passwordTable)) {
+          // Single access-password gate (defense in depth — the client also checks
+          // via /api/verify-password before showing the name step).
+          if (!verifyAccessPassword(msg.password, accessPassword)) {
             send(ws, { type: 'auth-error', message: 'パスワードが正しくありません' });
             ws.close(4001, 'auth failed');
             return;

@@ -36,7 +36,10 @@ export type SfuTrack = { kind: StreamKind; trackName: string };
 export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
 
 export type ClientMessage =
-  | { type: 'join'; name: string; workspace: string; password?: string; outfit?: Outfit }
+  // `workspace` is legacy (single-space now); the client no longer sends it and
+  // the server defaults it to a single constant. `password` gates entry when an
+  // access password is configured.
+  | { type: 'join'; name: string; workspace?: string; password?: string; outfit?: Outfit }
   // Avatar appearance changed; relayed to the workspace (sanitized, never stored).
   | { type: 'outfit-update'; outfit: Outfit }
   | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }

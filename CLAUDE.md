@@ -66,7 +66,7 @@ docker compose run --rm --no-deps server bun test src/__tests__/logic.test.ts
 docker compose run --rm --no-deps client bun test src/__tests__/proximity.test.ts
 
 # テスト名で絞り込み（-t）
-docker compose run --rm --no-deps server bun test -t 'verifyWorkspacePassword'
+docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 ```
 
 ### CI
@@ -168,9 +168,11 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
 - `CLOUDFLARE_TURN_TOKEN_ID` / `CLOUDFLARE_TURN_TOKEN_SECRET` — 未設定なら STUN のみで動作。
 - `CLOUDFLARE_REALTIME_APP_ID` / `CLOUDFLARE_REALTIME_APP_TOKEN` — Cloudflare Realtime SFU。
   未設定なら SFU 無効＝全グループがメッシュ（SFU 導入前と同一挙動）。`sfu.ts` がサーバー側のみで保持。
-- `WORKSPACE_PASSWORDS` — ワークスペースのパスワード保護（任意）。
-  **コード上の正しい形式は JSON オブジェクト**: `{"ws1":"pass1","ws2":"pass2"}`（`logic.ts` の `parseWorkspacePasswords` 参照）。
-  不正な JSON は警告して無視（全 workspace オープン）。URL の `?workspace=` で部屋を分離する。
+- `ACCESS_PASSWORD` — 単一の入室パスワード（任意）。未設定なら**オープン**で、ログイン時に
+  パスワードは一切求めない。設定すると、クライアントは `GET /api/config` で要否を知り、
+  **名前入力の前**にパスワードゲートを表示（`POST /api/verify-password` で照合）。join でも
+  再検証する（`logic.ts` の `verifyAccessPassword` / `isPasswordRequired` 参照）。
+  ※複数ワークスペース（`?workspace=`）は廃止。全員が単一スペースに入る。
 
 ## コーディング規約
 - TypeScript strict モード / セミコロンあり / シングルクォート / インデント スペース2つ。
