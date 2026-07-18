@@ -276,8 +276,8 @@ export const ROOM_FURNITURE: RoomFurniture[] = ROOMS.map((room) => {
   };
 });
 
-// 25 open-office seats: four 2-desk benches per row across three rows (24) plus
-// one extra → 25, matching a ~25-person team.
+// 24 open-office seats: four 2-desk benches per row across three rows. Each desk
+// gets a chair (drawn by the renderer just in front of it).
 const OPEN_DESKS: [number, number][] = [
   [5, 8],
   [6, 8],
@@ -303,7 +303,6 @@ const OPEN_DESKS: [number, number][] = [
   [20, 14],
   [26, 14],
   [27, 14],
-  [16, 11],
 ];
 
 // A little greenery down the open floor's sides and center.
@@ -348,7 +347,7 @@ function buildOfficeMap(): number[][] {
     for (const [dc, dr] of room.desks) set(dc, dr, Tile.DESK);
   }
 
-  // ── Open office: ~25 seats + greenery ──
+  // ── Open office: desk seats + greenery ──
   for (const [c, r] of OPEN_DESKS) set(c, r, Tile.DESK);
   for (const [c, r] of OPEN_PLANTS) set(c, r, Tile.PLANT);
 
