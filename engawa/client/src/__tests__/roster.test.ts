@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { t } from '@/core/i18n';
 import { formatUntil } from '@/core/types';
 import { composeStatusNote, orderRoster } from '@/ui/roster';
 
@@ -50,7 +51,9 @@ describe('composeStatusNote', () => {
   const until = new Date(2026, 0, 2, 14, 30, 0).getTime();
 
   it('combines note and return time', () => {
-    expect(composeStatusNote('ランチ', until, now)).toBe('ランチ 〜14:30まで');
+    expect(composeStatusNote('ランチ', until, now)).toBe(
+      `ランチ ${t('roster.until', { time: '14:30' })}`,
+    );
   });
 
   it('shows note alone when there is no return time', () => {
@@ -58,7 +61,7 @@ describe('composeStatusNote', () => {
   });
 
   it('shows the return time alone when there is no note', () => {
-    expect(composeStatusNote('', until, now)).toBe('〜14:30まで');
+    expect(composeStatusNote('', until, now)).toBe(t('roster.until', { time: '14:30' }));
   });
 
   it('drops an already-passed return time', () => {

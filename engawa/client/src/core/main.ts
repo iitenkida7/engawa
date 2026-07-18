@@ -1,4 +1,5 @@
 import { App } from '@/core/app';
+import { applyI18n, getLang, type Lang, setLang } from '@/core/i18n';
 import { AvatarEditor } from '@/ui/avatar-editor';
 
 const joinOverlay = document.getElementById('join-overlay') as HTMLDivElement;
@@ -9,6 +10,18 @@ const nameForm = document.getElementById('join-form') as HTMLFormElement;
 const nameInput = document.getElementById('join-name') as HTMLInputElement;
 const btnAvatarPre = document.getElementById('btn-avatar-pre') as HTMLButtonElement;
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+
+// Translate the static markup (data-i18n attributes) before the join overlay is
+// shown, then wire the language toggle (issue #172). setLang persists + reloads.
+applyI18n();
+{
+  const activeLang = getLang();
+  for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-lang-set]')) {
+    const lang = btn.dataset.langSet as Lang;
+    btn.classList.toggle('active', lang === activeLang);
+    btn.addEventListener('click', () => setLang(lang));
+  }
+}
 
 const stored = localStorage.getItem('engawa-name');
 if (stored) nameInput.value = stored;

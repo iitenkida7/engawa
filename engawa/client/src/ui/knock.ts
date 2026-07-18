@@ -1,3 +1,4 @@
+import { t } from '@/core/i18n';
 import type { ClientMessage } from '@/core/types';
 import type { Toasts } from '@/ui/notify';
 import type { SoundManager } from '@/ui/sounds';
@@ -48,12 +49,12 @@ export class KnockController {
     this.cooldownUntil.set(userId, now + KNOCK_COOLDOWN_MS);
 
     this.deps.send({ type: 'knock', to: userId });
-    this.deps.toasts.info(`${target.name} さんにノックしました…`);
+    this.deps.toasts.info(t('knock.sent', { name: target.name }));
 
     const timer = setTimeout(() => {
       this.pending.delete(userId);
       const p = this.deps.players.get(userId);
-      this.deps.toasts.info(`${p?.name ?? '相手'} さんから返事がありませんでした`);
+      this.deps.toasts.info(t('knock.noResponse', { name: p?.name ?? t('knock.someone') }));
     }, KNOCK_COOLDOWN_MS);
     this.pending.set(userId, timer);
   }
@@ -63,15 +64,15 @@ export class KnockController {
   received(fromUserId: string, name: string) {
     this.deps.sounds.enter();
     this.deps.toasts.action(
-      `${name} さんが話したがっています`,
+      t('knock.wantsTalk', { name }),
       [
         {
-          label: '応じる',
+          label: t('knock.accept'),
           primary: true,
           onClick: () => this.deps.send({ type: 'knock-reply', to: fromUserId, accept: true }),
         },
         {
-          label: 'あとで',
+          label: t('knock.later'),
           onClick: () => this.deps.send({ type: 'knock-reply', to: fromUserId, accept: false }),
         },
       ],
@@ -85,10 +86,10 @@ export class KnockController {
   reply(fromUserId: string, name: string, accept: boolean) {
     this.forget(fromUserId);
     if (accept) {
-      this.deps.toasts.info(`${name} さんが応じました。近づきます`);
+      this.deps.toasts.info(t('knock.accepted', { name }));
       this.deps.goTo(fromUserId);
     } else {
-      this.deps.toasts.info(`${name} さんは今は手が離せないようです`);
+      this.deps.toasts.info(t('knock.busy', { name }));
     }
   }
 

@@ -1,3 +1,5 @@
+import { t } from '@/core/i18n';
+
 export const TILE_SIZE = 50;
 // A compact floor (1700×1200) keeps walking short. Must stay in sync with
 // MAP_WIDTH/MAP_HEIGHT (client core/types.ts and server logic.ts).
@@ -58,7 +60,7 @@ const ROOMS: RoomDef[] = [
   // ── Top strip (rows 1-4): president's office + all-hands + three meeting rooms.
   {
     id: 'ceo',
-    name: '社長室',
+    name: t('zone.ceo'),
     c: 1,
     r: 1,
     w: 4,
@@ -77,7 +79,7 @@ const ROOMS: RoomDef[] = [
   },
   {
     id: 'all-hands',
-    name: '大会議室',
+    name: t('zone.all-hands'),
     c: 6,
     r: 1,
     w: 12,
@@ -100,7 +102,7 @@ const ROOMS: RoomDef[] = [
   },
   {
     id: 'meeting-1',
-    name: '会議室1',
+    name: t('zone.meeting-1'),
     c: 19,
     r: 1,
     w: 4,
@@ -118,7 +120,7 @@ const ROOMS: RoomDef[] = [
   },
   {
     id: 'meeting-2',
-    name: '会議室2',
+    name: t('zone.meeting-2'),
     c: 24,
     r: 1,
     w: 4,
@@ -136,7 +138,7 @@ const ROOMS: RoomDef[] = [
   },
   {
     id: 'meeting-3',
-    name: '会議室3',
+    name: t('zone.meeting-3'),
     c: 29,
     r: 1,
     w: 4,
@@ -155,7 +157,7 @@ const ROOMS: RoomDef[] = [
   // ── Bottom strip (rows 20-22): three 1-on-1 rooms + three negotiation booths.
   {
     id: '1on1-1',
-    name: '1on1ルーム1',
+    name: t('zone.1on1-1'),
     c: 1,
     r: 20,
     w: 4,
@@ -168,7 +170,7 @@ const ROOMS: RoomDef[] = [
   },
   {
     id: '1on1-2',
-    name: '1on1ルーム2',
+    name: t('zone.1on1-2'),
     c: 6,
     r: 20,
     w: 4,
@@ -181,7 +183,7 @@ const ROOMS: RoomDef[] = [
   },
   {
     id: '1on1-3',
-    name: '1on1ルーム3',
+    name: t('zone.1on1-3'),
     c: 11,
     r: 20,
     w: 4,
@@ -194,7 +196,7 @@ const ROOMS: RoomDef[] = [
   },
   {
     id: 'booth-1',
-    name: '商談ブース1',
+    name: t('zone.booth-1'),
     c: 16,
     r: 20,
     w: 5,
@@ -210,7 +212,7 @@ const ROOMS: RoomDef[] = [
   },
   {
     id: 'booth-2',
-    name: '商談ブース2',
+    name: t('zone.booth-2'),
     c: 22,
     r: 20,
     w: 5,
@@ -226,7 +228,7 @@ const ROOMS: RoomDef[] = [
   },
   {
     id: 'booth-3',
-    name: '商談ブース3',
+    name: t('zone.booth-3'),
     c: 28,
     r: 20,
     w: 5,

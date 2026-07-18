@@ -3,6 +3,8 @@
 //
 // Prefers MP4 (supported on Safari, Chrome 128+), falls back to WebM.
 
+import { t } from '@/core/i18n';
+
 type RecorderListener = () => void;
 
 function pickMimeType(): string {
@@ -59,7 +61,7 @@ export class RecorderManager {
 
     this.mimeType = pickMimeType();
     if (!this.mimeType) {
-      alert('このブラウザは録画に対応していません');
+      alert(t('recorder.unsupported'));
       return;
     }
 

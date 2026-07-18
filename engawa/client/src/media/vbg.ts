@@ -14,6 +14,7 @@
 // same pattern as proximity.ts / panels.ts.
 
 import type { ImageSegmenter, ImageSegmenterResult } from '@mediapipe/tasks-vision';
+import { t } from '@/core/i18n';
 import { fitRect } from '@/media/compositor';
 import { FrameDriver } from '@/media/frame-driver';
 
@@ -69,7 +70,7 @@ function linear(
 export const BG_PRESETS: BgPreset[] = [
   {
     id: 'office',
-    label: '🏢 オフィス',
+    label: t('vbg.office'),
     paint: (ctx, w, h) =>
       linear(ctx, w, h, [
         [0, '#2b3242'],
@@ -78,7 +79,7 @@ export const BG_PRESETS: BgPreset[] = [
   },
   {
     id: 'sky',
-    label: '🌤 青空',
+    label: t('vbg.sky'),
     paint: (ctx, w, h) =>
       linear(ctx, w, h, [
         [0, '#7fc7ff'],
@@ -87,7 +88,7 @@ export const BG_PRESETS: BgPreset[] = [
   },
   {
     id: 'sunset',
-    label: '🌇 夕焼け',
+    label: t('vbg.sunset'),
     paint: (ctx, w, h) =>
       linear(ctx, w, h, [
         [0, '#3a2a55'],
@@ -97,7 +98,7 @@ export const BG_PRESETS: BgPreset[] = [
   },
   {
     id: 'forest',
-    label: '🌿 グリーン',
+    label: t('vbg.green'),
     paint: (ctx, w, h) =>
       linear(ctx, w, h, [
         [0, '#1e3d2f'],
@@ -141,11 +142,11 @@ export function isProcessingChoice(choice: string): boolean {
 
 // Human label for the toolbar button, given the active choice.
 export function choiceLabel(choice: string): string {
-  if (choice === VBG_OFF) return '🪄 背景';
-  if (choice === VBG_BLUR) return '🌫 ぼかし';
-  if (choice === VBG_CUSTOM) return '🖼 画像';
+  if (choice === VBG_OFF) return t('vbg.btnBg');
+  if (choice === VBG_BLUR) return t('vbg.btnBlur');
+  if (choice === VBG_CUSTOM) return t('vbg.btnImage');
   const preset = BG_PRESETS.find((p) => p.id === choice);
-  return preset ? preset.label : '🪄 背景';
+  return preset ? preset.label : t('vbg.btnBg');
 }
 
 // Compute the downscaled dimensions for an uploaded image so the stored dataURL

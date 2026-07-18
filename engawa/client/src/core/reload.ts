@@ -9,6 +9,8 @@
 // otherwise keep showing duplicates — and it also picks up any new client
 // bundle shipped by the deploy.
 
+import { t } from '@/core/i18n';
+
 export type BootResult = { reload: boolean; bootId: string };
 
 // Pure: given the boot id we already know (null before the first welcome) and
@@ -24,7 +26,7 @@ export const RELOAD_COUNTDOWN_SECONDS = 5;
 // Pure: the countdown line shown in the banner (clamped at 0 so the final tick
 // never renders a negative number).
 export function countdownMessage(seconds: number): string {
-  return `${seconds > 0 ? seconds : 0} 秒後に再読み込みします…`;
+  return t('reload.countdown', { seconds: seconds > 0 ? seconds : 0 });
 }
 
 // A top banner telling the user the server was updated, counting down to an
@@ -57,7 +59,7 @@ export class ReloadBanner {
 
     const msg = this.doc.createElement('span');
     msg.className = 'reload-banner-msg';
-    msg.textContent = 'サーバーが更新されました';
+    msg.textContent = t('reload.updated');
 
     const countdown = this.doc.createElement('span');
     countdown.className = 'reload-banner-countdown';
@@ -66,7 +68,7 @@ export class ReloadBanner {
 
     const btn = this.doc.createElement('button');
     btn.type = 'button';
-    btn.textContent = '今すぐ再読み込み';
+    btn.textContent = t('reload.now');
     btn.addEventListener('click', () => this.reloadNow());
 
     banner.append(msg, countdown, btn);

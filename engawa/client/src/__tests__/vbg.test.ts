@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { t } from '@/core/i18n';
 import {
   allChoices,
   BG_PRESETS,
@@ -65,11 +66,11 @@ describe('isProcessingChoice', () => {
 
 describe('choiceLabel', () => {
   it('labels reserved choices and presets, falling back for unknown', () => {
-    expect(choiceLabel(VBG_OFF)).toBe('🪄 背景');
-    expect(choiceLabel(VBG_BLUR)).toBe('🌫 ぼかし');
-    expect(choiceLabel(VBG_CUSTOM)).toBe('🖼 画像');
+    expect(choiceLabel(VBG_OFF)).toBe(t('vbg.btnBg'));
+    expect(choiceLabel(VBG_BLUR)).toBe(t('vbg.btnBlur'));
+    expect(choiceLabel(VBG_CUSTOM)).toBe(t('vbg.btnImage'));
     expect(choiceLabel(BG_PRESETS[0].id)).toBe(BG_PRESETS[0].label);
-    expect(choiceLabel('nope')).toBe('🪄 背景');
+    expect(choiceLabel('nope')).toBe(t('vbg.btnBg'));
   });
 });
 

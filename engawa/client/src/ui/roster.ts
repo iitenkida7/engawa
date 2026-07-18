@@ -6,6 +6,7 @@
 // DOM that mirrors the players map; the App owns the map itself, mirroring the
 // RemoteMediaView split.
 
+import { t } from '@/core/i18n';
 import type { PlayerStatus } from '@/core/types';
 import { formatUntil, STATUS_NOTE_MAX_LEN, STATUS_UNTIL_PRESETS_MIN } from '@/core/types';
 import type { PlayerState } from '@/world/player';
@@ -53,7 +54,7 @@ export function composeStatusNote(
   const parts: string[] = [];
   if (note) parts.push(note);
   const hhmm = formatUntil(until, now);
-  if (hhmm) parts.push(`〜${hhmm}まで`);
+  if (hhmm) parts.push(t('roster.until', { time: hhmm }));
   return parts.join(' ');
 }
 
@@ -78,11 +79,11 @@ type RosterRow = {
 // Selectable statuses with their labels, used by the roster status dropdown.
 const STATUS_ORDER: PlayerStatus[] = ['online', 'busy', 'away', 'meeting', 'break'];
 const STATUS_LABELS: Record<PlayerStatus, string> = {
-  online: '🟢 オンライン',
-  busy: '🔴 取り込み中',
-  away: '🟡 離席中',
-  meeting: '🤝 商談中',
-  break: '☕ 休憩中',
+  online: t('status.online'),
+  busy: t('status.busy'),
+  away: t('status.away'),
+  meeting: t('status.meeting'),
+  break: t('status.break'),
 };
 
 export class RosterPanel {
@@ -208,12 +209,12 @@ export class RosterPanel {
     noteField.className = 'status-field';
     const noteLabel = document.createElement('span');
     noteLabel.className = 'status-field-label';
-    noteLabel.textContent = '一言メッセージ';
+    noteLabel.textContent = t('roster.noteLabel');
     const note = document.createElement('input');
     note.type = 'text';
     note.className = 'status-note-input';
     note.maxLength = STATUS_NOTE_MAX_LEN;
-    note.placeholder = '例: ランチ';
+    note.placeholder = t('roster.notePlaceholder');
     note.value = this.getNote();
     note.addEventListener('click', (e) => e.stopPropagation());
     // Enter commits with the current status, for a quick note-only update.
@@ -232,12 +233,12 @@ export class RosterPanel {
     untilField.className = 'status-field';
     const untilLabel = document.createElement('span');
     untilLabel.className = 'status-field-label';
-    untilLabel.textContent = '戻り時刻';
+    untilLabel.textContent = t('roster.returnLabel');
     const untilRow = document.createElement('div');
     untilRow.className = 'status-until-row';
     const presets: { min: number | null; text: string }[] = [
-      { min: null, text: 'なし' },
-      ...STATUS_UNTIL_PRESETS_MIN.map((min) => ({ min, text: `${min}分` })),
+      { min: null, text: t('common.none') },
+      ...STATUS_UNTIL_PRESETS_MIN.map((min) => ({ min, text: t('roster.minutes', { n: min }) })),
     ];
     for (const preset of presets) {
       const btn = document.createElement('button');
@@ -307,7 +308,7 @@ export class RosterPanel {
   private applyCollapsed() {
     this.panelEl.classList.toggle('collapsed', this.collapsed);
     this.toggleEl.textContent = this.collapsed ? '⟩' : '⟨';
-    this.toggleEl.title = this.collapsed ? '参加者リストを開く' : '折りたたむ';
+    this.toggleEl.title = this.collapsed ? t('roster.expand') : t('roster.collapse');
   }
 
   // Pumped once per frame from the game loop: reconciles the rows with the
@@ -380,7 +381,7 @@ export class RosterPanel {
       const knock = document.createElement('button');
       knock.className = 'roster-knock';
       knock.textContent = '🔔';
-      knock.title = `${p.name} さんにノック（話したいと伝える）`;
+      knock.title = t('roster.knock', { name: p.name });
       knock.addEventListener('click', (e) => {
         // Don't let the button click bubble up to the row's focus handler.
         e.stopPropagation();
@@ -391,7 +392,7 @@ export class RosterPanel {
       const go = document.createElement('button');
       go.className = 'roster-go';
       go.textContent = '→';
-      go.title = `${p.name} のそばへ移動`;
+      go.title = t('roster.goto', { name: p.name });
       go.addEventListener('click', (e) => {
         e.stopPropagation();
         this.onGoTo(p.userId);
