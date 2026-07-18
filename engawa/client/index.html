@@ -3,7 +3,7 @@
 
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>engawa</title>
     <!-- PWA: installable as a standalone desktop app (Chrome/Edge). No service
          worker by design — this is a live WebRTC app with no offline value, and
@@ -46,7 +46,12 @@
       #app {
         position: relative;
         width: 100vw;
+        /* Use the DYNAMIC viewport height on mobile: plain 100vh includes the
+           area behind the browser's address/nav bar, which would push the
+           bottom-anchored toolbar off the visible screen (it "doesn't appear").
+           dvh matches the actually-visible area; 100vh stays as the fallback. */
         height: 100vh;
+        height: 100dvh;
       }
 
       canvas {
@@ -1408,11 +1413,16 @@
         #toolbar {
           left: 8px;
           right: 8px;
-          bottom: 8px;
+          /* Clear the home indicator / browser bottom bar (safe-area inset). */
+          bottom: calc(8px + env(safe-area-inset-bottom, 0px));
           transform: none;
           max-width: none;
           gap: 6px;
           padding: 6px;
+          /* If the toolbar (many buttons) still wraps taller than the screen,
+             cap it and let it scroll rather than overflow above the top. */
+          max-height: 40vh;
+          overflow-y: auto;
         }
 
         #toolbar button {
