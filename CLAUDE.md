@@ -208,5 +208,21 @@ engawa は **host 非依存の OSS**。リリースとは「**バージョンタ
 **新機能はマイナー（vX.Y+1.0）、バグ修正はパッチ（vX.Y.Z+1）**。バージョンはユーザーに確認してから打つ。
 通常どおりフィーチャーブランチ→PR で進める。GHCR publish 後の本番反映は OSS の外（デプロイ専用の別環境）が GHCR の成果物を引いて行う。
 
+## ランディングページ（LP / GitHub Pages）
+紹介用の LP は **`docs/`（リポジトリ最上位）** に置く。**ビルド不要の自己完結した静的 1 ページ**
+（`index.html` + `styles.css` + 素の `main.js`。フレームワーク・バンドラなし。不変条件 #5 のシンプル志向）。
+- **公開**: `Settings → Pages → Source: Deploy from a branch → main / docs`
+  （URL は `https://iitenkida7.github.io/engawa/`）。`docs/.nojekyll` を置き Jekyll を無効化する。
+- **デザイン**: 和モダン。配色は**アプリアイコン（夜明けの陽 × 縁側の板の間）由来**＝アンバーの陽 /
+  生成りの和紙 / 板目の横ライン / 墨色の明朝。日英トグル（localStorage 保存）と IntersectionObserver
+  のスクロール演出（`prefers-reduced-motion` 尊重）を素の JS で実装。
+- **スクショ**は `docs/assets/screens/`。実アプリの撮影は **Caddy 経由 `https://engawa.localhost`** で行う
+  （`localhost:5173` は Vite が WS の 101 升級を中継できず入室できない）。MCP ブラウザの自己署名証明書エラーは
+  Chrome のエラー画面で `thisisunsafe` とタイプして回避。画像は `sips` で中央クロップ＋縮小。favicon は
+  アプリアイコンを流用。
+- **クレジットは正確に**（LPC=CC-BY-SA 3.0 ほか / Kenney=CC0）。本体コードのライセンスは未指定なので、
+  LP 上で特定ライセンスを主張しない（「オープンソース」表記のみ）。
+
 ## ツール利用方針
 - Chrome DevTools MCP は遅いので極力使わない。代替（ログ確認・テスト実行）を優先する。
+  （例外: LP のスクショなど画面キャプチャが必須のときは最小限で使う。上記「ランディングページ」節を参照）
