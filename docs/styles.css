@@ -58,6 +58,7 @@ body {
 
 img {
   max-width: 100%;
+  height: auto; /* override intrinsic width/height attrs so ratio is preserved */
   display: block;
 }
 
@@ -435,8 +436,14 @@ h2 {
   max-width: 340px;
   margin: 0 auto;
 }
-.split-media.avatar-media .frame {
+.split-media.avatar-media .frame,
+.frame-dark {
   background: linear-gradient(160deg, #2b2f3a, var(--sky) 60%, #12141a);
+}
+
+/* app-preview band — plain washi (origin's bottom hairline separates it above) */
+.app-preview .showcase {
+  margin-top: 8px;
 }
 
 /* how-it-works points */
