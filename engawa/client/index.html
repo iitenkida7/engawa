@@ -1419,10 +1419,10 @@
           max-width: none;
           gap: 6px;
           padding: 6px;
-          /* If the toolbar (many buttons) still wraps taller than the screen,
-             cap it and let it scroll rather than overflow above the top. */
-          max-height: 40vh;
-          overflow-y: auto;
+          /* NOTE: no overflow/scroll here — it would clip the device / reaction /
+             ⋯ pop-up menus, which open ABOVE the toolbar (outside its box). The
+             wrapped toolbar is only a couple of rows tall, so it never overflows
+             the top on a phone. */
         }
 
         #toolbar button {
