@@ -1,4 +1,5 @@
 import BackgroundTicker from '@/core/background-ticker?worker';
+import { t } from '@/core/i18n';
 import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
 import { setMediaToken } from '@/core/media-auth';
 import { NetworkClient } from '@/core/network';
@@ -520,8 +521,8 @@ export class App {
     if (this.reconnectAttempt >= RECONNECT_MAX_ATTEMPTS) {
       this.dismissConnToast?.();
       this.dismissConnToast = this.toasts.action(
-        'サーバーに接続できません。',
-        [{ label: '再接続', primary: true, onClick: () => this.manualReconnect() }],
+        t('app.cantConnect'),
+        [{ label: t('app.reconnect'), primary: true, onClick: () => this.manualReconnect() }],
         0,
       );
       return;
@@ -533,7 +534,7 @@ export class App {
     );
     // Show the (persistent) reconnecting notice once; later attempts reuse it.
     if (!this.dismissConnToast) {
-      this.dismissConnToast = this.toasts.action('接続が切れました。再接続しています…', [], 0);
+      this.dismissConnToast = this.toasts.action(t('app.reconnecting'), [], 0);
     }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -1037,7 +1038,7 @@ export class App {
       return;
     }
     console.warn('[sfu] connection failed; falling back to mesh');
-    this.toasts.info('通話サーバーに接続できないため、P2P 接続に切り替えました。');
+    this.toasts.info(t('app.sfuFallback'));
     // Reuse the mesh reconciliation (it tears the SFU transport down and opens a
     // peer to every former SFU member). Snapshot members first — it clears the set.
     //

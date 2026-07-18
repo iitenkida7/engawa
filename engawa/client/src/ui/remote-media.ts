@@ -1,3 +1,4 @@
+import { t } from '@/core/i18n';
 import type { StreamKind } from '@/core/types';
 import type { MediaManager } from '@/media/media';
 import type { RecorderManager } from '@/media/recorder';
@@ -155,7 +156,7 @@ export class RemoteMediaView {
 
   // Sets the label shown under the self preview (the local user's name).
   setSelfName(name: string) {
-    this.selfPreviewLabelEl.textContent = name || 'あなた';
+    this.selfPreviewLabelEl.textContent = name || t('common.you');
   }
 
   // ============= Remote streams =============
@@ -412,7 +413,9 @@ export class RemoteMediaView {
     });
     const isSelf = userId === this.getMyId();
     const p = this.players.get(userId);
-    ss.label.textContent = isSelf ? 'あなたの画面' : `${p?.name || userId.slice(0, 6)} の画面`;
+    ss.label.textContent = isSelf
+      ? t('media.yourScreen')
+      : t('media.screenOf', { name: p?.name || userId.slice(0, 6) });
     this.reflowLayout();
   }
 
@@ -489,7 +492,7 @@ export class RemoteMediaView {
 
     const header = document.createElement('div');
     header.className = 'panel-header';
-    header.title = 'ダブルクリックでメイン表示に切り替え';
+    header.title = t('media.dblClickMain');
     const label = document.createElement('span');
     label.className = 'label';
     header.appendChild(label);

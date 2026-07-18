@@ -1,3 +1,4 @@
+import { t } from '@/core/i18n';
 import type { GroupMethod } from '@/core/types';
 import { describeStream, type RtcConn, type RtcStreamRate } from '@/rtc/rtcstats';
 import { makeDraggable } from '@/ui/draggable';
@@ -75,17 +76,17 @@ export class DebugConsole {
     summary.className = 'debug-summary';
     const badge = document.createElement('span');
     badge.className = `debug-badge debug-badge-${method}`;
-    badge.textContent = method === 'sfu' ? 'SFU' : 'メッシュ';
+    badge.textContent = method === 'sfu' ? 'SFU' : t('debug.mesh');
     summary.appendChild(badge);
     const count = document.createElement('span');
-    count.textContent = `接続 ${conns.length}`;
+    count.textContent = t('debug.connections', { n: conns.length });
     summary.appendChild(count);
     this.body.appendChild(summary);
 
     if (conns.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'debug-empty';
-      empty.textContent = '接続はありません（近くに誰かがいると表示されます）';
+      empty.textContent = t('debug.noConnections');
       this.body.appendChild(empty);
       return;
     }
@@ -124,7 +125,7 @@ export class DebugConsole {
     if (conn.streams.length === 0) {
       const idle = document.createElement('div');
       idle.className = 'debug-stream-empty';
-      idle.textContent = 'ストリームなし';
+      idle.textContent = t('debug.noStreams');
       card.appendChild(idle);
     }
     for (const s of conn.streams) {

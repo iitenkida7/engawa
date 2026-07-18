@@ -11,6 +11,7 @@
 // the caller (canvas drawPlayer) falls back to the procedural colored circle.
 
 import manifestJson from '@/assets/lpc/manifest.json';
+import { t } from '@/core/i18n';
 import {
   type Direction,
   defaultOutfit,
@@ -96,20 +97,20 @@ export const OUTFIT_COUNTS: OutfitCounts = {
 };
 
 export const CATEGORY_LABELS: Record<OutfitCategory, string> = {
-  sex: '性別',
-  skin: '肌の色',
-  hair: '髪型',
-  hairColor: '髪の色',
-  top: '上着',
-  topColor: '上着の色',
-  bottom: '下衣',
-  bottomColor: '下衣の色',
-  shoes: '靴',
-  hat: '帽子',
-  glasses: 'メガネ',
+  sex: t('avatar.cat.sex'),
+  skin: t('avatar.cat.skin'),
+  hair: t('avatar.cat.hair'),
+  hairColor: t('avatar.cat.hairColor'),
+  top: t('avatar.cat.top'),
+  topColor: t('avatar.cat.topColor'),
+  bottom: t('avatar.cat.bottom'),
+  bottomColor: t('avatar.cat.bottomColor'),
+  shoes: t('avatar.cat.shoes'),
+  hat: t('avatar.cat.hat'),
+  glasses: t('avatar.cat.glasses'),
 };
 
-const SEX_LABELS = ['男性', '女性'];
+const SEX_LABELS = [t('avatar.sex.male'), t('avatar.sex.female')];
 
 /** The display label for a given category option (for the editor's carousel). */
 export function optionLabel(category: OutfitCategory, index: number): string {
@@ -124,17 +125,17 @@ export function optionLabel(category: OutfitCategory, index: number): string {
     case 'bottomColor':
       return manifest.colors.cloth[index] ?? '-';
     case 'hair':
-      return P.hair[index]?.name ?? 'なし';
+      return P.hair[index]?.name ?? t('common.none');
     case 'top':
       return P.top[index]?.name ?? '-';
     case 'bottom':
       return P.bottom[index]?.name ?? '-';
     case 'shoes':
-      return P.shoes[index]?.name ?? 'はだし';
+      return P.shoes[index]?.name ?? t('common.barefoot');
     case 'hat':
-      return P.hat[index]?.name ?? 'なし';
+      return P.hat[index]?.name ?? t('common.none');
     case 'glasses':
-      return P.glasses[index]?.name ?? 'なし';
+      return P.glasses[index]?.name ?? t('common.none');
   }
 }
 

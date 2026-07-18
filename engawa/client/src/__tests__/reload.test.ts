@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { t } from '@/core/i18n';
 import { countdownMessage, evaluateBoot, ReloadBanner } from '@/core/reload';
 
 describe('evaluateBoot', () => {
@@ -17,11 +18,12 @@ describe('evaluateBoot', () => {
 
 describe('countdownMessage', () => {
   it('renders the remaining seconds', () => {
-    expect(countdownMessage(5)).toBe('5 秒後に再読み込みします…');
+    expect(countdownMessage(5)).toBe(t('reload.countdown', { seconds: 5 }));
+    expect(countdownMessage(5)).toContain('5');
   });
 
   it('never shows a negative number', () => {
-    expect(countdownMessage(-1)).toBe('0 秒後に再読み込みします…');
+    expect(countdownMessage(-1)).toBe(t('reload.countdown', { seconds: 0 }));
   });
 });
 
@@ -55,9 +57,9 @@ describe('ReloadBanner', () => {
     banner = new ReloadBanner({ reload, seconds: 2 });
     banner.show();
     const countdown = document.querySelector('#reload-banner .reload-banner-countdown');
-    expect(countdown?.textContent).toBe('2 秒後に再読み込みします…');
+    expect(countdown?.textContent).toBe(t('reload.countdown', { seconds: 2 }));
     banner.tick();
-    expect(countdown?.textContent).toBe('1 秒後に再読み込みします…');
+    expect(countdown?.textContent).toBe(t('reload.countdown', { seconds: 1 }));
     expect(reload).not.toHaveBeenCalled();
     banner.tick();
     expect(reload).toHaveBeenCalledTimes(1);

@@ -1,3 +1,4 @@
+import { getLang, type Lang, setLang, t } from '@/core/i18n';
 import { REACTION_EMOJIS, type StreamKind } from '@/core/types';
 import type { SceneCompositor } from '@/media/compositor';
 import type { MediaManager } from '@/media/media';
@@ -166,13 +167,13 @@ export class ToolbarController {
 
   refresh() {
     this.btnMic.classList.toggle('active', this.media.micOn);
-    this.btnMic.textContent = this.media.micOn ? '🎤 ON' : '🎤 マイク';
+    this.btnMic.textContent = this.media.micOn ? t('toolbar.micOn') : t('toolbar.mic');
     this.btnCam.classList.toggle('active', this.media.camOn);
-    this.btnCam.textContent = this.media.camOn ? '📷 ON' : '📷 カメラ';
+    this.btnCam.textContent = this.media.camOn ? t('toolbar.camOn') : t('toolbar.cam');
     this.btnScreen.classList.toggle('active', this.media.screenOn);
-    this.btnScreen.textContent = this.media.screenOn ? '🖥 共有中' : '🖥 画面共有';
+    this.btnScreen.textContent = this.media.screenOn ? t('toolbar.screenOn') : t('toolbar.screen');
     this.btnRec.classList.toggle('recording', this.recorder.recording);
-    this.btnRec.textContent = this.recorder.recording ? '⏹ 録画停止' : '⏺ 録画';
+    this.btnRec.textContent = this.recorder.recording ? t('toolbar.recOn') : t('toolbar.rec');
   }
 
   // ---- Mic/cam enable & disable flows (shared by toolbar and device switch) ----
@@ -185,7 +186,7 @@ export class ToolbarController {
       // (addAudioStream no-ops when not recording).
       this.recorder.addAudioStream(stream);
     } catch (e) {
-      this.toasts.error(`マイクを使えません: ${(e as Error).message}`);
+      this.toasts.error(t('toolbar.errMic', { msg: (e as Error).message }));
     }
   }
   private stopMic() {
@@ -201,7 +202,7 @@ export class ToolbarController {
       const stream = await this.media.enableCam();
       this.rtc.addLocalStream(stream, 'cam');
     } catch (e) {
-      this.toasts.error(`カメラを使えません: ${(e as Error).message}`);
+      this.toasts.error(t('toolbar.errCam', { msg: (e as Error).message }));
     }
   }
   private stopCam() {
@@ -221,7 +222,7 @@ export class ToolbarController {
         if (me) me.isSharingScreen = true;
         this.view.showScreenshare(me?.userId ?? '', stream);
       } catch (e) {
-        this.toasts.error(`画面共有を開始できません: ${(e as Error).message}`);
+        this.toasts.error(t('toolbar.errScreen', { msg: (e as Error).message }));
       }
     }
   }
@@ -345,7 +346,7 @@ export class ToolbarController {
     REACTION_EMOJIS.forEach((emoji, i) => {
       const item = document.createElement('button');
       item.className = 'reaction-item';
-      item.title = `リアクション (${i + 1})`;
+      item.title = t('toolbar.reaction', { n: i + 1 });
       item.textContent = emoji;
       item.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -366,7 +367,7 @@ export class ToolbarController {
     if (devices.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'device-empty';
-      empty.textContent = 'デバイスが見つかりません';
+      empty.textContent = t('toolbar.noDevices');
       menu.appendChild(empty);
       return;
     }
@@ -377,7 +378,7 @@ export class ToolbarController {
       // has been explicitly selected.
       const isSelected = d.deviceId === selectedId || (!selectedId && i === 0);
       if (isSelected) item.classList.add('selected');
-      item.textContent = (isSelected ? '✓ ' : '') + (d.label || `デバイス ${i + 1}`);
+      item.textContent = (isSelected ? '✓ ' : '') + (d.label || t('toolbar.device', { n: i + 1 }));
       item.addEventListener('click', (e) => {
         e.stopPropagation();
         menu.classList.add('hidden');
@@ -403,7 +404,7 @@ export class ToolbarController {
     menu.appendChild(sep);
     const label = document.createElement('div');
     label.className = 'menu-label';
-    label.textContent = '背景';
+    label.textContent = t('toolbar.bg');
     menu.appendChild(label);
 
     const current = this.media.bgChoice;
@@ -421,15 +422,15 @@ export class ToolbarController {
       menu.appendChild(item);
     };
 
-    addBg('🚫 オフ', () => void this.setBackground(VBG_OFF), VBG_OFF);
-    addBg('🌫 ぼかし', () => void this.setBackground(VBG_BLUR), VBG_BLUR);
+    addBg(t('toolbar.bgOff'), () => void this.setBackground(VBG_OFF), VBG_OFF);
+    addBg(t('toolbar.bgBlur'), () => void this.setBackground(VBG_BLUR), VBG_BLUR);
     for (const preset of BG_PRESETS) {
       addBg(preset.label, () => void this.setBackground(preset.id), preset.id);
     }
     if (this.media.customBgDataUrl) {
-      addBg('🖼 カスタム画像', () => void this.setBackground(VBG_CUSTOM), VBG_CUSTOM);
+      addBg(t('toolbar.bgCustom'), () => void this.setBackground(VBG_CUSTOM), VBG_CUSTOM);
     }
-    addBg('📁 画像をアップロード…', () => this.bgFileInput.click());
+    addBg(t('toolbar.bgUpload'), () => this.bgFileInput.click());
   }
 
   // The "⋯" overflow menu: low-frequency actions. アバター編集（in-room の
@@ -450,10 +451,14 @@ export class ToolbarController {
       });
       menu.appendChild(item);
     };
-    addItem('🧍 アバターを編集', () => this.onOpenAvatar());
-    addItem(this.isDebugOpen() ? '🐛 デバッグを閉じる' : '🐛 デバッグ（RTC 接続）', () =>
+    addItem(t('toolbar.editAvatar'), () => this.onOpenAvatar());
+    addItem(this.isDebugOpen() ? t('toolbar.closeDebug') : t('toolbar.openDebug'), () =>
       this.toggleDebug(),
     );
+    // Language switch (issue #172): label shows the language you'd switch TO;
+    // setLang persists the choice and reloads.
+    const other: Lang = getLang() === 'ja' ? 'en' : 'ja';
+    addItem(other === 'ja' ? '🌐 日本語' : '🌐 English', () => setLang(other));
   }
 
   private async switchMic(deviceId: string) {
@@ -498,7 +503,7 @@ export class ToolbarController {
       if (old) this.rtc.removeLocalStream(old);
       if (kind === 'mic') this.view.setLocalMicStream(null);
       this.toasts.error(
-        `${kind === 'mic' ? 'マイク' : 'カメラ'}を使えません: ${(e as Error).message}`,
+        t(kind === 'mic' ? 'toolbar.errMic' : 'toolbar.errCam', { msg: (e as Error).message }),
       );
     }
   }
@@ -532,7 +537,7 @@ export class ToolbarController {
       this.persistBgSettings();
       await this.setBackground(VBG_CUSTOM);
     } catch (e) {
-      this.toasts.error(`画像を読み込めません: ${(e as Error).message}`);
+      this.toasts.error(t('toolbar.errImage', { msg: (e as Error).message }));
     }
   }
 
