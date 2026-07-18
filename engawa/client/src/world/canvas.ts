@@ -415,6 +415,17 @@ export class CanvasRenderer {
       }
     }
 
+    // A chair in front of each open-office desk. Drawn in its own pass AFTER all
+    // floors, because the seat sits just below the desk (extending into the next
+    // tile) and would otherwise be painted over by that row's floor.
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        if (officeMap[r][c] === Tile.DESK && floorKindAt(c, r) === 'wood') {
+          this.drawDeskChair(cx, c * TILE_SIZE, r * TILE_SIZE);
+        }
+      }
+    }
+
     // Meeting-room furniture: proper tables with chairs (and an exec desk for the
     // president's office), drawn over the rug once the tiles are laid down.
     for (const f of ROOM_FURNITURE) this.drawRoomFurniture(cx, f);
@@ -527,6 +538,17 @@ export class CanvasRenderer {
     // Keyboard hint
     cx.fillStyle = PALETTE.deskEdge;
     cx.fillRect(tx + S / 2 - S * 0.2, ty + S - pad - S * 0.16, S * 0.4, S * 0.09);
+  }
+
+  // A chair just in front of (below) an open-office desk — the monitor faces up,
+  // so the seat sits on the south side. Same sage rounded seat as the meeting
+  // chairs, for consistency.
+  private drawDeskChair(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+    const S = TILE_SIZE;
+    const chair = 15;
+    cx.fillStyle = PALETTE.chair;
+    this.roundRect(cx, tx + S / 2 - chair / 2, ty + S - 6, chair, chair, 4);
+    cx.fill();
   }
 
   // Sage plant in a terracotta pot: a small trapezoid pot with a cluster of
