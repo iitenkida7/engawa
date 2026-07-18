@@ -474,12 +474,10 @@ export class App {
     this.reconnectAttempt = 0;
     this.dismissConnToast?.();
     this.dismissConnToast = null;
-    const params = new URLSearchParams(window.location.search);
-    const workspace = params.get('workspace') || 'default';
+    // Single space now — no workspace is selected or sent (the server defaults it).
     this.net.send({
       type: 'join',
       name: this.joinedName,
-      workspace,
       outfit: this.editor.getOutfit(),
       ...(this.joinedPassword ? { password: this.joinedPassword } : {}),
     });
@@ -560,9 +558,10 @@ export class App {
     switch (msg.type) {
       case 'auth-error': {
         this.authFailed = true;
-        alert(msg.message || '認証に失敗しました');
-        // Show join overlay again so user can retry
+        // Re-show the join overlay; main.ts returns to the password gate (auth
+        // errors only happen when a password is required and wrong).
         document.getElementById('join-overlay')?.classList.remove('hidden');
+        window.dispatchEvent(new CustomEvent('engawa-auth-error'));
         break;
       }
       case 'welcome': {

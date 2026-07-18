@@ -112,6 +112,12 @@
         background: #3a78f0;
       }
 
+      #join-pass-error {
+        margin-top: 8px;
+        color: #ff8a8a;
+        font-size: 13px;
+      }
+
       #toolbar {
         position: absolute;
         bottom: 16px;
@@ -1529,10 +1535,19 @@
         <div id="debug-body"></div>
       </div>
       <div id="join-overlay">
-        <form class="card" id="join-form">
+        <!-- Step 1: password gate. Shown by main.ts only when the space requires a
+             password (GET /api/config); otherwise skipped entirely. -->
+        <form class="card hidden" id="join-pass-form">
+          <h1>合言葉を入力</h1>
+          <input id="join-password" type="password" placeholder="パスワード" maxlength="64"
+            autocomplete="current-password" />
+          <div id="join-pass-error" class="hidden">パスワードが正しくありません</div>
+          <button type="submit">次へ</button>
+        </form>
+        <!-- Step 2: name + avatar. No password field here. -->
+        <form class="card hidden" id="join-form">
           <h1>engawa に参加</h1>
-          <input id="join-name" type="text" placeholder="名前を入力" maxlength="24" autofocus required />
-          <input id="join-password" type="password" placeholder="パスワード（任意）" maxlength="64" style="margin-top: 8px;" />
+          <input id="join-name" type="text" placeholder="名前を入力" maxlength="24" required />
           <button type="button" id="btn-avatar-pre" class="secondary">🎨 アバターを編集</button>
           <button type="submit">入室</button>
         </form>

@@ -6,6 +6,7 @@ import {
   type GroupMember,
   generateSpawn,
   isAllowedReaction,
+  isPasswordRequired,
   isValidStreamMetaKind,
   MAP_HEIGHT,
   MAP_WIDTH,
@@ -23,7 +24,6 @@ import {
   normalizeWorkspace,
   PLAYER_STATUSES,
   PROXIMITY_CONNECT_RADIUS,
-  parseWorkspacePasswords,
   REACTION_EMOJIS,
   SFU_MAX_TRACKS,
   SFU_PROMOTE_AT,
@@ -31,53 +31,34 @@ import {
   STATUS_NOTE_MAX_LENGTH,
   STREAM_ID_MAX_LENGTH,
   sfuLatchSeeds,
-  verifyWorkspacePassword,
+  verifyAccessPassword,
 } from '../logic';
 
-describe('verifyWorkspacePassword', () => {
-  test('allows access when the workspace has no configured password', () => {
-    const table = new Map<string, string>();
-    expect(verifyWorkspacePassword('open', undefined, table)).toBe(true);
-    expect(verifyWorkspacePassword('open', 'whatever', table)).toBe(true);
+describe('isPasswordRequired', () => {
+  test('false when unset or empty (open space)', () => {
+    expect(isPasswordRequired(undefined)).toBe(false);
+    expect(isPasswordRequired('')).toBe(false);
   });
 
-  test('allows access when the supplied password matches', () => {
-    const table = new Map([['ws1', 'secret']]);
-    expect(verifyWorkspacePassword('ws1', 'secret', table)).toBe(true);
-  });
-
-  test('rejects access when the password is wrong', () => {
-    const table = new Map([['ws1', 'secret']]);
-    expect(verifyWorkspacePassword('ws1', 'nope', table)).toBe(false);
-  });
-
-  test('rejects access when no password is supplied but one is required', () => {
-    const table = new Map([['ws1', 'secret']]);
-    expect(verifyWorkspacePassword('ws1', undefined, table)).toBe(false);
-  });
-
-  test('treats an empty configured password as an open workspace', () => {
-    // Empty-string password is falsy, matching the original `if (requiredPass)` check.
-    const table = new Map([['ws1', '']]);
-    expect(verifyWorkspacePassword('ws1', undefined, table)).toBe(true);
+  test('true when a non-empty password is configured', () => {
+    expect(isPasswordRequired('secret')).toBe(true);
   });
 });
 
-describe('parseWorkspacePasswords', () => {
-  test('returns an empty map for undefined or empty input', () => {
-    expect(parseWorkspacePasswords(undefined).size).toBe(0);
-    expect(parseWorkspacePasswords('').size).toBe(0);
+describe('verifyAccessPassword', () => {
+  test('allows any input when no password is configured (open space)', () => {
+    expect(verifyAccessPassword(undefined, undefined)).toBe(true);
+    expect(verifyAccessPassword('whatever', undefined)).toBe(true);
+    expect(verifyAccessPassword('whatever', '')).toBe(true);
   });
 
-  test('parses a valid JSON object into a map', () => {
-    const table = parseWorkspacePasswords('{"a":"1","b":"2"}');
-    expect(table.get('a')).toBe('1');
-    expect(table.get('b')).toBe('2');
-    expect(table.size).toBe(2);
+  test('allows access when the supplied password matches', () => {
+    expect(verifyAccessPassword('secret', 'secret')).toBe(true);
   });
 
-  test('returns an empty map for invalid JSON', () => {
-    expect(parseWorkspacePasswords('not json {').size).toBe(0);
+  test('rejects a wrong or missing password when one is configured', () => {
+    expect(verifyAccessPassword('nope', 'secret')).toBe(false);
+    expect(verifyAccessPassword(undefined, 'secret')).toBe(false);
   });
 });
 

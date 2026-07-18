@@ -25,7 +25,9 @@ export type SfuTrack = { kind: StreamKind; trackName: string };
 export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
 
 export type ClientMessage =
-  | { type: 'join'; name: string; workspace: string; password?: string; outfit?: Outfit }
+  // Single-space now: the client no longer sends `workspace`. `password` is only
+  // present when an access password is configured (verified pre-join).
+  | { type: 'join'; name: string; workspace?: string; password?: string; outfit?: Outfit }
   // Avatar appearance changed in the editor; relayed to the workspace so peers
   // re-render this avatar. Stateless: the server forwards it, keeping nothing.
   | { type: 'outfit-update'; outfit: Outfit }

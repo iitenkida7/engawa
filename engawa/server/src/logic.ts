@@ -10,37 +10,24 @@ export const MAP_WIDTH = 1700;
 export const MAP_HEIGHT = 1200;
 
 /**
- * Validate a workspace password against the configured password table.
- *
- * Returns true when access is allowed:
- * - the workspace has no configured password (open workspace), or
- * - the supplied password exactly matches the configured one.
+ * Whether an access password is configured (a non-empty ACCESS_PASSWORD). When
+ * false the space is open and no password is ever requested.
  */
-export function verifyWorkspacePassword(
-  workspace: string,
-  password: string | undefined,
-  table: Map<string, string>,
-): boolean {
-  const requiredPass = table.get(workspace);
-  if (!requiredPass) return true;
-  return password === requiredPass;
+export function isPasswordRequired(configured: string | undefined): boolean {
+  return typeof configured === 'string' && configured.length > 0;
 }
 
 /**
- * Parse the WORKSPACE_PASSWORDS env value into a lookup table.
- *
- * Expected format: JSON object like {"ws1":"pass1","ws2":"pass2"}.
- * Empty/unset/invalid input yields an empty map (all workspaces open).
+ * Validate the single access password. Returns true when access is allowed:
+ * - no password is configured (open space), or
+ * - the supplied password exactly matches the configured one.
  */
-export function parseWorkspacePasswords(raw: string | undefined): Map<string, string> {
-  if (!raw) return new Map();
-  try {
-    const obj = JSON.parse(raw) as Record<string, string>;
-    return new Map(Object.entries(obj));
-  } catch {
-    console.warn('[auth] WORKSPACE_PASSWORDS is not valid JSON, ignoring');
-    return new Map();
-  }
+export function verifyAccessPassword(
+  input: string | undefined,
+  configured: string | undefined,
+): boolean {
+  if (!isPasswordRequired(configured)) return true;
+  return input === configured;
 }
 
 /**

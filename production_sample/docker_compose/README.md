@@ -28,12 +28,12 @@ docker compose up -d
 |---|---|
 | `docker-compose.yml` | Caddy + server（GHCR pull）。server はホストにポート公開せず Caddy 経由のみ |
 | `Caddyfile` | ドメイン / ACME メールを env で受け取り自動 HTTPS。WebSocket 101 を透過 |
-| `.env.example` | ドメイン / メール / イメージ / TURN / `WORKSPACE_PASSWORDS` のテンプレート |
+| `.env.example` | ドメイン / メール / イメージ / TURN / `ACCESS_PASSWORD` のテンプレート |
 
 ## 注意
 
 - ⚠️ **必ず 1 インスタンスで動かす**。位置同期・シグナリングはインメモリの単一プロセスで、
   水平スケールすると別インスタンスのユーザーが見えなくなります（メディアは P2P なので台数に非依存）。
 - 本番では `ENGAWA_IMAGE` を `:vX.Y.Z` のように**バージョンタグ固定**するのを推奨します。
-- TURN トークンや `WORKSPACE_PASSWORDS` はイメージに焼かず、`.env`（= 実行時の環境変数）で渡します。
+- TURN トークンや `ACCESS_PASSWORD` はイメージに焼かず、`.env`（= 実行時の環境変数）で渡します。
 - 開発用の `docker-compose.yml` / `Caddyfile`（リポジトリ最上位。`tls internal` / `engawa.localhost`）とは別物です。
