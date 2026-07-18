@@ -19,10 +19,9 @@
     }
   }
 
-  // Stored choice wins; otherwise fall back to the browser language (ja/en).
+  // English is the primary language; a stored choice (e.g. Japanese) wins.
   const stored = localStorage.getItem(STORAGE_KEY);
-  const fromBrowser = (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
-  applyLang(stored || fromBrowser);
+  applyLang(stored || 'en');
 
   for (const btn of langButtons) {
     btn.addEventListener('click', () => {
