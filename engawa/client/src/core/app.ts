@@ -298,8 +298,6 @@ export class App {
     // Number keys 1–6 fire the matching reaction (issue #23). Ignored while
     // typing in a field, and key-repeat is dropped so holding a key doesn't spam.
     window.addEventListener('keydown', this.onReactionKey);
-
-    this.setupZoomControls();
   }
 
   // Map a 1–6 keypress to REACTION_EMOJIS and send it. The send-side debounce in
@@ -316,28 +314,6 @@ export class App {
     const idx = REACTION_EMOJIS.findIndex((_, i) => e.key === String(i + 1));
     if (idx < 0) return;
     this.sendReaction(REACTION_EMOJIS[idx]);
-  }
-
-  // Wire the toolbar zoom controls to the renderer (a pure view concern App
-  // owns). [🔍+] [🔍−] step the zoom; each refresh disables a button once it
-  // hits its limit. Zoom is a light, instantly-reversible action, so
-  // single-click is fine.
-  private setupZoomControls() {
-    const zoomIn = document.getElementById('btn-zoom-in') as HTMLButtonElement;
-    const zoomOut = document.getElementById('btn-zoom-out') as HTMLButtonElement;
-    const refresh = () => {
-      zoomIn.disabled = !this.renderer.canZoomIn;
-      zoomOut.disabled = !this.renderer.canZoomOut;
-    };
-    zoomIn.addEventListener('click', () => {
-      this.renderer.zoomIn();
-      refresh();
-    });
-    zoomOut.addEventListener('click', () => {
-      this.renderer.zoomOut();
-      refresh();
-    });
-    refresh();
   }
 
   private handleCanvasDblClick(e: MouseEvent) {

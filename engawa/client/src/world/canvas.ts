@@ -5,9 +5,11 @@ import {
   MAP_WIDTH,
   PLAYER_RADIUS,
   REACTION_LIFETIME_MS,
+  ZOOM_DEFAULT,
   ZOOM_MAX,
   ZOOM_MIN,
-  ZOOM_STEP,
+  ZOOM_PINCH_GAIN,
+  ZOOM_WHEEL_GAIN,
 } from '@/core/types';
 import { CharacterSheet } from '@/world/character';
 import { floorKindAt, propFor } from '@/world/decor';
@@ -117,6 +119,26 @@ export function worldFromScreen(
   };
 }
 
+/**
+ * New zoom level after a wheel/pinch event, clamped to [ZOOM_MIN, ZOOM_MAX].
+ * Pure (no DOM) so the gesture math is unit-testable. The step is exponential so
+ * every notch is a uniform multiplicative change; scrolling toward the top of
+ * the page (deltaY < 0) zooms in. `deltaMode === 1` means the wheel reports
+ * lines (Firefox mouse wheel) rather than pixels, so we approximate px; a
+ * trackpad pinch arrives as a ctrl+wheel with finer deltas and a higher gain.
+ */
+export function zoomFromWheel(
+  current: number,
+  deltaY: number,
+  deltaMode: number,
+  ctrlKey: boolean,
+): number {
+  const px = deltaMode === 1 ? deltaY * 16 : deltaY;
+  const gain = ctrlKey ? ZOOM_PINCH_GAIN : ZOOM_WHEEL_GAIN;
+  const next = current * Math.exp(-px * gain);
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+}
+
 export class CanvasRenderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -132,10 +154,11 @@ export class CanvasRenderer {
   private mapCache: HTMLCanvasElement | null = null;
   private mapCacheDpr = 0;
 
-  // Zoom-out factor about the camera center. ZOOM_MAX (1.0) is the default 1:1
-  // view; smaller surveys more of the office. The map cache is
+  // Zoom factor about the camera center. ZOOM_DEFAULT (1.0) is the 1:1 view;
+  // smaller surveys more of the office, larger magnifies. Driven by the mouse
+  // wheel / trackpad pinch (see setupZoom). The map cache is
   // viewport-independent, so zooming never invalidates it.
-  private zoomLevel = ZOOM_MAX;
+  private zoomLevel = ZOOM_DEFAULT;
 
   // Camera center (world px). While `following` (the default) it tracks self each
   // frame; dragging the map turns following off and pans camX/camY freely
@@ -161,6 +184,7 @@ export class CanvasRenderer {
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.setupPan();
+    this.setupZoom();
   }
 
   // Drag the map to pan the view. A press starts a free-pan (stops following
@@ -229,21 +253,20 @@ export class CanvasRenderer {
     return this.canvas.clientHeight;
   }
 
-  get canZoomIn() {
-    return this.zoomLevel < ZOOM_MAX;
-  }
-  get canZoomOut() {
-    return this.zoomLevel > ZOOM_MIN;
-  }
-  /** Step the camera out (−) / in (+) one notch, clamped to [MIN, MAX]. */
-  zoomOut() {
-    this.setZoom(this.zoomLevel / ZOOM_STEP);
-  }
-  zoomIn() {
-    this.setZoom(this.zoomLevel * ZOOM_STEP);
-  }
-  private setZoom(z: number) {
-    this.zoomLevel = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+  // Mouse wheel and trackpad pinch zoom the map about the camera center (self
+  // stays centered, matching the +/- buttons this replaced). A trackpad pinch
+  // arrives as a wheel event with ctrlKey set; a mouse wheel or two-finger
+  // scroll as a plain wheel — both zoom (map-app style). preventDefault stops
+  // the page from scrolling, so the listener must be non-passive.
+  private setupZoom() {
+    this.canvas.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        this.zoomLevel = zoomFromWheel(this.zoomLevel, e.deltaY, e.deltaMode, e.ctrlKey);
+      },
+      { passive: false },
+    );
   }
 
   /** Queue a floating emoji reaction above the given player's avatar. */
