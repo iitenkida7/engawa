@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { MediaManager } from '@/media/media';
+import { MediaManager, parseNoiseSetting } from '@/media/media';
 
 // Fake MediaStreamTrack that records stop() and supports an 'ended' listener.
 function makeTrack(kind: 'audio' | 'video') {
@@ -247,5 +247,44 @@ describe('MediaManager screen', () => {
     const m = new MediaManager();
     await expect(m.enableScreen()).rejects.toThrow('cancelled');
     expect(m.screenOn).toBe(false);
+  });
+});
+
+describe('parseNoiseSetting', () => {
+  it('defaults to on when nothing is stored', () => {
+    expect(parseNoiseSetting(null)).toBe(true);
+  });
+
+  it('stays on for any value other than an explicit "0"', () => {
+    expect(parseNoiseSetting('1')).toBe(true);
+    expect(parseNoiseSetting('on')).toBe(true);
+  });
+
+  it('is off only for the explicit "0"', () => {
+    expect(parseNoiseSetting('0')).toBe(false);
+  });
+});
+
+describe('MediaManager noise suppression', () => {
+  it('defaults noiseSuppression to on', () => {
+    expect(new MediaManager().noiseSuppression).toBe(true);
+  });
+
+  it('setNoiseSuppression flips the flag', () => {
+    const m = new MediaManager();
+    m.setNoiseSuppression(false);
+    expect(m.noiseSuppression).toBe(false);
+  });
+
+  it('falls back to the raw mic when Web Audio is unavailable (default on)', async () => {
+    // happy-dom has no AudioContext, so enableMic skips the RNNoise path and
+    // sends the raw capture even though suppression defaults to on.
+    const stream = makeStream([makeTrack('audio')]);
+    getUserMedia.mockResolvedValue(stream);
+    const m = new MediaManager();
+    expect(m.noiseSuppression).toBe(true);
+    const got = await m.enableMic();
+    expect(got).toBe(stream);
+    expect(m.micStream).toBe(stream);
   });
 });

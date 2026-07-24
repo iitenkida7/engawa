@@ -1,7 +1,7 @@
 import { getLang, type Lang, setLang, t } from '@/core/i18n';
 import { REACTION_EMOJIS, type StreamKind } from '@/core/types';
 import type { SceneCompositor } from '@/media/compositor';
-import type { MediaManager } from '@/media/media';
+import { type MediaManager, NOISE_STORAGE_KEY, parseNoiseSetting } from '@/media/media';
 import type { RecorderManager } from '@/media/recorder';
 import {
   BG_PRESETS,
@@ -59,6 +59,7 @@ export class ToolbarController {
   private btnCam: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
+  private btnNoise: HTMLButtonElement;
   private btnReaction: HTMLButtonElement;
   private reactionMenu: HTMLDivElement;
   private btnMore: HTMLButtonElement;
@@ -96,6 +97,7 @@ export class ToolbarController {
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
+    this.btnNoise = document.getElementById('btn-noise') as HTMLButtonElement;
     this.btnReaction = document.getElementById('btn-reaction') as HTMLButtonElement;
     this.reactionMenu = document.getElementById('reaction-menu') as HTMLDivElement;
     this.btnMore = document.getElementById('btn-more') as HTMLButtonElement;
@@ -106,6 +108,7 @@ export class ToolbarController {
     this.media.onScreenEnded((old) => this.afterScreenStopped(old));
 
     this.loadBgSettings();
+    this.loadNoiseSetting();
     this.setup();
     this.refresh();
   }
@@ -136,6 +139,7 @@ export class ToolbarController {
     });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
+    this.btnNoise.addEventListener('click', () => void this.toggleNoise());
     this.setupLayoutControls();
   }
 
@@ -174,6 +178,10 @@ export class ToolbarController {
     this.btnScreen.textContent = this.media.screenOn ? t('toolbar.screenOn') : t('toolbar.screen');
     this.btnRec.classList.toggle('recording', this.recorder.recording);
     this.btnRec.textContent = this.recorder.recording ? t('toolbar.recOn') : t('toolbar.rec');
+    this.btnNoise.classList.toggle('active', this.media.noiseSuppression);
+    this.btnNoise.textContent = this.media.noiseSuppression
+      ? t('toolbar.noiseOn')
+      : t('toolbar.noise');
   }
 
   // ---- Mic/cam enable & disable flows (shared by toolbar and device switch) ----
@@ -556,6 +564,31 @@ export class ToolbarController {
       localStorage.setItem(VBG_IMAGE_STORAGE_KEY, this.media.customBgDataUrl);
     } else {
       localStorage.removeItem(VBG_IMAGE_STORAGE_KEY);
+    }
+  }
+
+  // ============= Noise suppression =============
+  // Toggle mic noise suppression, persist it, and — if the mic is live —
+  // re-acquire it so the RNNoise processor is inserted/removed in place (same
+  // path as a device switch: replaceTrack, no remote blackout, #148).
+  private async toggleNoise() {
+    this.media.setNoiseSuppression(!this.media.noiseSuppression);
+    this.persistNoiseSetting();
+    this.refresh();
+    if (this.media.micOn) await this.reacquire('mic');
+  }
+
+  // Restore the persisted choice on startup. Applied lazily: it takes effect the
+  // next time the mic is enabled.
+  private loadNoiseSetting() {
+    this.media.setNoiseSuppression(parseNoiseSetting(localStorage.getItem(NOISE_STORAGE_KEY)));
+  }
+
+  private persistNoiseSetting() {
+    try {
+      localStorage.setItem(NOISE_STORAGE_KEY, this.media.noiseSuppression ? '1' : '0');
+    } catch {
+      /* ignore private-mode storage errors */
     }
   }
 }
