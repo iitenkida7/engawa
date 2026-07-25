@@ -1,21 +1,21 @@
-// Floating-panel chrome shared by the camera tiles, the screenshare stage, and
-// the self preview: the pip/side/full preset buttons and the layout math behind
-// them. A preset only sets an initial position/size as inline styles — panels
-// stay freely draggable and resizable afterwards (nothing is locked).
+// Layout math for the media windows (camera tiles, screenshare stages, self
+// preview). Windows are always auto-arranged (Zoom/Teams style) — there is no
+// free/manual placement. RemoteMediaView picks a mode and this module computes
+// one geometry per window to fill the viewport; the DOM write is split out
+// (applyPanelGeometry) so the math stays pure and unit-testable.
 
-export type PanelPreset = 'pip' | 'side' | 'full';
+// The window-layout mode. 'grid' is the default (every window in an even tile
+// grid); 'presentation' features a screenshare in a large main area with a
+// filmstrip; 'sidebar' stacks every window in a right-hand column. The active
+// mode re-flows on viewport/membership/screenshare changes (there is no manual
+// drag to escape it). See RemoteMediaView.reflowLayout.
+export type LayoutMode = 'grid' | 'presentation' | 'sidebar';
 
-// A persistent window-layout mode. 'free' is the default (windows are freely
-// draggable/resizable, nothing reflows). The others auto-arrange every window
-// and re-arrange on viewport/membership/screenshare changes until the user
-// drags a window (which drops back to 'free'). See RemoteMediaView.reflowLayout.
-export type LayoutMode = 'free' | 'grid' | 'presentation' | 'sidebar';
-
-// Layout margin used when computing presets (px).
+// Layout margin around the usable area (px).
 export const PANEL_MARGIN = 12;
-// Space reserved at the bottom for the toolbar, so presets never sit under it.
+// Space reserved at the bottom for the toolbar, so windows never sit under it.
 export const PANEL_BOTTOM_RESERVED = 80;
-// Gap left between neighbouring windows when batch-arranging (grid/presentation).
+// Gap left between neighbouring windows when arranging (grid/presentation).
 export const PANEL_GAP = 8;
 // Approx. height of a panel header bar; reserved on top of an aspect-locked
 // camera window's body so the whole window (header + video) fits its cell.
@@ -30,39 +30,6 @@ export type PanelGeometry = {
   height: number | null;
 };
 
-// Pure: computes a preset's geometry from the viewport size. Split from the DOM
-// write so the layout math can be unit-tested. `aspect` is the content's
-// width/height, used only for aspect-locked (camera) windows.
-export function computePanelPreset(
-  preset: PanelPreset,
-  aspectLocked: boolean,
-  vw: number,
-  vh: number,
-  aspect: number,
-): PanelGeometry {
-  const m = PANEL_MARGIN;
-  const maxH = vh - m - PANEL_BOTTOM_RESERVED;
-
-  if (preset === 'pip') {
-    const width = aspectLocked ? 180 : 420;
-    if (aspectLocked) {
-      return { left: vw - m - width, top: m, width, height: null };
-    }
-    const height = 280;
-    return { left: m, top: Math.max(m, vh - PANEL_BOTTOM_RESERVED - height), width, height };
-  }
-
-  if (preset === 'side') {
-    const target = Math.max(300, Math.round(vw * 0.4));
-    const width = aspectLocked ? Math.min(target, Math.round(maxH * aspect)) : target;
-    return { left: vw - m - width, top: m, width, height: aspectLocked ? null : maxH };
-  }
-
-  // full
-  const width = aspectLocked ? Math.min(vw - m * 2, Math.round(maxH * aspect)) : vw - m * 2;
-  return { left: m, top: m, width, height: aspectLocked ? null : maxH };
-}
-
 // Reads the camera aspect ratio stored in --cam-aspect ("w / h"); falls back
 // to 4/3. Used to size aspect-locked camera windows by width.
 export function readCamAspect(el: HTMLElement): number {
@@ -75,9 +42,9 @@ export function readCamAspect(el: HTMLElement): number {
   return 4 / 3;
 }
 
-// Writes a computed geometry onto a panel as explicit inline styles. Shared by
-// the header presets and the batch arrange so both lay panels out the same way:
-// position + size only, so the panel stays freely draggable/resizable after.
+// Writes a computed geometry onto a panel as explicit inline styles. Position +
+// size only; aspect-locked windows leave height unset so it follows the CSS
+// aspect-ratio.
 export function applyPanelGeometry(el: HTMLElement, g: PanelGeometry) {
   el.style.right = 'auto';
   el.style.bottom = 'auto';
@@ -88,17 +55,7 @@ export function applyPanelGeometry(el: HTMLElement, g: PanelGeometry) {
   el.style.height = g.height == null ? '' : `${g.height}px`;
 }
 
-// Applies a preset layout as explicit inline geometry. Presets only set an
-// initial position/size — the panel stays freely draggable and resizable
-// afterwards. Aspect-locked camera windows get width only; their height follows
-// the CSS aspect-ratio.
-export function applyPanelPreset(el: HTMLElement, preset: PanelPreset, aspectLocked: boolean) {
-  const aspect = aspectLocked ? readCamAspect(el) : 4 / 3;
-  const g = computePanelPreset(preset, aspectLocked, window.innerWidth, window.innerHeight, aspect);
-  applyPanelGeometry(el, g);
-}
-
-// ============= Batch arrange (one-shot "tidy all windows") =============
+// ============= Auto-arrange (tile every window) =============
 // A single window to place. `aspectLocked` camera windows (cam/self preview)
 // keep their aspect ratio; free-aspect windows (screenshare) fill their cell.
 export type LayoutItem = {
@@ -108,7 +65,7 @@ export type LayoutItem = {
 };
 
 // The usable placement area: viewport minus the margin and the bottom toolbar
-// reservation. Matches the preset math so arrange and presets agree.
+// reservation.
 function usableArea(vw: number, vh: number) {
   const m = PANEL_MARGIN;
   return { x: m, y: m, w: vw - m * 2, h: vh - m - PANEL_BOTTOM_RESERVED };
@@ -215,8 +172,8 @@ export function computePresentationLayout(
 }
 
 // Keeps a camera panel's --cam-aspect in sync with its live video dimensions,
-// so the aspect-locked PiP window matches the actual camera (and re-adjusts
-// when the device changes). No-op until the video reports real dimensions.
+// so the aspect-locked window matches the actual camera (and re-adjusts when
+// the device changes). No-op until the video reports real dimensions.
 export function bindCamAspect(panel: HTMLElement, video: HTMLVideoElement) {
   const update = () => {
     if (video.videoWidth > 0 && video.videoHeight > 0) {
@@ -227,44 +184,4 @@ export function bindCamAspect(panel: HTMLElement, video: HTMLVideoElement) {
   video.addEventListener('loadedmetadata', update);
   video.addEventListener('resize', update);
   update();
-}
-
-// The pip/side/full preset buttons shown in every panel header. Markup matches
-// the static .stage-controls block in index.html so CSS is shared.
-export function createModeControls(): HTMLDivElement {
-  const controls = document.createElement('div');
-  controls.className = 'stage-controls';
-  const presets: Array<[PanelPreset, string, string]> = [
-    ['pip', '🪟', '小窓'],
-    ['side', '◧', 'サイドパネル'],
-    ['full', '⬜', '全画面'],
-  ];
-  for (const [preset, icon, title] of presets) {
-    const btn = document.createElement('button');
-    btn.dataset.mode = preset;
-    btn.title = title;
-    btn.textContent = icon;
-    controls.appendChild(btn);
-  }
-  return controls;
-}
-
-// Wires the header preset buttons. Each click applies a one-shot layout preset
-// (position + size) as inline styles; the panel remains freely draggable and
-// resizable afterwards. `aspectLocked` panels (camera windows) get width-only
-// presets. `onActivate` fires on each click (e.g. raise z-order).
-export function setupPanelModes(
-  el: HTMLElement,
-  opts: { aspectLocked?: boolean; onActivate?: () => void } = {},
-) {
-  const controls = el.querySelector('.stage-controls');
-  // Don't let a click/drag on the buttons start a header drag.
-  controls?.addEventListener('mousedown', (e) => e.stopPropagation());
-  el.querySelectorAll<HTMLButtonElement>('.stage-controls button').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      applyPanelPreset(el, btn.dataset.mode as PanelPreset, !!opts.aspectLocked);
-      opts.onActivate?.();
-    });
-  });
 }
