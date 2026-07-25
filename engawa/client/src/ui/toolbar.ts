@@ -59,7 +59,6 @@ export class ToolbarController {
   private btnCam: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
-  private btnNoise: HTMLButtonElement;
   private btnReaction: HTMLButtonElement;
   private reactionMenu: HTMLDivElement;
   private btnMore: HTMLButtonElement;
@@ -97,7 +96,6 @@ export class ToolbarController {
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
-    this.btnNoise = document.getElementById('btn-noise') as HTMLButtonElement;
     this.btnReaction = document.getElementById('btn-reaction') as HTMLButtonElement;
     this.reactionMenu = document.getElementById('reaction-menu') as HTMLDivElement;
     this.btnMore = document.getElementById('btn-more') as HTMLButtonElement;
@@ -139,7 +137,6 @@ export class ToolbarController {
     });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
-    this.btnNoise.addEventListener('click', () => void this.toggleNoise());
     this.setupLayoutControls();
   }
 
@@ -178,10 +175,6 @@ export class ToolbarController {
     this.btnScreen.textContent = this.media.screenOn ? t('toolbar.screenOn') : t('toolbar.screen');
     this.btnRec.classList.toggle('recording', this.recorder.recording);
     this.btnRec.textContent = this.recorder.recording ? t('toolbar.recOn') : t('toolbar.rec');
-    this.btnNoise.classList.toggle('active', this.media.noiseSuppression);
-    this.btnNoise.textContent = this.media.noiseSuppression
-      ? t('toolbar.noiseOn')
-      : t('toolbar.noise');
   }
 
   // ---- Mic/cam enable & disable flows (shared by toolbar and device switch) ----
@@ -309,12 +302,7 @@ export class ToolbarController {
       const open = micMenu.classList.contains('hidden');
       closeMenus();
       if (open) {
-        await this.populateDeviceMenu(
-          micMenu,
-          await this.media.listMics(),
-          this.media.selectedMicId,
-          (id) => this.switchMic(id),
-        );
+        await this.populateMicMenu(micMenu);
         micMenu.classList.remove('hidden');
       }
     });
@@ -394,6 +382,35 @@ export class ToolbarController {
       });
       menu.appendChild(item);
     });
+  }
+
+  // The mic caret menu: microphone device list, then a separated noise-
+  // suppression toggle (issue #180). Noise suppression lives here since it's a
+  // mic setting — its standalone toolbar button was removed. The toggle shows a
+  // ✓ when on; the setting is persisted and defaults to on.
+  private async populateMicMenu(menu: HTMLDivElement) {
+    await this.populateDeviceMenu(
+      menu,
+      await this.media.listMics(),
+      this.media.selectedMicId,
+      (id) => this.switchMic(id),
+    );
+
+    const sep = document.createElement('div');
+    sep.className = 'menu-separator';
+    menu.appendChild(sep);
+
+    const on = this.media.noiseSuppression;
+    const item = document.createElement('button');
+    item.className = 'device-item';
+    if (on) item.classList.add('selected');
+    item.textContent = (on ? '✓ ' : '') + t('toolbar.noise');
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.classList.add('hidden');
+      void this.toggleNoise();
+    });
+    menu.appendChild(item);
   }
 
   // The cam caret menu: camera device list, then a labelled virtual-background
@@ -568,13 +585,14 @@ export class ToolbarController {
   }
 
   // ============= Noise suppression =============
-  // Toggle mic noise suppression, persist it, and — if the mic is live —
-  // re-acquire it so the RNNoise processor is inserted/removed in place (same
-  // path as a device switch: replaceTrack, no remote blackout, #148).
+  // Toggle mic noise suppression (from the mic caret menu), persist it, and — if
+  // the mic is live — re-acquire it so the RNNoise processor is inserted/removed
+  // in place (same path as a device switch: replaceTrack, no remote blackout,
+  // #148). The menu is closed by the click, so no button/menu refresh is needed;
+  // the ✓ re-renders next time the menu opens.
   private async toggleNoise() {
     this.media.setNoiseSuppression(!this.media.noiseSuppression);
     this.persistNoiseSetting();
-    this.refresh();
     if (this.media.micOn) await this.reacquire('mic');
   }
 

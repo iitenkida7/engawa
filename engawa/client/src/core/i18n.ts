@@ -120,8 +120,8 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.screen': { ja: '🖥 画面共有', en: '🖥 Share' },
   'toolbar.recOn': { ja: '⏹ 録画停止', en: '⏹ Stop' },
   'toolbar.rec': { ja: '⏺ 録画', en: '⏺ Record' },
-  'toolbar.noiseOn': { ja: '🤫 ON', en: '🤫 On' },
-  'toolbar.noise': { ja: '🤫 ノイズ', en: '🤫 Denoise' },
+  // Mic-menu noise-suppression toggle (issue #180); shows a ✓ prefix when on.
+  'toolbar.noise': { ja: '🤫 ノイズ抑制', en: '🤫 Noise suppression' },
   // -- toolbar tooltips (title=) --------------------------------------------
   'toolbar.micTitle': { ja: 'マイク', en: 'Microphone' },
   'toolbar.selectMic': { ja: 'マイクを選択', en: 'Select microphone' },
@@ -129,10 +129,6 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.selectCam': { ja: 'カメラ・背景を選択', en: 'Select camera / background' },
   'toolbar.screenTitle': { ja: '画面共有', en: 'Screen share' },
   'toolbar.recTitle': { ja: '録画', en: 'Record' },
-  'toolbar.noiseTitle': {
-    ja: 'ノイズ抑制（背景雑音を除去）',
-    en: 'Noise suppression (remove background noise)',
-  },
   'toolbar.reactions': { ja: 'リアクション', en: 'Reactions' },
   'toolbar.more': { ja: 'その他', en: 'More' },
   // -- toolbar menus & toasts -----------------------------------------------
