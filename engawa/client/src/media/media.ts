@@ -1,3 +1,4 @@
+import type { NoiseSuppressor } from '@/media/noise';
 import {
   BG_PRESETS,
   type BgSpec,
@@ -11,6 +12,14 @@ import {
 } from '@/media/vbg';
 
 type MediaListener = () => void;
+
+// localStorage key + parser for the noise-suppression preference. Default on:
+// only an explicit '0' disables it, so first-time users get denoising without
+// opting in.
+export const NOISE_STORAGE_KEY = 'engawa-noise';
+export function parseNoiseSetting(stored: string | null): boolean {
+  return stored !== '0';
+}
 
 export class MediaManager {
   micStream: MediaStream | null = null;
@@ -28,6 +37,12 @@ export class MediaManager {
   // these hold the underlying capture + processor for teardown.
   private vbg: VirtualBackground | null = null;
   private rawCam: MediaStream | null = null;
+  // Mic noise suppression. When on, micStream is the RNNoise-processed stream and
+  // these hold the underlying capture + processor for teardown (mirrors vbg/rawCam).
+  // Default on; toggled via setNoiseSuppression, applied on the next enableMic.
+  noiseSuppression = true;
+  private noiseSuppressor: NoiseSuppressor | null = null;
+  private rawMic: MediaStream | null = null;
   // In-flight acquisitions, per kind. The permission prompt / hardware warm-up
   // doesn't block page clicks, so without these a double-click on a toggle would
   // run two concurrent getUserMedia/getDisplayMedia calls — the second overwrites
@@ -81,7 +96,7 @@ export class MediaManager {
     if (this.micStream) return this.micStream;
     if (this.micPending) return this.micPending;
     this.micPending = (async () => {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const raw = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -94,9 +109,35 @@ export class MediaManager {
           ...(this.selectedMicId ? { deviceId: { exact: this.selectedMicId } } : {}),
         } as MediaTrackConstraints,
       });
-      this.micStream = stream;
-      this.emit();
-      return stream;
+
+      // Suppression off, or no Web Audio (e.g. under test) → send the raw mic.
+      if (!this.noiseSuppression || typeof AudioContext === 'undefined') {
+        this.micStream = raw;
+        this.emit();
+        return raw;
+      }
+
+      // On → run the mic through RNNoise; on any failure (WASM/worklet
+      // unavailable) fall back to the raw mic so audio still works. Imported
+      // dynamically so the WASM only downloads when suppression is actually used
+      // — and so the test bundle never has to resolve the ?url asset imports.
+      try {
+        const { NoiseSuppressor } = await import('@/media/noise');
+        const ns = new NoiseSuppressor(raw);
+        const processed = await ns.start();
+        this.noiseSuppressor = ns;
+        this.rawMic = raw;
+        this.micStream = processed;
+        this.emit();
+        return processed;
+      } catch (e) {
+        console.warn('noise suppression unavailable, using raw mic', e);
+        this.noiseSuppressor = null;
+        this.rawMic = null;
+        this.micStream = raw;
+        this.emit();
+        return raw;
+      }
     })().finally(() => {
       this.micPending = null;
     });
@@ -104,12 +145,27 @@ export class MediaManager {
   }
   disableMic() {
     const old = this.micStream;
+    if (this.noiseSuppressor) {
+      this.noiseSuppressor.stop();
+      this.noiseSuppressor = null;
+    }
+    if (this.rawMic) {
+      for (const t of this.rawMic.getTracks()) t.stop();
+      this.rawMic = null;
+    }
     if (old) {
       for (const t of old.getTracks()) t.stop();
       this.micStream = null;
       this.emit();
     }
     return old;
+  }
+
+  // Set whether the mic runs through noise suppression. Applied on the next
+  // enableMic(); when toggled while the mic is live the toolbar re-acquires it
+  // to insert/remove the processor in place.
+  setNoiseSuppression(on: boolean) {
+    this.noiseSuppression = on;
   }
 
   async enableCam() {
