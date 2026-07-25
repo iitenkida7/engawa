@@ -212,8 +212,6 @@ const STR: Record<string, Record<Lang, string>> = {
   'layout.grid': { ja: 'グリッド整列', en: 'Grid' },
   'layout.presentation': { ja: 'プレゼン整列', en: 'Presentation' },
   'layout.sidebar': { ja: 'サイドバー整列', en: 'Sidebar' },
-  'zoom.in': { ja: '拡大', en: 'Zoom in' },
-  'zoom.out': { ja: '縮小', en: 'Zoom out' },
 
   // -- app-level toasts -----------------------------------------------------
   'app.cantConnect': { ja: 'サーバーに接続できません。', en: "Can't connect to the server." },

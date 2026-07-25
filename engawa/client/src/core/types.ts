@@ -132,13 +132,17 @@ export const POSITION_SEND_INTERVAL_MS = 50;
 export const INTERP_DECAY = 40;
 // Cap how far into the future we extrapolate when the network goes silent.
 export const EXTRAP_MAX_MS = 200;
-// Map zoom is zoom-OUT only: ZOOM_MAX (1.0) is the default 1:1 view, smaller
-// values pull the camera back to survey more of the office. The toolbar +/-
-// buttons step multiplicatively by ZOOM_STEP, clamped to [ZOOM_MIN, ZOOM_MAX].
-// self stays centered; only the scale changes.
+// Map zoom about the camera center — self stays centered, only the scale
+// changes. ZOOM_DEFAULT (1.0) is the 1:1 view; the mouse wheel / trackpad pinch
+// scale continuously, clamped to [ZOOM_MIN, ZOOM_MAX] (below 1:1 surveys more of
+// the office, above it magnifies). The gains convert a wheel deltaY into a
+// multiplicative step (exp(-deltaY * gain)); a trackpad pinch arrives as a
+// ctrl+wheel with finer deltas, so it uses a higher gain to match the gesture.
 export const ZOOM_MIN = 0.5;
-export const ZOOM_MAX = 1.0;
-export const ZOOM_STEP = 1.2;
+export const ZOOM_MAX = 2.0;
+export const ZOOM_DEFAULT = 1.0;
+export const ZOOM_WHEEL_GAIN = 0.0015;
+export const ZOOM_PINCH_GAIN = 0.01;
 
 // Max length of a status one-liner (issue #85). The input enforces it client
 // side; the server also clamps to this on relay so a crafted message can't

@@ -228,31 +228,18 @@
         }
       }
 
-      /* Disabled (e.g. zoom at its min/max): dimmed and non-interactive. */
-      #toolbar button:disabled {
-        opacity: 0.4;
-        cursor: default;
-      }
-
-      #toolbar button:disabled:hover {
-        background: #2a2f3a;
-      }
-
-      /* Joined-pill button groups: the zoom [🔍+][🔍−] and the icon-only layout
-         modes [🪟][▦][🖥][▤]. Buttons sit flush; only the ends get rounded. */
-      #toolbar .zoom-group>button,
+      /* Joined-pill button group: the icon-only layout modes [🪟][▦][🖥][▤].
+         Buttons sit flush; only the ends get rounded. */
       #toolbar .layout-group>button {
         border-radius: 0;
         border-right: none;
       }
 
-      #toolbar .zoom-group>button:first-child,
       #toolbar .layout-group>button:first-child {
         border-top-left-radius: 8px;
         border-bottom-left-radius: 8px;
       }
 
-      #toolbar .zoom-group>button:last-child,
       #toolbar .layout-group>button:last-child {
         border-top-right-radius: 8px;
         border-bottom-right-radius: 8px;
@@ -1527,10 +1514,6 @@
           <button id="btn-layout-grid" data-mode="grid" data-i18n-title="layout.grid" title="グリッド整列">▦</button>
           <button id="btn-layout-presentation" data-mode="presentation" data-i18n-title="layout.presentation" title="プレゼン整列">🖥</button>
           <button id="btn-layout-sidebar" data-mode="sidebar" data-i18n-title="layout.sidebar" title="サイドバー整列">▤</button>
-        </div>
-        <div class="btn-group zoom-group">
-          <button id="btn-zoom-in" data-i18n-title="zoom.in" title="拡大">🔍＋</button>
-          <button id="btn-zoom-out" data-i18n-title="zoom.out" title="縮小">🔍−</button>
         </div>
       </div>
       <div id="chat" class="hidden">
