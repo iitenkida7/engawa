@@ -228,8 +228,8 @@
         }
       }
 
-      /* Joined-pill button group: the icon-only layout modes [🪟][▦][🖥][▤].
-         Buttons sit flush; only the ends get rounded. */
+      /* Joined-pill button group: the icon-only layout modes [▦][▤]. Buttons
+         sit flush; only the ends get rounded. */
       #toolbar .layout-group>button {
         border-radius: 0;
         border-right: none;
@@ -379,9 +379,6 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        resize: both;
-        min-width: 160px;
-        min-height: 120px;
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
         pointer-events: auto;
         transition: border-color 0.15s ease;
@@ -393,7 +390,6 @@
         justify-content: space-between;
         padding: 6px 10px;
         flex-shrink: 0;
-        cursor: grab;
         user-select: none;
         border-bottom: 1px solid #2a2f3a;
         background: rgba(0, 0, 0, 0.25);
@@ -424,9 +420,8 @@
         background: #000;
       }
 
-      /* Default (initial) placement. The header preset buttons set explicit
-         left/top/width via inline styles, and dragging/resizing override from
-         there — presets never lock the window. */
+      /* Initial placement only; reflowLayout sets explicit left/top/width inline
+         once the preview is shown (it joins the auto-arranged grid). */
       #self-preview {
         z-index: 5;
         bottom: 80px;
@@ -444,14 +439,13 @@
       }
 
       /* Camera windows (tiles + self preview) stay locked to the camera's
-         aspect ratio: only the width is resizable and the height follows the
+         aspect ratio: the layout pins only the width and the height follows the
          live video's --cam-aspect, so the face is never cropped. --cam-aspect
          is updated from the real video dimensions in game.ts; 4/3 matches the
          requested 320x240 capture as a fallback. */
       .remote-tile,
       #self-preview {
         height: auto;
-        resize: horizontal;
       }
 
       .remote-tile .panel-body,
@@ -507,20 +501,18 @@
         color: #9da3b0;
       }
 
-      /* Screenshare stages: one draggable panel per sharing user, created
-         dynamically in remote-media.ts (so no display:none here — presence in
-         the DOM means it's on screen). The "main" (featured) share — the oldest
-         one, or whichever was promoted — gets a blue accent. */
+      /* Screenshare stages: one panel per sharing user, created dynamically in
+         remote-media.ts (so no display:none here — presence in the DOM means
+         it's on screen). Position/size come from reflowLayout. The "main"
+         (featured) share — the oldest one, or whichever was promoted by
+         double-click — gets a blue accent. */
       .screenshare-stage {
         z-index: 6;
-        /* Default floating placement for the main stage; later shares and any
-           preset/drag/resize override this inline. */
+        /* Initial frame only; reflowLayout overrides left/top/width/height. */
         left: 16px;
         bottom: 80px;
         width: 420px;
         height: 280px;
-        min-width: 240px;
-        min-height: 180px;
       }
 
       .screenshare-stage.main {
@@ -531,26 +523,6 @@
       /* Screenshare contains a whole desktop, so letterbox it instead of crop. */
       .screenshare-stage .panel-body video {
         object-fit: contain;
-      }
-
-      .stage-controls {
-        display: flex;
-        gap: 4px;
-      }
-
-      .stage-controls button {
-        background: rgba(255, 255, 255, 0.08);
-        border: none;
-        color: #ccc;
-        border-radius: 6px;
-        padding: 4px 8px;
-        cursor: pointer;
-        font-size: 13px;
-        line-height: 1;
-      }
-
-      .stage-controls button:hover {
-        background: rgba(255, 255, 255, 0.18);
       }
 
       /* ===== Participant roster (top-left, collapsible) ===== */
@@ -1510,9 +1482,7 @@
           <div id="more-menu" class="device-menu hidden"></div>
         </div>
         <div class="btn-group layout-group">
-          <button id="btn-layout-free" data-mode="free" data-i18n-title="layout.free" title="自由配置">🪟</button>
           <button id="btn-layout-grid" data-mode="grid" data-i18n-title="layout.grid" title="グリッド整列">▦</button>
-          <button id="btn-layout-presentation" data-mode="presentation" data-i18n-title="layout.presentation" title="プレゼン整列">🖥</button>
           <button id="btn-layout-sidebar" data-mode="sidebar" data-i18n-title="layout.sidebar" title="サイドバー整列">▤</button>
         </div>
       </div>
@@ -1528,13 +1498,8 @@
       </div>
       <div id="remote-videos"></div>
       <div id="self-preview" class="panel hidden">
-        <div class="panel-header" id="self-preview-header">
+        <div class="panel-header">
           <span class="label" id="self-preview-label" data-i18n="common.you">あなた</span>
-          <div class="stage-controls">
-            <button data-mode="pip" data-i18n-title="stage.pip" title="小窓">🪟</button>
-            <button data-mode="side" data-i18n-title="stage.side" title="サイドパネル">◧</button>
-            <button data-mode="full" data-i18n-title="stage.full" title="全画面">⬜</button>
-          </div>
         </div>
         <div class="panel-body">
           <video id="self-video" autoplay muted playsinline></video>

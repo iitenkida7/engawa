@@ -33,10 +33,10 @@ export class DebugConsole {
     this.body = document.getElementById('debug-body') as HTMLElement;
 
     document.getElementById('debug-close')?.addEventListener('click', () => this.close());
-    // Draggable by its header, like the screenshare/preview panels. The CSS keeps
-    // the initial top-right placement; makeDraggable normalizes it to left/top on
-    // the first drag. The console keeps its high z-index (no bringToFront), so it
-    // stays above the call regardless of where it's moved.
+    // Draggable by its header (the only remaining draggable panel — the media
+    // windows became fixed auto-layout in #175). The CSS keeps the initial
+    // top-right placement; makeDraggable switches it to inline left/top on the
+    // first drag. Its high CSS z-index keeps it above the call wherever it moves.
     const header = document.getElementById('debug-header');
     if (header) makeDraggable(this.root, { handle: header });
   }

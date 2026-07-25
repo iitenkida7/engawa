@@ -143,12 +143,12 @@ export class ToolbarController {
     this.setupLayoutControls();
   }
 
-  // Wire the icon-only layout-mode buttons (🪟 自由 / ▦ グリッド / 🖥 プレゼン /
-  // ▤ サイドバー). Like the zoom pill these live directly on the toolbar (labels
-  // were too long for a button row, so they are icons with titles). Clicking one
-  // switches the view's layout mode; the active button is highlighted. The view
-  // also drops back to 'free' when the user drags a window, so we re-highlight on
-  // its change callback too.
+  // Wire the icon-only layout-mode buttons (▦ グリッド / ▤ サイドバー). They live
+  // directly on the toolbar as icons with titles. Clicking one switches the
+  // view's layout mode; the active button is highlighted. A screenshare
+  // temporarily forces the presentation view (neither button highlighted), and
+  // reverts to grid when it stops, so we re-highlight on the view's change
+  // callback too (issue #175).
   private setupLayoutControls() {
     const buttons = Array.from(
       document.querySelectorAll<HTMLButtonElement>('.layout-group > button[data-mode]'),

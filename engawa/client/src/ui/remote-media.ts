@@ -8,18 +8,15 @@ import {
   isSpeaking,
   type SpeakingDetector,
 } from '@/media/speaking';
-import { bringToFront, makeDraggable } from '@/ui/draggable';
 import {
   applyPanelGeometry,
   bindCamAspect,
   computeGridLayout,
   computePresentationLayout,
   computeSidebarLayout,
-  createModeControls,
   type LayoutItem,
   type LayoutMode,
   readCamAspect,
-  setupPanelModes,
 } from '@/ui/panels';
 import type { PlayerState } from '@/world/player';
 
@@ -30,8 +27,6 @@ type RemoteTile = {
   label: HTMLSpanElement;
   camStreamId?: string;
   hasCam: boolean;
-  // Removes the drag listeners when the tile is destroyed.
-  cleanupDrag: () => void;
 };
 
 type RemoteAudio = {
@@ -44,9 +39,9 @@ type Screenshare = {
   video: HTMLVideoElement;
   label: HTMLSpanElement;
   streamId: string;
-  // Removes the drag listeners AND the stage's dblclick handler when the stage
-  // is destroyed (the dblclick handler captures `this`/userId, so it must be
-  // detached explicitly rather than relying on the element being GC'd).
+  // Removes the stage's dblclick handler when the stage is destroyed (it
+  // captures `this`/userId, so it must be detached explicitly rather than
+  // relying on the element being GC'd).
   cleanup: () => void;
 };
 
@@ -75,16 +70,15 @@ export class RemoteMediaView {
   // the user has no cam (no video tile yet). userId → audio element.
   private remoteAudios = new Map<string, RemoteAudio>();
 
-  // Each sharing user gets their own draggable stage panel, keyed by userId.
-  // Map insertion order is share order (oldest first). `mainScreenshareUserId`
-  // is the featured share — it gets the large main area in the smart layout and
-  // a "main" accent; the rest stay small. It defaults to the oldest share and is
-  // re-picked when that share stops (next-oldest) or swapped by double-click.
+  // Each sharing user gets their own stage panel, keyed by userId. Map insertion
+  // order is share order (oldest first). `mainScreenshareUserId` is the featured
+  // share — it gets the large main area in the presentation layout and a "main"
+  // accent; the rest ride the filmstrip. It defaults to the oldest share and is
+  // re-picked when that share stops (next-oldest) or re-designated by double-click.
   private screenshares = new Map<string, Screenshare>();
   private mainScreenshareUserId: string | null = null;
 
   private selfPreviewEl: HTMLDivElement;
-  private selfPreviewHeaderEl: HTMLDivElement;
   private selfPreviewLabelEl: HTMLSpanElement;
   private selfVideoEl: HTMLVideoElement;
 
@@ -92,14 +86,13 @@ export class RemoteMediaView {
   private localSpeakingDetector: SpeakingDetector | null = null;
   private remoteSpeakingDetectors = new Map<string, SpeakingDetector>();
 
-  // The active window-layout mode. 'free' (default) leaves every window where
-  // the user put it; the others auto-arrange and re-flow on viewport/membership/
-  // screenshare changes. Grabbing a window (drag or a per-panel preset) drops
-  // back to 'free' so manual placement always wins.
-  private layoutMode: LayoutMode = 'free';
-  // Fired whenever layoutMode changes (toolbar selection OR an auto-revert to
-  // 'free' when the user grabs a window) so the toolbar can re-highlight the
-  // active layout button.
+  // The active window-layout mode. 'grid' (default) tiles every window evenly;
+  // a screenshare auto-switches to 'presentation' and reverts to 'grid' when the
+  // last share stops (issue #175). Every mode auto-arranges and re-flows on
+  // viewport/membership/screenshare changes — there is no manual placement.
+  private layoutMode: LayoutMode = 'grid';
+  // Fired whenever layoutMode changes (toolbar selection OR the screenshare
+  // auto-switch) so the toolbar can re-highlight the active layout button.
   private onLayoutModeChange: ((mode: LayoutMode) => void) | null = null;
 
   constructor(opts: {
@@ -116,42 +109,15 @@ export class RemoteMediaView {
     this.remoteVideosEl = document.getElementById('remote-videos') as HTMLDivElement;
     this.stageLayerEl = this.remoteVideosEl.parentElement as HTMLElement;
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
-    this.selfPreviewHeaderEl = document.getElementById('self-preview-header') as HTMLDivElement;
     this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
 
-    this.setupSelfPreview();
-    // Re-flow the active layout when the viewport changes. In 'free' mode this
-    // is a no-op (draggable.ts owns clamping); in an auto mode it keeps the
-    // arrangement fitting the new size.
-    window.addEventListener('resize', () => this.reflowLayout());
-  }
-
-  // Make the self-preview draggable/resizable by its header. The CSS keeps its
-  // initial bottom-right placement; the first drag (or a window resize) converts
-  // it to left/top.
-  private setupSelfPreview() {
-    makeDraggable(this.selfPreviewEl, {
-      handle: this.selfPreviewHeaderEl,
-      onStart: () => this.grabPanel(this.selfPreviewEl),
-    });
-    setupPanelModes(this.selfPreviewEl, {
-      aspectLocked: true,
-      onActivate: () => this.grabPanel(this.selfPreviewEl),
-    });
+    // Lock the self-preview window to the live camera's aspect ratio; its
+    // position/size come from reflowLayout (it joins the grid like any tile).
     bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
-  }
-
-  // Brings a panel to front and drops out of any auto-layout mode. A drag or a
-  // per-panel preset is explicit manual placement, so it always wins over
-  // auto-arrange: future reflows (resize/join/leave) leave the windows alone
-  // until the user re-selects a layout mode.
-  private grabPanel(el: HTMLElement) {
-    bringToFront(el);
-    if (this.layoutMode !== 'free') {
-      this.layoutMode = 'free';
-      this.onLayoutModeChange?.('free');
-    }
+    // Re-flow the active layout when the viewport changes so the fixed
+    // arrangement keeps fitting the new size (issue #175).
+    window.addEventListener('resize', () => this.reflowLayout());
   }
 
   // Sets the label shown under the self preview (the local user's name).
@@ -223,7 +189,6 @@ export class RemoteMediaView {
       // If no cam either, remove the tile entirely
       const tile = this.remoteTiles.get(userId);
       if (tile && !tile.hasCam) {
-        tile.cleanupDrag();
         tile.container.remove();
         this.remoteTiles.delete(userId);
       }
@@ -242,7 +207,6 @@ export class RemoteMediaView {
         tile.video.style.display = 'none';
         tile.placeholder.style.display = '';
       } else {
-        tile.cleanupDrag();
         tile.container.remove();
         this.remoteTiles.delete(userId);
       }
@@ -301,7 +265,6 @@ export class RemoteMediaView {
     label.className = 'label';
     label.textContent = name;
     header.appendChild(label);
-    header.appendChild(createModeControls());
     container.appendChild(header);
 
     const body = document.createElement('div');
@@ -313,7 +276,7 @@ export class RemoteMediaView {
     video.playsInline = true;
     video.style.display = 'none';
     body.appendChild(video);
-    // Lock the floating window to this camera's aspect ratio.
+    // Lock the window to this camera's aspect ratio.
     bindCamAspect(container, video);
 
     const placeholder = document.createElement('div');
@@ -321,32 +284,16 @@ export class RemoteMediaView {
     placeholder.innerHTML = `<span class="no-video-initials">${initials}</span><span class="no-video-name">${name}</span>`;
     body.appendChild(placeholder);
 
-    // Initial position: stack tiles down from the top-right corner, offsetting
-    // each new tile so they don't fully overlap. The top-left is reserved for
-    // the roster panel; tiles are draggable anywhere afterward.
-    const index = this.remoteTiles.size;
-    container.style.left = 'auto';
-    container.style.right = `${12 + index * 16}px`;
-    container.style.top = `${12 + index * 16}px`;
-
+    // Position/size come from reflowLayout (called by the caller right after);
+    // the tile just needs to be in the DOM to be laid out.
     this.remoteVideosEl.appendChild(container);
-    // Drag by the header only (matches the other panels).
-    const cleanupDrag = makeDraggable(container, {
-      handle: header,
-      onStart: () => this.grabPanel(container),
-    });
-    setupPanelModes(container, {
-      aspectLocked: true,
-      onActivate: () => this.grabPanel(container),
-    });
-    return { container, video, placeholder, label, hasCam: false, cleanupDrag };
+    return { container, video, placeholder, label, hasCam: false };
   }
 
   // Tears down every DOM artifact for a peer (tile, audio, speaking detector).
   removePeer(userId: string) {
     const t = this.remoteTiles.get(userId);
     if (t) {
-      t.cleanupDrag();
       try {
         t.video.srcObject = null;
       } catch {
@@ -395,9 +342,9 @@ export class RemoteMediaView {
 
   // ============= Screenshare stages (one per sharing user) =============
   // Attaches/updates a user's screenshare. The first sharer becomes the "main"
-  // featured stage (large, accented); later sharers open as smaller windows so
-  // they don't cover the main one. Re-called for the same user it just swaps the
-  // stream (e.g. device change) without moving the window.
+  // featured stage (large, accented); later sharers ride the filmstrip. A new
+  // share auto-switches to the presentation (speaker) view. Re-called for the
+  // same user it just swaps the stream (e.g. device change).
   showScreenshare(userId: string, stream: MediaStream) {
     let ss = this.screenshares.get(userId);
     if (!ss) {
@@ -405,6 +352,9 @@ export class RemoteMediaView {
       ss = this.createScreenshareStage(userId, isMain);
       this.screenshares.set(userId, ss);
       if (isMain) this.mainScreenshareUserId = userId;
+      // A new share flips to the speaker view, overriding any manual grid/sidebar
+      // choice (issue #175). The trailing reflowLayout() renders it.
+      this.setLayoutModeSilently('presentation');
     }
     ss.streamId = stream.id;
     ss.video.srcObject = stream;
@@ -420,13 +370,12 @@ export class RemoteMediaView {
   }
 
   // Removes a user's screenshare stage (no-op if they aren't sharing). When the
-  // main share stops, the next-oldest share is promoted into the vacated spot so
-  // the large window doesn't blink empty.
+  // main share stops, the next-oldest share is promoted to main. When the last
+  // share stops, the layout reverts to the grid (issue #175).
   removeScreenshare(userId: string) {
     const ss = this.screenshares.get(userId);
     if (!ss) return;
     const wasMain = this.mainScreenshareUserId === userId;
-    const vacated = wasMain ? this.snapshotGeometry(ss.container) : null;
     ss.cleanup();
     try {
       ss.video.srcObject = null;
@@ -435,56 +384,35 @@ export class RemoteMediaView {
     }
     ss.container.remove();
     this.screenshares.delete(userId);
-    if (!wasMain) {
-      this.reflowLayout();
-      return;
+    if (wasMain) {
+      // Promote the next-oldest remaining share (Map keeps insertion order).
+      const nextId = this.screenshares.keys().next().value ?? null;
+      this.mainScreenshareUserId = nextId;
+      if (nextId) this.screenshares.get(nextId)!.container.classList.add('main');
     }
-    // Promote the next-oldest remaining share (Map keeps insertion order).
-    const nextId = this.screenshares.keys().next().value ?? null;
-    this.mainScreenshareUserId = nextId;
-    if (nextId) {
-      const next = this.screenshares.get(nextId)!;
-      next.container.classList.add('main');
-      applyPanelGeometry(next.container, vacated!);
-      bringToFront(next.container);
-    }
+    // Last share gone → back to the grid (never remembers a manual choice).
+    if (this.screenshares.size === 0) this.setLayoutModeSilently('grid');
     this.reflowLayout();
   }
 
-  // Makes a non-main share the main one by swapping window geometry with the
-  // current main (double-click). The large spot stays put; only who occupies it
-  // changes. Future smart-arrange then features the new main.
+  // Makes a non-main share the featured (main) one by double-click: re-designate
+  // the main and let reflowLayout give it the large area. Positions aren't
+  // swapped — the auto-arrange handles placement (issue #175).
   private promoteScreenshare(userId: string) {
     const mainId = this.mainScreenshareUserId;
     if (!mainId || mainId === userId) return;
     const next = this.screenshares.get(userId);
     const prev = this.screenshares.get(mainId);
     if (!next || !prev) return;
-    const prevGeo = this.snapshotGeometry(prev.container);
-    const nextGeo = this.snapshotGeometry(next.container);
-    applyPanelGeometry(next.container, prevGeo);
-    applyPanelGeometry(prev.container, nextGeo);
     prev.container.classList.remove('main');
     next.container.classList.add('main');
     this.mainScreenshareUserId = userId;
-    bringToFront(next.container);
+    this.reflowLayout();
   }
 
-  // Reads an element's current on-screen rect as an explicit geometry, so it can
-  // be re-applied as inline styles (used when swapping/inheriting the main spot).
-  private snapshotGeometry(el: HTMLElement): {
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  } {
-    const r = el.getBoundingClientRect();
-    return { left: r.left, top: r.top, width: r.width, height: r.height };
-  }
-
-  // Builds a draggable screenshare stage panel (free aspect, letterboxed video).
-  // `isMain` keeps the CSS default placement + the "main" accent; later shares
-  // open smaller and offset so they don't cover the main one.
+  // Builds a screenshare stage panel (free aspect, letterboxed video). `isMain`
+  // gets the "main" accent + the large area; position/size come from
+  // reflowLayout. Double-click re-designates which share is main.
   private createScreenshareStage(userId: string, isMain: boolean): Screenshare {
     const container = document.createElement('div');
     container.className = isMain ? 'panel screenshare-stage main' : 'panel screenshare-stage';
@@ -496,7 +424,6 @@ export class RemoteMediaView {
     const label = document.createElement('span');
     label.className = 'label';
     header.appendChild(label);
-    header.appendChild(createModeControls());
     container.appendChild(header);
 
     const body = document.createElement('div');
@@ -508,32 +435,11 @@ export class RemoteMediaView {
     video.playsInline = true;
     body.appendChild(video);
 
-    if (!isMain) {
-      // Open later shares smaller and offset from the top so they don't land on
-      // top of the main stage; users can drag/arrange afterwards.
-      const n = this.screenshares.size;
-      container.style.left = `${360 + n * 28}px`;
-      container.style.top = `${24 + n * 28}px`;
-      container.style.width = '300px';
-      container.style.height = '190px';
-    }
-
     this.stageLayerEl.appendChild(container);
-    const cleanupDrag = makeDraggable(container, {
-      handle: header,
-      onStart: () => this.grabPanel(container),
-    });
-    setupPanelModes(container, { onActivate: () => this.grabPanel(container) });
-    // Double-click anywhere on the stage (except the preset buttons) promotes it.
-    const onDblClick = (e: MouseEvent) => {
-      if ((e.target as HTMLElement).closest('.stage-controls')) return;
-      this.promoteScreenshare(userId);
-    };
+    // Double-click anywhere on the stage makes it the featured (main) share.
+    const onDblClick = () => this.promoteScreenshare(userId);
     container.addEventListener('dblclick', onDblClick);
-    const cleanup = () => {
-      cleanupDrag();
-      container.removeEventListener('dblclick', onDblClick);
-    };
+    const cleanup = () => container.removeEventListener('dblclick', onDblClick);
     return { container, video, label, streamId: '', cleanup };
   }
 
@@ -541,6 +447,7 @@ export class RemoteMediaView {
   refreshSelfPreview() {
     this.selfPreviewEl.classList.toggle('muted', !this.media.micOn);
     const stream = this.media.camStream;
+    const wasHidden = this.selfPreviewEl.classList.contains('hidden');
     if (stream) {
       if (this.selfVideoEl.srcObject !== stream) {
         this.selfVideoEl.srcObject = stream;
@@ -557,6 +464,9 @@ export class RemoteMediaView {
       }
       this.selfPreviewEl.classList.add('hidden');
     }
+    // The self preview joins/leaves the auto-layout as it shows/hides, so
+    // re-flow whenever its visibility flips (issue #175).
+    if (wasHidden !== this.selfPreviewEl.classList.contains('hidden')) this.reflowLayout();
   }
 
   // ============= Mute indicator =============
@@ -620,11 +530,9 @@ export class RemoteMediaView {
     this.onLayoutModeChange = cb;
   }
 
-  // Switches the window-layout mode and immediately re-flows. 'free' just stops
-  // auto-arranging (windows stay where they are); the others tile every window
-  // to fit the viewport. Unlike the old one-shot arrange, the chosen mode sticks
-  // and re-flows on viewport/membership/screenshare changes until the user
-  // grabs a window (drag/preset → back to 'free').
+  // Switches the window-layout mode (toolbar grid/sidebar buttons) and re-flows.
+  // The chosen mode sticks and re-flows on viewport/membership/screenshare
+  // changes; a screenshare then temporarily forces the presentation view.
   setLayoutMode(mode: LayoutMode) {
     if (this.layoutMode !== mode) {
       this.layoutMode = mode;
@@ -633,11 +541,18 @@ export class RemoteMediaView {
     this.reflowLayout();
   }
 
-  // Re-lays every visible window according to the active mode. No-op in 'free'.
-  // Called on viewport resize and whenever the set of windows changes (peer
-  // join/leave, screenshare start/stop) so the arrangement stays tidy.
+  // Sets the mode + notifies the toolbar highlight, WITHOUT re-flowing — used by
+  // the screenshare auto-switch, whose caller re-flows once afterwards.
+  private setLayoutModeSilently(mode: LayoutMode) {
+    if (this.layoutMode === mode) return;
+    this.layoutMode = mode;
+    this.onLayoutModeChange?.(mode);
+  }
+
+  // Re-lays every visible window according to the active mode. Called on
+  // viewport resize and whenever the set of windows changes (peer join/leave,
+  // screenshare start/stop) so the fixed arrangement stays tidy.
   private reflowLayout() {
-    if (this.layoutMode === 'free') return;
     const panels = this.collectPanels();
     if (panels.length === 0) return;
     const items = panels.map((p) => p.item);
@@ -680,7 +595,7 @@ export class RemoteMediaView {
   }
 
   // Screenshare userIds in layout order: the main share first, then the rest in
-  // share order. Drives both arrange() and the recording compositor.
+  // share order. Drives both reflowLayout() and the recording compositor.
   private orderedScreenshareIds(): string[] {
     const ids = [...this.screenshares.keys()];
     const mainId = this.mainScreenshareUserId;

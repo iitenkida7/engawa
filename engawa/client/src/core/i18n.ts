@@ -202,15 +202,8 @@ const STR: Record<string, Record<Lang, string>> = {
   'chat.title': { ja: '💬 チャット', en: '💬 Chat' },
   'chat.placeholder': { ja: '近くの人にメッセージ…', en: 'Message people nearby…' },
 
-  // -- self-preview stage ---------------------------------------------------
-  'stage.pip': { ja: '小窓', en: 'Picture-in-picture' },
-  'stage.side': { ja: 'サイドパネル', en: 'Side panel' },
-  'stage.full': { ja: '全画面', en: 'Full screen' },
-
-  // -- layout / zoom --------------------------------------------------------
-  'layout.free': { ja: '自由配置', en: 'Free layout' },
+  // -- layout ---------------------------------------------------------------
   'layout.grid': { ja: 'グリッド整列', en: 'Grid' },
-  'layout.presentation': { ja: 'プレゼン整列', en: 'Presentation' },
   'layout.sidebar': { ja: 'サイドバー整列', en: 'Sidebar' },
 
   // -- app-level toasts -----------------------------------------------------
