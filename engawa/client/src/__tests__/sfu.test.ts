@@ -417,3 +417,51 @@ describe('SfuManager peer session change re-pull (issue #186)', () => {
     expect(pulls).toBe(1);
   });
 });
+
+describe('SfuManager video-pull pause (issue #188)', () => {
+  it('pausing drops pulled video, keeps mic, and blocks new video pulls', async () => {
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'sess-A', [
+      { kind: 'mic', trackName: 'mic' },
+      { kind: 'cam', trackName: 'cam' },
+    ]);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+    const pullsBefore = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/tracks/new'),
+    ).length;
+    expect(pullsBefore).toBe(2);
+
+    sfu.setVideoPullPaused(true);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+    const closes = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/tracks/close'),
+    ).length;
+    expect(closes).toBe(1); // the cam pull was closed, the mic kept
+
+    // A directory update while paused must not pull video again.
+    sfu.setPeerTracks('peer-1', 'sess-A', [
+      { kind: 'mic', trackName: 'mic' },
+      { kind: 'cam', trackName: 'cam' },
+    ]);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+    const pullsWhilePaused = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/tracks/new'),
+    ).length;
+    expect(pullsWhilePaused).toBe(2);
+
+    // Resume + re-feed (the App re-feeds cached directories): video re-pulls.
+    sfu.setVideoPullPaused(false);
+    sfu.setPeerTracks('peer-1', 'sess-A', [
+      { kind: 'mic', trackName: 'mic' },
+      { kind: 'cam', trackName: 'cam' },
+    ]);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+    const pullsAfterResume = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/tracks/new'),
+    ).length;
+    expect(pullsAfterResume).toBe(3);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+});

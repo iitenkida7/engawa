@@ -148,6 +148,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.bgCustom': { ja: '🖼 カスタム画像', en: '🖼 Custom image' },
   'toolbar.bgUpload': { ja: '📁 画像をアップロード…', en: '📁 Upload image…' },
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
+  'toolbar.audioOnly': { ja: '🔉 音声のみモード', en: '🔉 Audio-only mode' },
   'toolbar.closeDebug': { ja: '🐛 デバッグを閉じる', en: '🐛 Close debug' },
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
 
@@ -225,6 +226,28 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: '回線が回復したため、カメラを再開しました。',
     en: 'Network recovered — camera resumed.',
   },
+  'app.netRecvAudioOnly': {
+    ja: '回線が不安定なため、映像の受信を一時停止しました(音声のみ)。',
+    en: 'Network is struggling — pausing incoming video (audio only).',
+  },
+  'app.netRecvVideoRestore': {
+    ja: '回線が回復したため、映像の受信を再開しました。',
+    en: 'Network recovered — incoming video resumed.',
+  },
+  'app.audioOnlyOn': {
+    ja: '音声のみモードをオンにしました(カメラ・画面共有を停止)。',
+    en: 'Audio-only mode on (camera and screen share stopped).',
+  },
+  'app.audioOnlyOff': {
+    ja: '音声のみモードをオフにしました。',
+    en: 'Audio-only mode off.',
+  },
+
+  // -- connection quality dots (issue #188) ----------------------------------
+  'quality.q0': { ja: '回線: 良好', en: 'Connection: good' },
+  'quality.q1': { ja: '回線: やや不安定', en: 'Connection: fair' },
+  'quality.q2': { ja: '回線: 不安定', en: 'Connection: poor' },
+  'quality.q3': { ja: '回線: 非常に不安定', en: 'Connection: bad' },
 
   // -- reload banner --------------------------------------------------------
   'reload.countdown': { ja: '{seconds} 秒後に再読み込みします…', en: 'Reloading in {seconds}s…' },

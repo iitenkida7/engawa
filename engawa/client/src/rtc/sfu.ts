@@ -23,7 +23,7 @@ import {
   sfuTrackError,
   shouldFallbackToMesh,
 } from '@/rtc/sfu-logic';
-import { tuneReceiver, tuneSfuSender } from '@/rtc/tune';
+import { JITTER_BUFFER_TARGET_MS, tuneReceiver, tuneSfuSender } from '@/rtc/tune';
 
 // Sentinel conn ids for the debug console. The SFU is one PC, so our published
 // tracks aren't per-peer: they go to one synthetic "upstream" conn. Received
@@ -127,6 +127,15 @@ export class SfuManager {
   // Previous getStats snapshot for the per-second diff (debug console).
   private statsPrev: RtcSnapshot | null = null;
 
+  // Receiver jitter-buffer target (issue #188); see WebRtcManager's counterpart.
+  private jitterTargetMs = JITTER_BUFFER_TARGET_MS;
+
+  // While true, video (cam/screen) tracks are neither pulled nor kept — only
+  // mic audio flows downlink (issue #188: audio-only receive on a starved
+  // downlink, or the manual audio-only mode). Existing video pulls are dropped
+  // on entry; on exit the App re-feeds the cached directories to re-pull.
+  private videoPullPaused = false;
+
   constructor(events: SfuEvents) {
     this.events = events;
   }
@@ -197,7 +206,10 @@ export class SfuManager {
         }
       }
       this.peerSessions.set(userId, sessionId);
-      const { toPull, toDrop } = reconcilePeerTracks(userId, tracks, this.remoteTracks.keys());
+      // Audio-only receive: reconcile against the mic subset so video tracks
+      // are treated as absent (existing ones drop, new ones aren't pulled).
+      const desired = this.videoPullPaused ? tracks.filter((t) => t.kind === 'mic') : tracks;
+      const { toPull, toDrop } = reconcilePeerTracks(userId, desired, this.remoteTracks.keys());
       for (const t of toPull) {
         await this.pullTrack(userId, sessionId, t.kind, t.trackName);
       }
@@ -214,6 +226,28 @@ export class SfuManager {
       }
       this.events.onPeerClosed(userId);
     });
+  }
+
+  // Pause / resume video pulling (issue #188). Pausing drops every non-mic
+  // remote track immediately (freeing the downlink); resuming only clears the
+  // flag — the App re-feeds the cached peer directories to re-pull video.
+  setVideoPullPaused(paused: boolean) {
+    if (this.videoPullPaused === paused) return;
+    this.videoPullPaused = paused;
+    if (!paused) return;
+    this.enqueue(async () => {
+      for (const key of [...this.remoteTracks.keys()]) {
+        if (this.remoteTracks.get(key)!.kind !== 'mic') await this.dropRemote(key);
+      }
+    });
+  }
+
+  // Re-target every receiver's jitter buffer (issue #188); no-op when unchanged.
+  applyReceiverJitterTarget(targetMs: number) {
+    if (targetMs === this.jitterTargetMs) return;
+    this.jitterTargetMs = targetMs;
+    if (!this.pc) return;
+    for (const r of this.pc.getReceivers()) tuneReceiver(r, targetMs);
   }
 
   // Ask the SFU to deliver a specific simulcast layer for one remote camera
@@ -380,11 +414,10 @@ export class SfuManager {
         if (!key) return;
         const entry = this.remoteTracks.get(key);
         if (!entry) return;
-        // Pin this pulled track's playout/jitter buffer to the low-latency floor,
-        // the same tuning the mesh applies to its receivers. Without it the SFU
-        // path inherits Chrome's (higher) adaptive default, adding perceived
-        // audio/video lag over the internet (#146).
-        tuneReceiver(event.receiver);
+        // Pin this pulled track's playout/jitter buffer to the current target
+        // (the low-latency floor, raised on high-jitter links — #146/#188).
+        // Without it the SFU path inherits Chrome's higher adaptive default.
+        tuneReceiver(event.receiver, this.jitterTargetMs);
         const stream = new MediaStream([event.track]);
         entry.streamId = stream.id;
         entry.trackId = event.track.id;

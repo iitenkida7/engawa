@@ -125,6 +125,36 @@ export class RemoteMediaView {
     this.selfPreviewLabelEl.textContent = name || t('common.you');
   }
 
+  // ============= Connection-quality dots (issue #188) =============
+  // A small colored dot in the panel header, driven by the App's 5s quality
+  // sampling: per-peer for remote tiles, the overall tier for the self preview.
+  // `null` removes the dot (no data — e.g. the stats haven't warmed up yet).
+
+  setTileQuality(userId: string, level: 0 | 1 | 2 | 3 | null) {
+    const tile = this.remoteTiles.get(userId);
+    if (tile) this.applyQualityDot(tile.label, level);
+  }
+
+  setSelfQuality(level: 0 | 1 | 2 | 3 | null) {
+    this.applyQualityDot(this.selfPreviewLabelEl, level);
+  }
+
+  private applyQualityDot(labelEl: HTMLElement, level: 0 | 1 | 2 | 3 | null) {
+    const header = labelEl.parentElement;
+    if (!header) return;
+    let dot = header.querySelector<HTMLSpanElement>('.quality-dot');
+    if (level === null) {
+      dot?.remove();
+      return;
+    }
+    if (!dot) {
+      dot = document.createElement('span');
+      header.insertBefore(dot, labelEl);
+    }
+    dot.className = `quality-dot q${level}`;
+    dot.title = t(`quality.q${level}`);
+  }
+
   // ============= Remote streams =============
   attachRemoteStream(userId: string, stream: MediaStream, kind: StreamKind) {
     if (kind === 'screen') {

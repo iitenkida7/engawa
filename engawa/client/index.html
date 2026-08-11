@@ -395,6 +395,20 @@
         background: rgba(0, 0, 0, 0.25);
       }
 
+      /* Per-connection quality dot (issue #188): green/amber/orange/red. */
+      .quality-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 6px;
+        flex: none;
+      }
+      .quality-dot.q0 { background: #34c759; }
+      .quality-dot.q1 { background: #f5c542; }
+      .quality-dot.q2 { background: #f08c3c; }
+      .quality-dot.q3 { background: #e5484d; }
+
       .panel-header .label {
         font-size: 12px;
         color: #9da3b0;

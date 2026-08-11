@@ -55,6 +55,8 @@ export class ToolbarController {
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
   private onUserCamToggle: () => void;
+  private isAudioOnly: () => boolean;
+  private onToggleAudioOnly: () => void;
 
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
@@ -82,6 +84,10 @@ export class ToolbarController {
     // Fired on a MANUAL camera-button toggle (not setCamEnabled), so the App's
     // bandwidth automation (#185) can stand down when the user takes over.
     onUserCamToggle: () => void;
+    // Audio-only mode (#188): current state + toggle, both owned by the App
+    // (it also pauses SFU video pulls). Rendered as a ✓ item in the "⋯" menu.
+    isAudioOnly: () => boolean;
+    onToggleAudioOnly: () => void;
   }) {
     this.media = opts.media;
     this.rtc = opts.rtc;
@@ -96,6 +102,8 @@ export class ToolbarController {
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
     this.onUserCamToggle = opts.onUserCamToggle;
+    this.isAudioOnly = opts.isAudioOnly;
+    this.onToggleAudioOnly = opts.onToggleAudioOnly;
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
@@ -225,6 +233,14 @@ export class ToolbarController {
     if (on) await this.startCam();
     else this.stopCam();
     this.broadcastStatus();
+  }
+
+  // Programmatic screen-share stop for audio-only mode (#188): same teardown as
+  // the button / the OS "stop sharing" bar.
+  stopScreenShare() {
+    if (!this.media.screenOn) return;
+    const old = this.media.disableScreen();
+    if (old) this.afterScreenStopped(old);
   }
 
   private async toggleScreen() {
@@ -493,6 +509,11 @@ export class ToolbarController {
       menu.appendChild(item);
     };
     addItem(t('toolbar.editAvatar'), () => this.onOpenAvatar());
+    // Audio-only mode (#188): stops sending cam/screen and (on SFU) receiving
+    // video, for rock-bottom bandwidth. ✓ reflects the current state.
+    addItem((this.isAudioOnly() ? '✓ ' : '') + t('toolbar.audioOnly'), () =>
+      this.onToggleAudioOnly(),
+    );
     addItem(this.isDebugOpen() ? t('toolbar.closeDebug') : t('toolbar.openDebug'), () =>
       this.toggleDebug(),
     );

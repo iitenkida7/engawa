@@ -12,6 +12,11 @@ import {
   updateTierState,
 } from '@/rtc/netquality';
 import type { QualitySample } from '@/rtc/rtcstats';
+import {
+  computeJitterTargetMs,
+  JITTER_BUFFER_TARGET_MAX_MS,
+  JITTER_BUFFER_TARGET_MS,
+} from '@/rtc/tune';
 
 const sample = (over: Partial<QualitySample> = {}): QualitySample => ({
   conns: 1,
@@ -116,5 +121,20 @@ describe('applyNetTierToCam / applyNetTierToScreen', () => {
     expect(tier2.maxBitrate).toBeLessThanOrEqual(quiet.maxBitrate);
     expect(tier2.maxFramerate).toBeLessThanOrEqual(quiet.maxFramerate);
     expect(tier2.scaleResolutionDownBy).toBeGreaterThanOrEqual(quiet.scaleResolutionDownBy);
+  });
+});
+
+describe('computeJitterTargetMs', () => {
+  it('keeps the low-latency floor on a calm link or before stats warm up', () => {
+    expect(computeJitterTargetMs(undefined)).toBe(JITTER_BUFFER_TARGET_MS);
+    expect(computeJitterTargetMs(10)).toBe(JITTER_BUFFER_TARGET_MS);
+    expect(computeJitterTargetMs(39)).toBe(JITTER_BUFFER_TARGET_MS);
+  });
+
+  it('widens with measured jitter up to the ceiling', () => {
+    expect(computeJitterTargetMs(50)).toBe(150);
+    expect(computeJitterTargetMs(100)).toBe(220);
+    expect(computeJitterTargetMs(200)).toBe(JITTER_BUFFER_TARGET_MAX_MS);
+    expect(computeJitterTargetMs(10_000)).toBe(JITTER_BUFFER_TARGET_MAX_MS);
   });
 });

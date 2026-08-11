@@ -12,7 +12,7 @@ import {
 import { fetchIceServers } from '@/rtc/ice';
 import { diffRtcStats, type RtcConn, type RtcSnapshot, summarizeRtcStats } from '@/rtc/rtcstats';
 import { transformSdp } from '@/rtc/sdp';
-import { tuneReceivers } from '@/rtc/tune';
+import { JITTER_BUFFER_TARGET_MS, tuneReceivers } from '@/rtc/tune';
 
 // Fixed mic send-bitrate ceiling (bps). The encoder still adapts down to the
 // available bandwidth. Camera and screen ceilings are dynamic and live in the
@@ -138,6 +138,11 @@ export class WebRtcManager {
   // 'stream' / 'track' event on the peer.
   private pendingMeta = new Map<string, Map<string, StreamKind>>();
 
+  // Current receiver jitter-buffer target (issue #188). The App raises it from
+  // measured receive jitter on bad links; new receivers pick it up via the
+  // connect/track handlers, existing ones via applyReceiverJitterTarget.
+  private jitterTargetMs = JITTER_BUFFER_TARGET_MS;
+
   // Previous getStats snapshot per peer, for the debug console per-second diff.
   private statsPrev = new Map<string, RtcSnapshot>();
 
@@ -166,6 +171,19 @@ export class WebRtcManager {
   // feeds this to computeCamEncoding / computeScreenEncoding to decide throttling.
   get peerCount(): number {
     return this.peers.size;
+  }
+
+  // Re-target every receiver's jitter buffer (issue #188): the App raises the
+  // target on high-jitter links so audio rides out the bursts, and lowers it
+  // back for latency when the link calms. No-op when unchanged (called on the
+  // 5s quality cadence).
+  applyReceiverJitterTarget(targetMs: number) {
+    if (targetMs === this.jitterTargetMs) return;
+    this.jitterTargetMs = targetMs;
+    for (const entry of this.peers.values()) {
+      const pc = getPc(entry.peer);
+      if (pc) tuneReceivers(pc, targetMs);
+    }
   }
 
   // Update the camera encoding ceiling and re-tune every peer's cam sender.
@@ -343,7 +361,7 @@ export class WebRtcManager {
       entry.ready = true;
       logNet('peer-connected', { peer: remoteUserId });
       const pc = getPc(peer);
-      if (pc) tuneReceivers(pc);
+      if (pc) tuneReceivers(pc, this.jitterTargetMs);
       this.retunePeer(entry);
       this.events.onPeerConnected(remoteUserId);
     });
@@ -371,7 +389,7 @@ export class WebRtcManager {
       );
       // New incoming transceiver — re-apply receiver hints.
       const pc = getPc(peer);
-      if (pc) tuneReceivers(pc);
+      if (pc) tuneReceivers(pc, this.jitterTargetMs);
     });
 
     peer.on('error', (err) => {

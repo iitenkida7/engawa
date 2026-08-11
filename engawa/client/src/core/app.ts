@@ -41,6 +41,7 @@ import {
   computePreferredRid,
   computeScreenEncoding,
   isHeldSpeaking,
+  SFU_CAM_HALF_RID,
 } from '@/rtc/cam-bitrate';
 import {
   applyNetTierToCam,
@@ -55,6 +56,7 @@ import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
 import { setPreferRedAudio } from '@/rtc/sdp';
 import { SfuManager } from '@/rtc/sfu';
 import { partitionMembers, SFU_REBUILD_MIN_INTERVAL_MS } from '@/rtc/sfu-logic';
+import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
 import { ChatPanel } from '@/ui/chat';
@@ -177,6 +179,11 @@ export class App {
   private lastQualitySampleAt = 0;
   private netTierState: TierState = INITIAL_TIER_STATE;
   private autoCamOff = false;
+  // Receive-side degradation (#188): `manualAudioOnly` is the user's ⋯-menu
+  // toggle (stops our own cam/screen and, on SFU, pauses video pulls);
+  // `autoRecvAudioOnly` is the tier-3 automatic variant, cleared on recovery.
+  private manualAudioOnly = false;
+  private autoRecvAudioOnly = false;
 
   // Mesh-peer recovery state (issue #184), all keyed by peer userId and driven
   // from tickPeerRecovery in the game loop:
@@ -349,6 +356,11 @@ export class App {
       // turning the camera on (or off) while paused takes it out of automation.
       onUserCamToggle: () => {
         this.autoCamOff = false;
+      },
+      // Audio-only mode (#188), owned here since it spans send + receive.
+      isAudioOnly: () => this.manualAudioOnly,
+      onToggleAudioOnly: () => {
+        void this.setAudioOnlyMode(!this.manualAudioOnly);
       },
     });
 
@@ -613,7 +625,73 @@ export class App {
       // negotiated from now on: new peers, recovery rebuilds, renegotiations.
       setPreferRedAudio(tier >= 2);
     }
+
+    // Receive side (#188): widen the jitter buffer to ride out measured jitter
+    // (and shrink it back for latency when the link calms).
+    const transport = this.currentMethod === 'sfu' ? this.sfu : this.rtc;
+    transport.applyReceiverJitterTarget(computeJitterTargetMs(q.recvJitterMs));
+
+    // Quality dots: per-peer for tiles (a conn maps 1:1 to a peer on both
+    // transports; SFU synthetic entries aren't players so they no-op), the
+    // overall tier for the self preview.
+    for (const conn of conns) {
+      if (!this.players.has(conn.id)) continue;
+      this.view.setTileQuality(conn.id, classifySample(summarizeConnQuality([conn])));
+    }
+    this.view.setSelfQuality(tier);
+
     await this.applyAutoCamPolicy(tier);
+    this.applyAutoRecvPolicy(tier);
+  }
+
+  // Tier 3 on the SFU: stop pulling video so the whole downlink serves audio;
+  // resume at tier ≤1. The mesh path has no per-kind receive control without a
+  // renegotiation, so its receive side relies on senders degrading (#185).
+  private applyAutoRecvPolicy(tier: NetTier) {
+    if (tier === 3 && this.currentMethod === 'sfu' && !this.autoRecvAudioOnly) {
+      this.autoRecvAudioOnly = true;
+      logNet('net-recv-audio-only', { on: true });
+      if (!this.manualAudioOnly) this.toasts.info(t('app.netRecvAudioOnly'));
+      this.updateVideoPullPause();
+    } else if (this.autoRecvAudioOnly && tier <= 1) {
+      this.autoRecvAudioOnly = false;
+      logNet('net-recv-audio-only', { on: false });
+      if (!this.manualAudioOnly) this.toasts.info(t('app.netRecvVideoRestore'));
+      this.updateVideoPullPause();
+    }
+  }
+
+  // Push the effective video-pull pause (manual OR automatic) to the SFU; on
+  // resume, re-feed the cached directories so the dropped video is re-pulled
+  // (the server only re-relays them on topology changes).
+  private updateVideoPullPause() {
+    const paused = this.manualAudioOnly || this.autoRecvAudioOnly;
+    this.sfu.setVideoPullPaused(paused);
+    if (paused || this.currentMethod !== 'sfu') return;
+    for (const [id, dir] of this.sfuDirectory) {
+      if (id === this.myId || !this.sfuMembers.has(id)) continue;
+      this.knownSfuPeers.add(id);
+      this.sfu.setPeerTracks(id, dir.sessionId, dir.tracks);
+    }
+  }
+
+  // The ⋯-menu audio-only toggle (#188): entering stops our camera and screen
+  // share through the regular toolbar flows and pauses SFU video pulls; leaving
+  // resumes receiving but deliberately does NOT re-enable the camera — the user
+  // decides what to re-share.
+  private async setAudioOnlyMode(on: boolean) {
+    if (this.manualAudioOnly === on) return;
+    this.manualAudioOnly = on;
+    logNet('audio-only-mode', { on });
+    if (on) {
+      this.autoCamOff = false; // manual mode supersedes the automation
+      await this.toolbar.setCamEnabled(false);
+      this.toolbar.stopScreenShare();
+      this.toasts.info(t('app.audioOnlyOn'));
+    } else {
+      this.toasts.info(t('app.audioOnlyOff'));
+    }
+    this.updateVideoPullPause();
   }
 
   // Tier 3 means voice is at risk: pause the camera through the same toolbar
@@ -627,7 +705,7 @@ export class App {
       logNet('net-auto-cam-off');
       this.toasts.info(t('app.netCamOff'));
       await this.toolbar.setCamEnabled(false);
-    } else if (this.autoCamOff && tier <= 1) {
+    } else if (this.autoCamOff && tier <= 1 && !this.manualAudioOnly) {
       this.autoCamOff = false;
       logNet('net-auto-cam-restore');
       this.toasts.info(t('app.netCamRestore'));
@@ -1403,7 +1481,10 @@ export class App {
       if (userId === this.myId) continue;
       const width = this.view.cameraTileWidth(userId);
       if (width == null) continue;
-      this.sfu.setPreferredLayer(userId, 'cam', computePreferredRid(width));
+      // A congested downlink (tier ≥2, #188) forces the half layer regardless
+      // of tile size; otherwise the tile's rendered width picks it (#78).
+      const rid = this.netTierState.tier >= 2 ? SFU_CAM_HALF_RID : computePreferredRid(width);
+      this.sfu.setPreferredLayer(userId, 'cam', rid);
     }
   }
 }

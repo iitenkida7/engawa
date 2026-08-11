@@ -11,30 +11,45 @@ import type { StreamKind } from '@/core/types';
 // 100–150ms; we use 100ms — well below Chrome's adaptive default but high
 // enough to survive typical Wi-Fi / consumer ISP jitter without underrun clicks
 // (50ms was too aggressive for that).
-export const PLAYOUT_DELAY_HINT_S = 0.1; // 100ms (seconds)
 export const JITTER_BUFFER_TARGET_MS = 100;
+// Ceiling for the ADAPTIVE target (issue #188): on a high-jitter link (busy
+// Wi-Fi, mobile) a fixed 100ms floor turns straight into audio dropouts, so the
+// App raises the target from measured receive jitter, up to this bound (any
+// higher and the added mouth-to-ear delay wrecks conversation itself).
+export const JITTER_BUFFER_TARGET_MAX_MS = 300;
 
-// Pin one receiver's playout/jitter buffer to the low-latency floor. Both
-// properties are non-standard (Chrome) and silently absent elsewhere, so each
-// assignment is guarded. Used per-receiver by the SFU 'track' handler and over
-// every receiver by the mesh (tuneReceivers below).
-export function tuneReceiver(receiver: RTCRtpReceiver) {
+// Pure (issue #188): the jitter-buffer target for a measured receive jitter.
+// Roughly 2.5× headroom over the measured jitter, snapped to coarse steps so
+// the buffer isn't re-targeted on every sample, and clamped to
+// [JITTER_BUFFER_TARGET_MS, JITTER_BUFFER_TARGET_MAX_MS]. Unknown jitter (no
+// audio flowing yet) keeps the low-latency floor.
+export function computeJitterTargetMs(jitterMs: number | undefined): number {
+  if (jitterMs === undefined || jitterMs < 40) return JITTER_BUFFER_TARGET_MS;
+  if (jitterMs < 80) return 150;
+  if (jitterMs < 120) return 220;
+  return JITTER_BUFFER_TARGET_MAX_MS;
+}
+
+// Pin one receiver's playout/jitter buffer to the given target (default: the
+// low-latency floor). Both properties are non-standard (Chrome) and silently
+// absent elsewhere, so each assignment is guarded. Used per-receiver by the SFU
+// 'track' handler and over every receiver by the mesh (tuneReceivers below).
+export function tuneReceiver(receiver: RTCRtpReceiver, targetMs: number = JITTER_BUFFER_TARGET_MS) {
   try {
-    (receiver as unknown as { playoutDelayHint: number }).playoutDelayHint = PLAYOUT_DELAY_HINT_S;
+    (receiver as unknown as { playoutDelayHint: number }).playoutDelayHint = targetMs / 1000;
   } catch {
     /* unsupported */
   }
   try {
-    (receiver as unknown as { jitterBufferTarget: number }).jitterBufferTarget =
-      JITTER_BUFFER_TARGET_MS;
+    (receiver as unknown as { jitterBufferTarget: number }).jitterBufferTarget = targetMs;
   } catch {
     /* unsupported */
   }
 }
 
-// Apply the receiver floor to every receiver on a PC (mesh: one PC per peer).
-export function tuneReceivers(pc: RTCPeerConnection) {
-  for (const r of pc.getReceivers()) tuneReceiver(r);
+// Apply a receiver target to every receiver on a PC (mesh: one PC per peer).
+export function tuneReceivers(pc: RTCPeerConnection, targetMs: number = JITTER_BUFFER_TARGET_MS) {
+  for (const r of pc.getReceivers()) tuneReceiver(r, targetMs);
 }
 
 // Per-kind sender priority + congestion-degradation policy for the SFU upstream.
