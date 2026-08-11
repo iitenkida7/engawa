@@ -181,6 +181,15 @@ export function normalizeStreamId(raw: unknown): string | null {
 }
 
 /**
+ * Validate a client-supplied session-resume token (issue #187). The server
+ * mints them as UUIDs, so anything but a short token-safe string is rejected
+ * before it is used as a Map key.
+ */
+export function normalizeResumeToken(raw: unknown): string | null {
+  return typeof raw === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(raw) ? raw : null;
+}
+
+/**
  * Allowed emoji reactions. The server validates against this list so a client
  * can only ever broadcast one of these (no arbitrary text). Must stay in sync
  * with the client's REACTION_EMOJIS in client/src/core/types.ts.

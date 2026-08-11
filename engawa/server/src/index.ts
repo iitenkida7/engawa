@@ -74,6 +74,7 @@ const server = Bun.serve({
           sfuTracks: [],
           groupKey: null,
           mediaToken: null,
+          resumeToken: null,
           lastGroupAt: 0,
           joined: false,
         } satisfies WsData,

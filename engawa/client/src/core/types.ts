@@ -27,7 +27,16 @@ export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
 export type ClientMessage =
   // Single-space now: the client no longer sends `workspace`. `password` is only
   // present when an access password is configured (verified pre-join).
-  | { type: 'join'; name: string; workspace?: string; password?: string; outfit?: Outfit }
+  // `resumeToken` (issue #187) carries the previous welcome's token so a
+  // reconnect within the server's grace window resumes the same identity.
+  | {
+      type: 'join';
+      name: string;
+      workspace?: string;
+      password?: string;
+      outfit?: Outfit;
+      resumeToken?: string;
+    }
   // Avatar appearance changed in the editor; relayed to the workspace so peers
   // re-render this avatar. Stateless: the server forwards it, keeping nothing.
   | { type: 'outfit-update'; outfit: Outfit }
@@ -71,6 +80,9 @@ export type ServerMessage =
   | { type: 'pong' }
   // `token` is the short-lived media token required on /api/turn-credentials and
   // /api/sfu/* (see core/media-auth.ts). Refreshed on every (re)connect.
+  // `resumeToken` is presented by the next reconnect's join (issue #187);
+  // `resumed` marks a welcome that kept our previous identity — the App then
+  // reconciles instead of resetting, so live calls and position survive.
   | {
       type: 'welcome';
       self: Player;
@@ -78,6 +90,8 @@ export type ServerMessage =
       bootId: string;
       sfuEnabled: boolean;
       token: string;
+      resumeToken?: string;
+      resumed?: boolean;
     }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }

@@ -12,6 +12,7 @@ import {
   normalizeChatText,
   normalizeName,
   normalizePlayerStatus,
+  normalizeResumeToken,
   normalizeSfuTracks,
   normalizeStatusNote,
   normalizeStreamId,
@@ -38,6 +39,13 @@ const accessPasswordEnv = process.env.ACCESS_PASSWORD;
 // relays are never throttled, so movement stays fully responsive and the group
 // hysteresis tolerates the ≤33ms lag.
 const GROUP_RECOMPUTE_MIN_INTERVAL_MS = 33;
+
+// How long after a joined socket closes its leave stays un-finalized (issue
+// #187): within this window a reconnect presenting the connection's resume
+// token adopts the same userId/position/group, so peers never see a leave and
+// live calls survive a signaling blip. Client-side dead-socket detection (the
+// 12s heartbeat pong timeout) plus one reconnect round-trip fits inside it.
+export const RESUME_GRACE_MS = 15_000;
 
 // Per-workspace transient grouping state, memory-only, reset on restart
 // (stateless invariant #2):
@@ -180,10 +188,53 @@ export function createWebSocketHandler(
   // Injectable clock for the per-connection move throttle, so tests are
   // deterministic. Production uses Date.now.
   now: () => number = Date.now,
+  // Leave-grace window (issue #187); injectable so tests don't wait 15s.
+  leaveGraceMs: number = RESUME_GRACE_MS,
 ): WebSocketHandler<WsData> {
   // Per-workspace SFU latch state. Lives for the handler's lifetime (one server
   // process); reset on restart, never persisted (invariant #2).
   const groupState: GroupState = new Map();
+
+  // Leaves awaiting finalization, keyed by resume token (issue #187). The
+  // closed socket stays in `clients` (holding its position/group presence)
+  // until the timer fires; a resume cancels the timer and adopts the identity.
+  // Memory-only and self-cleaning — expired entries finalize themselves.
+  const pendingLeave = new Map<string, { userId: string; timer: ReturnType<typeof setTimeout> }>();
+
+  // The previous connection a resume token refers to: a socket waiting out its
+  // leave grace, or — when the server never noticed the drop (half-open) — the
+  // still-registered live socket carrying that token. Returns null for unknown
+  // tokens, and never matches `exclude` (the socket trying to resume).
+  function findResumable(
+    token: string,
+    exclude: ServerWebSocket<WsData>,
+  ): ServerWebSocket<WsData> | null {
+    const pending = pendingLeave.get(token);
+    if (pending) {
+      const ws = clients.get(pending.userId);
+      if (ws && ws !== exclude && ws.data.resumeToken === token) return ws;
+      return null;
+    }
+    for (const c of clients.values()) {
+      if (c !== exclude && c.data.joined && c.data.resumeToken === token) return c;
+    }
+    return null;
+  }
+
+  // Finalize a leave: forget the connection, invalidate its media token, and
+  // tell the workspace. Runs when the grace timer fires without a resume.
+  function finalizeLeave(token: string, ws: ServerWebSocket<WsData>) {
+    pendingLeave.delete(token);
+    if (clients.get(ws.data.userId) !== ws) return; // resumed / replaced meanwhile
+    if (ws.data.mediaToken) {
+      mediaTokens.delete(ws.data.mediaToken);
+      ws.data.mediaToken = null;
+    }
+    clients.delete(ws.data.userId);
+    broadcast(clients, ws.data.workspace, { type: 'player-left', userId: ws.data.userId });
+    broadcastGroups(clients, ws.data.workspace, groupState);
+    console.log(`[ws] leave finalized ${ws.data.userId} (clients=${clients.size})`);
+  }
 
   return {
     // Dead-peer detection (issue #183). Explicit rather than Bun's defaults so
@@ -233,6 +284,74 @@ export function createWebSocketHandler(
             return;
           }
 
+          // Session resume (issue #187): a valid token identifying a connection
+          // in its leave-grace window (or a half-open predecessor the server
+          // hasn't noticed dying) adopts that identity — same userId, position,
+          // group — so peers never see a leave/join and live calls survive.
+          const resumeToken = normalizeResumeToken(msg.resumeToken);
+          const prev = resumeToken ? findResumable(resumeToken, ws) : null;
+          if (resumeToken && prev) {
+            const pending = pendingLeave.get(resumeToken);
+            if (pending) {
+              clearTimeout(pending.timer);
+              pendingLeave.delete(resumeToken);
+            }
+            // The predecessor's tokens die with it; a half-open one is closed
+            // (its stale close is ignored by the identity check below).
+            if (prev.data.mediaToken) {
+              mediaTokens.delete(prev.data.mediaToken);
+              prev.data.mediaToken = null;
+            }
+            prev.data.resumeToken = null;
+            try {
+              prev.close(4002, 'resumed by a new connection');
+            } catch {
+              /* already closed */
+            }
+            // Drop the fresh id minted at upgrade and adopt the previous one.
+            clients.delete(ws.data.userId);
+            ws.data.userId = prev.data.userId;
+            ws.data.name = prev.data.name;
+            ws.data.workspace = prev.data.workspace;
+            ws.data.x = prev.data.x;
+            ws.data.y = prev.data.y;
+            ws.data.zoneId = prev.data.zoneId;
+            ws.data.outfit = sanitizeOutfit(msg.outfit);
+            ws.data.groupKey = prev.data.groupKey;
+            ws.data.sfuSessionId = prev.data.sfuSessionId;
+            ws.data.sfuTracks = prev.data.sfuTracks;
+            ws.data.joined = true;
+            clients.set(ws.data.userId, ws);
+
+            const mediaToken = crypto.randomUUID();
+            ws.data.mediaToken = mediaToken;
+            mediaTokens.add(mediaToken);
+            // Single-use: rotate the resume token on every welcome.
+            ws.data.resumeToken = crypto.randomUUID();
+
+            const others: Player[] = [];
+            for (const [id, c] of clients) {
+              if (id === ws.data.userId || !c.data.joined) continue;
+              if (c.data.workspace !== ws.data.workspace) continue;
+              others.push(playerFromWs(c));
+            }
+            send(ws, {
+              type: 'welcome',
+              self: playerFromWs(ws),
+              players: others,
+              bootId,
+              sfuEnabled: isSfuEnabled(),
+              token: mediaToken,
+              resumeToken: ws.data.resumeToken,
+              resumed: true,
+            });
+            // No player-joined broadcast — peers never saw us leave. Groups are
+            // recomputed in case topology changed during the gap.
+            broadcastGroups(clients, ws.data.workspace, groupState);
+            console.log(`[ws] resumed ${ws.data.userId} as "${ws.data.name}"`);
+            break;
+          }
+
           ws.data.name = normalizeName(msg.name);
           ws.data.workspace = workspace;
           ws.data.outfit = sanitizeOutfit(msg.outfit);
@@ -243,10 +362,12 @@ export function createWebSocketHandler(
           ws.data.joined = true;
           // Mint the short-lived media token now that auth passed, register it as
           // valid, and hand it to the client in `welcome`. It gates the billable
-          // Cloudflare HTTP endpoints to live joined sessions; dropped on close.
+          // Cloudflare HTTP endpoints to live joined sessions; dropped when the
+          // leave finalizes. The resume token pairs with it (issue #187).
           const mediaToken = crypto.randomUUID();
           ws.data.mediaToken = mediaToken;
           mediaTokens.add(mediaToken);
+          ws.data.resumeToken = crypto.randomUUID();
 
           const existing: Player[] = [];
           for (const [id, c] of clients) {
@@ -263,6 +384,7 @@ export function createWebSocketHandler(
             bootId,
             sfuEnabled: isSfuEnabled(),
             token: mediaToken,
+            resumeToken: ws.data.resumeToken,
           });
 
           broadcast(
@@ -473,24 +595,38 @@ export function createWebSocketHandler(
     },
 
     close(ws) {
-      // Invalidate this socket's media token regardless of the identity check
-      // below: the socket is gone, so its token must stop working immediately
-      // (each connection has its own; a reconnect minted a different one).
+      // Identity check: a resume/reconnect may have already replaced this entry
+      // in the map. A stale close must not evict the live connection — it only
+      // cleans up its own media token (normally already invalidated on resume).
+      const isCurrent = clients.get(ws.data.userId) === ws;
+      if (!isCurrent) {
+        if (ws.data.mediaToken) {
+          mediaTokens.delete(ws.data.mediaToken);
+          ws.data.mediaToken = null;
+        }
+        console.log(`[ws] close (stale) ${ws.data.userId} (clients=${clients.size})`);
+        return;
+      }
+      // Leave grace (issue #187): a joined connection's presence — map entry,
+      // position, group membership, media token — survives for leaveGraceMs so
+      // a resume can adopt it without peers ever seeing a leave. The socket is
+      // dead, so broadcasts to it silently no-op until then.
+      if (ws.data.joined && ws.data.resumeToken) {
+        const token = ws.data.resumeToken;
+        const timer = setTimeout(() => finalizeLeave(token, ws), leaveGraceMs);
+        pendingLeave.set(token, { userId: ws.data.userId, timer });
+        console.log(`[ws] close ${ws.data.userId} (leave grace ${leaveGraceMs}ms)`);
+        return;
+      }
+      // Never joined (or no resume token): clean up immediately, as before.
       if (ws.data.mediaToken) {
         mediaTokens.delete(ws.data.mediaToken);
         ws.data.mediaToken = null;
       }
-      // Identity check: a reconnect with the same userId may have already
-      // replaced this entry in the map. Only remove (and announce the leave)
-      // when the stored socket is *this* one, so a stale close does not evict
-      // the live connection.
-      const isCurrent = clients.get(ws.data.userId) === ws;
-      if (isCurrent) {
-        clients.delete(ws.data.userId);
-        if (ws.data.joined) {
-          broadcast(clients, ws.data.workspace, { type: 'player-left', userId: ws.data.userId });
-          broadcastGroups(clients, ws.data.workspace, groupState);
-        }
+      clients.delete(ws.data.userId);
+      if (ws.data.joined) {
+        broadcast(clients, ws.data.workspace, { type: 'player-left', userId: ws.data.userId });
+        broadcastGroups(clients, ws.data.workspace, groupState);
       }
       console.log(`[ws] close ${ws.data.userId} (clients=${clients.size})`);
     },

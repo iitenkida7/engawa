@@ -25,6 +25,7 @@ import {
   type Outfit,
   PLAYER_RADIUS,
   PLAYER_SPEED,
+  type Player,
   type PlayerStatus,
   POSITION_SEND_INTERVAL_MS,
   REACTION_DEBOUNCE_MS,
@@ -157,6 +158,12 @@ export class App {
   // welcome handler and reload.ts.
   private serverBootId: string | null = null;
   private reloadBanner = new ReloadBanner();
+
+  // Session-resume token from the last welcome (issue #187). Sent with the next
+  // join; within the server's grace window the reconnect keeps our userId,
+  // position and group, so calls survive a signaling blip. Memory-only — a page
+  // reload starts fresh on purpose.
+  private myResumeToken: string | null = null;
 
   // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
   private lastLayerUpdate = 0;
@@ -496,12 +503,44 @@ export class App {
     window.addEventListener('offline', this.onOffline);
   }
 
+  // Reconcile the players map against a resumed welcome's list (issue #187):
+  // peers who left during the outage get the full player-left teardown, new
+  // ones are added, and survivors snap to their server-side position. Self and
+  // the live transports are untouched — that is the point of resuming.
+  private reconcilePlayers(list: Player[]) {
+    const present = new Set(list.map((p) => p.userId));
+    for (const id of [...this.players.keys()]) {
+      if (id === this.myId || present.has(id)) continue;
+      this.players.delete(id);
+      if (this.focusedId === id) this.focusedId = null;
+      this.knocks.onPlayerLeft(id);
+      this.meshMembers.delete(id);
+      this.sfuMembers.delete(id);
+      this.sfuDirectory.delete(id);
+      this.rtc.closePeer(id);
+      this.sfu.removePeer(id);
+      this.knownSfuPeers.delete(id);
+      this.view.removePeer(id);
+    }
+    for (const p of list) {
+      if (p.userId === this.myId) continue;
+      const outfit = normalizeOutfit(p.outfit, OUTFIT_COUNTS);
+      const existing = this.players.get(p.userId);
+      if (existing) {
+        existing.setTarget(p.x, p.y, 0, 0);
+        existing.outfit = outfit;
+      } else {
+        this.players.set(p.userId, new PlayerState({ ...p, outfit }, false));
+      }
+    }
+  }
+
   // Drop every bit of state tied to the previous WS session. The server mints a
   // NEW userId per connection, so a same-boot reconnect (network blip, or return
   // from a long-backgrounded tab) would otherwise leave a ghost of our old self
   // and any peer that left during the outage in the players map — plus stale mesh
   // peers, SFU tracks, and a self-screenshare stage keyed by the dead id. Called
-  // at the top of every welcome; a no-op on the first join since everything is
+  // on every non-resumed welcome; a no-op on the first join since everything is
   // already empty (so there's no first/reconnect branch to keep).
   private resetSessionState() {
     for (const id of [...this.players.keys()]) {
@@ -610,6 +649,7 @@ export class App {
       name: this.joinedName,
       outfit: this.editor.getOutfit(),
       ...(this.joinedPassword ? { password: this.joinedPassword } : {}),
+      ...(this.myResumeToken ? { resumeToken: this.myResumeToken } : {}),
     });
   }
 
@@ -799,17 +839,30 @@ export class App {
         // bundle (reload.ts explains the ghost mechanism).
         const boot = evaluateBoot(this.serverBootId, msg.bootId);
         this.serverBootId = boot.bootId;
-        logNet('welcome', { bootChanged: boot.reload });
+        const resumed = msg.resumed === true && this.me !== null && msg.self.userId === this.myId;
+        logNet('welcome', { bootChanged: boot.reload, resumed });
         if (boot.reload) {
           this.reloadBanner.show();
+          break;
+        }
+        // Fresh tokens either way: the media token authenticates the RTC HTTP
+        // endpoints; the resume token arms the NEXT reconnect (issue #187).
+        this.myResumeToken = msg.resumeToken ?? null;
+        setMediaToken(msg.token);
+        if (resumed) {
+          // Soft path (issue #187): the server kept our identity, so the live
+          // mesh/SFU transports, our position and the group state all stay.
+          // Only the players map needs reconciling — peers may have moved,
+          // joined or left while our socket was down.
+          this.reconcilePlayers(msg.players);
+          // Re-announce status: peers kept our avatar, but anything broadcast
+          // during the outage (mute toggles, notes) was lost on their side.
+          this.broadcastStatus();
           break;
         }
         // Clear any prior-session state before adopting the new one, so a same-boot
         // reconnect (new userId) doesn't leave ghosts of our old self / stale peers.
         this.resetSessionState();
-        // Store the fresh media token so the RTC transports can authenticate to
-        // /api/turn-credentials and /api/sfu/* for this (re)connected session.
-        setMediaToken(msg.token);
         this.myId = msg.self.userId;
         const spawn = findWalkableSpawn(msg.self.x, msg.self.y, PLAYER_RADIUS);
         msg.self.x = spawn.x;
