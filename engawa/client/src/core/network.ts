@@ -1,3 +1,4 @@
+import { logNet } from '@/core/netlog';
 import type { ClientMessage, ServerMessage } from '@/core/types';
 
 export class NetworkClient {
@@ -32,13 +33,21 @@ export class NetworkClient {
     const prev = this.ws;
     const ws = new WebSocket(this.url);
     this.ws = ws;
+    logNet('ws-connecting');
     ws.addEventListener('open', () => {
-      if (this.ws === ws) this.onOpen();
+      if (this.ws !== ws) return;
+      logNet('ws-open');
+      this.onOpen();
     });
-    ws.addEventListener('close', () => {
-      if (this.ws === ws) this.onClose();
+    ws.addEventListener('close', (e) => {
+      if (this.ws !== ws) return;
+      logNet('ws-close', { code: e.code, reason: e.reason });
+      this.onClose();
     });
-    ws.addEventListener('error', (e) => console.error('[ws] error', e));
+    ws.addEventListener('error', (e) => {
+      logNet('ws-error');
+      console.error('[ws] error', e);
+    });
     ws.addEventListener('message', (e) => {
       if (this.ws !== ws) return;
       try {

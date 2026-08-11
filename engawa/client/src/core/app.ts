@@ -2,6 +2,7 @@ import BackgroundTicker from '@/core/background-ticker?worker';
 import { t } from '@/core/i18n';
 import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
 import { setMediaToken } from '@/core/media-auth';
+import { logNet, QUALITY_SAMPLE_INTERVAL_MS } from '@/core/netlog';
 import { NetworkClient } from '@/core/network';
 import type { Point } from '@/core/proximity';
 import { isInitiator } from '@/core/proximity';
@@ -32,7 +33,7 @@ import {
   computeScreenEncoding,
   isHeldSpeaking,
 } from '@/rtc/cam-bitrate';
-import type { RtcConn } from '@/rtc/rtcstats';
+import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
 import { SfuManager } from '@/rtc/sfu';
 import { partitionMembers } from '@/rtc/sfu-logic';
 import { WebRtcManager } from '@/rtc/webrtc';
@@ -135,6 +136,11 @@ export class App {
 
   // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
   private lastLayerUpdate = 0;
+
+  // Call-quality sampling (issue #182): every QUALITY_SAMPLE_INTERVAL_MS the
+  // active transport's stats are folded into one QualitySample and appended to
+  // the connection log.
+  private lastQualitySampleAt = 0;
 
   // Background ticker: a Worker that keeps update() running while the tab is
   // hidden (requestAnimationFrame is paused there). Created in start(); the
@@ -445,6 +451,15 @@ export class App {
     return conns.then((c) => ({ method: this.currentMethod, conns: c }));
   }
 
+  // Fold the current connections' stats into one QualitySample (worst-case
+  // health, total rates) and log it. No connections → nothing to measure.
+  private async sampleQuality() {
+    const { method, conns } = await this.collectRtcStats();
+    if (conns.length === 0) return;
+    const q = summarizeConnQuality(conns);
+    logNet('quality', { method, ...q });
+  }
+
   private onOpen() {
     // Connected: the backoff resets and any "connection lost" toast clears. If
     // auth then fails the auth-error handler re-shows the join overlay.
@@ -505,6 +520,7 @@ export class App {
     }
     const delay = computeReconnectDelay(this.reconnectAttempt);
     this.reconnectAttempt++;
+    logNet('ws-retry-scheduled', { attempt: this.reconnectAttempt, delayMs: delay });
     console.warn(
       `[ws] connection closed; retrying in ${delay}ms (attempt ${this.reconnectAttempt})`,
     );
@@ -521,6 +537,7 @@ export class App {
   // User asked to retry (manual button) or returned to a backgrounded tab whose
   // socket dropped: clear any pending backoff, reset the counter, and reconnect now.
   private manualReconnect() {
+    logNet('ws-manual-reconnect');
     this.dismissConnToast?.();
     this.dismissConnToast = null;
     this.reconnectAttempt = 0;
@@ -534,6 +551,7 @@ export class App {
   private onServerMessage(msg: ServerMessage) {
     switch (msg.type) {
       case 'auth-error': {
+        logNet('auth-error');
         this.authFailed = true;
         // Re-show the join overlay; main.ts returns to the password gate (auth
         // errors only happen when a password is required and wrong).
@@ -549,6 +567,7 @@ export class App {
         // bundle (reload.ts explains the ghost mechanism).
         const boot = evaluateBoot(this.serverBootId, msg.bootId);
         this.serverBootId = boot.bootId;
+        logNet('welcome', { bootChanged: boot.reload });
         if (boot.reload) {
           this.reloadBanner.show();
           break;
@@ -798,6 +817,13 @@ export class App {
     if (now - this.lastLayerUpdate > 1000) {
       this.lastLayerUpdate = now;
       this.updateSfuLayers();
+    }
+
+    // Call-quality sampling for the connection log (issue #182). Runs from the
+    // loop (rAF or the background Worker), so it stays alive in hidden tabs.
+    if (now - this.lastQualitySampleAt > QUALITY_SAMPLE_INTERVAL_MS) {
+      this.lastQualitySampleAt = now;
+      void this.sampleQuality();
     }
 
     // Refresh the participant roster from the (now up-to-date) players map.

@@ -3,7 +3,10 @@ import {
   describeStream,
   describeTransport,
   diffRtcStats,
+  type RtcConn,
   type RtcSnapshot,
+  type RtcStreamRate,
+  summarizeConnQuality,
   summarizeRtcStats,
 } from '@/rtc/rtcstats';
 
@@ -342,5 +345,84 @@ describe('diffRtcStats — transport', () => {
       snap({ tMs: 2000, localCandidateType: 'relay', remoteCandidateType: 'host' }),
     );
     expect(rates.transport).toBe('TURN中継');
+  });
+});
+
+describe('summarizeRtcStats — available outgoing bitrate', () => {
+  it('reads the nominated pair estimate in kbps', () => {
+    const snap = summarizeRtcStats([
+      {
+        type: 'candidate-pair',
+        timestamp: 100,
+        nominated: true,
+        currentRoundTripTime: 0.05,
+        availableOutgoingBitrate: 1_234_000,
+      },
+    ]);
+    expect(snap.availableOutgoingKbps).toBe(1234);
+  });
+
+  it('ignores non-nominated pairs', () => {
+    const snap = summarizeRtcStats([
+      {
+        type: 'candidate-pair',
+        timestamp: 100,
+        nominated: false,
+        availableOutgoingBitrate: 500_000,
+      },
+    ]);
+    expect(snap.availableOutgoingKbps).toBeUndefined();
+  });
+});
+
+describe('summarizeConnQuality', () => {
+  const conn = (over: Partial<RtcConn>): RtcConn => ({ id: 'x', streams: [], ...over });
+  const stream = (over: Partial<RtcStreamRate>): RtcStreamRate => ({
+    dir: 'send',
+    kind: 'audio',
+    ssrc: 1,
+    kbps: 0,
+    ...over,
+  });
+
+  it('takes worst-case health signals and totals the rates', () => {
+    const q = summarizeConnQuality([
+      conn({
+        id: 'a',
+        rttMs: 40,
+        availableOutgoingKbps: 900,
+        streams: [
+          stream({ dir: 'send', kbps: 100, packetLossPct: 1 }),
+          stream({ dir: 'recv', kbps: 200, packetLossPct: 4, jitterMs: 25 }),
+        ],
+      }),
+      conn({
+        id: 'b',
+        rttMs: 250,
+        availableOutgoingKbps: 400,
+        streams: [
+          stream({ dir: 'send', kbps: 50, packetLossPct: 7 }),
+          stream({ dir: 'recv', kbps: 10, jitterMs: 90 }),
+        ],
+      }),
+    ]);
+    expect(q.conns).toBe(2);
+    expect(q.rttMs).toBe(250);
+    expect(q.sendLossPct).toBe(7);
+    expect(q.recvLossPct).toBe(4);
+    expect(q.recvJitterMs).toBe(90);
+    expect(q.sendKbps).toBe(150);
+    expect(q.recvKbps).toBe(210);
+    expect(q.availableOutgoingKbps).toBe(400);
+  });
+
+  it('leaves optional fields undefined when no connection reports them', () => {
+    const q = summarizeConnQuality([conn({ id: 'a' })]);
+    expect(q.conns).toBe(1);
+    expect(q.rttMs).toBeUndefined();
+    expect(q.sendLossPct).toBeUndefined();
+    expect(q.availableOutgoingKbps).toBeUndefined();
+    expect(q.sendKbps).toBe(0);
+    expect(q.recvKbps).toBe(0);
   });
 });

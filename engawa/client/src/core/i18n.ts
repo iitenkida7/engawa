@@ -185,6 +185,7 @@ const STR: Record<string, Record<Lang, string>> = {
     en: 'No connections (they appear when someone is nearby)',
   },
   'debug.noStreams': { ja: 'ストリームなし', en: 'No streams' },
+  'debug.copyLog': { ja: '接続ログをコピー', en: 'Copy connection log' },
 
   // -- remote media ---------------------------------------------------------
   'media.yourScreen': { ja: 'あなたの画面', en: 'Your screen' },

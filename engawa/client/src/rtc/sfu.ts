@@ -313,6 +313,7 @@ export class SfuManager {
         label: '自分 → SFU',
         rttMs: rates.rttMs,
         transport: rates.transport,
+        availableOutgoingKbps: rates.availableOutgoingKbps,
         streams: upstream,
       });
     }

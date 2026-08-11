@@ -239,6 +239,7 @@ export class WebRtcManager {
           id: entry.remoteUserId,
           rttMs: rates.rttMs,
           transport: rates.transport,
+          availableOutgoingKbps: rates.availableOutgoingKbps,
           streams: rates.streams,
         });
       }

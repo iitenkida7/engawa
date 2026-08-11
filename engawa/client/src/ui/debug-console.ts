@@ -1,4 +1,5 @@
 import { t } from '@/core/i18n';
+import { exportNetLog } from '@/core/netlog';
 import type { GroupMethod } from '@/core/types';
 import { describeStream, type RtcConn, type RtcStreamRate } from '@/rtc/rtcstats';
 import { makeDraggable } from '@/ui/draggable';
@@ -32,13 +33,34 @@ export class DebugConsole {
     this.root = document.getElementById('debug-console') as HTMLElement;
     this.body = document.getElementById('debug-body') as HTMLElement;
 
-    document.getElementById('debug-close')?.addEventListener('click', () => this.close());
+    const closeBtn = document.getElementById('debug-close');
+    closeBtn?.addEventListener('click', () => this.close());
     // Draggable by its header (the only remaining draggable panel — the media
     // windows became fixed auto-layout in #175). The CSS keeps the initial
     // top-right placement; makeDraggable switches it to inline left/top on the
     // first drag. Its high CSS z-index keeps it above the call wherever it moves.
     const header = document.getElementById('debug-header');
     if (header) makeDraggable(this.root, { handle: header });
+
+    // Copy the connection log (issue #182) so it can be pasted into a bug
+    // report. Button flashes ✓/✗ as its own feedback — no toast dependency.
+    const copyBtn = document.createElement('button');
+    copyBtn.id = 'debug-copy-log';
+    copyBtn.title = t('debug.copyLog');
+    copyBtn.textContent = '📋';
+    const flash = (mark: string) => {
+      copyBtn.textContent = mark;
+      setTimeout(() => {
+        copyBtn.textContent = '📋';
+      }, 1200);
+    };
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(exportNetLog()).then(
+        () => flash('✓'),
+        () => flash('✗'),
+      );
+    });
+    if (header && closeBtn) header.insertBefore(copyBtn, closeBtn);
   }
 
   isOpen(): boolean {

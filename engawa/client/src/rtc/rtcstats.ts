@@ -57,6 +57,10 @@ export type RtcSnapshot = {
   // is the prime suspect when an internet call feels laggy (#146).
   localCandidateType?: string;
   remoteCandidateType?: string;
+  // The congestion controller's uplink estimate for the nominated pair (kbps).
+  // This is what the send-side bandwidth adaptation keys off (#185): it reacts
+  // faster than loss shows up in remote-inbound reports.
+  availableOutgoingKbps?: number;
   outbound: RtcOutbound[];
   inbound: RtcInbound[];
   remoteInbound: RtcRemoteInbound[];
@@ -95,6 +99,7 @@ export function summarizeRtcStats(stats: Iterable<StatLike>): RtcSnapshot {
   let tMs = 0;
   let rttNominated: number | undefined;
   let rttFallback: number | undefined;
+  let availableOutgoingKbps: number | undefined;
   // candidate stat id → candidateType, plus the nominated pair's local/remote
   // candidate ids (resolved after the loop, since stat order is not guaranteed).
   const candidateTypes = new Map<string, string>();
@@ -165,6 +170,8 @@ export function summarizeRtcStats(stats: Iterable<StatLike>): RtcSnapshot {
         if (s.nominated) {
           nominatedLocalId = str(s.localCandidateId);
           nominatedRemoteId = str(s.remoteCandidateId);
+          const avail = num(s.availableOutgoingBitrate);
+          if (avail !== undefined) availableOutgoingKbps = Math.round(avail / 1000);
         }
         break;
       }
@@ -185,6 +192,7 @@ export function summarizeRtcStats(stats: Iterable<StatLike>): RtcSnapshot {
     rttMs: rttNominated ?? rttFallback,
     localCandidateType: nominatedLocalId ? candidateTypes.get(nominatedLocalId) : undefined,
     remoteCandidateType: nominatedRemoteId ? candidateTypes.get(nominatedRemoteId) : undefined,
+    availableOutgoingKbps,
     outbound,
     inbound,
     remoteInbound,
@@ -225,6 +233,7 @@ export type RtcConnRates = {
   dtMs: number;
   rttMs?: number;
   transport?: string; // 'TURN中継' | 'P2P(...)' — see describeTransport
+  availableOutgoingKbps?: number;
   streams: RtcStreamRate[];
 };
 
@@ -236,6 +245,7 @@ export type RtcConn = {
   label?: string; // overrides the resolved peer name (SFU synthetic entries)
   rttMs?: number;
   transport?: string; // 'TURN中継' | 'P2P(...)' — see describeTransport
+  availableOutgoingKbps?: number;
   streams: RtcStreamRate[];
 };
 
@@ -320,8 +330,52 @@ export function diffRtcStats(prev: RtcSnapshot, cur: RtcSnapshot): RtcConnRates 
     dtMs,
     rttMs: cur.rttMs !== undefined ? round1(cur.rttMs) : undefined,
     transport: describeTransport(cur.localCandidateType, cur.remoteCandidateType),
+    availableOutgoingKbps: cur.availableOutgoingKbps,
     streams,
   };
+}
+
+// One compact call-quality sample across every active connection, taken on a
+// slow cadence by the App and (a) appended to the connection log (#182) and
+// (b) fed to the bandwidth adaptation (#185). Worst-case aggregation on the
+// health signals: one bad peer is what the user experiences, and for our own
+// uplink the bottleneck link is the binding constraint.
+export type QualitySample = {
+  conns: number;
+  rttMs?: number; // worst (max) RTT across connections
+  sendLossPct?: number; // worst send-side loss (from remote-inbound reports)
+  recvLossPct?: number; // worst receive-side loss
+  recvJitterMs?: number; // worst receive-side jitter
+  sendKbps: number; // total uplink actually in flight
+  recvKbps: number; // total downlink actually in flight
+  availableOutgoingKbps?: number; // min across conns (uplink bottleneck estimate)
+};
+
+// Pure: fold per-connection rates into one QualitySample. Connections with no
+// streams still count toward `conns` (they carry RTT / bandwidth estimates).
+export function summarizeConnQuality(conns: RtcConn[]): QualitySample {
+  const q: QualitySample = { conns: conns.length, sendKbps: 0, recvKbps: 0 };
+  const maxOf = (cur: number | undefined, v: number | undefined) =>
+    v === undefined ? cur : cur === undefined ? v : Math.max(cur, v);
+  const minOf = (cur: number | undefined, v: number | undefined) =>
+    v === undefined ? cur : cur === undefined ? v : Math.min(cur, v);
+  for (const c of conns) {
+    q.rttMs = maxOf(q.rttMs, c.rttMs);
+    q.availableOutgoingKbps = minOf(q.availableOutgoingKbps, c.availableOutgoingKbps);
+    for (const s of c.streams) {
+      if (s.dir === 'send') {
+        q.sendKbps += s.kbps;
+        q.sendLossPct = maxOf(q.sendLossPct, s.packetLossPct);
+      } else {
+        q.recvKbps += s.kbps;
+        q.recvLossPct = maxOf(q.recvLossPct, s.packetLossPct);
+        q.recvJitterMs = maxOf(q.recvJitterMs, s.jitterMs);
+      }
+    }
+  }
+  q.sendKbps = round1(q.sendKbps);
+  q.recvKbps = round1(q.recvKbps);
+  return q;
 }
 
 // Pure: the chips shown for one stream row in the debug console (kept here, and
