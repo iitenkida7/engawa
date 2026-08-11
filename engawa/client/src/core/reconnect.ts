@@ -18,6 +18,31 @@ export const RECONNECT_MAX_MS = 30_000;
 // to the stronger "can't connect" one. Retrying never stops (issue #183).
 export const RECONNECT_STEADY_AFTER_ATTEMPTS = 8;
 
+// ─── Mesh-peer recovery (issue #184) ─────────────────────────────────────────
+// A mesh RTCPeerConnection that dies (ICE failure after a Wi-Fi roam, VPN
+// toggle, TURN allocation expiry, …) used to stay dead: the server only re-sends
+// group-update on topology changes, so nothing ever recreated the peer. The App
+// now schedules a per-peer rebuild with the same capped-backoff math.
+
+// Ceiling for the per-peer rebuild backoff. Shorter than the socket's 30s: a
+// call partner missing for half a minute feels broken, and the retry is cheap
+// (one signaling exchange), so keep probing.
+export const PEER_RETRY_MAX_MS = 15_000;
+// 'disconnected' often self-heals within a few seconds (ICE consent renewal
+// after a brief blip). Past this, tear the peer down and let the recovery loop
+// rebuild it rather than waiting for a 'failed' that can take ~15-30s.
+export const PEER_DISCONNECTED_TIMEOUT_MS = 7_000;
+// A (re)created peer that never reaches 'connect' within this window is stuck
+// (lost offer, one-sided death). Tear it down; the recovery loop retries with a
+// higher attempt count.
+export const PEER_CONNECT_STALL_MS = 20_000;
+
+// Delay before rebuild attempt N (1-based) of a mesh peer. Same equal-jitter
+// backoff as the socket, with the lower ceiling.
+export function computePeerRetryDelay(attempt: number, rand: number = Math.random()): number {
+  return computeReconnectDelay(Math.max(0, attempt - 1), rand, { maxMs: PEER_RETRY_MAX_MS });
+}
+
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }

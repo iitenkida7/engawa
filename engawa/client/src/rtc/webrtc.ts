@@ -1,4 +1,5 @@
 import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
+import { logNet } from '@/core/netlog';
 import type { StreamKind } from '@/core/types';
 import type { MediaManager } from '@/media/media';
 import {
@@ -109,6 +110,12 @@ export type WebRtcEvents = {
   onSignal: (toUserId: string, data: unknown) => void;
   onStreamMeta: (toUserId: string, streamId: string, kind: StreamKind | 'removed') => void;
   onPeerClosed: (userId: string) => void;
+  // Fired when the data channel connects (the pair is fully up). Drives the
+  // App's recovery bookkeeping: attempts reset, stall watchdog disarms (#184).
+  onPeerConnected: (userId: string) => void;
+  // Fired on every iceConnectionState change, so the App can tear down a peer
+  // stuck in 'disconnected' and let the recovery loop rebuild it (#184).
+  onPeerIceState: (userId: string, state: string) => void;
 };
 
 export class WebRtcManager {
@@ -299,6 +306,7 @@ export class WebRtcManager {
       abort: new AbortController(),
     };
     this.peers.set(remoteUserId, entry);
+    logNet('peer-created', { peer: remoteUserId, initiator });
 
     // Wire the stream→kind map for the initial stream(s).
     for (const { stream, kind } of initialStreams) {
@@ -333,9 +341,16 @@ export class WebRtcManager {
 
     peer.on('connect', () => {
       entry.ready = true;
+      logNet('peer-connected', { peer: remoteUserId });
       const pc = getPc(peer);
       if (pc) tuneReceivers(pc);
       this.retunePeer(entry);
+      this.events.onPeerConnected(remoteUserId);
+    });
+
+    peer.on('iceStateChange', (iceConnectionState: string) => {
+      logNet('peer-ice', { peer: remoteUserId, state: iceConnectionState });
+      this.events.onPeerIceState(remoteUserId, iceConnectionState);
     });
 
     const handleIncoming = (stream: MediaStream) => {
@@ -360,14 +375,22 @@ export class WebRtcManager {
     });
 
     peer.on('error', (err) => {
+      logNet('peer-error', { peer: remoteUserId, err: (err as Error).message });
       console.warn(`[rtc] peer ${remoteUserId} error`, err);
     });
 
     peer.on('close', () => {
+      logNet('peer-closed', { peer: remoteUserId });
       this.cleanupPeer(remoteUserId);
     });
 
     return entry;
+  }
+
+  // Whether the pair with this peer has fully connected (simple-peer 'connect'
+  // fired and the peer hasn't closed since). Used by the App's stall watchdog.
+  isPeerReady(remoteUserId: string): boolean {
+    return this.peers.get(remoteUserId)?.ready ?? false;
   }
 
   signal(remoteUserId: string, data: unknown) {

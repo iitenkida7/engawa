@@ -55,6 +55,9 @@ export type ClientMessage =
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
+  // Mesh-peer recovery (issue #184): the non-initiator side of a dead pair asks
+  // the elected initiator to rebuild it. Relayed 1:1 like signal.
+  | { type: 'rtc-restart'; to: string }
   // A chat line, relayed to the sender's current proximity group (the people
   // they're in a call with), so text stays spatial. The server keeps no history.
   | { type: 'chat'; text: string }
@@ -102,6 +105,8 @@ export type ServerMessage =
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
   | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' }
+  // A group peer asks the recipient (their elected initiator) to rebuild the pair.
+  | { type: 'rtc-restart'; from: string }
   // A chat line from a proximity-group peer (from === self when it's the echo
   // of our own message). `name` is the sender's display name; `ts` is server ms.
   | { type: 'chat'; from: string; name: string; text: string; ts: number }

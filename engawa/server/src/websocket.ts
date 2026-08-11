@@ -350,6 +350,16 @@ export function createWebSocketHandler(
           break;
         }
 
+        case 'rtc-restart': {
+          if (!ws.data.joined) return;
+          // Same-workspace 1:1 relay, mirroring signal: a mesh-recovery nudge
+          // must not cross the workspace boundary either (issue #184).
+          const target = clients.get(msg.to);
+          if (!target?.data.joined || target.data.workspace !== ws.data.workspace) return;
+          send(target, { type: 'rtc-restart', from: ws.data.userId });
+          break;
+        }
+
         case 'stream-meta': {
           if (!ws.data.joined) return;
           const target = clients.get(msg.to);

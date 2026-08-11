@@ -1148,3 +1148,34 @@ describe('createWebSocketHandler — heartbeat', () => {
     expect(handler.sendPings).toBe(true);
   });
 });
+
+describe('createWebSocketHandler — rtc-restart relay', () => {
+  test('relays the nudge 1:1 within the workspace', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const handler = createWebSocketHandler(clients);
+    const a = makeWs({ workspace: 'ws1', joined: true });
+    const b = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(a);
+    handler.open!(b);
+
+    deliver(handler, a, { type: 'rtc-restart', to: b.data.userId });
+    expect(b.sent).toContainEqual({ type: 'rtc-restart', from: a.data.userId });
+  });
+
+  test('drops the nudge across workspaces and for unjoined senders', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const handler = createWebSocketHandler(clients);
+    const a = makeWs({ workspace: 'ws1', joined: true });
+    const other = makeWs({ workspace: 'ws2', joined: true });
+    const lurker = makeWs({ workspace: 'ws1', joined: false });
+    handler.open!(a);
+    handler.open!(other);
+    handler.open!(lurker);
+
+    deliver(handler, a, { type: 'rtc-restart', to: other.data.userId });
+    expect(other.sent).toHaveLength(0);
+
+    deliver(handler, lurker, { type: 'rtc-restart', to: a.data.userId });
+    expect(a.sent).toHaveLength(0);
+  });
+});

@@ -3,13 +3,16 @@ import { mediaAuthHeaders } from '@/core/media-auth';
 // Shared ICE-server fetch for both transports (mesh WebRtcManager and SfuManager),
 // so the credentials are fetched once and refreshed on a TTL instead of being
 // cached for the whole page lifetime. The server issues Cloudflare TURN
-// credentials with ttl 3600s (server/src/turn.ts); an all-day office tab that
-// cached them forever would build every NEW PeerConnection after an hour with
-// expired TURN creds and silently fail behind strict NAT. Refetch at half-life.
+// credentials with a 12h ttl (server/src/turn.ts — long enough that an
+// established relayed call survives a workday, issue #184); an all-day tab that
+// cached them forever would still eventually build NEW PeerConnections with
+// stale creds, so we keep refetching on a short cycle.
 
 const STUN_FALLBACK: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
 
-// Refresh window (ms) — half of the server's 3600s TURN TTL.
+// Refresh window (ms) for new connections. Much shorter than the credential
+// ttl on purpose: a rebuilt peer (mesh recovery, #184) should always get
+// near-fresh credentials.
 export const ICE_TTL_MS = 30 * 60 * 1000;
 
 let cache: { servers: RTCIceServer[]; fetchedAt: number } | null = null;

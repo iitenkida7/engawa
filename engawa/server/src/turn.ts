@@ -9,6 +9,14 @@ const FALLBACK_ICE_SERVERS = [
 // doesn't pin the request open — on timeout we fall back to STUN-only.
 const TURN_FETCH_TIMEOUT_MS = 8000;
 
+// Credential lifetime (seconds). An established RTCPeerConnection keeps the
+// credentials it was built with — there is no seamless mid-call refresh — so a
+// TURN-relayed call used to die when the old 1h ttl expired (issue #184). 12h
+// covers a full workday tab; the client still fetches fresh credentials every
+// 30min for NEW connections (client rtc/ice.ts), so a leaked credential's
+// usefulness stays bounded by Cloudflare's per-credential accounting.
+const TURN_CREDENTIAL_TTL_S = 43200;
+
 export async function getTurnCredentials() {
   const id = process.env.CLOUDFLARE_TURN_TOKEN_ID;
   const secret = process.env.CLOUDFLARE_TURN_TOKEN_SECRET;
@@ -26,7 +34,7 @@ export async function getTurnCredentials() {
           Authorization: `Bearer ${secret}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ ttl: 3600 }),
+        body: JSON.stringify({ ttl: TURN_CREDENTIAL_TTL_S }),
         signal: AbortSignal.timeout(TURN_FETCH_TIMEOUT_MS),
       },
     );

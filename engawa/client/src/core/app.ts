@@ -7,7 +7,10 @@ import { NetworkClient } from '@/core/network';
 import type { Point } from '@/core/proximity';
 import { isInitiator } from '@/core/proximity';
 import {
+  computePeerRetryDelay,
   computeReconnectDelay,
+  PEER_CONNECT_STALL_MS,
+  PEER_DISCONNECTED_TIMEOUT_MS,
   RECONNECT_MAX_MS,
   RECONNECT_STEADY_AFTER_ATTEMPTS,
 } from '@/core/reconnect';
@@ -146,6 +149,19 @@ export class App {
   // the connection log.
   private lastQualitySampleAt = 0;
 
+  // Mesh-peer recovery state (issue #184), all keyed by peer userId and driven
+  // from tickPeerRecovery in the game loop:
+  //  - peerRetryAt: performance.now deadline of the pending rebuild.
+  //  - peerRetryAttempts: consecutive failures, for the backoff (reset on connect).
+  //  - peerStallAt: deadline by which a created peer must reach 'connect'.
+  //  - peerDisconnectedSince: when iceConnectionState went 'disconnected'.
+  //  - rtcRestartHandledAt: debounce for inbound rtc-restart nudges.
+  private peerRetryAt = new Map<string, number>();
+  private peerRetryAttempts = new Map<string, number>();
+  private peerStallAt = new Map<string, number>();
+  private peerDisconnectedSince = new Map<string, number>();
+  private rtcRestartHandledAt = new Map<string, number>();
+
   // Background ticker: a Worker that keeps update() running while the tab is
   // hidden (requestAnimationFrame is paused there). Created in start(); the
   // visible/hidden handover lives in the loop and onWorkerTick.
@@ -229,7 +245,32 @@ export class App {
       },
       onRemoteStream: (userId, stream, kind) => this.view.attachRemoteStream(userId, stream, kind),
       onRemoteStreamRemoved: (userId, streamId) => this.view.detachRemoteStream(userId, streamId),
-      onPeerClosed: (userId) => this.view.removePeer(userId),
+      onPeerClosed: (userId) => {
+        this.view.removePeer(userId);
+        // A peer that died while still in our group gets rebuilt (issue #184);
+        // one that left the group has its recovery state dropped.
+        this.schedulePeerRecovery(userId);
+      },
+      onPeerConnected: (userId) => {
+        // Fully up: recovery bookkeeping resets so the next failure starts a
+        // fresh backoff, and the stall/disconnected watchdogs disarm.
+        this.peerRetryAttempts.delete(userId);
+        this.peerRetryAt.delete(userId);
+        this.peerStallAt.delete(userId);
+        this.peerDisconnectedSince.delete(userId);
+      },
+      onPeerIceState: (userId, state) => {
+        // Track sustained 'disconnected' (see tickPeerRecovery). 'failed'/'closed'
+        // need no handling here — simple-peer destroys the pair, which lands in
+        // onPeerClosed above.
+        if (state === 'disconnected') {
+          if (!this.peerDisconnectedSince.has(userId)) {
+            this.peerDisconnectedSince.set(userId, performance.now());
+          }
+        } else if (state === 'connected' || state === 'completed') {
+          this.peerDisconnectedSince.delete(userId);
+        }
+      },
     });
 
     // SFU transport. Shares the same remote-media event surface as the mesh, so
@@ -442,11 +483,15 @@ export class App {
     }
     this.players.clear();
     this.me = null;
+    // Membership is cleared BEFORE the transports close: onPeerClosed consults
+    // meshMembers to decide whether a closing peer should be rebuilt (#184), and
+    // a session reset must not schedule rebuilds of the peers it is dropping.
+    this.meshMembers.clear();
+    this.sfuMembers.clear();
+    this.clearPeerRecovery();
     this.rtc.closeAll();
     this.sfu.closeAll();
     this.knownSfuPeers.clear();
-    this.meshMembers.clear();
-    this.sfuMembers.clear();
     this.inProximity.clear();
     this.currentMethod = 'mesh';
     this.focusedId = null;
@@ -576,6 +621,87 @@ export class App {
       this.reconnectAt = null;
       this.net.connect();
     }
+    this.tickPeerRecovery(now);
+  }
+
+  // ─── Mesh-peer recovery (issue #184) ──────────────────────────────────────
+  // A mesh pair that dies mid-call (ICE failure after a Wi-Fi roam, TURN
+  // allocation expiry, …) never comes back on its own: the server re-sends
+  // group-update only on topology changes, and simple-peer does not resend
+  // offers. So the App rebuilds dead pairs itself, with a per-peer backoff.
+
+  // Create one mesh peer and arm the stall watchdog: if it never reaches
+  // 'connect' the recovery loop tears it down and retries. All mesh createPeer
+  // call sites (group reconcile, recovery, restart nudges) go through here.
+  private createMeshPeer(userId: string, initiator: boolean) {
+    this.peerStallAt.set(userId, performance.now() + PEER_CONNECT_STALL_MS);
+    void this.rtc.createPeer(userId, initiator);
+  }
+
+  // A peer closed. If it should still be in our call, schedule a rebuild with
+  // backoff; otherwise clear its recovery state. Deliberate closes (group
+  // reconcile, mesh→SFU, session reset) pass the guards because membership is
+  // updated *before* the close in those paths.
+  private schedulePeerRecovery(userId: string) {
+    this.peerStallAt.delete(userId);
+    this.peerDisconnectedSince.delete(userId);
+    if (this.currentMethod !== 'mesh' || !this.meshMembers.has(userId)) {
+      this.peerRetryAt.delete(userId);
+      this.peerRetryAttempts.delete(userId);
+      return;
+    }
+    if (this.peerRetryAt.has(userId)) return;
+    const attempt = (this.peerRetryAttempts.get(userId) ?? 0) + 1;
+    this.peerRetryAttempts.set(userId, attempt);
+    const delay = computePeerRetryDelay(attempt);
+    logNet('mesh-retry-scheduled', { peer: userId, attempt, delayMs: delay });
+    this.peerRetryAt.set(userId, performance.now() + delay);
+  }
+
+  // The recovery pump, run every simulation step: fires due rebuilds, tears
+  // down peers stuck in 'disconnected' or stalled short of 'connect'. Teardowns
+  // land back in schedulePeerRecovery via onPeerClosed, bumping the backoff.
+  private tickPeerRecovery(now: number) {
+    for (const [userId, at] of this.peerRetryAt) {
+      if (now < at) continue;
+      this.peerRetryAt.delete(userId);
+      if (this.currentMethod !== 'mesh' || !this.meshMembers.has(userId)) continue;
+      if (this.rtc.hasPeer(userId)) continue;
+      const initiator = isInitiator(this.myId, userId);
+      logNet('mesh-retry', { peer: userId, initiator });
+      this.createMeshPeer(userId, initiator);
+      // Only the elected initiator can send the fresh offer; the other side
+      // nudges it (rtc-restart) in case it hasn't noticed the pair is dead.
+      if (!initiator) this.net.send({ type: 'rtc-restart', to: userId });
+    }
+    for (const [userId, since] of this.peerDisconnectedSince) {
+      if (now - since < PEER_DISCONNECTED_TIMEOUT_MS) continue;
+      this.peerDisconnectedSince.delete(userId);
+      logNet('mesh-disconnected-timeout', { peer: userId });
+      this.rtc.closePeer(userId);
+    }
+    for (const [userId, at] of this.peerStallAt) {
+      if (now < at) continue;
+      this.peerStallAt.delete(userId);
+      if (!this.rtc.hasPeer(userId) || this.rtc.isPeerReady(userId)) continue;
+      logNet('mesh-connect-stall', { peer: userId });
+      this.rtc.closePeer(userId);
+    }
+  }
+
+  // Drop every per-peer recovery record for peers outside `keep` (or all).
+  private clearPeerRecovery(keep?: Set<string>) {
+    for (const map of [
+      this.peerRetryAt,
+      this.peerRetryAttempts,
+      this.peerStallAt,
+      this.peerDisconnectedSince,
+      this.rtcRestartHandledAt,
+    ]) {
+      for (const id of [...map.keys()]) {
+        if (!keep?.has(id)) map.delete(id);
+      }
+    }
   }
 
   // User asked to retry (manual button), returned to a backgrounded tab whose
@@ -676,6 +802,11 @@ export class App {
         this.players.delete(msg.userId);
         if (this.focusedId === msg.userId) this.focusedId = null;
         this.knocks.onPlayerLeft(msg.userId);
+        // They are gone for good — drop group membership first so the peer
+        // close below doesn't schedule a rebuild (#184; the follow-up
+        // group-update confirms the membership).
+        this.meshMembers.delete(msg.userId);
+        this.sfuMembers.delete(msg.userId);
         this.rtc.closePeer(msg.userId);
         this.sfu.removePeer(msg.userId);
         this.knownSfuPeers.delete(msg.userId);
@@ -692,6 +823,20 @@ export class App {
       }
       case 'stream-meta': {
         this.rtc.applyRemoteStreamMeta(msg.from, msg.streamId, msg.kind);
+        break;
+      }
+      case 'rtc-restart': {
+        // A group peer detected our pair is dead and asks us — their elected
+        // initiator — to rebuild it with a fresh offer (issue #184). Debounced:
+        // their retry loop may nudge several times while we renegotiate.
+        if (this.currentMethod !== 'mesh' || !this.meshMembers.has(msg.from)) break;
+        const now = performance.now();
+        const last = this.rtcRestartHandledAt.get(msg.from);
+        if (last != null && now - last < 3000) break;
+        this.rtcRestartHandledAt.set(msg.from, now);
+        logNet('rtc-restart-received', { peer: msg.from });
+        this.rtc.closePeer(msg.from);
+        this.createMeshPeer(msg.from, true);
         break;
       }
       case 'group-update': {
@@ -758,8 +903,10 @@ export class App {
     if (!this.rtc.hasPeer(from) && !this.meshMembers.has(from) && !this.sfuMembers.has(from)) {
       return;
     }
-    // If we have no peer for this user, create as non-initiator.
+    // If we have no peer for this user, create as non-initiator. Arm the same
+    // connect-stall watchdog as the outbound paths (#184).
     if (!this.rtc.hasPeer(from)) {
+      this.peerStallAt.set(from, performance.now() + PEER_CONNECT_STALL_MS);
       await this.rtc.createPeer(from, false);
     }
     this.rtc.signal(from, data);
@@ -1032,9 +1179,11 @@ export class App {
       this.currentMethod = 'sfu';
       this.sfuMembers = new Set(members);
       this.meshMembers.clear();
+      this.clearPeerRecovery();
       if (wasMesh) {
         // mesh → SFU: drop every mesh peer, then publish our live streams to the
-        // SFU. Remote media comes back via sfu-peer-tracks → pull.
+        // SFU. Remote media comes back via sfu-peer-tracks → pull. (meshMembers
+        // was cleared above, so the recovery loop won't rebuild them — #184.)
         this.rtc.closeAll();
         this.publishLocalToSfu();
       }
@@ -1056,13 +1205,16 @@ export class App {
       // Reconcile mesh peers against the group: close peers no longer in it,
       // open one to every member we are not yet connected to. createPeer bundles
       // our live streams automatically; initiator election keeps it to one offer.
+      // meshMembers is updated BEFORE the closes so onPeerClosed (#184) can tell
+      // "left the group" (drop recovery state) from "died mid-call" (rebuild).
       const next = new Set(members.filter((id) => id !== this.myId));
+      this.meshMembers = next;
+      this.clearPeerRecovery(next);
       const { toClose, toOpen } = partitionMembers(this.rtc.peerIds(), next);
       for (const id of toClose) this.rtc.closePeer(id);
       for (const id of toOpen) {
-        void this.rtc.createPeer(id, isInitiator(this.myId, id));
+        this.createMeshPeer(id, isInitiator(this.myId, id));
       }
-      this.meshMembers = next;
     }
   }
 
