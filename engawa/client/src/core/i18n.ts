@@ -217,6 +217,14 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: '通話サーバーに接続できないため、P2P 接続に切り替えました。',
     en: "Couldn't reach the call server — switched to a P2P connection.",
   },
+  'app.netCamOff': {
+    ja: '回線が不安定なため、音声を優先してカメラを一時停止しました(回復すると自動で再開します)。',
+    en: 'Network is struggling — camera paused to protect audio (it will resume automatically).',
+  },
+  'app.netCamRestore': {
+    ja: '回線が回復したため、カメラを再開しました。',
+    en: 'Network recovered — camera resumed.',
+  },
 
   // -- reload banner --------------------------------------------------------
   'reload.countdown': { ja: '{seconds} 秒後に再読み込みします…', en: 'Reloading in {seconds}s…' },

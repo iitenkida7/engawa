@@ -40,7 +40,17 @@ import {
   computeScreenEncoding,
   isHeldSpeaking,
 } from '@/rtc/cam-bitrate';
+import {
+  applyNetTierToCam,
+  applyNetTierToScreen,
+  classifySample,
+  INITIAL_TIER_STATE,
+  type NetTier,
+  type TierState,
+  updateTierState,
+} from '@/rtc/netquality';
 import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
+import { setPreferRedAudio } from '@/rtc/sdp';
 import { SfuManager } from '@/rtc/sfu';
 import { partitionMembers } from '@/rtc/sfu-logic';
 import { WebRtcManager } from '@/rtc/webrtc';
@@ -146,8 +156,13 @@ export class App {
 
   // Call-quality sampling (issue #182): every QUALITY_SAMPLE_INTERVAL_MS the
   // active transport's stats are folded into one QualitySample and appended to
-  // the connection log.
+  // the connection log. The sample also drives the bandwidth adaptation (#185):
+  // `netTierState` is the hysteresis state machine over classified samples, and
+  // `autoCamOff` marks a camera we paused at tier 3 (auto-resumed on recovery;
+  // any manual camera toggle clears the flag so the user always wins).
   private lastQualitySampleAt = 0;
+  private netTierState: TierState = INITIAL_TIER_STATE;
+  private autoCamOff = false;
 
   // Mesh-peer recovery state (issue #184), all keyed by peer userId and driven
   // from tickPeerRecovery in the game loop:
@@ -316,6 +331,11 @@ export class App {
       // resolve lazily on click, so referencing this.debug (built below) is fine.
       toggleDebug: () => this.debug.toggle(),
       isDebugOpen: () => this.debug.isOpen(),
+      // A manual camera toggle overrides the tier-3 auto-pause (#185): the user
+      // turning the camera on (or off) while paused takes it out of automation.
+      onUserCamToggle: () => {
+        this.autoCamOff = false;
+      },
     });
 
     this.roster = new RosterPanel({
@@ -525,12 +545,47 @@ export class App {
   }
 
   // Fold the current connections' stats into one QualitySample (worst-case
-  // health, total rates) and log it. No connections → nothing to measure.
+  // health, total rates), log it, and advance the network tier (#185). No
+  // connections → nothing to measure; the tier resets so the next call starts
+  // clean instead of inheriting a stale downgrade.
   private async sampleQuality() {
     const { method, conns } = await this.collectRtcStats();
-    if (conns.length === 0) return;
+    if (conns.length === 0) {
+      this.netTierState = INITIAL_TIER_STATE;
+      return;
+    }
     const q = summarizeConnQuality(conns);
     logNet('quality', { method, ...q });
+
+    const prevTier = this.netTierState.tier;
+    this.netTierState = updateTierState(this.netTierState, classifySample(q));
+    const tier = this.netTierState.tier;
+    if (tier !== prevTier) {
+      logNet('net-tier', { from: prevTier, to: tier });
+      // Sustained loss → prefer redundant audio (Opus RED) on every SDP
+      // negotiated from now on: new peers, recovery rebuilds, renegotiations.
+      setPreferRedAudio(tier >= 2);
+    }
+    await this.applyAutoCamPolicy(tier);
+  }
+
+  // Tier 3 means voice is at risk: pause the camera through the same toolbar
+  // path as a manual click (peers' tiles clear properly, status broadcasts),
+  // and auto-resume once the network has climbed back to tier ≤1. A manual
+  // camera toggle clears `autoCamOff` (see onUserCamToggle) so the automation
+  // never fights the user.
+  private async applyAutoCamPolicy(tier: NetTier) {
+    if (tier === 3 && this.media.camOn && !this.autoCamOff) {
+      this.autoCamOff = true;
+      logNet('net-auto-cam-off');
+      this.toasts.info(t('app.netCamOff'));
+      await this.toolbar.setCamEnabled(false);
+    } else if (this.autoCamOff && tier <= 1) {
+      this.autoCamOff = false;
+      logNet('net-auto-cam-restore');
+      this.toasts.info(t('app.netCamRestore'));
+      await this.toolbar.setCamEnabled(true);
+    }
   }
 
   private onOpen() {
@@ -1062,8 +1117,11 @@ export class App {
     if (me.isSpeaking) this.lastLoudAtMs = nowMs;
     const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
     const peerCount = this.rtc.peerCount;
-    this.rtc.setCamEncoding(computeCamEncoding(peerCount, speaking));
-    this.rtc.setScreenEncoding(computeScreenEncoding(peerCount));
+    // The peer-count/speaker ceilings, further shrunk by the network tier
+    // (#185) — under congestion video yields so voice keeps its headroom.
+    const tier = this.netTierState.tier;
+    this.rtc.setCamEncoding(applyNetTierToCam(computeCamEncoding(peerCount, speaking), tier));
+    this.rtc.setScreenEncoding(applyNetTierToScreen(computeScreenEncoding(peerCount), tier));
   }
 
   // Moves self by a velocity for one frame, sliding along walls (per-axis

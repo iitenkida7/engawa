@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'bun:test';
-import { transformSdp, transformSdpForLowLatency, transformSdpPreferVideoCodec } from '@/rtc/sdp';
+import {
+  isRedAudioPreferred,
+  setPreferRedAudio,
+  transformSdp,
+  transformSdpForLowLatency,
+  transformSdpPreferAudioRed,
+  transformSdpPreferVideoCodec,
+} from '@/rtc/sdp';
 
 const EXPECTED_FMTP = 'minptime=10;useinbandfec=1;usedtx=0;stereo=0;sprop-stereo=0';
 
@@ -197,5 +204,68 @@ describe('transformSdp (combined)', () => {
   it('is idempotent', () => {
     const once = transformSdp(INPUT);
     expect(transformSdp(once)).toBe(once);
+  });
+});
+
+describe('transformSdpPreferAudioRed', () => {
+  const sdp = [
+    'v=0',
+    'm=audio 9 UDP/TLS/RTP/SAVPF 111 63 9',
+    'a=rtpmap:111 opus/48000/2',
+    'a=rtpmap:63 red/48000/2',
+    'a=fmtp:63 111/111',
+    'm=video 9 UDP/TLS/RTP/SAVPF 96',
+    'a=rtpmap:96 VP8/90000',
+  ].join('\r\n');
+
+  it('moves red payload types to the front of m=audio', () => {
+    const out = transformSdpPreferAudioRed(sdp);
+    const audio = out.split('\r\n').find((l) => l.startsWith('m=audio '));
+    expect(audio).toBe('m=audio 9 UDP/TLS/RTP/SAVPF 63 111 9');
+  });
+
+  it('keeps every payload type (fallback for peers without red)', () => {
+    const out = transformSdpPreferAudioRed(sdp);
+    const audio = out.split('\r\n').find((l) => l.startsWith('m=audio ')) ?? '';
+    for (const pt of ['111', '63', '9']) expect(audio.split(' ')).toContain(pt);
+  });
+
+  it('leaves SDP without red untouched, and never touches m=video', () => {
+    const noRed = sdp.replace('a=rtpmap:63 red/48000/2\r\n', '').replace(' 63', '');
+    expect(transformSdpPreferAudioRed(noRed)).toBe(noRed);
+    const out = transformSdpPreferAudioRed(sdp);
+    expect(out.split('\r\n').find((l) => l.startsWith('m=video '))).toBe(
+      'm=video 9 UDP/TLS/RTP/SAVPF 96',
+    );
+  });
+
+  it('is idempotent', () => {
+    const once = transformSdpPreferAudioRed(sdp);
+    expect(transformSdpPreferAudioRed(once)).toBe(once);
+  });
+});
+
+describe('transformSdp — red preference flag', () => {
+  it('applies red-first ordering only while the flag is on', () => {
+    const sdp = [
+      'v=0',
+      'm=audio 9 UDP/TLS/RTP/SAVPF 111 63',
+      'a=rtpmap:111 opus/48000/2',
+      'a=rtpmap:63 red/48000/2',
+    ].join('\r\n');
+    try {
+      setPreferRedAudio(true);
+      expect(isRedAudioPreferred()).toBe(true);
+      const on = transformSdp(sdp);
+      expect(on.split('\r\n').find((l) => l.startsWith('m=audio '))).toBe(
+        'm=audio 9 UDP/TLS/RTP/SAVPF 63 111',
+      );
+    } finally {
+      setPreferRedAudio(false);
+    }
+    const off = transformSdp(sdp);
+    expect(off.split('\r\n').find((l) => l.startsWith('m=audio '))).toBe(
+      'm=audio 9 UDP/TLS/RTP/SAVPF 111 63',
+    );
   });
 });

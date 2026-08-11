@@ -54,6 +54,7 @@ export class ToolbarController {
   private onOpenAvatar: () => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
+  private onUserCamToggle: () => void;
 
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
@@ -78,6 +79,9 @@ export class ToolbarController {
     onOpenAvatar: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
+    // Fired on a MANUAL camera-button toggle (not setCamEnabled), so the App's
+    // bandwidth automation (#185) can stand down when the user takes over.
+    onUserCamToggle: () => void;
   }) {
     this.media = opts.media;
     this.rtc = opts.rtc;
@@ -91,6 +95,7 @@ export class ToolbarController {
     this.onOpenAvatar = opts.onOpenAvatar;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
+    this.onUserCamToggle = opts.onUserCamToggle;
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
@@ -121,6 +126,7 @@ export class ToolbarController {
       this.broadcastStatus();
     });
     this.btnCam.addEventListener('click', async () => {
+      this.onUserCamToggle();
       if (this.media.camOn) {
         this.stopCam();
       } else {
@@ -209,6 +215,16 @@ export class ToolbarController {
   private stopCam() {
     const old = this.media.disableCam();
     if (old) this.rtc.removeLocalStream(old);
+  }
+
+  // Programmatic camera toggle for the App's bandwidth automation (#185): the
+  // exact same flow as the button (peers' tiles clear via stream-meta, status
+  // broadcasts), minus the manual-toggle notification.
+  async setCamEnabled(on: boolean) {
+    if (on === this.media.camOn) return;
+    if (on) await this.startCam();
+    else this.stopCam();
+    this.broadcastStatus();
   }
 
   private async toggleScreen() {
