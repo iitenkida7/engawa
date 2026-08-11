@@ -70,3 +70,14 @@ describe('formatNetLogExport', () => {
     expect(parsed.entries).toEqual(entries);
   });
 });
+
+describe('lifecycle / quality ring separation', () => {
+  it('a flood of quality samples never evicts lifecycle events', () => {
+    logNet('ws-close', { code: 1006 });
+    for (let i = 0; i < 2000; i++) logNet('quality', { i });
+    const entries = netLogEntries();
+    expect(entries.some((e) => e.type === 'ws-close')).toBe(true);
+    // The quality ring itself stays bounded.
+    expect(entries.filter((e) => e.type === 'quality').length).toBeLessThanOrEqual(720);
+  });
+});

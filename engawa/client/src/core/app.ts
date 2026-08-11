@@ -147,8 +147,11 @@ export class App {
   // relays directories on group changes / publishes, so a transport rebuild
   // re-feeds them from this cache instead of waiting for a topology change.
   private sfuDirectory = new Map<string, { sessionId: string; tracks: SfuTrack[] }>();
-  // When the last SFU transport rebuild ran (see onSfuFailed).
-  private lastSfuRebuildAt = 0;
+  // When the last SFU transport rebuild ran (see onSfuFailed). Starts at -∞ so
+  // the FIRST failure always gets its in-place rebuild — performance.now() is
+  // ms since page load, so a 0 start would misread any failure in the first
+  // 30s as a repeat and degrade straight to mesh.
+  private lastSfuRebuildAt = Number.NEGATIVE_INFINITY;
 
   // Speaker-aware send policy. `lastLoudAtMs` is the last frame our mic was loud
   // (drives the post-speech hold). The computed camera encoding / screen bitrate
@@ -1059,8 +1062,12 @@ export class App {
       case 'rtc-restart': {
         // A group peer detected our pair is dead and asks us — their elected
         // initiator — to rebuild it with a fresh offer (issue #184). Debounced:
-        // their retry loop may nudge several times while we renegotiate.
+        // their retry loop may nudge several times while we renegotiate. Only
+        // honored when the deterministic election really makes us the
+        // initiator: otherwise a misbehaving peer could tear a healthy pair
+        // down into offer-glare (two initiators) every few seconds.
         if (this.currentMethod !== 'mesh' || !this.meshMembers.has(msg.from)) break;
+        if (!isInitiator(this.myId, msg.from)) break;
         const now = performance.now();
         const last = this.rtcRestartHandledAt.get(msg.from);
         if (last != null && now - last < 3000) break;

@@ -145,10 +145,13 @@ export class NetworkClient {
   // Tear the current socket down (half-open detection, or the OS went offline).
   // Closing fires the socket's 'close', which — via the identity guard — drives
   // the App's normal reconnect path; there is no separate teardown code path.
+  // The private 4000 code marks this as "reconnecting, not leaving": if the
+  // close frame does reach the server, it must still grant the resume grace —
+  // only 1000/1001 (tab close / reload) finalize the leave immediately.
   forceClose() {
     if (!this.ws) return;
     try {
-      this.ws.close();
+      this.ws.close(4000, 'reconnecting');
     } catch {
       /* noop */
     }

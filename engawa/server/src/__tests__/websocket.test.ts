@@ -303,7 +303,7 @@ describe('createWebSocketHandler — join', () => {
     expect(welcome.token.length).toBeGreaterThan(0);
     expect(tokens.has(welcome.token)).toBe(true);
 
-    handler.close!(joiner, 1000, '');
+    handler.close!(joiner, 1006, '');
     // Still valid inside the grace window — a resuming client may be mid-flight
     // with TURN/SFU requests carrying it.
     expect(tokens.has(welcome.token)).toBe(true);
@@ -1270,6 +1270,27 @@ describe('createWebSocketHandler — session resume (issue #187)', () => {
 
     handler.close!(a, 1006, '');
     await new Promise((r) => setTimeout(r, 30));
+
+    expect(clients.has(oldUserId)).toBe(false);
+    expect(mediaTokens.has(oldMediaToken)).toBe(false);
+    expect(peer.sent).toContainEqual({ type: 'player-left', userId: oldUserId });
+  });
+
+  test('a clean close (tab close / reload) skips the grace and leaves immediately', () => {
+    const { clients, mediaTokens, handler } = setup();
+    const a = makeWs();
+    const peer = makeWs();
+    handler.open!(a);
+    handler.open!(peer);
+    deliver(handler, a, { type: 'join', name: 'A' });
+    deliver(handler, peer, { type: 'join', name: 'P' });
+    const oldUserId = a.data.userId;
+    const oldMediaToken = a.data.mediaToken!;
+    peer.sent.length = 0;
+
+    // 1001 = going away (tab close / navigation). No ghost, no grace: the
+    // reload's fresh join must not coexist with a 15s leftover avatar.
+    handler.close!(a, 1001, '');
 
     expect(clients.has(oldUserId)).toBe(false);
     expect(mediaTokens.has(oldMediaToken)).toBe(false);

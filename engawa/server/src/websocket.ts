@@ -601,7 +601,7 @@ export function createWebSocketHandler(
       }
     },
 
-    close(ws) {
+    close(ws, code) {
       // Identity check: a resume/reconnect may have already replaced this entry
       // in the map. A stale close must not evict the live connection — it only
       // cleans up its own media token (normally already invalidated on resume).
@@ -618,7 +618,16 @@ export function createWebSocketHandler(
       // position, group membership, media token — survives for leaveGraceMs so
       // a resume can adopt it without peers ever seeing a leave. The socket is
       // dead, so broadcasts to it silently no-op until then.
-      if (ws.data.joined && ws.data.resumeToken) {
+      //
+      // Only for ABNORMAL closes, though: 1000/1001 mean the user deliberately
+      // left (tab close, page reload — and a reload starts with a fresh memory-
+      // only resume token, so nothing ever resumes the old identity). Granting
+      // those the grace kept a ghost avatar around for 15s and made every
+      // reload show a duplicate. The client's own heartbeat force-close uses a
+      // private 4xxx code precisely so it keeps the grace when its close frame
+      // happens to reach us.
+      const deliberateLeave = code === 1000 || code === 1001;
+      if (ws.data.joined && ws.data.resumeToken && !deliberateLeave) {
         const token = ws.data.resumeToken;
         const timer = setTimeout(() => finalizeLeave(token, ws), leaveGraceMs);
         pendingLeave.set(token, { userId: ws.data.userId, timer });
