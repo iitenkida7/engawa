@@ -296,19 +296,18 @@ export function createWebSocketHandler(
               clearTimeout(pending.timer);
               pendingLeave.delete(resumeToken);
             }
-            // The predecessor's tokens die with it; a half-open one is closed
-            // (its stale close is ignored by the identity check below).
+            // The predecessor's tokens die with it.
             if (prev.data.mediaToken) {
               mediaTokens.delete(prev.data.mediaToken);
               prev.data.mediaToken = null;
             }
             prev.data.resumeToken = null;
-            try {
-              prev.close(4002, 'resumed by a new connection');
-            } catch {
-              /* already closed */
-            }
             // Drop the fresh id minted at upgrade and adopt the previous one.
+            // The map is re-pointed at the NEW socket BEFORE the half-open
+            // predecessor is closed: Bun runs the close handler synchronously
+            // inside close(), and if the map still held `prev` at that moment
+            // the handler would take the immediate-leave branch and broadcast a
+            // spurious player-left for the identity we are resuming.
             clients.delete(ws.data.userId);
             ws.data.userId = prev.data.userId;
             ws.data.name = prev.data.name;
@@ -317,11 +316,19 @@ export function createWebSocketHandler(
             ws.data.y = prev.data.y;
             ws.data.zoneId = prev.data.zoneId;
             ws.data.outfit = sanitizeOutfit(msg.outfit);
-            ws.data.groupKey = prev.data.groupKey;
+            // groupKey stays null (not prev's): the topology may match, but the
+            // client missed everything relayed during the outage (group-updates,
+            // sfu-peer-tracks). A null key makes broadcastGroups below treat the
+            // group as changed and re-send both, resyncing the client.
             ws.data.sfuSessionId = prev.data.sfuSessionId;
             ws.data.sfuTracks = prev.data.sfuTracks;
             ws.data.joined = true;
             clients.set(ws.data.userId, ws);
+            try {
+              prev.close(4002, 'resumed by a new connection');
+            } catch {
+              /* already closed */
+            }
 
             const mediaToken = crypto.randomUUID();
             ws.data.mediaToken = mediaToken;

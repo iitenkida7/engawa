@@ -515,6 +515,25 @@ export class App {
     window.addEventListener('offline', this.onOffline);
   }
 
+  // Full teardown of one remote player who is gone for good. Shared by the
+  // player-left message and the resumed-welcome reconciliation (issue #187) so
+  // per-peer state added to one path can't silently leak in the other. Group
+  // membership is dropped BEFORE the peer close so the mesh recovery (#184)
+  // reads it as "left the group", not "died mid-call".
+  private removeRemotePlayer(userId: string) {
+    this.players.delete(userId);
+    if (this.focusedId === userId) this.focusedId = null;
+    this.knocks.onPlayerLeft(userId);
+    this.meshMembers.delete(userId);
+    this.sfuMembers.delete(userId);
+    this.sfuDirectory.delete(userId);
+    this.rtc.closePeer(userId);
+    this.sfu.removePeer(userId);
+    this.knownSfuPeers.delete(userId);
+    // removePeer also tears down their screenshare stage if any.
+    this.view.removePeer(userId);
+  }
+
   // Reconcile the players map against a resumed welcome's list (issue #187):
   // peers who left during the outage get the full player-left teardown, new
   // ones are added, and survivors snap to their server-side position. Self and
@@ -523,16 +542,7 @@ export class App {
     const present = new Set(list.map((p) => p.userId));
     for (const id of [...this.players.keys()]) {
       if (id === this.myId || present.has(id)) continue;
-      this.players.delete(id);
-      if (this.focusedId === id) this.focusedId = null;
-      this.knocks.onPlayerLeft(id);
-      this.meshMembers.delete(id);
-      this.sfuMembers.delete(id);
-      this.sfuDirectory.delete(id);
-      this.rtc.closePeer(id);
-      this.sfu.removePeer(id);
-      this.knownSfuPeers.delete(id);
-      this.view.removePeer(id);
+      this.removeRemotePlayer(id);
     }
     for (const p of list) {
       if (p.userId === this.myId) continue;
@@ -610,7 +620,19 @@ export class App {
   private async sampleQuality() {
     const { method, conns } = await this.collectRtcStats();
     if (conns.length === 0) {
+      // Call over: reset the tier machine AND everything the tier drove, so
+      // nothing latches into the next call — RED-first audio would silently
+      // double the audio uplink forever, a lingering autoCamOff would switch
+      // the camera on unprompted hours later, and the self-preview dot would
+      // keep advertising a long-gone bad link.
       this.netTierState = INITIAL_TIER_STATE;
+      setPreferRedAudio(false);
+      this.autoCamOff = false;
+      if (this.autoRecvAudioOnly) {
+        this.autoRecvAudioOnly = false;
+        this.updateVideoPullPause();
+      }
+      this.view.setSelfQuality(null);
       return;
     }
     const q = summarizeConnQuality(conns);
@@ -661,18 +683,26 @@ export class App {
     }
   }
 
-  // Push the effective video-pull pause (manual OR automatic) to the SFU; on
-  // resume, re-feed the cached directories so the dropped video is re-pulled
-  // (the server only re-relays them on topology changes).
-  private updateVideoPullPause() {
-    const paused = this.manualAudioOnly || this.autoRecvAudioOnly;
-    this.sfu.setVideoPullPaused(paused);
-    if (paused || this.currentMethod !== 'sfu') return;
+  // Hand every cached group member's track directory back to the SfuManager,
+  // re-pulling whatever the reconcile decides is missing. Used when the pulls
+  // must be rebuilt outside a topology change (the server only re-relays
+  // directories on those): the SFU transport rebuild (#186) and the video-pull
+  // resume (#188).
+  private refeedSfuDirectories() {
     for (const [id, dir] of this.sfuDirectory) {
       if (id === this.myId || !this.sfuMembers.has(id)) continue;
       this.knownSfuPeers.add(id);
       this.sfu.setPeerTracks(id, dir.sessionId, dir.tracks);
     }
+  }
+
+  // Push the effective video-pull pause (manual OR automatic) to the SFU; on
+  // resume, re-feed the cached directories so the dropped video is re-pulled.
+  private updateVideoPullPause() {
+    const paused = this.manualAudioOnly || this.autoRecvAudioOnly;
+    this.sfu.setVideoPullPaused(paused);
+    if (paused || this.currentMethod !== 'sfu') return;
+    this.refeedSfuDirectories();
   }
 
   // The ⋯-menu audio-only toggle (#188): entering stops our camera and screen
@@ -936,6 +966,25 @@ export class App {
           // Re-announce status: peers kept our avatar, but anything broadcast
           // during the outage (mute toggles, notes) was lost on their side.
           this.broadcastStatus();
+          // Re-sync our position: the loop kept moving us locally while sends
+          // were dropping, and the move sender only fires on velocity change /
+          // while moving — standing still after the walk would leave us at the
+          // stale pre-outage spot on the server (and in peers' views) forever.
+          if (this.me) {
+            this.net.send({
+              type: 'move',
+              x: this.me.x,
+              y: this.me.y,
+              vx: 0,
+              vy: 0,
+              zoneId: zoneAt(this.me.x, this.me.y)?.id ?? null,
+            });
+            this.lastSentX = this.me.x;
+            this.lastSentY = this.me.y;
+            this.lastSentVx = 0;
+            this.lastSentVy = 0;
+            this.lastSent = performance.now();
+          }
           break;
         }
         // Clear any prior-session state before adopting the new one, so a same-boot
@@ -993,20 +1042,7 @@ export class App {
         break;
       }
       case 'player-left': {
-        this.players.delete(msg.userId);
-        if (this.focusedId === msg.userId) this.focusedId = null;
-        this.knocks.onPlayerLeft(msg.userId);
-        // They are gone for good — drop group membership first so the peer
-        // close below doesn't schedule a rebuild (#184; the follow-up
-        // group-update confirms the membership).
-        this.meshMembers.delete(msg.userId);
-        this.sfuMembers.delete(msg.userId);
-        this.sfuDirectory.delete(msg.userId);
-        this.rtc.closePeer(msg.userId);
-        this.sfu.removePeer(msg.userId);
-        this.knownSfuPeers.delete(msg.userId);
-        // removePeer also tears down their screenshare stage if any.
-        this.view.removePeer(msg.userId);
+        this.removeRemotePlayer(msg.userId);
         break;
       }
       case 'signal': {
@@ -1450,11 +1486,7 @@ export class App {
       this.sfu.closeAll();
       this.knownSfuPeers.clear();
       this.publishLocalToSfu();
-      for (const [id, dir] of this.sfuDirectory) {
-        if (id === this.myId || !this.sfuMembers.has(id)) continue;
-        this.knownSfuPeers.add(id);
-        this.sfu.setPeerTracks(id, dir.sessionId, dir.tracks);
-      }
+      this.refeedSfuDirectories();
       return;
     }
     logNet('sfu-fallback-mesh');

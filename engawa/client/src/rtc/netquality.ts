@@ -29,6 +29,13 @@ const RTT_TIER_MS = [250, 500, 800] as const;
 // than loss reaches the remote-inbound reports.
 const AVAIL_TIER_KBPS = [900, 500, 250] as const; // < → tier 1 / 2 / 3
 
+// The uplink estimate is only meaningful while we actually push enough traffic
+// for the bandwidth estimator to probe. In an audio-only call (~40kbps) Chrome's
+// BWE idles near its ~300kbps start estimate on ANY link, which would misread a
+// gigabit connection as tier 1-2 — so below this send rate the estimate is
+// ignored and loss/RTT carry the classification alone.
+export const AVAIL_SIGNAL_MIN_SEND_KBPS = 200;
+
 // Pure: the tier one sample classifies to, taking the worst of the signals.
 export function classifySample(s: QualitySample): NetTier {
   const loss = Math.max(s.sendLossPct ?? 0, s.recvLossPct ?? 0);
@@ -37,7 +44,7 @@ export function classifySample(s: QualitySample): NetTier {
   for (let i = 0; i < 3; i++) {
     if (loss >= LOSS_TIER_PCT[i] || rtt >= RTT_TIER_MS[i]) tier = i + 1;
   }
-  if (s.availableOutgoingKbps !== undefined) {
+  if (s.availableOutgoingKbps !== undefined && s.sendKbps >= AVAIL_SIGNAL_MIN_SEND_KBPS) {
     for (let i = 0; i < 3; i++) {
       if (s.availableOutgoingKbps < AVAIL_TIER_KBPS[i]) tier = Math.max(tier, i + 1);
     }

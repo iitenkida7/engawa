@@ -1279,13 +1279,27 @@ describe('createWebSocketHandler — session resume (issue #187)', () => {
   test('a half-open predecessor is taken over even before its close arrives', () => {
     const { clients, handler } = setup();
     const a = makeWs();
+    const peer = makeWs();
     handler.open!(a);
+    handler.open!(peer);
     deliver(handler, a, { type: 'join', name: 'A' });
+    deliver(handler, peer, { type: 'join', name: 'P' });
     const firstWelcome = joinedWelcome(a);
     const oldUserId = a.data.userId;
+    peer.sent.length = 0;
 
-    // No close for `a` — the server never noticed the drop. A new connection
-    // presents the token: it must win, and the zombie gets closed.
+    // Bun runs the close handler SYNCHRONOUSLY inside ws.close() — mirror that,
+    // because the takeover calls prev.close() and must not let that inner close
+    // take the immediate-leave branch (a spurious player-left would ghost the
+    // resumed user for every peer).
+    const rawClose = a.close.bind(a);
+    (a as { close: (code?: number, reason?: string) => void }).close = (code, reason) => {
+      rawClose(code, reason);
+      handler.close!(a, code ?? 1006, reason ?? '');
+    };
+
+    // No close for `a` yet — the server never noticed the drop. A new
+    // connection presents the token: it must win, and the zombie gets closed.
     const b = makeWs();
     handler.open!(b);
     deliver(handler, b, { type: 'join', name: 'A', resumeToken: firstWelcome.resumeToken });
@@ -1293,9 +1307,12 @@ describe('createWebSocketHandler — session resume (issue #187)', () => {
     expect(b.data.userId).toBe(oldUserId);
     expect(clients.get(oldUserId)).toBe(b);
     expect(a.closed).not.toBeNull();
-    // The zombie's late close must not evict the resumed connection.
+    // The synchronous zombie close was treated as stale: no leave went out.
+    expect(peer.sent.some((m) => m.type === 'player-left')).toBe(false);
+    // A later duplicate close must not evict the resumed connection either.
     handler.close!(a, 1006, '');
     expect(clients.get(oldUserId)).toBe(b);
+    expect(peer.sent.some((m) => m.type === 'player-left')).toBe(false);
   });
 
   test('an unknown or replayed resume token falls back to a fresh join', () => {
@@ -1313,7 +1330,7 @@ describe('createWebSocketHandler — session resume (issue #187)', () => {
     expect(peer.sent.some((m) => m.type === 'player-joined')).toBe(true);
   });
 
-  test('a resumed connection keeps position and group key', () => {
+  test('a resumed connection keeps its position and gets its group re-sent', () => {
     const { handler } = setup();
     const a = makeWs();
     handler.open!(a);
@@ -1322,6 +1339,7 @@ describe('createWebSocketHandler — session resume (issue #187)', () => {
     // Simulate in-room state accumulated before the drop.
     deliver(handler, a, { type: 'move', x: 321, y: 123, vx: 0, vy: 0 });
     const groupKey = a.data.groupKey;
+    expect(groupKey).not.toBeNull();
 
     handler.close!(a, 1006, '');
     const b = makeWs();
@@ -1332,6 +1350,11 @@ describe('createWebSocketHandler — session resume (issue #187)', () => {
     expect(w.resumed).toBe(true);
     expect(w.self.x).toBe(321);
     expect(w.self.y).toBe(123);
+    // The group is deliberately re-sent (groupKey starts null on the new
+    // socket): everything relayed during the outage — group-updates and SFU
+    // track directories — silently no-op'd on the dead socket, so the resumed
+    // client must be resynced even when the topology looks unchanged.
+    expect(b.sent.some((m) => m.type === 'group-update')).toBe(true);
     expect(b.data.groupKey).toBe(groupKey);
   });
 });

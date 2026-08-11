@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { computeCamEncoding, computeScreenEncoding } from '@/rtc/cam-bitrate';
 import {
+  AVAIL_SIGNAL_MIN_SEND_KBPS,
   applyNetTierToCam,
   applyNetTierToScreen,
   classifySample,
@@ -42,16 +43,33 @@ describe('classifySample', () => {
     expect(classifySample(sample({ rttMs: 800 }))).toBe(3);
   });
 
-  it('tiers up when the uplink estimate collapses', () => {
-    expect(classifySample(sample({ availableOutgoingKbps: 850 }))).toBe(1);
-    expect(classifySample(sample({ availableOutgoingKbps: 400 }))).toBe(2);
-    expect(classifySample(sample({ availableOutgoingKbps: 200 }))).toBe(3);
+  it('tiers up when the uplink estimate collapses under real send load', () => {
+    const loaded = { sendKbps: AVAIL_SIGNAL_MIN_SEND_KBPS };
+    expect(classifySample(sample({ ...loaded, availableOutgoingKbps: 850 }))).toBe(1);
+    expect(classifySample(sample({ ...loaded, availableOutgoingKbps: 400 }))).toBe(2);
+    expect(classifySample(sample({ ...loaded, availableOutgoingKbps: 200 }))).toBe(3);
     // No estimate → the signal simply doesn't contribute.
-    expect(classifySample(sample({}))).toBe(0);
+    expect(classifySample(sample(loaded))).toBe(0);
+  });
+
+  it('ignores the uplink estimate in (near) audio-only calls where BWE never probes', () => {
+    // ~40kbps of audio on a gigabit link still reports a low idle estimate;
+    // that must not be read as congestion.
+    expect(classifySample(sample({ sendKbps: 40, availableOutgoingKbps: 300 }))).toBe(0);
+    // Loss/RTT still classify on their own.
+    expect(classifySample(sample({ sendKbps: 40, recvLossPct: 5 }))).toBe(2);
   });
 
   it('takes the worst of the signals', () => {
-    expect(classifySample(sample({ rttMs: 260, availableOutgoingKbps: 200 }))).toBe(3);
+    expect(
+      classifySample(
+        sample({
+          sendKbps: AVAIL_SIGNAL_MIN_SEND_KBPS,
+          rttMs: 260,
+          availableOutgoingKbps: 200,
+        }),
+      ),
+    ).toBe(3);
   });
 });
 
