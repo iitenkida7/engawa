@@ -30,6 +30,7 @@ import {
   REACTION_DEBOUNCE_MS,
   REACTION_EMOJIS,
   type ServerMessage,
+  type SfuTrack,
 } from '@/core/types';
 import { SceneCompositor } from '@/media/compositor';
 import { MediaManager } from '@/media/media';
@@ -52,7 +53,7 @@ import {
 import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
 import { setPreferRedAudio } from '@/rtc/sdp';
 import { SfuManager } from '@/rtc/sfu';
-import { partitionMembers } from '@/rtc/sfu-logic';
+import { partitionMembers, SFU_REBUILD_MIN_INTERVAL_MS } from '@/rtc/sfu-logic';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
 import { ChatPanel } from '@/ui/chat';
@@ -139,6 +140,12 @@ export class App {
   // Group peers whose track directory we've handed to SfuManager, so we can drop
   // them when they leave the group.
   private knownSfuPeers = new Set<string>();
+  // Last announced track directory per group peer (issue #186). The server only
+  // relays directories on group changes / publishes, so a transport rebuild
+  // re-feeds them from this cache instead of waiting for a topology change.
+  private sfuDirectory = new Map<string, { sessionId: string; tracks: SfuTrack[] }>();
+  // When the last SFU transport rebuild ran (see onSfuFailed).
+  private lastSfuRebuildAt = 0;
 
   // Speaker-aware send policy. `lastLoudAtMs` is the last frame our mic was loud
   // (drives the post-speech hold). The computed camera encoding / screen bitrate
@@ -512,6 +519,7 @@ export class App {
     this.rtc.closeAll();
     this.sfu.closeAll();
     this.knownSfuPeers.clear();
+    this.sfuDirectory.clear();
     this.inProximity.clear();
     this.currentMethod = 'mesh';
     this.focusedId = null;
@@ -862,6 +870,7 @@ export class App {
         // group-update confirms the membership).
         this.meshMembers.delete(msg.userId);
         this.sfuMembers.delete(msg.userId);
+        this.sfuDirectory.delete(msg.userId);
         this.rtc.closePeer(msg.userId);
         this.sfu.removePeer(msg.userId);
         this.knownSfuPeers.delete(msg.userId);
@@ -922,6 +931,9 @@ export class App {
         break;
       }
       case 'sfu-peer-tracks': {
+        // Cache the directory regardless of transport: a later SFU rebuild
+        // re-feeds it (issue #186), and the server only re-sends on changes.
+        this.sfuDirectory.set(msg.userId, { sessionId: msg.sessionId, tracks: msg.tracks });
         // Ignore unless we're actually on SFU. setPeerTracks calls reopen(), which
         // would resurrect a ghost SFU PeerConnection while we run mesh — the server
         // keeps relaying these after a unilateral mesh fallback because it still
@@ -1250,6 +1262,7 @@ export class App {
       for (const id of toClose) {
         this.sfu.removePeer(id);
         this.knownSfuPeers.delete(id);
+        this.sfuDirectory.delete(id);
       }
     } else {
       // Always tear the SFU transport down when running mesh — even mesh→mesh — so
@@ -1258,6 +1271,7 @@ export class App {
       // group-updates only arrive on real topology changes (not every move).
       this.sfu.closeAll();
       this.knownSfuPeers.clear();
+      this.sfuDirectory.clear();
       this.currentMethod = 'mesh';
       this.sfuMembers.clear();
       // Reconcile mesh peers against the group: close peers no longer in it,
@@ -1282,10 +1296,14 @@ export class App {
     if (this.media.screenStream) this.sfu.addLocalStream(this.media.screenStream, 'screen');
   }
 
-  // The SFU peer connection failed: degrade this group to mesh so the call
-  // survives rather than dropping. We mesh directly with the group's members
-  // (the same set the SFU was serving). (App-token-less environments never reach
-  // SFU, so never get here.)
+  // The SFU transport failed (hard connection failure, or a control op that
+  // exhausted its retries). First failure: rebuild the SFU session in place —
+  // fresh PC, fresh Cloudflare session, re-publish our tracks, re-pull peers
+  // from the cached directories — because a rebuild keeps the group on the
+  // scalable path (issue #186; Cloudflare's renegotiate flow offers no
+  // client-driven ICE restart, so a rebuild is the recovery primitive). A
+  // second failure within SFU_REBUILD_MIN_INTERVAL_MS means the SFU path
+  // really is unhealthy: degrade to mesh so the call survives.
   private onSfuFailed() {
     if (this.currentMethod !== 'sfu') {
       // Not on SFU, but a resurrected/ghost SFU transport may have failed. Ensure
@@ -1293,6 +1311,22 @@ export class App {
       this.sfu.closeAll();
       return;
     }
+    const now = performance.now();
+    if (now - this.lastSfuRebuildAt > SFU_REBUILD_MIN_INTERVAL_MS) {
+      this.lastSfuRebuildAt = now;
+      logNet('sfu-rebuild');
+      console.warn('[sfu] transport failed; rebuilding the SFU session');
+      this.sfu.closeAll();
+      this.knownSfuPeers.clear();
+      this.publishLocalToSfu();
+      for (const [id, dir] of this.sfuDirectory) {
+        if (id === this.myId || !this.sfuMembers.has(id)) continue;
+        this.knownSfuPeers.add(id);
+        this.sfu.setPeerTracks(id, dir.sessionId, dir.tracks);
+      }
+      return;
+    }
+    logNet('sfu-fallback-mesh');
     console.warn('[sfu] connection failed; falling back to mesh');
     this.toasts.info(t('app.sfuFallback'));
     // Reuse the mesh reconciliation (it tears the SFU transport down and opens a

@@ -322,3 +322,98 @@ describe('SfuManager dropRemote closes the pulled track (downlink leak)', () => 
     expect(events.onFailed).not.toHaveBeenCalled();
   });
 });
+
+describe('SfuManager control-plane retry (issue #186)', () => {
+  it('retries a transient network failure instead of failing the op', async () => {
+    let calls = 0;
+    fetchMock = mock(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/sessions/new')) {
+        calls++;
+        if (calls === 1) throw new Error('connection reset');
+        return jsonRes({ sessionId: 'sess-1' });
+      }
+      if (u.includes('/tracks/new')) {
+        return jsonRes({
+          sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
+          tracks: [{ mid: '0' }],
+        });
+      }
+      return jsonRes({});
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+    const published = waitPublish();
+    sfu.addLocalStream(makeStream('mic'), 'mic');
+    await published;
+
+    expect(calls).toBe(2);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a non-transient 4xx — the op fails and onFailed fires', async () => {
+    let sessionCalls = 0;
+    fetchMock = mock(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/sessions/new')) {
+        sessionCalls++;
+        return { ok: false, status: 400, json: async () => ({}) } as unknown as Response;
+      }
+      return jsonRes({});
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+    sfu.addLocalStream(makeStream('mic'), 'mic');
+    // Let the op chain settle (no retry sleeps for a 400).
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
+
+    expect(sessionCalls).toBe(1);
+    expect(events.onFailed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SfuManager peer session change re-pull (issue #186)', () => {
+  it('drops and re-pulls a peer whose announced sessionId changed', async () => {
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'sess-A', [{ kind: 'cam', trackName: 'cam' }]);
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    const pullsAfterFirst = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/tracks/new'),
+    ).length;
+    expect(pullsAfterFirst).toBe(1);
+
+    // Same kinds, new session (the peer rebuilt its SFU transport): the stale
+    // pull must be closed and a fresh pull issued against the new session.
+    sfu.setPeerTracks('peer-1', 'sess-B', [{ kind: 'cam', trackName: 'cam' }]);
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
+
+    const pulls = fetchMock.mock.calls.filter((c) => String(c[0]).includes('/tracks/new')).length;
+    const closes = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/tracks/close'),
+    ).length;
+    expect(pulls).toBe(2);
+    expect(closes).toBe(1);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('does not re-pull when the sessionId is unchanged', async () => {
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'sess-A', [{ kind: 'cam', trackName: 'cam' }]);
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    sfu.setPeerTracks('peer-1', 'sess-A', [{ kind: 'cam', trackName: 'cam' }]);
+    for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+
+    const pulls = fetchMock.mock.calls.filter((c) => String(c[0]).includes('/tracks/new')).length;
+    expect(pulls).toBe(1);
+  });
+});
