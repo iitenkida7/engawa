@@ -204,7 +204,10 @@ const STR: Record<string, Record<Lang, string>> = {
   'layout.sidebar': { ja: 'サイドバー整列', en: 'Sidebar' },
 
   // -- app-level toasts -----------------------------------------------------
-  'app.cantConnect': { ja: 'サーバーに接続できません。', en: "Can't connect to the server." },
+  'app.cantConnect': {
+    ja: 'サーバーに接続できません。自動的に再試行しています…',
+    en: "Can't connect to the server. Retrying automatically…",
+  },
   'app.reconnect': { ja: '再接続', en: 'Reconnect' },
   'app.reconnecting': {
     ja: '接続が切れました。再接続しています…',

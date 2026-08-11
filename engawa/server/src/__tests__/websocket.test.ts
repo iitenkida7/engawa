@@ -1125,3 +1125,26 @@ describe('createWebSocketHandler — knock', () => {
     expect(unjoined.sent).toHaveLength(0);
   });
 });
+
+describe('createWebSocketHandler — heartbeat', () => {
+  test('answers ping with pong, before and after join', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const handler = createWebSocketHandler(clients);
+    const ws = makeWs();
+    handler.open!(ws);
+
+    deliver(handler, ws, { type: 'ping' });
+    expect(ws.sent).toContainEqual({ type: 'pong' });
+
+    deliver(handler, ws, { type: 'join', name: 'A' });
+    ws.sent.length = 0;
+    deliver(handler, ws, { type: 'ping' });
+    expect(ws.sent).toContainEqual({ type: 'pong' });
+  });
+
+  test('configures explicit dead-peer detection', () => {
+    const handler = createWebSocketHandler(new Map());
+    expect(handler.idleTimeout).toBe(30);
+    expect(handler.sendPings).toBe(true);
+  });
+});

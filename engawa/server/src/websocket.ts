@@ -186,6 +186,13 @@ export function createWebSocketHandler(
   const groupState: GroupState = new Map();
 
   return {
+    // Dead-peer detection (issue #183). Explicit rather than Bun's defaults so
+    // ghost avatars from silently-dead clients are bounded: the client heartbeats
+    // every 5s, so 30s of silence (protocol pings unanswered, no messages) means
+    // the peer is gone and the close handler should run.
+    idleTimeout: 30,
+    sendPings: true,
+
     open(ws) {
       clients.set(ws.data.userId, ws);
       console.log(`[ws] open ${ws.data.userId} (clients=${clients.size})`);
@@ -203,6 +210,13 @@ export function createWebSocketHandler(
       if (typeof msg !== 'object' || msg === null || typeof msg.type !== 'string') return;
 
       switch (msg.type) {
+        case 'ping': {
+          // Heartbeat (issue #183). Answered pre-join too: the client's dead-
+          // socket detection must work while the join handshake is in flight.
+          send(ws, { type: 'pong' });
+          break;
+        }
+
         case 'join': {
           // One socket joins exactly once (the client sends join once per
           // connection; a reconnect uses a fresh socket). Without this guard a

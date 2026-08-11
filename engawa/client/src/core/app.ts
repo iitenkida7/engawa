@@ -6,7 +6,11 @@ import { logNet, QUALITY_SAMPLE_INTERVAL_MS } from '@/core/netlog';
 import { NetworkClient } from '@/core/network';
 import type { Point } from '@/core/proximity';
 import { isInitiator } from '@/core/proximity';
-import { computeReconnectDelay, RECONNECT_MAX_ATTEMPTS } from '@/core/reconnect';
+import {
+  computeReconnectDelay,
+  RECONNECT_MAX_MS,
+  RECONNECT_STEADY_AFTER_ATTEMPTS,
+} from '@/core/reconnect';
 import { evaluateBoot, ReloadBanner } from '@/core/reload';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
@@ -169,10 +173,29 @@ export class App {
   private onVisibilityChange = () => {
     // Bun keeps the socket alive with protocol pings, but a long background
     // stint can still drop it. On return, reconnect immediately (clearing any
-    // pending backoff) rather than waiting on the close-handler's retry timer.
+    // pending backoff) rather than waiting on the retry deadline. A half-open
+    // socket (isConnected() still true) is caught by the heartbeat within its
+    // pong timeout — the loop resumes with the tab.
     if (!document.hidden && !this.authFailed && !this.net.isConnected()) {
       this.manualReconnect();
     }
+  };
+  // The OS reported connectivity is back: reconnect a dropped socket right away
+  // (the backoff may still be waiting out a long delay), or probe a socket that
+  // looks open — if the outage killed it, the missing pong force-closes it and
+  // the normal reconnect path takes over (issue #183).
+  private onOnline = () => {
+    logNet('net-online');
+    if (this.authFailed) return;
+    if (!this.net.isConnected()) this.manualReconnect();
+    else this.net.pingNow();
+  };
+  // The OS reported connectivity is gone. The socket is dead either way; tear it
+  // down now so the reconnect loop (and its toast) starts immediately instead of
+  // waiting for the heartbeat to time out.
+  private onOffline = () => {
+    logNet('net-offline');
+    this.net.forceClose();
   };
 
   constructor(opts: { canvas: HTMLCanvasElement; editor: AvatarEditor }) {
@@ -394,12 +417,15 @@ export class App {
   }
 
   // Confirm an accidental close while in a workspace, and recover the socket the
-  // moment the user returns to a tab that was backgrounded long enough to drop it.
+  // moment the user returns to a tab that was backgrounded long enough to drop
+  // it — or the moment the OS reports the network came back (issue #183).
   private setupLifecycle() {
     if (this.lifecycleReady) return;
     this.lifecycleReady = true;
     window.addEventListener('beforeunload', this.onBeforeUnload);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
+    window.addEventListener('online', this.onOnline);
+    window.addEventListener('offline', this.onOffline);
   }
 
   // Drop every bit of state tied to the previous WS session. The server mints a
@@ -439,6 +465,8 @@ export class App {
     window.removeEventListener('keydown', this.onReactionKey);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    window.removeEventListener('online', this.onOnline);
+    window.removeEventListener('offline', this.onOffline);
     this.rtc.closeAll();
     this.sfu.closeAll();
   }
@@ -464,6 +492,8 @@ export class App {
     // Connected: the backoff resets and any "connection lost" toast clears. If
     // auth then fails the auth-error handler re-shows the join overlay.
     this.reconnectAttempt = 0;
+    this.reconnectAt = null;
+    this.connToastSteady = false;
     this.dismissConnToast?.();
     this.dismissConnToast = null;
     // Single space now — no workspace is selected or sent (the server defaults it).
@@ -485,13 +515,17 @@ export class App {
 
   private authFailed = false;
 
-  // Exponential-backoff reconnect state (issue #126). `reconnectAttempt` counts
-  // consecutive failures (reset on a successful open); `reconnectTimer` holds the
-  // pending retry so we never stack timers; `dismissConnToast` closes the active
-  // "connection lost" toast.
+  // Reconnect state (issues #126/#183). `reconnectAttempt` counts consecutive
+  // failures (reset on a successful open); `reconnectAt` is the performance.now
+  // deadline of the pending retry — checked from the game loop (tickNetwork)
+  // instead of a setTimeout, because hidden tabs throttle timers to ≥1/min while
+  // the loop keeps running off the background Worker. `dismissConnToast` closes
+  // the active "connection lost" toast; `connToastSteady` marks that it has been
+  // escalated to the stronger "can't connect" one.
   private reconnectAttempt = 0;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAt: number | null = null;
   private dismissConnToast: (() => void) | null = null;
+  private connToastSteady = false;
 
   private onClose() {
     if (this.authFailed) {
@@ -501,50 +535,59 @@ export class App {
     this.scheduleReconnect();
   }
 
-  // Reconnect with exponential backoff + jitter (computeReconnectDelay), bounded
-  // by RECONNECT_MAX_ATTEMPTS. Past the cap we stop auto-retrying and leave a
-  // persistent toast with a manual 再接続 button, so a long-down server isn't
-  // pinged forever (the old code retried every 2s with no ceiling).
+  // Schedule the next reconnect: exponential backoff + jitter while the ceiling
+  // is being reached, then a steady RECONNECT_MAX_MS cadence forever (issue
+  // #183 — an unattended office tab must survive long outages; the escalated
+  // toast offers a manual immediate retry, but auto-retrying never stops).
   private scheduleReconnect() {
     // A retry is already pending: 'error' and 'close' can both fire, so don't
-    // stack timers.
-    if (this.reconnectTimer != null) return;
-    if (this.reconnectAttempt >= RECONNECT_MAX_ATTEMPTS) {
+    // stack deadlines.
+    if (this.reconnectAt != null) return;
+    const steady = this.reconnectAttempt >= RECONNECT_STEADY_AFTER_ATTEMPTS;
+    const delay = steady ? RECONNECT_MAX_MS : computeReconnectDelay(this.reconnectAttempt);
+    this.reconnectAttempt++;
+    logNet('ws-retry-scheduled', { attempt: this.reconnectAttempt, delayMs: delay, steady });
+    console.warn(
+      `[ws] connection closed; retrying in ${delay}ms (attempt ${this.reconnectAttempt})`,
+    );
+    if (steady && !this.connToastSteady) {
+      // Escalate once: the quick blip turned into a real outage.
+      this.connToastSteady = true;
       this.dismissConnToast?.();
       this.dismissConnToast = this.toasts.action(
         t('app.cantConnect'),
         [{ label: t('app.reconnect'), primary: true, onClick: () => this.manualReconnect() }],
         0,
       );
-      return;
-    }
-    const delay = computeReconnectDelay(this.reconnectAttempt);
-    this.reconnectAttempt++;
-    logNet('ws-retry-scheduled', { attempt: this.reconnectAttempt, delayMs: delay });
-    console.warn(
-      `[ws] connection closed; retrying in ${delay}ms (attempt ${this.reconnectAttempt})`,
-    );
-    // Show the (persistent) reconnecting notice once; later attempts reuse it.
-    if (!this.dismissConnToast) {
+    } else if (!this.dismissConnToast) {
+      // Show the (persistent) reconnecting notice once; later attempts reuse it.
       this.dismissConnToast = this.toasts.action(t('app.reconnecting'), [], 0);
     }
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.net.connect();
-    }, delay);
+    this.reconnectAt = performance.now() + delay;
   }
 
-  // User asked to retry (manual button) or returned to a backgrounded tab whose
-  // socket dropped: clear any pending backoff, reset the counter, and reconnect now.
+  // Heartbeat + retry-deadline pump, run every simulation step (rAF while
+  // visible, the background Worker while hidden). beat() detects half-open
+  // sockets and hung handshakes (issue #183); the deadline check replaces the
+  // old throttling-prone setTimeout retry.
+  private tickNetwork(now: number) {
+    this.net.beat(now);
+    if (this.reconnectAt != null && now >= this.reconnectAt) {
+      this.reconnectAt = null;
+      this.net.connect();
+    }
+  }
+
+  // User asked to retry (manual button), returned to a backgrounded tab whose
+  // socket dropped, or the OS reported the network came back: clear any pending
+  // backoff, reset the counter, and reconnect now.
   private manualReconnect() {
     logNet('ws-manual-reconnect');
     this.dismissConnToast?.();
     this.dismissConnToast = null;
+    this.connToastSteady = false;
     this.reconnectAttempt = 0;
-    if (this.reconnectTimer != null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this.reconnectAt = null;
     this.net.connect();
   }
 
@@ -739,6 +782,7 @@ export class App {
   private step(nowMs: number, render: boolean) {
     const dt = computeFrameDt(this.lastFrameMs, nowMs);
     this.lastFrameMs = nowMs;
+    this.tickNetwork(nowMs);
     this.update(dt);
     if (render) {
       const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;

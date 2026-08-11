@@ -66,10 +66,15 @@ export type ClientMessage =
   | { type: 'reaction'; emoji: string }
   // SFU: announce/replace the tracks this client has published to its Cloudflare
   // session, so the server can relay them to the group as a track directory.
-  | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] };
+  | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] }
+  // App-level heartbeat (issue #183): the client pings on a fixed cadence and
+  // treats a missing pong as a dead socket (browsers expose no protocol ping).
+  | { type: 'ping' };
 
 export type ServerMessage =
   | { type: 'auth-error'; message: string }
+  // Heartbeat reply to a client `ping`.
+  | { type: 'pong' }
   // `token` is a short-lived, per-connection media token the client must present
   // on /api/turn-credentials and /api/sfu/* (transient, minted on join). It gates
   // consumption of the billable Cloudflare endpoints to live joined sessions.

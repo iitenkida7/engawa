@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { CONNECT_TIMEOUT_MS, HEARTBEAT_PONG_TIMEOUT_MS } from '@/core/heartbeat';
 import { NetworkClient } from '@/core/network';
 import type { ServerMessage } from '@/core/types';
 
 // Minimal fake WebSocket capturing listeners and sent payloads.
 class FakeWebSocket {
+  static CONNECTING = 0;
   static OPEN = 1;
   static CLOSED = 3;
   static instances: FakeWebSocket[] = [];
@@ -145,5 +147,86 @@ describe('NetworkClient', () => {
     second.emit('close');
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // ---- heartbeat (issue #183) ----
+
+  it('beat() pings immediately after open, then again after the interval', () => {
+    const client = make();
+    client.connect();
+    const sock = FakeWebSocket.instances[0];
+    sock.emit('open');
+
+    client.beat(1000);
+    expect(sock.sent).toEqual([JSON.stringify({ type: 'ping' })]);
+    // Within the interval: no second ping.
+    client.beat(2000);
+    expect(sock.sent.length).toBe(1);
+    // Answer the ping so the pong timeout doesn't fire, then cross the interval.
+    sock.emit('message', { data: JSON.stringify({ type: 'pong' }) });
+    client.beat(7000);
+    expect(sock.sent.length).toBe(2);
+  });
+
+  it('consumes pong without forwarding it to the message handler', () => {
+    const client = make();
+    client.connect();
+    const sock = FakeWebSocket.instances[0];
+    sock.emit('open');
+    sock.emit('message', { data: JSON.stringify({ type: 'pong' }) });
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it('force-closes a socket whose pongs go silent past the timeout', () => {
+    const client = make();
+    client.connect();
+    const sock = FakeWebSocket.instances[0];
+    sock.emit('open');
+
+    client.beat(1000); // anchors the pong clock and sends the first ping
+    client.beat(1000 + HEARTBEAT_PONG_TIMEOUT_MS + 1);
+    expect(sock.readyState).toBe(FakeWebSocket.CLOSED);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a healthy socket open when pongs keep arriving', () => {
+    const client = make();
+    client.connect();
+    const sock = FakeWebSocket.instances[0];
+    sock.emit('open');
+
+    let now = 1000;
+    for (let i = 0; i < 5; i++) {
+      client.beat(now);
+      sock.emit('message', { data: JSON.stringify({ type: 'pong' }) });
+      now += 6000;
+    }
+    expect(sock.readyState).toBe(FakeWebSocket.OPEN);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('abandons a handshake stuck in CONNECTING past the connect timeout', () => {
+    const client = make();
+    client.connect();
+    const sock = FakeWebSocket.instances[0];
+    sock.readyState = FakeWebSocket.CONNECTING;
+
+    client.beat(1000); // stamps the CONNECTING start
+    client.beat(1000 + CONNECT_TIMEOUT_MS + 1);
+    expect(sock.readyState).toBe(FakeWebSocket.CLOSED);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('pingNow() sends only on an OPEN socket', () => {
+    const client = make();
+    client.pingNow(); // no socket yet: no crash, nothing sent
+    client.connect();
+    const sock = FakeWebSocket.instances[0];
+    sock.readyState = FakeWebSocket.CONNECTING;
+    client.pingNow();
+    expect(sock.sent.length).toBe(0);
+    sock.readyState = FakeWebSocket.OPEN;
+    client.pingNow();
+    expect(sock.sent).toEqual([JSON.stringify({ type: 'ping' })]);
   });
 });
