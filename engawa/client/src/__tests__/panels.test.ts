@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  computeFocusLayout,
   computeGridLayout,
   computePresentationLayout,
   computeSidebarLayout,
   type LayoutItem,
   PANEL_BOTTOM_RESERVED,
+  PANEL_GAP,
   PANEL_HEADER,
   PANEL_MARGIN,
   SIDEBAR_MAX_WIDTH,
@@ -202,5 +204,44 @@ describe('computeSidebarLayout', () => {
     // Narrow viewport → floored at the min (25% of 400 would be 100).
     const narrow = computeSidebarLayout([screen()], 400, VH);
     expect(narrow[0].width).toBe(SIDEBAR_MIN_WIDTH - 8 /* PANEL_GAP */);
+  });
+});
+
+describe('computeFocusLayout', () => {
+  it('fills the usable area with a free-aspect window', () => {
+    const item = screen();
+    const b = box(computeFocusLayout(item, VW, VH), item);
+    expect(withinArea(b)).toBe(true);
+    // Nothing else is on screen, so it should claim essentially the whole area
+    // (only the inter-window gap is shaved off).
+    expect(b.w).toBe(AREA.right - AREA.left - PANEL_GAP);
+    expect(b.h).toBe(AREA.bottom - AREA.top - PANEL_GAP);
+  });
+
+  it('keeps an aspect-locked camera window inside the area and centred', () => {
+    const item = cam(4 / 3);
+    const g = computeFocusLayout(item, VW, VH);
+    const b = box(g, item);
+    expect(withinArea(b)).toBe(true);
+    expect(g.height).toBeNull(); // height stays CSS-derived
+    // Centred horizontally within the usable area.
+    const slackLeft = b.x - AREA.left;
+    const slackRight = AREA.right - (b.x + b.w);
+    expect(Math.abs(slackLeft - slackRight)).toBeLessThanOrEqual(1);
+  });
+
+  it('is exactly the one-window grid — a maximized window is a grid of one', () => {
+    for (const item of [cam(), cam(9 / 16), screen()]) {
+      expect(computeFocusLayout(item, VW, VH)).toEqual(computeGridLayout([item], VW, VH)[0]);
+    }
+  });
+
+  it('never leaves the area on a small (mobile) viewport', () => {
+    const item = cam(3 / 4);
+    const g = computeFocusLayout(item, 360, 640);
+    const h = PANEL_HEADER + g.width / item.aspect;
+    expect(g.left).toBeGreaterThanOrEqual(PANEL_MARGIN - 1);
+    expect(g.left + g.width).toBeLessThanOrEqual(360 - PANEL_MARGIN + 1);
+    expect(g.top + h).toBeLessThanOrEqual(640 - PANEL_BOTTOM_RESERVED + 1);
   });
 });
