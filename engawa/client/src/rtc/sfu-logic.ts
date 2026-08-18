@@ -48,6 +48,33 @@ export function sfuSessionError(resp: {
   return resp.errorDescription ?? 'no id';
 }
 
+// ─── Control-plane retry policy (issue #186) ────────────────────────────────
+// One transient HTTP failure (a blip mid-op, a lone 502) used to degrade the
+// whole group to mesh — the worst possible response to a struggling network
+// (n² streams). Retryable failures are retried with a short backoff inside
+// SfuManager.api(); only exhausted retries reach the fallback.
+
+export const SFU_API_MAX_ATTEMPTS = 3;
+
+// Delay before retrying failed attempt N (1-based): 500ms, 1s.
+export function sfuApiRetryDelayMs(attempt: number): number {
+  return 500 * 2 ** Math.max(0, attempt - 1);
+}
+
+// Which HTTP outcomes are worth retrying. 'network' = fetch itself failed.
+// 401 is retryable because a WS reconnect re-mints the media token (the retry
+// picks the fresh one up); 4xx otherwise means the request itself is wrong and
+// a retry can't help. 5xx/408/429 are the classic transients.
+export function isRetryableSfuHttp(status: number | 'network'): boolean {
+  if (status === 'network') return true;
+  return status === 401 || status === 408 || status === 429 || status >= 500;
+}
+
+// Minimum spacing between whole-transport rebuild attempts (App.onSfuFailed):
+// the first failure rebuilds the SFU session in place; a second failure inside
+// this window means the SFU path really is unhealthy → degrade to mesh.
+export const SFU_REBUILD_MIN_INTERVAL_MS = 30_000;
+
 // Whether an RTCPeerConnection state change should trigger the mesh fallback.
 // Only a hard 'failed' degrades the call, and never after we deliberately
 // closed the transport (closeAll sets closed=true, which also closes the PC and

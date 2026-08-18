@@ -2,10 +2,18 @@ import BackgroundTicker from '@/core/background-ticker?worker';
 import { t } from '@/core/i18n';
 import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
 import { setMediaToken } from '@/core/media-auth';
+import { logNet, QUALITY_SAMPLE_INTERVAL_MS } from '@/core/netlog';
 import { NetworkClient } from '@/core/network';
 import type { Point } from '@/core/proximity';
 import { isInitiator } from '@/core/proximity';
-import { computeReconnectDelay, RECONNECT_MAX_ATTEMPTS } from '@/core/reconnect';
+import {
+  computePeerRetryDelay,
+  computeReconnectDelay,
+  PEER_CONNECT_STALL_MS,
+  PEER_DISCONNECTED_TIMEOUT_MS,
+  RECONNECT_MAX_MS,
+  RECONNECT_STEADY_AFTER_ATTEMPTS,
+} from '@/core/reconnect';
 import { evaluateBoot, ReloadBanner } from '@/core/reload';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
@@ -17,11 +25,13 @@ import {
   type Outfit,
   PLAYER_RADIUS,
   PLAYER_SPEED,
+  type Player,
   type PlayerStatus,
   POSITION_SEND_INTERVAL_MS,
   REACTION_DEBOUNCE_MS,
   REACTION_EMOJIS,
   type ServerMessage,
+  type SfuTrack,
 } from '@/core/types';
 import { SceneCompositor } from '@/media/compositor';
 import { MediaManager } from '@/media/media';
@@ -31,10 +41,22 @@ import {
   computePreferredRid,
   computeScreenEncoding,
   isHeldSpeaking,
+  SFU_CAM_HALF_RID,
 } from '@/rtc/cam-bitrate';
-import type { RtcConn } from '@/rtc/rtcstats';
+import {
+  applyNetTierToCam,
+  applyNetTierToScreen,
+  classifySample,
+  INITIAL_TIER_STATE,
+  type NetTier,
+  type TierState,
+  updateTierState,
+} from '@/rtc/netquality';
+import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
+import { setPreferRedAudio } from '@/rtc/sdp';
 import { SfuManager } from '@/rtc/sfu';
-import { partitionMembers } from '@/rtc/sfu-logic';
+import { partitionMembers, SFU_REBUILD_MIN_INTERVAL_MS } from '@/rtc/sfu-logic';
+import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
 import { ChatPanel } from '@/ui/chat';
@@ -121,6 +143,15 @@ export class App {
   // Group peers whose track directory we've handed to SfuManager, so we can drop
   // them when they leave the group.
   private knownSfuPeers = new Set<string>();
+  // Last announced track directory per group peer (issue #186). The server only
+  // relays directories on group changes / publishes, so a transport rebuild
+  // re-feeds them from this cache instead of waiting for a topology change.
+  private sfuDirectory = new Map<string, { sessionId: string; tracks: SfuTrack[] }>();
+  // When the last SFU transport rebuild ran (see onSfuFailed). Starts at -∞ so
+  // the FIRST failure always gets its in-place rebuild — performance.now() is
+  // ms since page load, so a 0 start would misread any failure in the first
+  // 30s as a repeat and degrade straight to mesh.
+  private lastSfuRebuildAt = Number.NEGATIVE_INFINITY;
 
   // Speaker-aware send policy. `lastLoudAtMs` is the last frame our mic was loud
   // (drives the post-speech hold). The computed camera encoding / screen bitrate
@@ -133,8 +164,42 @@ export class App {
   private serverBootId: string | null = null;
   private reloadBanner = new ReloadBanner();
 
+  // Session-resume token from the last welcome (issue #187). Sent with the next
+  // join; within the server's grace window the reconnect keeps our userId,
+  // position and group, so calls survive a signaling blip. Memory-only — a page
+  // reload starts fresh on purpose.
+  private myResumeToken: string | null = null;
+
   // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
   private lastLayerUpdate = 0;
+
+  // Call-quality sampling (issue #182): every QUALITY_SAMPLE_INTERVAL_MS the
+  // active transport's stats are folded into one QualitySample and appended to
+  // the connection log. The sample also drives the bandwidth adaptation (#185):
+  // `netTierState` is the hysteresis state machine over classified samples, and
+  // `autoCamOff` marks a camera we paused at tier 3 (auto-resumed on recovery;
+  // any manual camera toggle clears the flag so the user always wins).
+  private lastQualitySampleAt = 0;
+  private netTierState: TierState = INITIAL_TIER_STATE;
+  private autoCamOff = false;
+  // Receive-side degradation (#188): `manualAudioOnly` is the user's ⋯-menu
+  // toggle (stops our own cam/screen and, on SFU, pauses video pulls);
+  // `autoRecvAudioOnly` is the tier-3 automatic variant, cleared on recovery.
+  private manualAudioOnly = false;
+  private autoRecvAudioOnly = false;
+
+  // Mesh-peer recovery state (issue #184), all keyed by peer userId and driven
+  // from tickPeerRecovery in the game loop:
+  //  - peerRetryAt: performance.now deadline of the pending rebuild.
+  //  - peerRetryAttempts: consecutive failures, for the backoff (reset on connect).
+  //  - peerStallAt: deadline by which a created peer must reach 'connect'.
+  //  - peerDisconnectedSince: when iceConnectionState went 'disconnected'.
+  //  - rtcRestartHandledAt: debounce for inbound rtc-restart nudges.
+  private peerRetryAt = new Map<string, number>();
+  private peerRetryAttempts = new Map<string, number>();
+  private peerStallAt = new Map<string, number>();
+  private peerDisconnectedSince = new Map<string, number>();
+  private rtcRestartHandledAt = new Map<string, number>();
 
   // Background ticker: a Worker that keeps update() running while the tab is
   // hidden (requestAnimationFrame is paused there). Created in start(); the
@@ -163,10 +228,29 @@ export class App {
   private onVisibilityChange = () => {
     // Bun keeps the socket alive with protocol pings, but a long background
     // stint can still drop it. On return, reconnect immediately (clearing any
-    // pending backoff) rather than waiting on the close-handler's retry timer.
+    // pending backoff) rather than waiting on the retry deadline. A half-open
+    // socket (isConnected() still true) is caught by the heartbeat within its
+    // pong timeout — the loop resumes with the tab.
     if (!document.hidden && !this.authFailed && !this.net.isConnected()) {
       this.manualReconnect();
     }
+  };
+  // The OS reported connectivity is back: reconnect a dropped socket right away
+  // (the backoff may still be waiting out a long delay), or probe a socket that
+  // looks open — if the outage killed it, the missing pong force-closes it and
+  // the normal reconnect path takes over (issue #183).
+  private onOnline = () => {
+    logNet('net-online');
+    if (this.authFailed) return;
+    if (!this.net.isConnected()) this.manualReconnect();
+    else this.net.pingNow();
+  };
+  // The OS reported connectivity is gone. The socket is dead either way; tear it
+  // down now so the reconnect loop (and its toast) starts immediately instead of
+  // waiting for the heartbeat to time out.
+  private onOffline = () => {
+    logNet('net-offline');
+    this.net.forceClose();
   };
 
   constructor(opts: { canvas: HTMLCanvasElement; editor: AvatarEditor }) {
@@ -200,7 +284,32 @@ export class App {
       },
       onRemoteStream: (userId, stream, kind) => this.view.attachRemoteStream(userId, stream, kind),
       onRemoteStreamRemoved: (userId, streamId) => this.view.detachRemoteStream(userId, streamId),
-      onPeerClosed: (userId) => this.view.removePeer(userId),
+      onPeerClosed: (userId) => {
+        this.view.removePeer(userId);
+        // A peer that died while still in our group gets rebuilt (issue #184);
+        // one that left the group has its recovery state dropped.
+        this.schedulePeerRecovery(userId);
+      },
+      onPeerConnected: (userId) => {
+        // Fully up: recovery bookkeeping resets so the next failure starts a
+        // fresh backoff, and the stall/disconnected watchdogs disarm.
+        this.peerRetryAttempts.delete(userId);
+        this.peerRetryAt.delete(userId);
+        this.peerStallAt.delete(userId);
+        this.peerDisconnectedSince.delete(userId);
+      },
+      onPeerIceState: (userId, state) => {
+        // Track sustained 'disconnected' (see tickPeerRecovery). 'failed'/'closed'
+        // need no handling here — simple-peer destroys the pair, which lands in
+        // onPeerClosed above.
+        if (state === 'disconnected') {
+          if (!this.peerDisconnectedSince.has(userId)) {
+            this.peerDisconnectedSince.set(userId, performance.now());
+          }
+        } else if (state === 'connected' || state === 'completed') {
+          this.peerDisconnectedSince.delete(userId);
+        }
+      },
     });
 
     // SFU transport. Shares the same remote-media event surface as the mesh, so
@@ -246,6 +355,16 @@ export class App {
       // resolve lazily on click, so referencing this.debug (built below) is fine.
       toggleDebug: () => this.debug.toggle(),
       isDebugOpen: () => this.debug.isOpen(),
+      // A manual camera toggle overrides the tier-3 auto-pause (#185): the user
+      // turning the camera on (or off) while paused takes it out of automation.
+      onUserCamToggle: () => {
+        this.autoCamOff = false;
+      },
+      // Audio-only mode (#188), owned here since it spans send + receive.
+      isAudioOnly: () => this.manualAudioOnly,
+      onToggleAudioOnly: () => {
+        void this.setAudioOnlyMode(!this.manualAudioOnly);
+      },
     });
 
     this.roster = new RosterPanel({
@@ -388,12 +507,57 @@ export class App {
   }
 
   // Confirm an accidental close while in a workspace, and recover the socket the
-  // moment the user returns to a tab that was backgrounded long enough to drop it.
+  // moment the user returns to a tab that was backgrounded long enough to drop
+  // it — or the moment the OS reports the network came back (issue #183).
   private setupLifecycle() {
     if (this.lifecycleReady) return;
     this.lifecycleReady = true;
     window.addEventListener('beforeunload', this.onBeforeUnload);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
+    window.addEventListener('online', this.onOnline);
+    window.addEventListener('offline', this.onOffline);
+  }
+
+  // Full teardown of one remote player who is gone for good. Shared by the
+  // player-left message and the resumed-welcome reconciliation (issue #187) so
+  // per-peer state added to one path can't silently leak in the other. Group
+  // membership is dropped BEFORE the peer close so the mesh recovery (#184)
+  // reads it as "left the group", not "died mid-call".
+  private removeRemotePlayer(userId: string) {
+    this.players.delete(userId);
+    if (this.focusedId === userId) this.focusedId = null;
+    this.knocks.onPlayerLeft(userId);
+    this.meshMembers.delete(userId);
+    this.sfuMembers.delete(userId);
+    this.sfuDirectory.delete(userId);
+    this.rtc.closePeer(userId);
+    this.sfu.removePeer(userId);
+    this.knownSfuPeers.delete(userId);
+    // removePeer also tears down their screenshare stage if any.
+    this.view.removePeer(userId);
+  }
+
+  // Reconcile the players map against a resumed welcome's list (issue #187):
+  // peers who left during the outage get the full player-left teardown, new
+  // ones are added, and survivors snap to their server-side position. Self and
+  // the live transports are untouched — that is the point of resuming.
+  private reconcilePlayers(list: Player[]) {
+    const present = new Set(list.map((p) => p.userId));
+    for (const id of [...this.players.keys()]) {
+      if (id === this.myId || present.has(id)) continue;
+      this.removeRemotePlayer(id);
+    }
+    for (const p of list) {
+      if (p.userId === this.myId) continue;
+      const outfit = normalizeOutfit(p.outfit, OUTFIT_COUNTS);
+      const existing = this.players.get(p.userId);
+      if (existing) {
+        existing.setTarget(p.x, p.y, 0, 0);
+        existing.outfit = outfit;
+      } else {
+        this.players.set(p.userId, new PlayerState({ ...p, outfit }, false));
+      }
+    }
   }
 
   // Drop every bit of state tied to the previous WS session. The server mints a
@@ -401,7 +565,7 @@ export class App {
   // from a long-backgrounded tab) would otherwise leave a ghost of our old self
   // and any peer that left during the outage in the players map — plus stale mesh
   // peers, SFU tracks, and a self-screenshare stage keyed by the dead id. Called
-  // at the top of every welcome; a no-op on the first join since everything is
+  // on every non-resumed welcome; a no-op on the first join since everything is
   // already empty (so there's no first/reconnect branch to keep).
   private resetSessionState() {
     for (const id of [...this.players.keys()]) {
@@ -410,11 +574,16 @@ export class App {
     }
     this.players.clear();
     this.me = null;
+    // Membership is cleared BEFORE the transports close: onPeerClosed consults
+    // meshMembers to decide whether a closing peer should be rebuilt (#184), and
+    // a session reset must not schedule rebuilds of the peers it is dropping.
+    this.meshMembers.clear();
+    this.sfuMembers.clear();
+    this.clearPeerRecovery();
     this.rtc.closeAll();
     this.sfu.closeAll();
     this.knownSfuPeers.clear();
-    this.meshMembers.clear();
-    this.sfuMembers.clear();
+    this.sfuDirectory.clear();
     this.inProximity.clear();
     this.currentMethod = 'mesh';
     this.focusedId = null;
@@ -433,6 +602,8 @@ export class App {
     window.removeEventListener('keydown', this.onReactionKey);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    window.removeEventListener('online', this.onOnline);
+    window.removeEventListener('offline', this.onOffline);
     this.rtc.closeAll();
     this.sfu.closeAll();
   }
@@ -445,10 +616,142 @@ export class App {
     return conns.then((c) => ({ method: this.currentMethod, conns: c }));
   }
 
+  // Fold the current connections' stats into one QualitySample (worst-case
+  // health, total rates), log it, and advance the network tier (#185). No
+  // connections → nothing to measure; the tier resets so the next call starts
+  // clean instead of inheriting a stale downgrade.
+  private async sampleQuality() {
+    const { method, conns } = await this.collectRtcStats();
+    if (conns.length === 0) {
+      // Call over: reset the tier machine AND everything the tier drove, so
+      // nothing latches into the next call — RED-first audio would silently
+      // double the audio uplink forever, a lingering autoCamOff would switch
+      // the camera on unprompted hours later, and the self-preview dot would
+      // keep advertising a long-gone bad link.
+      this.netTierState = INITIAL_TIER_STATE;
+      setPreferRedAudio(false);
+      this.autoCamOff = false;
+      if (this.autoRecvAudioOnly) {
+        this.autoRecvAudioOnly = false;
+        this.updateVideoPullPause();
+      }
+      this.view.setSelfQuality(null);
+      return;
+    }
+    const q = summarizeConnQuality(conns);
+    logNet('quality', { method, ...q });
+
+    const prevTier = this.netTierState.tier;
+    this.netTierState = updateTierState(this.netTierState, classifySample(q));
+    const tier = this.netTierState.tier;
+    if (tier !== prevTier) {
+      logNet('net-tier', { from: prevTier, to: tier });
+      // Sustained loss → prefer redundant audio (Opus RED) on every SDP
+      // negotiated from now on: new peers, recovery rebuilds, renegotiations.
+      setPreferRedAudio(tier >= 2);
+    }
+
+    // Receive side (#188): widen the jitter buffer to ride out measured jitter
+    // (and shrink it back for latency when the link calms).
+    const transport = this.currentMethod === 'sfu' ? this.sfu : this.rtc;
+    transport.applyReceiverJitterTarget(computeJitterTargetMs(q.recvJitterMs));
+
+    // Quality dots: per-peer for tiles (a conn maps 1:1 to a peer on both
+    // transports; SFU synthetic entries aren't players so they no-op), the
+    // overall tier for the self preview.
+    for (const conn of conns) {
+      if (!this.players.has(conn.id)) continue;
+      this.view.setTileQuality(conn.id, classifySample(summarizeConnQuality([conn])));
+    }
+    this.view.setSelfQuality(tier);
+
+    await this.applyAutoCamPolicy(tier);
+    this.applyAutoRecvPolicy(tier);
+  }
+
+  // Tier 3 on the SFU: stop pulling video so the whole downlink serves audio;
+  // resume at tier ≤1. The mesh path has no per-kind receive control without a
+  // renegotiation, so its receive side relies on senders degrading (#185).
+  private applyAutoRecvPolicy(tier: NetTier) {
+    if (tier === 3 && this.currentMethod === 'sfu' && !this.autoRecvAudioOnly) {
+      this.autoRecvAudioOnly = true;
+      logNet('net-recv-audio-only', { on: true });
+      if (!this.manualAudioOnly) this.toasts.info(t('app.netRecvAudioOnly'));
+      this.updateVideoPullPause();
+    } else if (this.autoRecvAudioOnly && tier <= 1) {
+      this.autoRecvAudioOnly = false;
+      logNet('net-recv-audio-only', { on: false });
+      if (!this.manualAudioOnly) this.toasts.info(t('app.netRecvVideoRestore'));
+      this.updateVideoPullPause();
+    }
+  }
+
+  // Hand every cached group member's track directory back to the SfuManager,
+  // re-pulling whatever the reconcile decides is missing. Used when the pulls
+  // must be rebuilt outside a topology change (the server only re-relays
+  // directories on those): the SFU transport rebuild (#186) and the video-pull
+  // resume (#188).
+  private refeedSfuDirectories() {
+    for (const [id, dir] of this.sfuDirectory) {
+      if (id === this.myId || !this.sfuMembers.has(id)) continue;
+      this.knownSfuPeers.add(id);
+      this.sfu.setPeerTracks(id, dir.sessionId, dir.tracks);
+    }
+  }
+
+  // Push the effective video-pull pause (manual OR automatic) to the SFU; on
+  // resume, re-feed the cached directories so the dropped video is re-pulled.
+  private updateVideoPullPause() {
+    const paused = this.manualAudioOnly || this.autoRecvAudioOnly;
+    this.sfu.setVideoPullPaused(paused);
+    if (paused || this.currentMethod !== 'sfu') return;
+    this.refeedSfuDirectories();
+  }
+
+  // The ⋯-menu audio-only toggle (#188): entering stops our camera and screen
+  // share through the regular toolbar flows and pauses SFU video pulls; leaving
+  // resumes receiving but deliberately does NOT re-enable the camera — the user
+  // decides what to re-share.
+  private async setAudioOnlyMode(on: boolean) {
+    if (this.manualAudioOnly === on) return;
+    this.manualAudioOnly = on;
+    logNet('audio-only-mode', { on });
+    if (on) {
+      this.autoCamOff = false; // manual mode supersedes the automation
+      await this.toolbar.setCamEnabled(false);
+      this.toolbar.stopScreenShare();
+      this.toasts.info(t('app.audioOnlyOn'));
+    } else {
+      this.toasts.info(t('app.audioOnlyOff'));
+    }
+    this.updateVideoPullPause();
+  }
+
+  // Tier 3 means voice is at risk: pause the camera through the same toolbar
+  // path as a manual click (peers' tiles clear properly, status broadcasts),
+  // and auto-resume once the network has climbed back to tier ≤1. A manual
+  // camera toggle clears `autoCamOff` (see onUserCamToggle) so the automation
+  // never fights the user.
+  private async applyAutoCamPolicy(tier: NetTier) {
+    if (tier === 3 && this.media.camOn && !this.autoCamOff) {
+      this.autoCamOff = true;
+      logNet('net-auto-cam-off');
+      this.toasts.info(t('app.netCamOff'));
+      await this.toolbar.setCamEnabled(false);
+    } else if (this.autoCamOff && tier <= 1 && !this.manualAudioOnly) {
+      this.autoCamOff = false;
+      logNet('net-auto-cam-restore');
+      this.toasts.info(t('app.netCamRestore'));
+      await this.toolbar.setCamEnabled(true);
+    }
+  }
+
   private onOpen() {
     // Connected: the backoff resets and any "connection lost" toast clears. If
     // auth then fails the auth-error handler re-shows the join overlay.
     this.reconnectAttempt = 0;
+    this.reconnectAt = null;
+    this.connToastSteady = false;
     this.dismissConnToast?.();
     this.dismissConnToast = null;
     // Single space now — no workspace is selected or sent (the server defaults it).
@@ -457,6 +760,7 @@ export class App {
       name: this.joinedName,
       outfit: this.editor.getOutfit(),
       ...(this.joinedPassword ? { password: this.joinedPassword } : {}),
+      ...(this.myResumeToken ? { resumeToken: this.myResumeToken } : {}),
     });
   }
 
@@ -470,13 +774,17 @@ export class App {
 
   private authFailed = false;
 
-  // Exponential-backoff reconnect state (issue #126). `reconnectAttempt` counts
-  // consecutive failures (reset on a successful open); `reconnectTimer` holds the
-  // pending retry so we never stack timers; `dismissConnToast` closes the active
-  // "connection lost" toast.
+  // Reconnect state (issues #126/#183). `reconnectAttempt` counts consecutive
+  // failures (reset on a successful open); `reconnectAt` is the performance.now
+  // deadline of the pending retry — checked from the game loop (tickNetwork)
+  // instead of a setTimeout, because hidden tabs throttle timers to ≥1/min while
+  // the loop keeps running off the background Worker. `dismissConnToast` closes
+  // the active "connection lost" toast; `connToastSteady` marks that it has been
+  // escalated to the stronger "can't connect" one.
   private reconnectAttempt = 0;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectAt: number | null = null;
   private dismissConnToast: (() => void) | null = null;
+  private connToastSteady = false;
 
   private onClose() {
     if (this.authFailed) {
@@ -486,54 +794,147 @@ export class App {
     this.scheduleReconnect();
   }
 
-  // Reconnect with exponential backoff + jitter (computeReconnectDelay), bounded
-  // by RECONNECT_MAX_ATTEMPTS. Past the cap we stop auto-retrying and leave a
-  // persistent toast with a manual 再接続 button, so a long-down server isn't
-  // pinged forever (the old code retried every 2s with no ceiling).
+  // Schedule the next reconnect: exponential backoff + jitter while the ceiling
+  // is being reached, then a steady RECONNECT_MAX_MS cadence forever (issue
+  // #183 — an unattended office tab must survive long outages; the escalated
+  // toast offers a manual immediate retry, but auto-retrying never stops).
   private scheduleReconnect() {
     // A retry is already pending: 'error' and 'close' can both fire, so don't
-    // stack timers.
-    if (this.reconnectTimer != null) return;
-    if (this.reconnectAttempt >= RECONNECT_MAX_ATTEMPTS) {
+    // stack deadlines.
+    if (this.reconnectAt != null) return;
+    const steady = this.reconnectAttempt >= RECONNECT_STEADY_AFTER_ATTEMPTS;
+    const delay = steady ? RECONNECT_MAX_MS : computeReconnectDelay(this.reconnectAttempt);
+    this.reconnectAttempt++;
+    logNet('ws-retry-scheduled', { attempt: this.reconnectAttempt, delayMs: delay, steady });
+    console.warn(
+      `[ws] connection closed; retrying in ${delay}ms (attempt ${this.reconnectAttempt})`,
+    );
+    if (steady && !this.connToastSteady) {
+      // Escalate once: the quick blip turned into a real outage.
+      this.connToastSteady = true;
       this.dismissConnToast?.();
       this.dismissConnToast = this.toasts.action(
         t('app.cantConnect'),
         [{ label: t('app.reconnect'), primary: true, onClick: () => this.manualReconnect() }],
         0,
       );
-      return;
-    }
-    const delay = computeReconnectDelay(this.reconnectAttempt);
-    this.reconnectAttempt++;
-    console.warn(
-      `[ws] connection closed; retrying in ${delay}ms (attempt ${this.reconnectAttempt})`,
-    );
-    // Show the (persistent) reconnecting notice once; later attempts reuse it.
-    if (!this.dismissConnToast) {
+    } else if (!this.dismissConnToast) {
+      // Show the (persistent) reconnecting notice once; later attempts reuse it.
       this.dismissConnToast = this.toasts.action(t('app.reconnecting'), [], 0);
     }
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.net.connect();
-    }, delay);
+    this.reconnectAt = performance.now() + delay;
   }
 
-  // User asked to retry (manual button) or returned to a backgrounded tab whose
-  // socket dropped: clear any pending backoff, reset the counter, and reconnect now.
+  // Heartbeat + retry-deadline pump, run every simulation step (rAF while
+  // visible, the background Worker while hidden). beat() detects half-open
+  // sockets and hung handshakes (issue #183); the deadline check replaces the
+  // old throttling-prone setTimeout retry.
+  private tickNetwork(now: number) {
+    this.net.beat(now);
+    if (this.reconnectAt != null && now >= this.reconnectAt) {
+      this.reconnectAt = null;
+      this.net.connect();
+    }
+    this.tickPeerRecovery(now);
+  }
+
+  // ─── Mesh-peer recovery (issue #184) ──────────────────────────────────────
+  // A mesh pair that dies mid-call (ICE failure after a Wi-Fi roam, TURN
+  // allocation expiry, …) never comes back on its own: the server re-sends
+  // group-update only on topology changes, and simple-peer does not resend
+  // offers. So the App rebuilds dead pairs itself, with a per-peer backoff.
+
+  // Create one mesh peer and arm the stall watchdog: if it never reaches
+  // 'connect' the recovery loop tears it down and retries. All mesh createPeer
+  // call sites (group reconcile, recovery, restart nudges) go through here.
+  private createMeshPeer(userId: string, initiator: boolean) {
+    this.peerStallAt.set(userId, performance.now() + PEER_CONNECT_STALL_MS);
+    void this.rtc.createPeer(userId, initiator);
+  }
+
+  // A peer closed. If it should still be in our call, schedule a rebuild with
+  // backoff; otherwise clear its recovery state. Deliberate closes (group
+  // reconcile, mesh→SFU, session reset) pass the guards because membership is
+  // updated *before* the close in those paths.
+  private schedulePeerRecovery(userId: string) {
+    this.peerStallAt.delete(userId);
+    this.peerDisconnectedSince.delete(userId);
+    if (this.currentMethod !== 'mesh' || !this.meshMembers.has(userId)) {
+      this.peerRetryAt.delete(userId);
+      this.peerRetryAttempts.delete(userId);
+      return;
+    }
+    if (this.peerRetryAt.has(userId)) return;
+    const attempt = (this.peerRetryAttempts.get(userId) ?? 0) + 1;
+    this.peerRetryAttempts.set(userId, attempt);
+    const delay = computePeerRetryDelay(attempt);
+    logNet('mesh-retry-scheduled', { peer: userId, attempt, delayMs: delay });
+    this.peerRetryAt.set(userId, performance.now() + delay);
+  }
+
+  // The recovery pump, run every simulation step: fires due rebuilds, tears
+  // down peers stuck in 'disconnected' or stalled short of 'connect'. Teardowns
+  // land back in schedulePeerRecovery via onPeerClosed, bumping the backoff.
+  private tickPeerRecovery(now: number) {
+    for (const [userId, at] of this.peerRetryAt) {
+      if (now < at) continue;
+      this.peerRetryAt.delete(userId);
+      if (this.currentMethod !== 'mesh' || !this.meshMembers.has(userId)) continue;
+      if (this.rtc.hasPeer(userId)) continue;
+      const initiator = isInitiator(this.myId, userId);
+      logNet('mesh-retry', { peer: userId, initiator });
+      this.createMeshPeer(userId, initiator);
+      // Only the elected initiator can send the fresh offer; the other side
+      // nudges it (rtc-restart) in case it hasn't noticed the pair is dead.
+      if (!initiator) this.net.send({ type: 'rtc-restart', to: userId });
+    }
+    for (const [userId, since] of this.peerDisconnectedSince) {
+      if (now - since < PEER_DISCONNECTED_TIMEOUT_MS) continue;
+      this.peerDisconnectedSince.delete(userId);
+      logNet('mesh-disconnected-timeout', { peer: userId });
+      this.rtc.closePeer(userId);
+    }
+    for (const [userId, at] of this.peerStallAt) {
+      if (now < at) continue;
+      this.peerStallAt.delete(userId);
+      if (!this.rtc.hasPeer(userId) || this.rtc.isPeerReady(userId)) continue;
+      logNet('mesh-connect-stall', { peer: userId });
+      this.rtc.closePeer(userId);
+    }
+  }
+
+  // Drop every per-peer recovery record for peers outside `keep` (or all).
+  private clearPeerRecovery(keep?: Set<string>) {
+    for (const map of [
+      this.peerRetryAt,
+      this.peerRetryAttempts,
+      this.peerStallAt,
+      this.peerDisconnectedSince,
+      this.rtcRestartHandledAt,
+    ]) {
+      for (const id of [...map.keys()]) {
+        if (!keep?.has(id)) map.delete(id);
+      }
+    }
+  }
+
+  // User asked to retry (manual button), returned to a backgrounded tab whose
+  // socket dropped, or the OS reported the network came back: clear any pending
+  // backoff, reset the counter, and reconnect now.
   private manualReconnect() {
+    logNet('ws-manual-reconnect');
     this.dismissConnToast?.();
     this.dismissConnToast = null;
+    this.connToastSteady = false;
     this.reconnectAttempt = 0;
-    if (this.reconnectTimer != null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this.reconnectAt = null;
     this.net.connect();
   }
 
   private onServerMessage(msg: ServerMessage) {
     switch (msg.type) {
       case 'auth-error': {
+        logNet('auth-error');
         this.authFailed = true;
         // Re-show the join overlay; main.ts returns to the password gate (auth
         // errors only happen when a password is required and wrong).
@@ -549,16 +950,49 @@ export class App {
         // bundle (reload.ts explains the ghost mechanism).
         const boot = evaluateBoot(this.serverBootId, msg.bootId);
         this.serverBootId = boot.bootId;
+        const resumed = msg.resumed === true && this.me !== null && msg.self.userId === this.myId;
+        logNet('welcome', { bootChanged: boot.reload, resumed });
         if (boot.reload) {
           this.reloadBanner.show();
+          break;
+        }
+        // Fresh tokens either way: the media token authenticates the RTC HTTP
+        // endpoints; the resume token arms the NEXT reconnect (issue #187).
+        this.myResumeToken = msg.resumeToken ?? null;
+        setMediaToken(msg.token);
+        if (resumed) {
+          // Soft path (issue #187): the server kept our identity, so the live
+          // mesh/SFU transports, our position and the group state all stay.
+          // Only the players map needs reconciling — peers may have moved,
+          // joined or left while our socket was down.
+          this.reconcilePlayers(msg.players);
+          // Re-announce status: peers kept our avatar, but anything broadcast
+          // during the outage (mute toggles, notes) was lost on their side.
+          this.broadcastStatus();
+          // Re-sync our position: the loop kept moving us locally while sends
+          // were dropping, and the move sender only fires on velocity change /
+          // while moving — standing still after the walk would leave us at the
+          // stale pre-outage spot on the server (and in peers' views) forever.
+          if (this.me) {
+            this.net.send({
+              type: 'move',
+              x: this.me.x,
+              y: this.me.y,
+              vx: 0,
+              vy: 0,
+              zoneId: zoneAt(this.me.x, this.me.y)?.id ?? null,
+            });
+            this.lastSentX = this.me.x;
+            this.lastSentY = this.me.y;
+            this.lastSentVx = 0;
+            this.lastSentVy = 0;
+            this.lastSent = performance.now();
+          }
           break;
         }
         // Clear any prior-session state before adopting the new one, so a same-boot
         // reconnect (new userId) doesn't leave ghosts of our old self / stale peers.
         this.resetSessionState();
-        // Store the fresh media token so the RTC transports can authenticate to
-        // /api/turn-credentials and /api/sfu/* for this (re)connected session.
-        setMediaToken(msg.token);
         this.myId = msg.self.userId;
         const spawn = findWalkableSpawn(msg.self.x, msg.self.y, PLAYER_RADIUS);
         msg.self.x = spawn.x;
@@ -611,14 +1045,7 @@ export class App {
         break;
       }
       case 'player-left': {
-        this.players.delete(msg.userId);
-        if (this.focusedId === msg.userId) this.focusedId = null;
-        this.knocks.onPlayerLeft(msg.userId);
-        this.rtc.closePeer(msg.userId);
-        this.sfu.removePeer(msg.userId);
-        this.knownSfuPeers.delete(msg.userId);
-        // removePeer also tears down their screenshare stage if any.
-        this.view.removePeer(msg.userId);
+        this.removeRemotePlayer(msg.userId);
         break;
       }
       case 'signal': {
@@ -630,6 +1057,24 @@ export class App {
       }
       case 'stream-meta': {
         this.rtc.applyRemoteStreamMeta(msg.from, msg.streamId, msg.kind);
+        break;
+      }
+      case 'rtc-restart': {
+        // A group peer detected our pair is dead and asks us — their elected
+        // initiator — to rebuild it with a fresh offer (issue #184). Debounced:
+        // their retry loop may nudge several times while we renegotiate. Only
+        // honored when the deterministic election really makes us the
+        // initiator: otherwise a misbehaving peer could tear a healthy pair
+        // down into offer-glare (two initiators) every few seconds.
+        if (this.currentMethod !== 'mesh' || !this.meshMembers.has(msg.from)) break;
+        if (!isInitiator(this.myId, msg.from)) break;
+        const now = performance.now();
+        const last = this.rtcRestartHandledAt.get(msg.from);
+        if (last != null && now - last < 3000) break;
+        this.rtcRestartHandledAt.set(msg.from, now);
+        logNet('rtc-restart-received', { peer: msg.from });
+        this.rtc.closePeer(msg.from);
+        this.createMeshPeer(msg.from, true);
         break;
       }
       case 'group-update': {
@@ -660,6 +1105,9 @@ export class App {
         break;
       }
       case 'sfu-peer-tracks': {
+        // Cache the directory regardless of transport: a later SFU rebuild
+        // re-feeds it (issue #186), and the server only re-sends on changes.
+        this.sfuDirectory.set(msg.userId, { sessionId: msg.sessionId, tracks: msg.tracks });
         // Ignore unless we're actually on SFU. setPeerTracks calls reopen(), which
         // would resurrect a ghost SFU PeerConnection while we run mesh — the server
         // keeps relaying these after a unilateral mesh fallback because it still
@@ -696,8 +1144,10 @@ export class App {
     if (!this.rtc.hasPeer(from) && !this.meshMembers.has(from) && !this.sfuMembers.has(from)) {
       return;
     }
-    // If we have no peer for this user, create as non-initiator.
+    // If we have no peer for this user, create as non-initiator. Arm the same
+    // connect-stall watchdog as the outbound paths (#184).
     if (!this.rtc.hasPeer(from)) {
+      this.peerStallAt.set(from, performance.now() + PEER_CONNECT_STALL_MS);
       await this.rtc.createPeer(from, false);
     }
     this.rtc.signal(from, data);
@@ -720,6 +1170,7 @@ export class App {
   private step(nowMs: number, render: boolean) {
     const dt = computeFrameDt(this.lastFrameMs, nowMs);
     this.lastFrameMs = nowMs;
+    this.tickNetwork(nowMs);
     this.update(dt);
     if (render) {
       const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
@@ -800,6 +1251,13 @@ export class App {
       this.updateSfuLayers();
     }
 
+    // Call-quality sampling for the connection log (issue #182). Runs from the
+    // loop (rAF or the background Worker), so it stays alive in hidden tabs.
+    if (now - this.lastQualitySampleAt > QUALITY_SAMPLE_INTERVAL_MS) {
+      this.lastQualitySampleAt = now;
+      void this.sampleQuality();
+    }
+
     // Refresh the participant roster from the (now up-to-date) players map.
     this.roster.update(this.focusedId);
 
@@ -845,8 +1303,11 @@ export class App {
     if (me.isSpeaking) this.lastLoudAtMs = nowMs;
     const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
     const peerCount = this.rtc.peerCount;
-    this.rtc.setCamEncoding(computeCamEncoding(peerCount, speaking));
-    this.rtc.setScreenEncoding(computeScreenEncoding(peerCount));
+    // The peer-count/speaker ceilings, further shrunk by the network tier
+    // (#185) — under congestion video yields so voice keeps its headroom.
+    const tier = this.netTierState.tier;
+    this.rtc.setCamEncoding(applyNetTierToCam(computeCamEncoding(peerCount, speaking), tier));
+    this.rtc.setScreenEncoding(applyNetTierToScreen(computeScreenEncoding(peerCount), tier));
   }
 
   // Moves self by a velocity for one frame, sliding along walls (per-axis
@@ -962,9 +1423,11 @@ export class App {
       this.currentMethod = 'sfu';
       this.sfuMembers = new Set(members);
       this.meshMembers.clear();
+      this.clearPeerRecovery();
       if (wasMesh) {
         // mesh → SFU: drop every mesh peer, then publish our live streams to the
-        // SFU. Remote media comes back via sfu-peer-tracks → pull.
+        // SFU. Remote media comes back via sfu-peer-tracks → pull. (meshMembers
+        // was cleared above, so the recovery loop won't rebuild them — #184.)
         this.rtc.closeAll();
         this.publishLocalToSfu();
       }
@@ -973,6 +1436,7 @@ export class App {
       for (const id of toClose) {
         this.sfu.removePeer(id);
         this.knownSfuPeers.delete(id);
+        this.sfuDirectory.delete(id);
       }
     } else {
       // Always tear the SFU transport down when running mesh — even mesh→mesh — so
@@ -981,18 +1445,22 @@ export class App {
       // group-updates only arrive on real topology changes (not every move).
       this.sfu.closeAll();
       this.knownSfuPeers.clear();
+      this.sfuDirectory.clear();
       this.currentMethod = 'mesh';
       this.sfuMembers.clear();
       // Reconcile mesh peers against the group: close peers no longer in it,
       // open one to every member we are not yet connected to. createPeer bundles
       // our live streams automatically; initiator election keeps it to one offer.
+      // meshMembers is updated BEFORE the closes so onPeerClosed (#184) can tell
+      // "left the group" (drop recovery state) from "died mid-call" (rebuild).
       const next = new Set(members.filter((id) => id !== this.myId));
+      this.meshMembers = next;
+      this.clearPeerRecovery(next);
       const { toClose, toOpen } = partitionMembers(this.rtc.peerIds(), next);
       for (const id of toClose) this.rtc.closePeer(id);
       for (const id of toOpen) {
-        void this.rtc.createPeer(id, isInitiator(this.myId, id));
+        this.createMeshPeer(id, isInitiator(this.myId, id));
       }
-      this.meshMembers = next;
     }
   }
 
@@ -1002,10 +1470,14 @@ export class App {
     if (this.media.screenStream) this.sfu.addLocalStream(this.media.screenStream, 'screen');
   }
 
-  // The SFU peer connection failed: degrade this group to mesh so the call
-  // survives rather than dropping. We mesh directly with the group's members
-  // (the same set the SFU was serving). (App-token-less environments never reach
-  // SFU, so never get here.)
+  // The SFU transport failed (hard connection failure, or a control op that
+  // exhausted its retries). First failure: rebuild the SFU session in place —
+  // fresh PC, fresh Cloudflare session, re-publish our tracks, re-pull peers
+  // from the cached directories — because a rebuild keeps the group on the
+  // scalable path (issue #186; Cloudflare's renegotiate flow offers no
+  // client-driven ICE restart, so a rebuild is the recovery primitive). A
+  // second failure within SFU_REBUILD_MIN_INTERVAL_MS means the SFU path
+  // really is unhealthy: degrade to mesh so the call survives.
   private onSfuFailed() {
     if (this.currentMethod !== 'sfu') {
       // Not on SFU, but a resurrected/ghost SFU transport may have failed. Ensure
@@ -1013,6 +1485,18 @@ export class App {
       this.sfu.closeAll();
       return;
     }
+    const now = performance.now();
+    if (now - this.lastSfuRebuildAt > SFU_REBUILD_MIN_INTERVAL_MS) {
+      this.lastSfuRebuildAt = now;
+      logNet('sfu-rebuild');
+      console.warn('[sfu] transport failed; rebuilding the SFU session');
+      this.sfu.closeAll();
+      this.knownSfuPeers.clear();
+      this.publishLocalToSfu();
+      this.refeedSfuDirectories();
+      return;
+    }
+    logNet('sfu-fallback-mesh');
     console.warn('[sfu] connection failed; falling back to mesh');
     this.toasts.info(t('app.sfuFallback'));
     // Reuse the mesh reconciliation (it tears the SFU transport down and opens a
@@ -1036,7 +1520,10 @@ export class App {
       if (userId === this.myId) continue;
       const width = this.view.cameraTileWidth(userId);
       if (width == null) continue;
-      this.sfu.setPreferredLayer(userId, 'cam', computePreferredRid(width));
+      // A congested downlink (tier ≥2, #188) forces the half layer regardless
+      // of tile size; otherwise the tile's rendered width picks it (#78).
+      const rid = this.netTierState.tier >= 2 ? SFU_CAM_HALF_RID : computePreferredRid(width);
+      this.sfu.setPreferredLayer(userId, 'cam', rid);
     }
   }
 }

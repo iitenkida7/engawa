@@ -148,6 +148,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.bgCustom': { ja: '🖼 カスタム画像', en: '🖼 Custom image' },
   'toolbar.bgUpload': { ja: '📁 画像をアップロード…', en: '📁 Upload image…' },
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
+  'toolbar.audioOnly': { ja: '🔉 音声のみモード', en: '🔉 Audio-only mode' },
   'toolbar.closeDebug': { ja: '🐛 デバッグを閉じる', en: '🐛 Close debug' },
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
 
@@ -185,6 +186,7 @@ const STR: Record<string, Record<Lang, string>> = {
     en: 'No connections (they appear when someone is nearby)',
   },
   'debug.noStreams': { ja: 'ストリームなし', en: 'No streams' },
+  'debug.copyLog': { ja: '接続ログをコピー', en: 'Copy connection log' },
 
   // -- remote media ---------------------------------------------------------
   'media.yourScreen': { ja: 'あなたの画面', en: 'Your screen' },
@@ -203,7 +205,10 @@ const STR: Record<string, Record<Lang, string>> = {
   'layout.sidebar': { ja: 'サイドバー整列', en: 'Sidebar' },
 
   // -- app-level toasts -----------------------------------------------------
-  'app.cantConnect': { ja: 'サーバーに接続できません。', en: "Can't connect to the server." },
+  'app.cantConnect': {
+    ja: 'サーバーに接続できません。自動的に再試行しています…',
+    en: "Can't connect to the server. Retrying automatically…",
+  },
   'app.reconnect': { ja: '再接続', en: 'Reconnect' },
   'app.reconnecting': {
     ja: '接続が切れました。再接続しています…',
@@ -213,6 +218,36 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: '通話サーバーに接続できないため、P2P 接続に切り替えました。',
     en: "Couldn't reach the call server — switched to a P2P connection.",
   },
+  'app.netCamOff': {
+    ja: '回線が不安定なため、音声を優先してカメラを一時停止しました(回復すると自動で再開します)。',
+    en: 'Network is struggling — camera paused to protect audio (it will resume automatically).',
+  },
+  'app.netCamRestore': {
+    ja: '回線が回復したため、カメラを再開しました。',
+    en: 'Network recovered — camera resumed.',
+  },
+  'app.netRecvAudioOnly': {
+    ja: '回線が不安定なため、映像の受信を一時停止しました(音声のみ)。',
+    en: 'Network is struggling — pausing incoming video (audio only).',
+  },
+  'app.netRecvVideoRestore': {
+    ja: '回線が回復したため、映像の受信を再開しました。',
+    en: 'Network recovered — incoming video resumed.',
+  },
+  'app.audioOnlyOn': {
+    ja: '音声のみモードをオンにしました(カメラ・画面共有を停止)。',
+    en: 'Audio-only mode on (camera and screen share stopped).',
+  },
+  'app.audioOnlyOff': {
+    ja: '音声のみモードをオフにしました。',
+    en: 'Audio-only mode off.',
+  },
+
+  // -- connection quality dots (issue #188) ----------------------------------
+  'quality.q0': { ja: '回線: 良好', en: 'Connection: good' },
+  'quality.q1': { ja: '回線: やや不安定', en: 'Connection: fair' },
+  'quality.q2': { ja: '回線: 不安定', en: 'Connection: poor' },
+  'quality.q3': { ja: '回線: 非常に不安定', en: 'Connection: bad' },
 
   // -- reload banner --------------------------------------------------------
   'reload.countdown': { ja: '{seconds} 秒後に再読み込みします…', en: 'Reloading in {seconds}s…' },

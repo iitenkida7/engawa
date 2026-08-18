@@ -38,8 +38,17 @@ export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
 export type ClientMessage =
   // `workspace` is legacy (single-space now); the client no longer sends it and
   // the server defaults it to a single constant. `password` gates entry when an
-  // access password is configured.
-  | { type: 'join'; name: string; workspace?: string; password?: string; outfit?: Outfit }
+  // access password is configured. `resumeToken` (issue #187) is the token from
+  // the previous welcome: within the leave-grace window it lets a reconnect
+  // adopt the previous connection's identity instead of joining fresh.
+  | {
+      type: 'join';
+      name: string;
+      workspace?: string;
+      password?: string;
+      outfit?: Outfit;
+      resumeToken?: string;
+    }
   // Avatar appearance changed; relayed to the workspace (sanitized, never stored).
   | { type: 'outfit-update'; outfit: Outfit }
   | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
@@ -55,6 +64,9 @@ export type ClientMessage =
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
+  // Mesh-peer recovery (issue #184): the non-initiator side of a dead pair asks
+  // the elected initiator to rebuild it. Relayed 1:1 like signal.
+  | { type: 'rtc-restart'; to: string }
   // A chat line, relayed to the sender's current proximity group (the people
   // they're in a call with), so text stays spatial. The server keeps no history.
   | { type: 'chat'; text: string }
@@ -66,13 +78,21 @@ export type ClientMessage =
   | { type: 'reaction'; emoji: string }
   // SFU: announce/replace the tracks this client has published to its Cloudflare
   // session, so the server can relay them to the group as a track directory.
-  | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] };
+  | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] }
+  // App-level heartbeat (issue #183): the client pings on a fixed cadence and
+  // treats a missing pong as a dead socket (browsers expose no protocol ping).
+  | { type: 'ping' };
 
 export type ServerMessage =
   | { type: 'auth-error'; message: string }
+  // Heartbeat reply to a client `ping`.
+  | { type: 'pong' }
   // `token` is a short-lived, per-connection media token the client must present
   // on /api/turn-credentials and /api/sfu/* (transient, minted on join). It gates
   // consumption of the billable Cloudflare endpoints to live joined sessions.
+  // `resumeToken` lets the next reconnect resume this identity (issue #187);
+  // `resumed` marks a welcome that DID resume — same userId, position and group
+  // kept, so the client skips its session reset and keeps live calls.
   | {
       type: 'welcome';
       self: Player;
@@ -80,6 +100,8 @@ export type ServerMessage =
       bootId: string;
       sfuEnabled: boolean;
       token: string;
+      resumeToken: string;
+      resumed?: boolean;
     }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
@@ -97,6 +119,8 @@ export type ServerMessage =
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
   | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' }
+  // A group peer asks the recipient (their elected initiator) to rebuild the pair.
+  | { type: 'rtc-restart'; from: string }
   // A chat line from a proximity-group peer (from === self when it's the echo
   // of our own message). `name` is the sender's display name; `ts` is server ms.
   | { type: 'chat'; from: string; name: string; text: string; ts: number }
@@ -134,8 +158,13 @@ export type WsData = {
   // client, so we only re-send when it actually changes.
   groupKey: string | null;
   // Short-lived media token minted on join (null until joined). Required on the
-  // Cloudflare-backed HTTP endpoints; removed from the valid-token set on close.
+  // Cloudflare-backed HTTP endpoints; removed from the valid-token set when the
+  // leave is finalized (kept through the resume-grace window, issue #187).
   mediaToken: string | null;
+  // Session-resume token minted on join / rotated on resume (issue #187).
+  // Presented by the next reconnect's join to adopt this identity within the
+  // grace window. Transient, memory-only (invariant #2).
+  resumeToken: string | null;
   // Last time (ms) this connection triggered a proximity-group recompute, so a
   // burst of `move` messages from one socket can't force the O(n²) recompute at
   // wire speed. Position updates and player-moved broadcasts are never throttled.

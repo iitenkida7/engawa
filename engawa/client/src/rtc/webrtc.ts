@@ -1,4 +1,5 @@
 import SimplePeer, { type Instance as PeerInstance } from 'simple-peer';
+import { logNet } from '@/core/netlog';
 import type { StreamKind } from '@/core/types';
 import type { MediaManager } from '@/media/media';
 import {
@@ -11,7 +12,7 @@ import {
 import { fetchIceServers } from '@/rtc/ice';
 import { diffRtcStats, type RtcConn, type RtcSnapshot, summarizeRtcStats } from '@/rtc/rtcstats';
 import { transformSdp } from '@/rtc/sdp';
-import { tuneReceivers } from '@/rtc/tune';
+import { JITTER_BUFFER_TARGET_MS, tuneReceivers } from '@/rtc/tune';
 
 // Fixed mic send-bitrate ceiling (bps). The encoder still adapts down to the
 // available bandwidth. Camera and screen ceilings are dynamic and live in the
@@ -109,6 +110,12 @@ export type WebRtcEvents = {
   onSignal: (toUserId: string, data: unknown) => void;
   onStreamMeta: (toUserId: string, streamId: string, kind: StreamKind | 'removed') => void;
   onPeerClosed: (userId: string) => void;
+  // Fired when the data channel connects (the pair is fully up). Drives the
+  // App's recovery bookkeeping: attempts reset, stall watchdog disarms (#184).
+  onPeerConnected: (userId: string) => void;
+  // Fired on every iceConnectionState change, so the App can tear down a peer
+  // stuck in 'disconnected' and let the recovery loop rebuild it (#184).
+  onPeerIceState: (userId: string, state: string) => void;
 };
 
 export class WebRtcManager {
@@ -130,6 +137,11 @@ export class WebRtcManager {
   // Pending stream-meta announcements that arrived before the corresponding
   // 'stream' / 'track' event on the peer.
   private pendingMeta = new Map<string, Map<string, StreamKind>>();
+
+  // Current receiver jitter-buffer target (issue #188). The App raises it from
+  // measured receive jitter on bad links; new receivers pick it up via the
+  // connect/track handlers, existing ones via applyReceiverJitterTarget.
+  private jitterTargetMs = JITTER_BUFFER_TARGET_MS;
 
   // Previous getStats snapshot per peer, for the debug console per-second diff.
   private statsPrev = new Map<string, RtcSnapshot>();
@@ -159,6 +171,19 @@ export class WebRtcManager {
   // feeds this to computeCamEncoding / computeScreenEncoding to decide throttling.
   get peerCount(): number {
     return this.peers.size;
+  }
+
+  // Re-target every receiver's jitter buffer (issue #188): the App raises the
+  // target on high-jitter links so audio rides out the bursts, and lowers it
+  // back for latency when the link calms. No-op when unchanged (called on the
+  // 5s quality cadence).
+  applyReceiverJitterTarget(targetMs: number) {
+    if (targetMs === this.jitterTargetMs) return;
+    this.jitterTargetMs = targetMs;
+    for (const entry of this.peers.values()) {
+      const pc = getPc(entry.peer);
+      if (pc) tuneReceivers(pc, targetMs);
+    }
   }
 
   // Update the camera encoding ceiling and re-tune every peer's cam sender.
@@ -239,6 +264,7 @@ export class WebRtcManager {
           id: entry.remoteUserId,
           rttMs: rates.rttMs,
           transport: rates.transport,
+          availableOutgoingKbps: rates.availableOutgoingKbps,
           streams: rates.streams,
         });
       }
@@ -298,6 +324,7 @@ export class WebRtcManager {
       abort: new AbortController(),
     };
     this.peers.set(remoteUserId, entry);
+    logNet('peer-created', { peer: remoteUserId, initiator });
 
     // Wire the stream→kind map for the initial stream(s).
     for (const { stream, kind } of initialStreams) {
@@ -332,9 +359,16 @@ export class WebRtcManager {
 
     peer.on('connect', () => {
       entry.ready = true;
+      logNet('peer-connected', { peer: remoteUserId });
       const pc = getPc(peer);
-      if (pc) tuneReceivers(pc);
+      if (pc) tuneReceivers(pc, this.jitterTargetMs);
       this.retunePeer(entry);
+      this.events.onPeerConnected(remoteUserId);
+    });
+
+    peer.on('iceStateChange', (iceConnectionState: string) => {
+      logNet('peer-ice', { peer: remoteUserId, state: iceConnectionState });
+      this.events.onPeerIceState(remoteUserId, iceConnectionState);
     });
 
     const handleIncoming = (stream: MediaStream) => {
@@ -355,18 +389,26 @@ export class WebRtcManager {
       );
       // New incoming transceiver — re-apply receiver hints.
       const pc = getPc(peer);
-      if (pc) tuneReceivers(pc);
+      if (pc) tuneReceivers(pc, this.jitterTargetMs);
     });
 
     peer.on('error', (err) => {
+      logNet('peer-error', { peer: remoteUserId, err: (err as Error).message });
       console.warn(`[rtc] peer ${remoteUserId} error`, err);
     });
 
     peer.on('close', () => {
+      logNet('peer-closed', { peer: remoteUserId });
       this.cleanupPeer(remoteUserId);
     });
 
     return entry;
+  }
+
+  // Whether the pair with this peer has fully connected (simple-peer 'connect'
+  // fired and the peer hasn't closed since). Used by the App's stall watchdog.
+  isPeerReady(remoteUserId: string): boolean {
+    return this.peers.get(remoteUserId)?.ready ?? false;
   }
 
   signal(remoteUserId: string, data: unknown) {

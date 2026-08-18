@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { computeReconnectDelay, RECONNECT_BASE_MS, RECONNECT_MAX_MS } from '@/core/reconnect';
+import {
+  computePeerRetryDelay,
+  computeReconnectDelay,
+  PEER_RETRY_MAX_MS,
+  RECONNECT_BASE_MS,
+  RECONNECT_MAX_MS,
+} from '@/core/reconnect';
 
 describe('computeReconnectDelay', () => {
   it('doubles the backoff each attempt (midpoint jitter)', () => {
@@ -35,5 +41,19 @@ describe('computeReconnectDelay', () => {
   it('honours custom base/max options', () => {
     expect(computeReconnectDelay(0, 1, { baseMs: 500 })).toBe(500);
     expect(computeReconnectDelay(10, 1, { baseMs: 500, maxMs: 4000 })).toBe(4000);
+  });
+});
+
+describe('computePeerRetryDelay', () => {
+  it('is 1-based and mirrors the socket backoff with a 15s ceiling', () => {
+    expect(computePeerRetryDelay(1, 0.5)).toBe(computeReconnectDelay(0, 0.5));
+    expect(computePeerRetryDelay(2, 0.5)).toBe(computeReconnectDelay(1, 0.5));
+    expect(computePeerRetryDelay(10, 1)).toBe(PEER_RETRY_MAX_MS);
+    expect(computePeerRetryDelay(10, 0)).toBe(PEER_RETRY_MAX_MS / 2);
+  });
+
+  it('treats a nonsensical attempt count as the first attempt', () => {
+    expect(computePeerRetryDelay(0, 0.5)).toBe(computePeerRetryDelay(1, 0.5));
+    expect(computePeerRetryDelay(-2, 0.5)).toBe(computePeerRetryDelay(1, 0.5));
   });
 });

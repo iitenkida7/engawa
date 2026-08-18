@@ -2,9 +2,11 @@ import { describe, expect, it } from 'bun:test';
 import type { SfuTrack } from '@/core/types';
 import {
   chainOp,
+  isRetryableSfuHttp,
   partitionMembers,
   reconcilePeerTracks,
   remoteKey,
+  sfuApiRetryDelayMs,
   sfuErrorMessage,
   sfuSessionError,
   sfuTrackError,
@@ -205,5 +207,28 @@ describe('chainOp', () => {
     await chain;
     expect(errors).toHaveLength(1);
     expect(order).toEqual([2]);
+  });
+});
+
+describe('sfu control-plane retry policy (issue #186)', () => {
+  it('backs off 500ms then 1s', () => {
+    expect(sfuApiRetryDelayMs(1)).toBe(500);
+    expect(sfuApiRetryDelayMs(2)).toBe(1000);
+    expect(sfuApiRetryDelayMs(0)).toBe(500);
+  });
+
+  it('retries network errors and transient statuses', () => {
+    expect(isRetryableSfuHttp('network')).toBe(true);
+    expect(isRetryableSfuHttp(500)).toBe(true);
+    expect(isRetryableSfuHttp(502)).toBe(true);
+    expect(isRetryableSfuHttp(408)).toBe(true);
+    expect(isRetryableSfuHttp(429)).toBe(true);
+  });
+
+  it('retries 401 (media token is re-minted by a reconnect) but no other 4xx', () => {
+    expect(isRetryableSfuHttp(401)).toBe(true);
+    expect(isRetryableSfuHttp(400)).toBe(false);
+    expect(isRetryableSfuHttp(403)).toBe(false);
+    expect(isRetryableSfuHttp(404)).toBe(false);
   });
 });

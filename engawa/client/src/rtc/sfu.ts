@@ -1,4 +1,5 @@
 import { mediaAuthHeaders } from '@/core/media-auth';
+import { logNet } from '@/core/netlog';
 import type { SfuTrack, StreamKind } from '@/core/types';
 import { SFU_CAM_LAYERS, SFU_SCREEN_MAX_BITRATE } from '@/rtc/cam-bitrate';
 import { fetchIceServers } from '@/rtc/ice';
@@ -12,14 +13,17 @@ import {
 import { transformSdpForLowLatency } from '@/rtc/sdp';
 import {
   chainOp,
+  isRetryableSfuHttp,
   reconcilePeerTracks,
   remoteKey,
+  SFU_API_MAX_ATTEMPTS,
+  sfuApiRetryDelayMs,
   sfuErrorMessage,
   sfuSessionError,
   sfuTrackError,
   shouldFallbackToMesh,
 } from '@/rtc/sfu-logic';
-import { tuneReceiver, tuneSfuSender } from '@/rtc/tune';
+import { JITTER_BUFFER_TARGET_MS, tuneReceiver, tuneSfuSender } from '@/rtc/tune';
 
 // Sentinel conn ids for the debug console. The SFU is one PC, so our published
 // tracks aren't per-peer: they go to one synthetic "upstream" conn. Received
@@ -111,12 +115,26 @@ export class SfuManager {
   private remoteTracks = new Map<string, RemoteEntry>();
   // transceiver mid → remote key, for routing ontrack to (userId, kind).
   private midToRemote = new Map<string, string>();
+  // The Cloudflare session each peer last announced. A CHANGED session id means
+  // the peer rebuilt their SFU transport (issue #186): every track we pulled
+  // from the old session is dead, so they are dropped and re-pulled even though
+  // the (userId, kind) keys look unchanged.
+  private peerSessions = new Map<string, string>();
 
   // Serializes every renegotiation against the single PC.
   private opChain: Promise<void> = Promise.resolve();
 
   // Previous getStats snapshot for the per-second diff (debug console).
   private statsPrev: RtcSnapshot | null = null;
+
+  // Receiver jitter-buffer target (issue #188); see WebRtcManager's counterpart.
+  private jitterTargetMs = JITTER_BUFFER_TARGET_MS;
+
+  // While true, video (cam/screen) tracks are neither pulled nor kept — only
+  // mic audio flows downlink (issue #188: audio-only receive on a starved
+  // downlink, or the manual audio-only mode). Existing video pulls are dropped
+  // on entry; on exit the App re-feeds the cached directories to re-pull.
+  private videoPullPaused = false;
 
   constructor(events: SfuEvents) {
     this.events = events;
@@ -175,11 +193,23 @@ export class SfuManager {
   }
 
   // Reconcile the tracks a group peer is publishing: pull anything new, drop
-  // anything that disappeared (e.g. they turned their camera off).
+  // anything that disappeared (e.g. they turned their camera off). A changed
+  // session id first drops everything pulled from the peer's previous session —
+  // those tracks are dead after their transport rebuild (issue #186).
   setPeerTracks(userId: string, sessionId: string, tracks: SfuTrack[]) {
     this.reopen();
     this.enqueue(async () => {
-      const { toPull, toDrop } = reconcilePeerTracks(userId, tracks, this.remoteTracks.keys());
+      const prevSession = this.peerSessions.get(userId);
+      if (prevSession !== undefined && prevSession !== sessionId) {
+        for (const key of [...this.remoteTracks.keys()]) {
+          if (this.remoteTracks.get(key)!.userId === userId) await this.dropRemote(key);
+        }
+      }
+      this.peerSessions.set(userId, sessionId);
+      // Audio-only receive: reconcile against the mic subset so video tracks
+      // are treated as absent (existing ones drop, new ones aren't pulled).
+      const desired = this.videoPullPaused ? tracks.filter((t) => t.kind === 'mic') : tracks;
+      const { toPull, toDrop } = reconcilePeerTracks(userId, desired, this.remoteTracks.keys());
       for (const t of toPull) {
         await this.pullTrack(userId, sessionId, t.kind, t.trackName);
       }
@@ -190,11 +220,34 @@ export class SfuManager {
   // A peer left the group entirely: drop all of their pulled tracks.
   removePeer(userId: string) {
     this.enqueue(async () => {
+      this.peerSessions.delete(userId);
       for (const key of [...this.remoteTracks.keys()]) {
         if (this.remoteTracks.get(key)!.userId === userId) await this.dropRemote(key);
       }
       this.events.onPeerClosed(userId);
     });
+  }
+
+  // Pause / resume video pulling (issue #188). Pausing drops every non-mic
+  // remote track immediately (freeing the downlink); resuming only clears the
+  // flag — the App re-feeds the cached peer directories to re-pull video.
+  setVideoPullPaused(paused: boolean) {
+    if (this.videoPullPaused === paused) return;
+    this.videoPullPaused = paused;
+    if (!paused) return;
+    this.enqueue(async () => {
+      for (const key of [...this.remoteTracks.keys()]) {
+        if (this.remoteTracks.get(key)!.kind !== 'mic') await this.dropRemote(key);
+      }
+    });
+  }
+
+  // Re-target every receiver's jitter buffer (issue #188); no-op when unchanged.
+  applyReceiverJitterTarget(targetMs: number) {
+    if (targetMs === this.jitterTargetMs) return;
+    this.jitterTargetMs = targetMs;
+    if (!this.pc) return;
+    for (const r of this.pc.getReceivers()) tuneReceiver(r, targetMs);
   }
 
   // Ask the SFU to deliver a specific simulcast layer for one remote camera
@@ -243,6 +296,7 @@ export class SfuManager {
     this.localTracks.clear();
     this.remoteTracks.clear();
     this.midToRemote.clear();
+    this.peerSessions.clear();
     this.statsPrev = null;
     for (const userId of peerIds) this.events.onPeerClosed(userId);
   }
@@ -313,6 +367,7 @@ export class SfuManager {
         label: '自分 → SFU',
         rttMs: rates.rttMs,
         transport: rates.transport,
+        availableOutgoingKbps: rates.availableOutgoingKbps,
         streams: upstream,
       });
     }
@@ -327,14 +382,15 @@ export class SfuManager {
       () => this.closed,
       op,
       (err) => {
-        // A control-plane op failed (bad HTTP status, invalid JSON, renegotiation
-        // error, …). The SFU transport can no longer be trusted, so degrade this
-        // group to mesh — the same safety net as a 'failed' connection state. The
-        // App's handler calls closeAll(), which sets closed=true, so chainOp skips
-        // the rest of the queue and this can't re-fire. The cosmetic
-        // layer-preference op swallows its own error (see setPreferredLayer) so a
-        // failed tweak never trips this fallback.
-        console.warn('[sfu] op failed; falling back to mesh', err);
+        // A control-plane op failed for good (bad HTTP status after retries,
+        // invalid JSON, renegotiation error, …). The SFU transport can no longer
+        // be trusted, so hand it to the App's failure path (one rebuild, then
+        // mesh — issue #186). The App's handler calls closeAll(), which sets
+        // closed=true, so chainOp skips the rest of the queue and this can't
+        // re-fire. The cosmetic layer-preference op swallows its own error (see
+        // setPreferredLayer) so a failed tweak never trips this fallback.
+        logNet('sfu-op-failed', { err: err instanceof Error ? err.message : String(err) });
+        console.warn('[sfu] op failed', err);
         if (!this.closed) this.events.onFailed();
       },
     );
@@ -358,11 +414,10 @@ export class SfuManager {
         if (!key) return;
         const entry = this.remoteTracks.get(key);
         if (!entry) return;
-        // Pin this pulled track's playout/jitter buffer to the low-latency floor,
-        // the same tuning the mesh applies to its receivers. Without it the SFU
-        // path inherits Chrome's (higher) adaptive default, adding perceived
-        // audio/video lag over the internet (#146).
-        tuneReceiver(event.receiver);
+        // Pin this pulled track's playout/jitter buffer to the current target
+        // (the low-latency floor, raised on high-jitter links — #146/#188).
+        // Without it the SFU path inherits Chrome's higher adaptive default.
+        tuneReceiver(event.receiver, this.jitterTargetMs);
         const stream = new MediaStream([event.track]);
         entry.streamId = stream.id;
         entry.trackId = event.track.id;
@@ -399,32 +454,48 @@ export class SfuManager {
     return this.sessionId;
   }
 
-  // POST/PUT against our /api/sfu/* proxy. Throws on a network error, a non-2xx
-  // status, or a body that isn't valid JSON — previously the response was parsed
-  // blind, so a 4xx/5xx (or an HTML error page) slipped through as a malformed
-  // object and corrupted PC state silently. Throwing rejects the op, which the
-  // op-chain handler turns into a mesh fallback (see enqueue).
+  // POST/PUT against our /api/sfu/* proxy. Throws on a non-retryable failure, a
+  // body that isn't valid JSON, or once the retries are exhausted — parsing the
+  // response blind used to let error pages corrupt PC state silently. Transient
+  // failures (network error, 5xx, 408/429, and 401 while a reconnect re-mints
+  // the media token) are retried in place with a short backoff (issue #186), so
+  // one blip mid-op no longer degrades the whole group to mesh. Throwing rejects
+  // the op, which the op-chain handler turns into the fallback (see enqueue).
   private async api<T>(sessionPath: string, method: string, body: unknown): Promise<T> {
-    let res: Response;
-    try {
-      res = await fetch(`/api/sfu/sessions${sessionPath}`, {
-        method,
-        headers: { 'Content-Type': 'application/json', ...mediaAuthHeaders() },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-    } catch (err) {
-      throw new Error(
-        `sfu api ${method} ${sessionPath}: network error (${(err as Error).message})`,
-      );
+    let failure: number | 'network' = 'network';
+    let detail = '';
+    for (let attempt = 1; attempt <= SFU_API_MAX_ATTEMPTS; attempt++) {
+      let res: Response | null = null;
+      try {
+        res = await fetch(`/api/sfu/sessions${sessionPath}`, {
+          method,
+          headers: { 'Content-Type': 'application/json', ...mediaAuthHeaders() },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+      } catch (err) {
+        failure = 'network';
+        detail = `network error (${(err as Error).message})`;
+      }
+      if (res) {
+        if (res.ok) {
+          try {
+            return (await res.json()) as T;
+          } catch (err) {
+            // A 2xx with a garbage body is a broken upstream, not a transient.
+            throw new Error(
+              `sfu api ${method} ${sessionPath}: invalid JSON (${(err as Error).message})`,
+            );
+          }
+        }
+        failure = res.status;
+        detail = `HTTP ${res.status}`;
+      }
+      if (!isRetryableSfuHttp(failure) || attempt >= SFU_API_MAX_ATTEMPTS || this.closed) break;
+      logNet('sfu-api-retry', { path: sessionPath, attempt, failure });
+      await new Promise<void>((resolve) => setTimeout(resolve, sfuApiRetryDelayMs(attempt)));
+      if (this.closed) break;
     }
-    if (!res.ok) {
-      throw new Error(`sfu api ${method} ${sessionPath}: HTTP ${res.status}`);
-    }
-    try {
-      return (await res.json()) as T;
-    } catch (err) {
-      throw new Error(`sfu api ${method} ${sessionPath}: invalid JSON (${(err as Error).message})`);
-    }
+    throw new Error(`sfu api ${method} ${sessionPath}: ${detail}`);
   }
 
   private sendEncodingsFor(kind: StreamKind): RTCRtpEncodingParameters[] {

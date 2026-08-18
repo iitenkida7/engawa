@@ -46,6 +46,7 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       sfuTracks: data.sfuTracks ?? [],
       groupKey: data.groupKey ?? null,
       mediaToken: data.mediaToken ?? null,
+      resumeToken: data.resumeToken ?? null,
       lastGroupAt: data.lastGroupAt ?? 0,
       joined: data.joined ?? false,
     } satisfies WsData,
@@ -288,9 +289,10 @@ describe('createWebSocketHandler — join', () => {
     expect(joiner.data.workspace).toBe('default');
   });
 
-  test('welcome carries a media token, added to the shared set and removed on close', () => {
+  test('welcome carries a media token; it survives the leave grace and dies at finalize', async () => {
     const tokens = new Set<string>();
-    const handler = createWebSocketHandler(clients, undefined, 'dev', tokens);
+    // Tiny grace window so the test can await the finalization (issue #187).
+    const handler = createWebSocketHandler(clients, undefined, 'dev', tokens, Date.now, 10);
     const joiner = makeWs();
     handler.open!(joiner);
     deliver(handler, joiner, { type: 'join', name: 'Alice', workspace: 'ws1' });
@@ -301,7 +303,11 @@ describe('createWebSocketHandler — join', () => {
     expect(welcome.token.length).toBeGreaterThan(0);
     expect(tokens.has(welcome.token)).toBe(true);
 
-    handler.close!(joiner, 1000, '');
+    handler.close!(joiner, 1006, '');
+    // Still valid inside the grace window — a resuming client may be mid-flight
+    // with TURN/SFU requests carrying it.
+    expect(tokens.has(welcome.token)).toBe(true);
+    await new Promise((r) => setTimeout(r, 30));
     expect(tokens.has(welcome.token)).toBe(false);
   });
 });
@@ -742,7 +748,8 @@ describe('createWebSocketHandler — SFU grouping', () => {
     process.env.CLOUDFLARE_REALTIME_APP_ID = 'test-app';
     process.env.CLOUDFLARE_REALTIME_APP_TOKEN = 'test-token';
     clients = new Map();
-    handler = createWebSocketHandler(clients);
+    // Tiny leave grace so the latch-cleanup test can await finalization (#187).
+    handler = createWebSocketHandler(clients, undefined, 'dev', new Set(), Date.now, 10);
   });
 
   afterEach(() => {
@@ -863,7 +870,7 @@ describe('createWebSocketHandler — SFU grouping', () => {
     return ws;
   };
 
-  test("an emptied workspace's SFU latch is discarded, so a later small group is mesh", () => {
+  test("an emptied workspace's SFU latch is discarded, so a later small group is mesh", async () => {
     // 5-member open-floor cluster promotes to SFU and seeds the one-way latch.
     const first: FakeWs[] = [];
     for (let i = 0; i < 5; i++) first.push(joinIdAt(`u${i}`, 100 + i * 10, 100));
@@ -872,8 +879,10 @@ describe('createWebSocketHandler — SFU grouping', () => {
       expect(g?.type === 'group-update' && g.method).toBe('sfu');
     }
 
-    // Everyone leaves: the workspace is now empty, so its latch state is dropped.
+    // Everyone leaves. Joined connections wait out the resume grace (issue
+    // #187) before their leave finalizes and the latch state is dropped.
     for (const w of first) handler.close!(w, 1000, '');
+    await new Promise((r) => setTimeout(r, 30));
     expect(clients.size).toBe(0);
 
     // Two members with the SAME ids rejoin close together. If the stale latch
@@ -1123,5 +1132,250 @@ describe('createWebSocketHandler — knock', () => {
     deliver(handler, sender, { type: 'knock', to: 'ghost' });
     deliver(handler, sender, { type: 'knock', to: unjoined.data.userId });
     expect(unjoined.sent).toHaveLength(0);
+  });
+});
+
+describe('createWebSocketHandler — heartbeat', () => {
+  test('answers ping with pong, before and after join', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const handler = createWebSocketHandler(clients);
+    const ws = makeWs();
+    handler.open!(ws);
+
+    deliver(handler, ws, { type: 'ping' });
+    expect(ws.sent).toContainEqual({ type: 'pong' });
+
+    deliver(handler, ws, { type: 'join', name: 'A' });
+    ws.sent.length = 0;
+    deliver(handler, ws, { type: 'ping' });
+    expect(ws.sent).toContainEqual({ type: 'pong' });
+  });
+
+  test('configures explicit dead-peer detection', () => {
+    const handler = createWebSocketHandler(new Map());
+    expect(handler.idleTimeout).toBe(30);
+    expect(handler.sendPings).toBe(true);
+  });
+});
+
+describe('createWebSocketHandler — rtc-restart relay', () => {
+  test('relays the nudge 1:1 within the workspace', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const handler = createWebSocketHandler(clients);
+    const a = makeWs({ workspace: 'ws1', joined: true });
+    const b = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(a);
+    handler.open!(b);
+
+    deliver(handler, a, { type: 'rtc-restart', to: b.data.userId });
+    expect(b.sent).toContainEqual({ type: 'rtc-restart', from: a.data.userId });
+  });
+
+  test('drops the nudge across workspaces and for unjoined senders', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const handler = createWebSocketHandler(clients);
+    const a = makeWs({ workspace: 'ws1', joined: true });
+    const other = makeWs({ workspace: 'ws2', joined: true });
+    const lurker = makeWs({ workspace: 'ws1', joined: false });
+    handler.open!(a);
+    handler.open!(other);
+    handler.open!(lurker);
+
+    deliver(handler, a, { type: 'rtc-restart', to: other.data.userId });
+    expect(other.sent).toHaveLength(0);
+
+    deliver(handler, lurker, { type: 'rtc-restart', to: a.data.userId });
+    expect(a.sent).toHaveLength(0);
+  });
+});
+
+describe('createWebSocketHandler — session resume (issue #187)', () => {
+  function joinedWelcome(ws: FakeWs) {
+    return ws.sent.find((m) => m.type === 'welcome') as Extract<ServerMessage, { type: 'welcome' }>;
+  }
+
+  function setup(graceMs = 30_000) {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const mediaTokens = new Set<string>();
+    const handler = createWebSocketHandler(
+      clients,
+      undefined,
+      'boot',
+      mediaTokens,
+      Date.now,
+      graceMs,
+    );
+    return { clients, mediaTokens, handler };
+  }
+
+  test('welcome carries a resume token on a fresh join', () => {
+    const { handler } = setup();
+    const ws = makeWs();
+    handler.open!(ws);
+    deliver(handler, ws, { type: 'join', name: 'A' });
+    const w = joinedWelcome(ws);
+    expect(typeof w.resumeToken).toBe('string');
+    expect(w.resumed).toBeUndefined();
+  });
+
+  test('a reconnect within the grace window resumes identity without leave/join noise', () => {
+    const { clients, mediaTokens, handler } = setup();
+    const a = makeWs();
+    const peer = makeWs();
+    handler.open!(a);
+    handler.open!(peer);
+    deliver(handler, a, { type: 'join', name: 'A' });
+    deliver(handler, peer, { type: 'join', name: 'P' });
+    const firstWelcome = joinedWelcome(a);
+    const oldUserId = a.data.userId;
+    const oldMediaToken = a.data.mediaToken!;
+    peer.sent.length = 0;
+
+    handler.close!(a, 1006, '');
+    // Grace: presence and media token survive, no player-left yet.
+    expect(clients.get(oldUserId)).toBe(a);
+    expect(mediaTokens.has(oldMediaToken)).toBe(true);
+    expect(peer.sent.some((m) => m.type === 'player-left')).toBe(false);
+
+    const b = makeWs();
+    handler.open!(b);
+    deliver(handler, b, { type: 'join', name: 'A', resumeToken: firstWelcome.resumeToken });
+
+    // Identity adopted: same userId, presence points at the new socket.
+    expect(b.data.userId).toBe(oldUserId);
+    expect(clients.get(oldUserId)).toBe(b);
+    const w = joinedWelcome(b);
+    expect(w.resumed).toBe(true);
+    expect(w.self.userId).toBe(oldUserId);
+    // Token rotation: media token replaced, resume token single-use.
+    expect(mediaTokens.has(oldMediaToken)).toBe(false);
+    expect(mediaTokens.has(w.token)).toBe(true);
+    expect(w.resumeToken).not.toBe(firstWelcome.resumeToken);
+    // Peers saw neither a leave nor a join.
+    expect(peer.sent.some((m) => m.type === 'player-left')).toBe(false);
+    expect(peer.sent.some((m) => m.type === 'player-joined')).toBe(false);
+  });
+
+  test('the grace timer finalizes the leave when nobody resumes', async () => {
+    const { clients, mediaTokens, handler } = setup(10);
+    const a = makeWs();
+    const peer = makeWs();
+    handler.open!(a);
+    handler.open!(peer);
+    deliver(handler, a, { type: 'join', name: 'A' });
+    deliver(handler, peer, { type: 'join', name: 'P' });
+    const oldUserId = a.data.userId;
+    const oldMediaToken = a.data.mediaToken!;
+    peer.sent.length = 0;
+
+    handler.close!(a, 1006, '');
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(clients.has(oldUserId)).toBe(false);
+    expect(mediaTokens.has(oldMediaToken)).toBe(false);
+    expect(peer.sent).toContainEqual({ type: 'player-left', userId: oldUserId });
+  });
+
+  test('a clean close (tab close / reload) skips the grace and leaves immediately', () => {
+    const { clients, mediaTokens, handler } = setup();
+    const a = makeWs();
+    const peer = makeWs();
+    handler.open!(a);
+    handler.open!(peer);
+    deliver(handler, a, { type: 'join', name: 'A' });
+    deliver(handler, peer, { type: 'join', name: 'P' });
+    const oldUserId = a.data.userId;
+    const oldMediaToken = a.data.mediaToken!;
+    peer.sent.length = 0;
+
+    // 1001 = going away (tab close / navigation). No ghost, no grace: the
+    // reload's fresh join must not coexist with a 15s leftover avatar.
+    handler.close!(a, 1001, '');
+
+    expect(clients.has(oldUserId)).toBe(false);
+    expect(mediaTokens.has(oldMediaToken)).toBe(false);
+    expect(peer.sent).toContainEqual({ type: 'player-left', userId: oldUserId });
+  });
+
+  test('a half-open predecessor is taken over even before its close arrives', () => {
+    const { clients, handler } = setup();
+    const a = makeWs();
+    const peer = makeWs();
+    handler.open!(a);
+    handler.open!(peer);
+    deliver(handler, a, { type: 'join', name: 'A' });
+    deliver(handler, peer, { type: 'join', name: 'P' });
+    const firstWelcome = joinedWelcome(a);
+    const oldUserId = a.data.userId;
+    peer.sent.length = 0;
+
+    // Bun runs the close handler SYNCHRONOUSLY inside ws.close() — mirror that,
+    // because the takeover calls prev.close() and must not let that inner close
+    // take the immediate-leave branch (a spurious player-left would ghost the
+    // resumed user for every peer).
+    const rawClose = a.close.bind(a);
+    (a as { close: (code?: number, reason?: string) => void }).close = (code, reason) => {
+      rawClose(code, reason);
+      handler.close!(a, code ?? 1006, reason ?? '');
+    };
+
+    // No close for `a` yet — the server never noticed the drop. A new
+    // connection presents the token: it must win, and the zombie gets closed.
+    const b = makeWs();
+    handler.open!(b);
+    deliver(handler, b, { type: 'join', name: 'A', resumeToken: firstWelcome.resumeToken });
+
+    expect(b.data.userId).toBe(oldUserId);
+    expect(clients.get(oldUserId)).toBe(b);
+    expect(a.closed).not.toBeNull();
+    // The synchronous zombie close was treated as stale: no leave went out.
+    expect(peer.sent.some((m) => m.type === 'player-left')).toBe(false);
+    // A later duplicate close must not evict the resumed connection either.
+    handler.close!(a, 1006, '');
+    expect(clients.get(oldUserId)).toBe(b);
+    expect(peer.sent.some((m) => m.type === 'player-left')).toBe(false);
+  });
+
+  test('an unknown or replayed resume token falls back to a fresh join', () => {
+    const { handler } = setup();
+    const peer = makeWs();
+    handler.open!(peer);
+    deliver(handler, peer, { type: 'join', name: 'P' });
+    peer.sent.length = 0;
+
+    const b = makeWs();
+    handler.open!(b);
+    deliver(handler, b, { type: 'join', name: 'B', resumeToken: 'no-such-token' });
+    const w = joinedWelcome(b);
+    expect(w.resumed).toBeUndefined();
+    expect(peer.sent.some((m) => m.type === 'player-joined')).toBe(true);
+  });
+
+  test('a resumed connection keeps its position and gets its group re-sent', () => {
+    const { handler } = setup();
+    const a = makeWs();
+    handler.open!(a);
+    deliver(handler, a, { type: 'join', name: 'A' });
+    const firstWelcome = joinedWelcome(a);
+    // Simulate in-room state accumulated before the drop.
+    deliver(handler, a, { type: 'move', x: 321, y: 123, vx: 0, vy: 0 });
+    const groupKey = a.data.groupKey;
+    expect(groupKey).not.toBeNull();
+
+    handler.close!(a, 1006, '');
+    const b = makeWs();
+    handler.open!(b);
+    deliver(handler, b, { type: 'join', name: 'A', resumeToken: firstWelcome.resumeToken });
+
+    const w = joinedWelcome(b);
+    expect(w.resumed).toBe(true);
+    expect(w.self.x).toBe(321);
+    expect(w.self.y).toBe(123);
+    // The group is deliberately re-sent (groupKey starts null on the new
+    // socket): everything relayed during the outage — group-updates and SFU
+    // track directories — silently no-op'd on the dead socket, so the resumed
+    // client must be resynced even when the topology looks unchanged.
+    expect(b.sent.some((m) => m.type === 'group-update')).toBe(true);
+    expect(b.data.groupKey).toBe(groupKey);
   });
 });

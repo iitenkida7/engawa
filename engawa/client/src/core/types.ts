@@ -27,7 +27,16 @@ export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
 export type ClientMessage =
   // Single-space now: the client no longer sends `workspace`. `password` is only
   // present when an access password is configured (verified pre-join).
-  | { type: 'join'; name: string; workspace?: string; password?: string; outfit?: Outfit }
+  // `resumeToken` (issue #187) carries the previous welcome's token so a
+  // reconnect within the server's grace window resumes the same identity.
+  | {
+      type: 'join';
+      name: string;
+      workspace?: string;
+      password?: string;
+      outfit?: Outfit;
+      resumeToken?: string;
+    }
   // Avatar appearance changed in the editor; relayed to the workspace so peers
   // re-render this avatar. Stateless: the server forwards it, keeping nothing.
   | { type: 'outfit-update'; outfit: Outfit }
@@ -45,6 +54,10 @@ export type ClientMessage =
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
+  // Mesh-peer recovery (issue #184): the non-initiator side of a dead pair asks
+  // the elected initiator to rebuild it (only the initiator can send the fresh
+  // offer). Relayed 1:1 like signal.
+  | { type: 'rtc-restart'; to: string }
   // A chat line, relayed to the sender's current proximity group (the people
   // they're in a call with), so text stays spatial. The server keeps no history.
   | { type: 'chat'; text: string }
@@ -56,12 +69,20 @@ export type ClientMessage =
   | { type: 'reaction'; emoji: string }
   // SFU: announce/replace the tracks this client has published to its Cloudflare
   // session, so the server can relay them to the group as a track directory.
-  | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] };
+  | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] }
+  // App-level heartbeat (issue #183): the client pings on a fixed cadence and
+  // treats a missing pong as a dead socket (browsers expose no protocol ping).
+  | { type: 'ping' };
 
 export type ServerMessage =
   | { type: 'auth-error'; message: string }
+  // Heartbeat reply. Consumed inside NetworkClient — never routed to the App.
+  | { type: 'pong' }
   // `token` is the short-lived media token required on /api/turn-credentials and
   // /api/sfu/* (see core/media-auth.ts). Refreshed on every (re)connect.
+  // `resumeToken` is presented by the next reconnect's join (issue #187);
+  // `resumed` marks a welcome that kept our previous identity — the App then
+  // reconciles instead of resetting, so live calls and position survive.
   | {
       type: 'welcome';
       self: Player;
@@ -69,6 +90,8 @@ export type ServerMessage =
       bootId: string;
       sfuEnabled: boolean;
       token: string;
+      resumeToken?: string;
+      resumed?: boolean;
     }
   | { type: 'player-joined'; player: Player }
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
@@ -86,6 +109,8 @@ export type ServerMessage =
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
   | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' }
+  // A group peer asks us (their elected initiator) to rebuild the mesh pair.
+  | { type: 'rtc-restart'; from: string }
   // A chat line from a proximity-group peer (from === self when it's the echo
   // of our own message). `name` is the sender's display name; `ts` is server ms.
   | { type: 'chat'; from: string; name: string; text: string; ts: number }

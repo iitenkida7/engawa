@@ -81,11 +81,58 @@ export function transformSdpPreferVideoCodec(
   return lines.join('\r\n');
 }
 
+// ─── Loss-adaptive audio redundancy (issue #185) ─────────────────────────────
+// Opus in-band FEC (above) only recovers a single lost packet from its
+// successor; bursty loss on a bad link needs real redundancy. Browsers ship
+// audio/red (RFC 2198 double-send, ~2× audio bandwidth) but list it after
+// opus, so it is never picked by default. When the App's network tier reports
+// sustained loss it flips this flag; every offer/answer negotiated AFTER that
+// (new peers, mesh-recovery rebuilds, renegotiations) then puts red first so
+// both sides encode with redundancy. A peer without red simply keeps opus —
+// the reorder never removes payload types.
+let preferRedAudio = false;
+
+export function setPreferRedAudio(on: boolean): void {
+  preferRedAudio = on;
+}
+
+// Visible for tests.
+export function isRedAudioPreferred(): boolean {
+  return preferRedAudio;
+}
+
+// Pure: reorder every `m=audio` payload-type list so audio/red comes first.
+// Mirrors transformSdpPreferVideoCodec; SDP without red is returned untouched.
+export function transformSdpPreferAudioRed(sdp: string): string {
+  const lines = sdp.split(/\r?\n/);
+  const redPts = new Set<string>();
+  for (const line of lines) {
+    const m = line.match(/^a=rtpmap:(\d+)\s+red\//i);
+    if (m) redPts.add(m[1]);
+  }
+  if (redPts.size === 0) return sdp;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('m=audio ')) continue;
+    const parts = lines[i].split(' ');
+    const header = parts.slice(0, 3);
+    const pts = parts.slice(3);
+    const preferred = pts.filter((pt) => redPts.has(pt));
+    if (preferred.length === 0) continue;
+    const rest = pts.filter((pt) => !redPts.has(pt));
+    lines[i] = [...header, ...preferred, ...rest].join(' ');
+  }
+
+  return lines.join('\r\n');
+}
+
 // Single entry point applied to every offer/answer: low-latency Opus tuning for
-// audio + VP9-preferred ordering for video. Two independent pure passes over
-// disjoint m-sections, so their order does not matter.
+// audio + VP9-preferred ordering for video, plus red-first audio while the
+// network tier calls for redundancy. Independent pure passes over disjoint
+// parts of the SDP, so their order does not matter.
 export function transformSdp(sdp: string): string {
-  return transformSdpPreferVideoCodec(transformSdpForLowLatency(sdp));
+  const base = preferRedAudio ? transformSdpPreferAudioRed(sdp) : sdp;
+  return transformSdpPreferVideoCodec(transformSdpForLowLatency(base));
 }
 
 export function transformSdpForLowLatency(sdp: string): string {
