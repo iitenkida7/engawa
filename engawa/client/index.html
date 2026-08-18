@@ -417,6 +417,48 @@
         text-overflow: ellipsis;
       }
 
+      /* Maximize (⤢) button at the right end of every panel header. The negative
+         margins let it eat the header's own padding, so the tap target is the
+         full height of the header instead of the ~13px glyph: on a phone there
+         is no Esc key, making this the only way out of the maximized view. */
+      .panel-focus-btn {
+        flex-shrink: 0;
+        margin: -6px -10px -6px 8px;
+        padding: 6px 10px;
+        border: none;
+        background: none;
+        color: #9da3b0;
+        font-size: 13px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .panel-focus-btn:hover {
+        color: #e6e8ee;
+      }
+
+      /* Maximized: the same accent the toolbar uses for an active control. */
+      .panel-focus-btn.active {
+        color: #4f8cff;
+      }
+
+      /* Maximized view: one window fills the area (geometry from reflowLayout)
+         and every other window is taken out of the flow entirely. */
+      .panel.focused {
+        z-index: 20;
+      }
+
+      /* Hidden with visibility, NOT display: the recording compositor collects
+         its tiles with `offsetParent !== null` (compositor.ts collectTiles), so
+         display:none would drop these windows out of the recording too. Being
+         maximized is a local viewing choice and must not change what everyone
+         else gets recorded (issue #104 gave the recording its own layout for the
+         same reason). `.hidden` — the camera-is-off case — stays display:none,
+         because those windows really are gone. */
+      .panel.focus-hidden {
+        visibility: hidden;
+      }
+
       .panel-body {
         flex: 1;
         position: relative;

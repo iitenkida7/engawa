@@ -118,6 +118,14 @@ export function computeGridLayout(items: LayoutItem[], vw: number, vh: number): 
   });
 }
 
+// Pure: focus layout — the single maximized window fills the whole usable area.
+// Every other window is hidden by the caller, so a maximized window is just a
+// grid of one: same area, same aspect handling. Kept as a named function because
+// the call sites read as intent, not because the math differs.
+export function computeFocusLayout(item: LayoutItem, vw: number, vh: number): PanelGeometry {
+  return computeGridLayout([item], vw, vh)[0];
+}
+
 // Min/max width of the sidebar column (px). The column scales with the viewport
 // but is clamped so it stays usable on small screens and leaves the 2D map
 // visible on large ones.

@@ -11,6 +11,7 @@ import {
 import {
   applyPanelGeometry,
   bindCamAspect,
+  computeFocusLayout,
   computeGridLayout,
   computePresentationLayout,
   computeSidebarLayout,
@@ -44,6 +45,18 @@ type Screenshare = {
   // relying on the element being GC'd).
   cleanup: () => void;
 };
+
+// The maximize (⤢) button that sits at the right end of every panel header.
+// Clicks are caught by one delegated handler on #app, so the button carries no
+// listener of its own and needs no cleanup when its panel is removed.
+function createFocusButton(): HTMLButtonElement {
+  const btn = document.createElement('button');
+  btn.className = 'panel-focus-btn';
+  btn.type = 'button';
+  btn.textContent = '⤢';
+  btn.title = t('media.focus');
+  return btn;
+}
 
 // Owns every media panel in the DOM: the floating remote camera tiles, the
 // per-user mic <audio> elements, the screenshare stage, and the self preview.
@@ -95,6 +108,11 @@ export class RemoteMediaView {
   // auto-switch) so the toolbar can re-highlight the active layout button.
   private onLayoutModeChange: ((mode: LayoutMode) => void) | null = null;
 
+  // The maximized window's panel key ('cam:<id>' / 'screen:<id>' / 'self'), or
+  // null when nothing is maximized. An override on top of layoutMode rather than
+  // a mode of its own, so clearing it drops straight back to the active mode.
+  private focusedKey: string | null = null;
+
   constructor(opts: {
     players: Map<string, PlayerState>;
     media: MediaManager;
@@ -115,6 +133,35 @@ export class RemoteMediaView {
     // Lock the self-preview window to the live camera's aspect ratio; its
     // position/size come from reflowLayout (it joins the grid like any tile).
     bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
+    // The self preview is static markup, so its maximize button is added here;
+    // dynamic panels get theirs at creation.
+    this.selfPreviewEl.dataset.focusKey = 'self';
+    this.selfPreviewEl.querySelector('.panel-header')?.appendChild(createFocusButton());
+    // One delegated click handler for every maximize button: panels come and go
+    // constantly (peers, shares), and #app outlives all of them, so delegation
+    // keeps this free of per-panel listener bookkeeping.
+    this.stageLayerEl.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement | null)?.closest?.('.panel-focus-btn');
+      if (!btn) return;
+      const key = btn.closest<HTMLElement>('.panel')?.dataset.focusKey;
+      if (key) this.toggleFocus(key);
+    });
+    // Esc is the universal way out of a maximized window — without it a user who
+    // maximized the only window has no visible way back but the same button.
+    // Skipped while typing: Esc cancels an IME conversion or clears a field, and
+    // collapsing the view mid-sentence is not what the user asked for (same
+    // guard as world/input.ts and App.handleReactionKey).
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !this.focusedKey || e.isComposing) return;
+      const t = e.target;
+      if (
+        t instanceof HTMLElement &&
+        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+      ) {
+        return;
+      }
+      this.clearFocus();
+    });
     // Re-flow the active layout when the viewport changes so the fixed
     // arrangement keeps fitting the new size (issue #175).
     window.addEventListener('resize', () => this.reflowLayout());
@@ -288,6 +335,7 @@ export class RemoteMediaView {
     const container = document.createElement('div');
     container.className = 'panel remote-tile';
     container.dataset.userId = userId;
+    container.dataset.focusKey = `cam:${userId}`;
 
     const header = document.createElement('div');
     header.className = 'panel-header';
@@ -295,6 +343,7 @@ export class RemoteMediaView {
     label.className = 'label';
     label.textContent = name;
     header.appendChild(label);
+    header.appendChild(createFocusButton());
     container.appendChild(header);
 
     const body = document.createElement('div');
@@ -383,8 +432,12 @@ export class RemoteMediaView {
       this.screenshares.set(userId, ss);
       if (isMain) this.mainScreenshareUserId = userId;
       // A new share flips to the speaker view, overriding any manual grid/sidebar
-      // choice (issue #175). The trailing reflowLayout() renders it.
+      // choice (issue #175). The trailing reflowLayout() renders it. A maximized
+      // window is dropped for the same reason: otherwise the new stage would be
+      // born hidden behind it, and a user who maximized something and then hit
+      // 画面共有 would get no sign at all that they are now sharing.
       this.setLayoutModeSilently('presentation');
+      this.focusedKey = null;
     }
     ss.streamId = stream.id;
     ss.video.srcObject = stream;
@@ -447,6 +500,7 @@ export class RemoteMediaView {
     const container = document.createElement('div');
     container.className = isMain ? 'panel screenshare-stage main' : 'panel screenshare-stage';
     container.dataset.userId = userId;
+    container.dataset.focusKey = `screen:${userId}`;
 
     const header = document.createElement('div');
     header.className = 'panel-header';
@@ -454,6 +508,7 @@ export class RemoteMediaView {
     const label = document.createElement('span');
     label.className = 'label';
     header.appendChild(label);
+    header.appendChild(createFocusButton());
     container.appendChild(header);
 
     const body = document.createElement('div');
@@ -466,8 +521,14 @@ export class RemoteMediaView {
     body.appendChild(video);
 
     this.stageLayerEl.appendChild(container);
-    // Double-click anywhere on the stage makes it the featured (main) share.
-    const onDblClick = () => this.promoteScreenshare(userId);
+    // Double-click anywhere on the stage makes it the featured (main) share —
+    // except on the maximize button, where double-clicking is a natural reflex
+    // (it toggles focus on then off, so nothing seems to happen) and would
+    // otherwise silently swap which share is featured.
+    const onDblClick = (e: Event) => {
+      if ((e.target as HTMLElement | null)?.closest?.('.panel-focus-btn')) return;
+      this.promoteScreenshare(userId);
+    };
     container.addEventListener('dblclick', onDblClick);
     const cleanup = () => container.removeEventListener('dblclick', onDblClick);
     return { container, video, label, streamId: '', cleanup };
@@ -564,6 +625,9 @@ export class RemoteMediaView {
   // The chosen mode sticks and re-flows on viewport/membership/screenshare
   // changes; a screenshare then temporarily forces the presentation view.
   setLayoutMode(mode: LayoutMode) {
+    // Picking a layout is an explicit "show me everything again", so it also
+    // leaves the maximized view (which would otherwise hide the new layout).
+    this.focusedKey = null;
     if (this.layoutMode !== mode) {
       this.layoutMode = mode;
       this.onLayoutModeChange?.(mode);
@@ -584,10 +648,30 @@ export class RemoteMediaView {
   // screenshare start/stop) so the fixed arrangement stays tidy.
   private reflowLayout() {
     const panels = this.collectPanels();
+    // Drop a focus whose window is gone (peer left, camera off, share stopped)
+    // so the layout can never be stranded on a panel that no longer exists.
+    if (this.focusedKey && !panels.some((p) => p.key === this.focusedKey)) this.focusedKey = null;
     if (panels.length === 0) return;
-    const items = panels.map((p) => p.item);
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+
+    const focusIdx = this.focusedKey ? panels.findIndex((p) => p.key === this.focusedKey) : -1;
+    if (focusIdx !== -1) {
+      // Maximized: the chosen window takes the whole usable area (the toolbar
+      // strip stays clear so there is always a way out) and the rest are hidden.
+      panels.forEach((p, i) => {
+        p.el.classList.toggle('focus-hidden', i !== focusIdx);
+        p.el.classList.toggle('focused', i === focusIdx);
+      });
+      applyPanelGeometry(panels[focusIdx].el, computeFocusLayout(panels[focusIdx].item, vw, vh));
+      this.syncFocusButtons(panels, focusIdx);
+      return;
+    }
+
+    for (const p of panels) {
+      p.el.classList.remove('focus-hidden', 'focused');
+    }
+    const items = panels.map((p) => p.item);
     const geos =
       this.layoutMode === 'presentation'
         ? computePresentationLayout(items, vw, vh)
@@ -597,28 +681,62 @@ export class RemoteMediaView {
     panels.forEach((p, i) => {
       applyPanelGeometry(p.el, geos[i]);
     });
+    this.syncFocusButtons(panels, -1);
+  }
+
+  // Marks the maximized window's button as active — the toolbar's "this is on"
+  // accent, and the only affordance telling the user how to get back out. The
+  // glyph stays ⤢: its mirrored twin ⤡ is another outward arrow, not a shrink.
+  private syncFocusButtons(panels: Array<{ el: HTMLElement }>, focusIdx: number) {
+    panels.forEach((p, i) => {
+      const btn = p.el.querySelector<HTMLButtonElement>('.panel-focus-btn');
+      if (!btn) return;
+      const on = i === focusIdx;
+      btn.classList.toggle('active', on);
+      btn.title = on ? t('media.unfocus') : t('media.focus');
+    });
+  }
+
+  // Maximizes a window, or restores the layout when it is already maximized.
+  private toggleFocus(key: string) {
+    this.focusedKey = this.focusedKey === key ? null : key;
+    this.reflowLayout();
+  }
+
+  // Leaves the maximized view and returns to the active layout mode.
+  private clearFocus() {
+    this.focusedKey = null;
+    this.reflowLayout();
   }
 
   // Collects visible panels with the element to move and its layout item, in a
   // stable order: the main screenshare first (so the presentation layout
   // features it), then the other screenshares, then camera/mic tiles, then the
   // self preview.
-  private collectPanels(): Array<{ el: HTMLElement; item: LayoutItem }> {
-    const panels: Array<{ el: HTMLElement; item: LayoutItem }> = [];
+  // `key` identifies a window across re-flows (the DOM elements are recreated as
+  // peers come and go), so a maximized window survives unrelated layout changes.
+  private collectPanels(): Array<{ el: HTMLElement; item: LayoutItem; key: string }> {
+    const panels: Array<{ el: HTMLElement; item: LayoutItem; key: string }> = [];
     for (const userId of this.orderedScreenshareIds()) {
       const ss = this.screenshares.get(userId)!;
-      panels.push({ el: ss.container, item: { aspectLocked: false, aspect: 16 / 9 } });
+      panels.push({
+        el: ss.container,
+        item: { aspectLocked: false, aspect: 16 / 9 },
+        key: `screen:${userId}`,
+      });
     }
-    for (const tile of this.remoteTiles.values()) {
+    for (const [userId, tile] of this.remoteTiles) {
       panels.push({
         el: tile.container,
         item: { aspectLocked: true, aspect: readCamAspect(tile.container) },
+        key: `cam:${userId}`,
       });
     }
     if (!this.selfPreviewEl.classList.contains('hidden')) {
       panels.push({
         el: this.selfPreviewEl,
         item: { aspectLocked: true, aspect: readCamAspect(this.selfPreviewEl) },
+        key: 'self',
       });
     }
     return panels;
@@ -641,6 +759,12 @@ export class RemoteMediaView {
   cameraTileWidth(userId: string): number | null {
     const tile = this.remoteTiles.get(userId);
     if (!tile?.hasCam) return null;
+    // Hidden behind a maximized window: nobody is watching it, so report the
+    // smallest width and let the layer drop. It is hidden with visibility (the
+    // recording needs it laid out), which keeps clientWidth at its pre-maximize
+    // value — reporting that would keep pulling full-size video for a window
+    // that is not on screen.
+    if (tile.container.classList.contains('focus-hidden')) return 1;
     return tile.container.clientWidth || null;
   }
 }

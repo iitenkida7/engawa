@@ -195,6 +195,8 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: 'ダブルクリックでメイン表示に切り替え',
     en: 'Double-click to make this the main view',
   },
+  'media.focus': { ja: '拡大表示', en: 'Maximize' },
+  'media.unfocus': { ja: '拡大を解除（Esc）', en: 'Exit maximize (Esc)' },
 
   // -- chat -----------------------------------------------------------------
   'chat.title': { ja: '💬 チャット', en: '💬 Chat' },
