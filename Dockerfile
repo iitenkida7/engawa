@@ -6,15 +6,15 @@
 # state is in-memory, so it must not be scaled horizontally).
 
 # ---- build the client bundle ----
-FROM oven/bun:1.3-alpine AS client
+FROM oven/bun:1.4-alpine AS client
 WORKDIR /client
-COPY engawa/client/package.json engawa/client/bun.lockb ./
+COPY engawa/client/package.json engawa/client/bun.lock* ./
 RUN bun install --frozen-lockfile
 COPY engawa/client/ ./
 RUN bun run build
 
 # ---- runtime: Bun server serves the built client + signaling ----
-FROM oven/bun:1.3-alpine AS runtime
+FROM oven/bun:1.4-alpine AS runtime
 WORKDIR /app
 COPY engawa/server/ ./
 COPY --from=client /client/dist ./public
