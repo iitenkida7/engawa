@@ -118,12 +118,17 @@ export type WebRtcEvents = {
   onPeerIceState: (userId: string, state: string) => void;
 };
 
+// One in-flight createPeer call. closePeer/closeAll during the async ICE fetch
+// set `cancelled`, so the creation aborts instead of materializing an orphan
+// peer after the close (issue #195).
+type PendingPeer = { promise: Promise<PeerEntry | null>; cancelled: boolean };
+
 export class WebRtcManager {
   private peers = new Map<string, PeerEntry>();
   // In-flight createPeer promises, keyed by remote id, so concurrent create calls
   // for the same peer (e.g. applyGroupMethod racing an inbound signal during the
   // ICE-credential fetch) return the same peer instead of building two.
-  private creating = new Map<string, Promise<PeerEntry>>();
+  private creating = new Map<string, PendingPeer>();
   private media: MediaManager;
   private events: WebRtcEvents;
 
@@ -161,10 +166,12 @@ export class WebRtcManager {
     return this.peers.has(remoteUserId);
   }
 
-  // Ids of the currently connected mesh peers. The App reconciles this against
-  // its server-assigned group membership to open/close peers.
+  // Ids of the current mesh peers, including ones still being created. The App
+  // reconciles this against its server-assigned group membership to open/close
+  // peers; listing in-flight creations lets a member who left mid-creation be
+  // closed (cancelled) instead of connecting after the fact (issue #195).
   peerIds(): string[] {
-    return [...this.peers.keys()];
+    return [...new Set([...this.peers.keys(), ...this.creating.keys()])];
   }
 
   // Number of currently connected proximity peers (the mesh degree). The App
@@ -275,21 +282,34 @@ export class WebRtcManager {
   // Idempotent per remote id across the async ICE fetch: a second call while the
   // first is still awaiting credentials returns the same in-flight promise, so we
   // never build two SimplePeers for one peer (the loser would leak and its stray
-  // 'signal' events would confuse the remote's negotiation).
-  async createPeer(remoteUserId: string, initiator: boolean): Promise<PeerEntry> {
+  // 'signal' events would confuse the remote's negotiation). Resolves null when
+  // the peer was closed before the fetch finished (issue #195); a cancelled
+  // attempt is never reused, so a later call starts a fresh creation.
+  async createPeer(remoteUserId: string, initiator: boolean): Promise<PeerEntry | null> {
     const existing = this.peers.get(remoteUserId);
     if (existing) return existing;
     const pending = this.creating.get(remoteUserId);
-    if (pending) return pending;
-    const p = this.doCreatePeer(remoteUserId, initiator).finally(() => {
-      this.creating.delete(remoteUserId);
+    if (pending && !pending.cancelled) return pending.promise;
+    const attempt: PendingPeer = { promise: Promise.resolve(null), cancelled: false };
+    attempt.promise = this.doCreatePeer(remoteUserId, initiator, attempt).finally(() => {
+      if (this.creating.get(remoteUserId) === attempt) this.creating.delete(remoteUserId);
     });
-    this.creating.set(remoteUserId, p);
-    return p;
+    this.creating.set(remoteUserId, attempt);
+    return attempt.promise;
   }
 
-  private async doCreatePeer(remoteUserId: string, initiator: boolean): Promise<PeerEntry> {
+  private async doCreatePeer(
+    remoteUserId: string,
+    initiator: boolean,
+    attempt: PendingPeer,
+  ): Promise<PeerEntry | null> {
     const iceServers = await this.ensureIceServers();
+    // Closed while the credentials were in flight: don't build a peer nobody
+    // wants — it would connect behind the App's back (issue #195).
+    if (attempt.cancelled) {
+      logNet('peer-create-cancelled', { peer: remoteUserId });
+      return null;
+    }
 
     // Bundle whatever local streams we already have so the peer is created with
     // them from the start. We do NOT auto-request permissions here — the user
@@ -442,6 +462,9 @@ export class WebRtcManager {
   }
 
   closePeer(remoteUserId: string) {
+    // Also cancel a creation still awaiting ICE credentials (issue #195).
+    const pending = this.creating.get(remoteUserId);
+    if (pending) pending.cancelled = true;
     const entry = this.peers.get(remoteUserId);
     if (!entry) return;
     try {
@@ -453,7 +476,7 @@ export class WebRtcManager {
   }
 
   closeAll() {
-    for (const id of [...this.peers.keys()]) this.closePeer(id);
+    for (const id of this.peerIds()) this.closePeer(id);
   }
 
   private cleanupPeer(remoteUserId: string) {
