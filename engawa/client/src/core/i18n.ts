@@ -134,6 +134,14 @@ const STR: Record<string, Record<Lang, string>> = {
   // -- toolbar menus & toasts -----------------------------------------------
   'toolbar.errMic': { ja: 'マイクを使えません: {msg}', en: "Can't use the microphone: {msg}" },
   'toolbar.errCam': { ja: 'カメラを使えません: {msg}', en: "Can't use the camera: {msg}" },
+  'toolbar.micLost': {
+    ja: 'マイクが切断されたため、オフにしました',
+    en: 'Your microphone was disconnected, so it was turned off',
+  },
+  'toolbar.camLost': {
+    ja: 'カメラが切断されたため、オフにしました',
+    en: 'Your camera was disconnected, so it was turned off',
+  },
   'toolbar.errScreen': {
     ja: '画面共有を開始できません: {msg}',
     en: "Couldn't start screen sharing: {msg}",

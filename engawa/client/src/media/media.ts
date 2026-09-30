@@ -21,6 +21,15 @@ export function parseNoiseSetting(stored: string | null): boolean {
   return stored !== '0';
 }
 
+// Whether a getUserMedia rejection means the pinned device is gone (unplugged
+// headset / camera): `deviceId: { exact }` then fails with OverconstrainedError,
+// or NotFoundError on some browsers. Such a failure is retried on the browser
+// default instead of leaving the toggle permanently broken (issue #200).
+export function isMissingDeviceError(err: unknown): boolean {
+  const name = (err as { name?: unknown } | null)?.name;
+  return name === 'OverconstrainedError' || name === 'NotFoundError';
+}
+
 export class MediaManager {
   micStream: MediaStream | null = null;
   camStream: MediaStream | null = null;
@@ -56,6 +65,10 @@ export class MediaManager {
   // with the just-stopped stream. Lets the owner run the same teardown as the
   // toolbar stop button instead of only the generic `emit()` listeners.
   private screenEndedHandler: ((old: MediaStream) => void) | null = null;
+  // Notified when a live mic/cam capture ends on its own (device unplugged,
+  // Bluetooth headset dropped, OS revoked access — issue #200), with the kind
+  // and the just-stopped stream, so the owner can run the button's OFF teardown.
+  private deviceEndedHandler: ((kind: 'mic' | 'cam', old: MediaStream) => void) | null = null;
 
   on(fn: MediaListener) {
     this.listeners.add(fn);
@@ -68,6 +81,47 @@ export class MediaManager {
   // Register the handler for an externally-ended screen share (see above).
   onScreenEnded(handler: (old: MediaStream) => void) {
     this.screenEndedHandler = handler;
+  }
+
+  // Register the handler for a mic/cam that ended on its own (see above).
+  onDeviceEnded(handler: (kind: 'mic' | 'cam', old: MediaStream) => void) {
+    this.deviceEndedHandler = handler;
+  }
+
+  // Acquire from the selected device, falling back to the browser default when
+  // that device has vanished (issue #200). The selection is cleared on fallback
+  // so the device menu and later acquisitions follow the default too.
+  private async getUserMediaFor(
+    kind: 'mic' | 'cam',
+    build: (deviceId: string | null) => MediaStreamConstraints,
+  ): Promise<MediaStream> {
+    const selected = kind === 'mic' ? this.selectedMicId : this.selectedCamId;
+    try {
+      return await navigator.mediaDevices.getUserMedia(build(selected));
+    } catch (e) {
+      if (!selected || !isMissingDeviceError(e)) throw e;
+      console.warn(`[media] selected ${kind} device unavailable, using the default`, e);
+      if (kind === 'mic') this.selectedMicId = null;
+      else this.selectedCamId = null;
+      return navigator.mediaDevices.getUserMedia(build(null));
+    }
+  }
+
+  // Watch a raw capture for the device going away. Processed streams (noise
+  // suppression / virtual background) don't end when the device does, so the
+  // raw capture is what we watch. stop() never fires 'ended', so our own
+  // disable / device-switch paths can't trigger this; the identity check just
+  // ignores a late event from a capture that is no longer current.
+  private watchDeviceEnd(kind: 'mic' | 'cam', raw: MediaStream) {
+    for (const track of raw.getTracks()) {
+      track.addEventListener('ended', () => {
+        const current =
+          kind === 'mic' ? (this.rawMic ?? this.micStream) : (this.rawCam ?? this.camStream);
+        if (current !== raw) return;
+        const old = kind === 'mic' ? this.disableMic() : this.disableCam();
+        if (old) this.deviceEndedHandler?.(kind, old);
+      });
+    }
   }
 
   get micOn() {
@@ -96,7 +150,7 @@ export class MediaManager {
     if (this.micStream) return this.micStream;
     if (this.micPending) return this.micPending;
     this.micPending = (async () => {
-      const raw = await navigator.mediaDevices.getUserMedia({
+      const raw = await this.getUserMediaFor('mic', (deviceId) => ({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -106,9 +160,10 @@ export class MediaManager {
           // Chrome respects this; Firefox/Safari currently ignore it but it
           // does no harm.
           latency: { ideal: 0.01 },
-          ...(this.selectedMicId ? { deviceId: { exact: this.selectedMicId } } : {}),
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
         } as MediaTrackConstraints,
-      });
+      }));
+      this.watchDeviceEnd('mic', raw);
 
       // Suppression off, or no Web Audio (e.g. under test) → send the raw mic.
       if (!this.noiseSuppression || typeof AudioContext === 'undefined') {
@@ -172,15 +227,16 @@ export class MediaManager {
     if (this.camStream) return this.camStream;
     if (this.camPending) return this.camPending;
     this.camPending = (async () => {
-      const raw = await navigator.mediaDevices.getUserMedia({
+      const raw = await this.getUserMediaFor('cam', (deviceId) => ({
         video: {
           width: { ideal: 320 },
           height: { ideal: 240 },
           // Higher fps target keeps per-frame interval short → less wait.
           frameRate: { ideal: 30, max: 30 },
-          ...(this.selectedCamId ? { deviceId: { exact: this.selectedCamId } } : {}),
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
         },
-      });
+      }));
+      this.watchDeviceEnd('cam', raw);
       for (const t of raw.getVideoTracks()) {
         // Tell encoders to optimize for motion (low-latency over crisp text).
         t.contentHint = 'motion';
