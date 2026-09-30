@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { fetchIceServers, ICE_TTL_MS, resetIceCache } from '@/rtc/ice';
+import { fetchIceServers, ICE_FETCH_TIMEOUT_MS, ICE_TTL_MS, resetIceCache } from '@/rtc/ice';
 
 function jsonRes(body: unknown, ok = true, status = 200) {
   return { ok, status, json: async () => body } as unknown as Response;
@@ -85,5 +85,35 @@ describe('fetchIceServers', () => {
       jsonRes({ not: 'an array' }),
     ) as unknown as typeof globalThis.fetch;
     expect(await fetchIceServers()).toEqual([{ urls: 'stun:stun.l.google.com:19302' }]);
+  });
+
+  it('times out a request that never answers and takes the STUN fallback (issue #194)', async () => {
+    errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    // Hand the deadline to the test: AbortSignal.timeout returns a signal we
+    // abort by hand instead of waiting ICE_FETCH_TIMEOUT_MS in real time.
+    const deadlines: number[] = [];
+    const ctl = new AbortController();
+    const timeoutSpy = spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      deadlines.push(ms);
+      return ctl.signal;
+    });
+    try {
+      // A fetch that hangs until its signal aborts (half-open TCP / stuck proxy).
+      globalThis.fetch = mock(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_res, rej) => {
+            init?.signal?.addEventListener('abort', () =>
+              rej(new DOMException('timed out', 'TimeoutError')),
+            );
+          }),
+      ) as unknown as typeof globalThis.fetch;
+
+      const p = fetchIceServers();
+      ctl.abort();
+      expect(await p).toEqual([{ urls: 'stun:stun.l.google.com:19302' }]);
+      expect(deadlines).toEqual([ICE_FETCH_TIMEOUT_MS]);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 });

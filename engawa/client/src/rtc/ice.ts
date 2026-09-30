@@ -15,6 +15,11 @@ const STUN_FALLBACK: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }]
 // near-fresh credentials.
 export const ICE_TTL_MS = 30 * 60 * 1000;
 
+// Deadline for the credentials request (issue #194). Every new mesh peer and the
+// SFU PC await this fetch, so a request that never answers would block all new
+// connections; on timeout we take the STUN-only fallback like any other failure.
+export const ICE_FETCH_TIMEOUT_MS = 5_000;
+
 let cache: { servers: RTCIceServer[]; fetchedAt: number } | null = null;
 let inflight: Promise<RTCIceServer[]> | null = null;
 
@@ -33,7 +38,10 @@ export async function fetchIceServers(now: () => number = Date.now): Promise<RTC
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      const res = await fetch('/api/turn-credentials', { headers: mediaAuthHeaders() });
+      const res = await fetch('/api/turn-credentials', {
+        headers: mediaAuthHeaders(),
+        signal: AbortSignal.timeout(ICE_FETCH_TIMEOUT_MS),
+      });
       if (!res.ok) throw new Error(`turn-credentials HTTP ${res.status}`);
       const body = (await res.json()) as unknown;
       // Guard the shape before it reaches RTCPeerConnection: a non-array error
