@@ -56,6 +56,13 @@ export function sfuSessionError(resp: {
 
 export const SFU_API_MAX_ATTEMPTS = 3;
 
+// Per-attempt deadline for one control-plane request (issue #194). Without it a
+// half-open TCP connection or a stuck proxy leaves fetch pending forever: the
+// serialized op chain stalls every later push/pull and onFailed never fires, so
+// the call neither recovers nor falls back. A timeout counts as a network error
+// (retried, then the normal failure path).
+export const SFU_API_TIMEOUT_MS = 10_000;
+
 // Delay before retrying failed attempt N (1-based): 500ms, 1s.
 export function sfuApiRetryDelayMs(attempt: number): number {
   return 500 * 2 ** Math.max(0, attempt - 1);
