@@ -8,6 +8,7 @@ import {
   isSpeaking,
   type SpeakingDetector,
 } from '@/media/speaking';
+import { AutoplayGate } from '@/ui/autoplay';
 import {
   applyPanelGeometry,
   bindCamAspect,
@@ -113,16 +114,28 @@ export class RemoteMediaView {
   // a mode of its own, so clearing it drops straight back to the active mode.
   private focusedKey: string | null = null;
 
+  // Replays remote media the autoplay policy refused on the next user gesture
+  // (issue #201); the App shows / hides the "enable audio" prompt.
+  private autoplay: AutoplayGate;
+
   constructor(opts: {
     players: Map<string, PlayerState>;
     media: MediaManager;
     recorder: RecorderManager;
     getMyId: () => string;
+    // Remote playback was blocked by the autoplay policy; `unlock` replays it
+    // and must be called from a user gesture (e.g. a prompt's button).
+    onAutoplayBlocked: (unlock: () => void) => void;
+    onAutoplayUnlocked: () => void;
   }) {
     this.players = opts.players;
     this.media = opts.media;
     this.recorder = opts.recorder;
     this.getMyId = opts.getMyId;
+    this.autoplay = new AutoplayGate({
+      onBlocked: () => opts.onAutoplayBlocked(this.autoplay.unlock),
+      onUnlocked: opts.onAutoplayUnlocked,
+    });
 
     this.remoteVideosEl = document.getElementById('remote-videos') as HTMLDivElement;
     this.stageLayerEl = this.remoteVideosEl.parentElement as HTMLElement;
@@ -236,9 +249,7 @@ export class RemoteMediaView {
     tile.video.srcObject = stream;
     tile.video.style.display = '';
     tile.placeholder.style.display = 'none';
-    tile.video.play().catch(() => {
-      // autoplay blocked: will play on user gesture
-    });
+    this.autoplay.play(tile.video);
     const p = this.players.get(userId);
     tile.label.textContent = p?.name || userId.slice(0, 6);
     this.reflowLayout();
@@ -315,9 +326,7 @@ export class RemoteMediaView {
     }
     entry.streamId = stream.id;
     entry.audio.srcObject = stream;
-    entry.audio.play().catch(() => {
-      // autoplay blocked: will play on user gesture
-    });
+    this.autoplay.play(entry.audio);
     // If recording is active, add this stream to the mix
     if (this.recorder.recording) {
       this.recorder.addAudioStream(stream);
@@ -441,9 +450,7 @@ export class RemoteMediaView {
     }
     ss.streamId = stream.id;
     ss.video.srcObject = stream;
-    ss.video.play().catch(() => {
-      /* autoplay may be blocked */
-    });
+    this.autoplay.play(ss.video);
     const isSelf = userId === this.getMyId();
     const p = this.players.get(userId);
     ss.label.textContent = isSelf

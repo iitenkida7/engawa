@@ -41,6 +41,8 @@ function setup() {
       removeAudioStream: () => {},
     } as unknown as RecorderManager,
     getMyId: () => MY_ID,
+    onAutoplayBlocked: () => {},
+    onAutoplayUnlocked: () => {},
   });
   // Local camera on, so the self preview joins the layout like any other window.
   view.refreshSelfPreview();

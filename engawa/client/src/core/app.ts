@@ -267,6 +267,18 @@ export class App {
       media: this.media,
       recorder: this.recorder,
       getMyId: () => this.myId,
+      onAutoplayBlocked: (unlock) => {
+        this.dismissAutoplayToast?.();
+        this.dismissAutoplayToast = this.toasts.action(
+          t('app.autoplayBlocked'),
+          [{ label: t('app.autoplayEnable'), primary: true, onClick: unlock }],
+          0,
+        );
+      },
+      onAutoplayUnlocked: () => {
+        this.dismissAutoplayToast?.();
+        this.dismissAutoplayToast = null;
+      },
     });
 
     this.net = new NetworkClient({
@@ -784,6 +796,9 @@ export class App {
   private reconnectAttempt = 0;
   private reconnectAt: number | null = null;
   private dismissConnToast: (() => void) | null = null;
+  // The persistent "enable audio" prompt while remote playback is blocked by
+  // the autoplay policy (issue #201).
+  private dismissAutoplayToast: (() => void) | null = null;
   private connToastSteady = false;
 
   private onClose() {

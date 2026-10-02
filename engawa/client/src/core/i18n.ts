@@ -224,6 +224,11 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: '接続が切れました。再接続しています…',
     en: 'Connection lost. Reconnecting…',
   },
+  'app.autoplayBlocked': {
+    ja: 'ブラウザが音声の再生をブロックしています。',
+    en: 'Your browser is blocking audio playback.',
+  },
+  'app.autoplayEnable': { ja: '🔊 音声を有効にする', en: '🔊 Enable audio' },
   'app.sfuFallback': {
     ja: '通話サーバーに接続できないため、P2P 接続に切り替えました。',
     en: "Couldn't reach the call server — switched to a P2P connection.",
