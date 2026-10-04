@@ -326,8 +326,15 @@ export function normalizeIceServers(iceServers: unknown): unknown[] {
 // When SFU is disabled (no Cloudflare app configured) every group is mesh, so
 // the pre-SFU behaviour is preserved exactly.
 
-// Open-floor cluster size at which a group promotes to SFU (one-way latch).
-export const SFU_PROMOTE_AT = 5;
+// Open-floor cluster size at which a group promotes to SFU (one-way latch), so
+// mesh carries at most 3 people. Chosen to match the client's send-throttle
+// line: CAM_THROTTLE_MIN_PEERS (rtc/cam-bitrate.ts) starts degrading camera
+// bitrate/fps/resolution at 3 peers — i.e. the same 4-member cluster — because
+// a 4-way mesh is where the uplink and encode cost stop fitting. Each member
+// then encodes 3 copies of its camera (~1.8 Mbps) and, with a screen share,
+// 3 more at 1.5 Mbps each: ~6.3 Mbps up and 3 parallel FHD encodes. A 2-3
+// person chat stays on the lower-latency direct P2P path.
+export const SFU_PROMOTE_AT = 4;
 // Connect radius (px) for the open-floor proximity graph. Mirrors the client's
 // CONNECT_RADIUS so the server's grouping matches what users see on the map.
 export const PROXIMITY_CONNECT_RADIUS = 120;
