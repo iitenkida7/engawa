@@ -32,6 +32,7 @@ import {
   REACTION_EMOJIS,
   type ServerMessage,
   type SfuTrack,
+  STEP_DURATION_MS,
 } from '@/core/types';
 import { SceneCompositor } from '@/media/compositor';
 import { MediaManager } from '@/media/media';
@@ -69,6 +70,7 @@ import { SoundManager } from '@/ui/sounds';
 import { type MediaSink, ToolbarController } from '@/ui/toolbar';
 import { CanvasRenderer } from '@/world/canvas';
 import { OUTFIT_COUNTS } from '@/world/character';
+import { stepTarget } from '@/world/grid';
 import { InputManager } from '@/world/input';
 import { normalizeOutfit } from '@/world/outfit';
 import { findPath } from '@/world/pathfind';
@@ -113,6 +115,17 @@ export class App {
   // Click-to-move: remaining waypoint tile-centers and the current index.
   private movePath: Point[] | null = null;
   private moveIndex = 0;
+
+  // Grid-step keyboard movement (issue #206): the active one-tile slide, or null
+  // when idle. While a step is in progress new keyboard input is ignored, so the
+  // avatar always comes to rest on a tile center.
+  private gridStep: {
+    fromX: number;
+    fromY: number;
+    toX: number;
+    toY: number;
+    elapsed: number;
+  } | null = null;
 
   // The roster row the user last clicked: that avatar gets a highlight ring on
   // the map. Cleared when the player leaves or the same row is clicked again.
@@ -1200,17 +1213,38 @@ export class App {
     let selfVx = 0;
     let selfVy = 0;
     if (this.me) {
-      const { dx, dy } = this.input.getDirection();
-      if (dx !== 0 || dy !== 0) {
-        // Manual keyboard input cancels click-to-move and takes over.
-        this.movePath = null;
-        selfVx = dx * PLAYER_SPEED;
-        selfVy = dy * PLAYER_SPEED;
-        this.applyVelocity(selfVx, selfVy, dt);
-      } else if (this.movePath) {
-        const v = this.followPath(dt);
+      // Grid-step movement (issue #206): a step in progress slides to the next
+      // tile center; only once it finishes do we read input for the next step,
+      // so the avatar always rests on a tile (never between tiles).
+      if (this.gridStep) {
+        const v = this.advanceStep(dt);
         selfVx = v.vx;
         selfVy = v.vy;
+      } else {
+        const { dx, dy } = this.input.getStepDirection();
+        if (dx !== 0 || dy !== 0) {
+          // Manual keyboard input cancels click-to-move and takes over.
+          this.movePath = null;
+          // Turn to face the pressed direction even if the next tile is blocked.
+          this.me.updateFacing(dx, dy);
+          const target = stepTarget(this.me.x, this.me.y, dx, dy);
+          if (target) {
+            this.gridStep = {
+              fromX: this.me.x,
+              fromY: this.me.y,
+              toX: target.x,
+              toY: target.y,
+              elapsed: 0,
+            };
+            const v = this.advanceStep(dt);
+            selfVx = v.vx;
+            selfVy = v.vy;
+          }
+        } else if (this.movePath) {
+          const v = this.followPath(dt);
+          selfVx = v.vx;
+          selfVy = v.vy;
+        }
       }
       // Face the way we're moving so our own avatar's sprite turns (remote
       // players turn via setTarget). Idle keeps the last facing.
@@ -1338,6 +1372,29 @@ export class App {
     this.me.targetX = this.me.x;
     this.me.targetY = this.me.y;
     return this.me.x !== prevX || this.me.y !== prevY;
+  }
+
+  // Advances the active grid step for one frame, linearly interpolating from the
+  // step's origin tile toward the destination tile center over STEP_DURATION_MS.
+  // Clears the step (snapping exactly onto the target) when it completes.
+  // Returns the velocity applied this frame so the caller can broadcast it.
+  private advanceStep(dt: number): { vx: number; vy: number } {
+    const s = this.gridStep;
+    const me = this.me;
+    if (!s || !me) return { vx: 0, vy: 0 };
+    s.elapsed += dt;
+    const dur = STEP_DURATION_MS / 1000;
+    const p = Math.min(1, s.elapsed / dur);
+    const prevX = me.x;
+    const prevY = me.y;
+    me.x = s.fromX + (s.toX - s.fromX) * p;
+    me.y = s.fromY + (s.toY - s.fromY) * p;
+    me.targetX = me.x;
+    me.targetY = me.y;
+    const vx = dt > 0 ? (me.x - prevX) / dt : 0;
+    const vy = dt > 0 ? (me.y - prevY) / dt : 0;
+    if (p >= 1) this.gridStep = null;
+    return { vx, vy };
   }
 
   // Advances along the click-to-move waypoints at boosted speed. Returns the
