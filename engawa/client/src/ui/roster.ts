@@ -160,6 +160,14 @@ export class RosterPanel {
     this.panelEl.classList.remove('hidden');
   }
 
+  // Hide the whole roster while media windows are up (a call / screenshare), so
+  // it stops overlapping the video and share tiles — like Gather, which hides
+  // the participant list in a meeting. Uses its own class so it composes with
+  // show()/collapse instead of fighting their `hidden`/`collapsed` state.
+  setCallMode(active: boolean) {
+    this.panelEl.classList.toggle('call-hidden', active);
+  }
+
   refreshStatus() {
     this.btnStatus.textContent = ROSTER_STATUS_EMOJI[this.getStatus()];
   }

@@ -615,6 +615,13 @@ export class RemoteMediaView {
     return streams;
   }
 
+  // True when any media window is on screen (a remote camera tile, a screenshare
+  // stage, or the self preview). The App polls this to hide the roster during a
+  // call so it doesn't overlap the tiles.
+  hasMediaWindows(): boolean {
+    return this.collectPanels().length > 0;
+  }
+
   // ============= Layout modes (auto-arrange) =============
   // The active layout mode. The toolbar reads this to mark the current mode in
   // its menu.
