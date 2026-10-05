@@ -1308,8 +1308,8 @@ export class App {
     }
 
     // Refresh the participant roster from the (now up-to-date) players map, and
-    // hide it entirely while media windows are up so it doesn't overlap the call
-    // tiles (Gather-like: no participant list during a meeting).
+    // collapse it while media windows are up so the list doesn't overlap the
+    // call tiles (its header, with chat and status, stays reachable).
     this.roster.update(this.focusedId);
     this.roster.setCallMode(this.view.hasMediaWindows());
 

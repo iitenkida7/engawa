@@ -621,10 +621,16 @@ export class RemoteMediaView {
   }
 
   // True when any media window is on screen (a remote camera tile, a screenshare
-  // stage, or the self preview). The App polls this to hide the roster during a
-  // call so it doesn't overlap the tiles.
+  // stage, or the self preview) — the same set collectPanels() lays out. The App
+  // polls this every frame to collapse the roster during a call, so it counts
+  // the members directly instead of building the panel list (which reads
+  // getComputedStyle per tile).
   hasMediaWindows(): boolean {
-    return this.collectPanels().length > 0;
+    return (
+      this.screenshares.size > 0 ||
+      this.remoteTiles.size > 0 ||
+      !this.selfPreviewEl.classList.contains('hidden')
+    );
   }
 
   // ============= Layout modes (auto-arrange) =============

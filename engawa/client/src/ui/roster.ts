@@ -117,6 +117,8 @@ export class RosterPanel {
   private orderKey = '';
   private collapsed = false;
   private wasNarrow: boolean;
+  // Whether media windows are currently on screen; see setCallMode.
+  private inCall = false;
 
   constructor(opts: {
     players: Map<string, PlayerState>;
@@ -160,12 +162,17 @@ export class RosterPanel {
     this.panelEl.classList.remove('hidden');
   }
 
-  // Hide the whole roster while media windows are up (a call / screenshare), so
-  // it stops overlapping the video and share tiles — like Gather, which hides
-  // the participant list in a meeting. Uses its own class so it composes with
-  // show()/collapse instead of fighting their `hidden`/`collapsed` state.
+  // Collapse the roster while media windows are up (a call / screenshare) so the
+  // list stops overlapping the video and share tiles, then expand again when
+  // they are gone. Collapsing rather than hiding keeps the header — and with it
+  // the chat button (the only way to open chat, unread dot included) and the
+  // status button — reachable during a call. Mirrors the narrow-viewport rule:
+  // only the crossings move it, so a manual toggle mid-call sticks until the
+  // call ends.
   setCallMode(active: boolean) {
-    this.panelEl.classList.toggle('call-hidden', active);
+    if (active === this.inCall) return;
+    this.inCall = active;
+    this.setCollapsed(active || this.wasNarrow);
   }
 
   refreshStatus() {
