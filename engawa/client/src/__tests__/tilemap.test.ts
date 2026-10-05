@@ -106,15 +106,17 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     { col: 28, row: 20 }, // 商談ブース3
   ];
 
-  it('derives one zone per walled-off MEETING room', () => {
-    expect(ZONES).toHaveLength(roomSamples.length);
+  it('derives one zone per walled-off MEETING room, plus the lounge', () => {
+    // One zone per room sample + the open lounge (a conversation-restricted zone).
+    expect(ZONES).toHaveLength(roomSamples.length + 1);
   });
 
-  it('assigns a zone to every MEETING tile and none to other tiles', () => {
+  it('assigns a zone to every MEETING / LOUNGE tile and none to other tiles', () => {
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         const z = zoneAt(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2);
-        if (officeMap[r][c] === Tile.MEETING) {
+        // The lounge is a zone too (an open call bubble), keyed off LOUNGE tiles.
+        if (officeMap[r][c] === Tile.MEETING || officeMap[r][c] === Tile.LOUNGE) {
           expect(z).not.toBeNull();
         } else {
           expect(z).toBeNull();

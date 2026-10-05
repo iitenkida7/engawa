@@ -278,34 +278,65 @@ export const ROOM_FURNITURE: RoomFurniture[] = ROOMS.map((room) => {
   };
 });
 
-// 24 open-office seats: four 2-desk benches per row across three rows. Each desk
-// gets a chair (drawn by the renderer just in front of it).
+// 26 open-office seats grouped into team "islands" (pods) instead of uniform
+// benches. Within a pod the two desk-rows are adjacent and face each other: the
+// upper row faces south (monitor flipped down, chair above), the lower faces
+// north, so people sit across the island. Wide aisles run between the pods.
+//   Top pod-row (desks on rows 8/9):   four 4-seat islands.
+//   Bottom pod-row (desks on rows 14/15): two 4-seat islands + one 6-seat island.
 const OPEN_DESKS: [number, number][] = [
-  [5, 8],
-  [6, 8],
+  // ── Top row: four 4-seat pods (upper desk row 8 faces south, row 9 north) ──
+  [3, 8],
+  [4, 8],
+  [3, 9],
+  [4, 9],
+  [11, 8],
   [12, 8],
-  [13, 8],
+  [11, 9],
+  [12, 9],
   [19, 8],
   [20, 8],
-  [26, 8],
+  [19, 9],
+  [20, 9],
   [27, 8],
-  [5, 11],
-  [6, 11],
-  [12, 11],
-  [13, 11],
-  [19, 11],
-  [20, 11],
-  [26, 11],
-  [27, 11],
+  [28, 8],
+  [27, 9],
+  [28, 9],
+  // ── Bottom row: two 4-seat pods ──
   [5, 14],
   [6, 14],
+  [5, 15],
+  [6, 15],
+  [11, 14],
   [12, 14],
-  [13, 14],
+  [11, 15],
+  [12, 15],
+  // ── Bottom row: one 6-seat pod (3 wide × 2 rows) ──
+  [18, 14],
   [19, 14],
   [20, 14],
-  [26, 14],
-  [27, 14],
+  [18, 15],
+  [19, 15],
+  [20, 15],
 ];
+
+// The upper desk-row of each pod faces SOUTH (chair above the desk, monitor
+// flipped to the bottom) so a pod's two rows sit face-to-face — two people
+// looking at each other across the island. These are the open-office desks on
+// rows 8 and 14 (the lower rows, 10 and 16, keep the default north facing).
+const SOUTH_FACING_DESK_ROWS = new Set<number>([8, 14]);
+
+/** True when the open-office desk at (col,row) is drawn facing south (flipped). */
+export function deskFacesSouth(col: number, row: number): boolean {
+  return SOUTH_FACING_DESK_ROWS.has(row) && officeMap[row]?.[col] === Tile.DESK;
+}
+
+// A casual lounge in the open bottom-right corner: an OPEN social spot (not a
+// walled zone / isolated call bubble), so people on spatial audio can gather and
+// chat. Walkable rug (LOUNGE tiles aren't SOLID); the renderer draws sofas + a
+// coffee table on top. Placed clear of the desk pods and the booth doors below.
+// (Design is a placeholder — easy to restyle later.)
+export const LOUNGE = { c: 24, r: 12, w: 7, h: 5 } as const;
 
 // A little greenery down the open floor's sides and center.
 const OPEN_PLANTS: [number, number][] = [
@@ -349,7 +380,8 @@ function buildOfficeMap(): number[][] {
     for (const [dc, dr] of room.desks) set(dc, dr, Tile.DESK);
   }
 
-  // ── Open office: desk seats + greenery ──
+  // ── Lounge rug (walkable), then open-office desk seats + greenery ──
+  fill(LOUNGE.c, LOUNGE.r, LOUNGE.w, LOUNGE.h, Tile.LOUNGE);
   for (const [c, r] of OPEN_DESKS) set(c, r, Tile.DESK);
   for (const [c, r] of OPEN_PLANTS) set(c, r, Tile.PLANT);
 
@@ -357,6 +389,14 @@ function buildOfficeMap(): number[][] {
 }
 
 export const officeMap = buildOfficeMap();
+
+// Pixel rect of the lounge, for the renderer (rug accent + sofas/coffee table).
+export const LOUNGE_RECT = {
+  x: LOUNGE.c * TILE_SIZE,
+  y: LOUNGE.r * TILE_SIZE,
+  w: LOUNGE.w * TILE_SIZE,
+  h: LOUNGE.h * TILE_SIZE,
+};
 
 /**
  * Named meeting-room zone. Rooms act as isolated call bubbles: everyone inside
@@ -390,6 +430,26 @@ function buildZones(): { zones: Zone[]; grid: number[][] } {
       h: room.h * TILE_SIZE,
     };
   });
+
+  // The lounge is a conversation-restricted zone too (like the booths): an
+  // isolated call bubble where everyone inside is connected and audio doesn't
+  // leak out — but it has no walls, so its grid cells are the LOUNGE tiles.
+  const loungeIdx = zones.length;
+  for (let rr = LOUNGE.r; rr < LOUNGE.r + LOUNGE.h; rr++) {
+    for (let cc = LOUNGE.c; cc < LOUNGE.c + LOUNGE.w; cc++) {
+      if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) continue;
+      if (officeMap[rr][cc] === Tile.LOUNGE) grid[rr][cc] = loungeIdx;
+    }
+  }
+  zones.push({
+    id: 'lounge',
+    name: t('zone.lounge'),
+    x: LOUNGE_RECT.x,
+    y: LOUNGE_RECT.y,
+    w: LOUNGE_RECT.w,
+    h: LOUNGE_RECT.h,
+  });
+
   return { zones, grid };
 }
 

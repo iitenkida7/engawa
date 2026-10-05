@@ -287,6 +287,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'zone.booth-1': { ja: '商談ブース1', en: 'Meeting booth 1' },
   'zone.booth-2': { ja: '商談ブース2', en: 'Meeting booth 2' },
   'zone.booth-3': { ja: '商談ブース3', en: 'Meeting booth 3' },
+  'zone.lounge': { ja: 'ラウンジ', en: 'Lounge' },
 };
 
 /**

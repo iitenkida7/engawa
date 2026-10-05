@@ -3,15 +3,19 @@
 // unit-testable; canvas.ts uses these to draw the map procedurally. Decoration is
 // purely visual — it never touches SOLID/collision (that stays in tilemap.ts).
 
-import { TILE_SIZE, Tile, ZONES } from '@/world/tilemap';
+import { officeMap, TILE_SIZE, Tile, ZONES } from '@/world/tilemap';
 
-export type FloorKind = 'wood' | 'carpet';
+export type FloorKind = 'wood' | 'carpet' | 'lounge';
 
-// Rooms (meeting/lounge zones) read as carpet; the open office reads as wood.
-// Tested against the zone's bounding RECT, not per-tile zone membership, so a
-// desk/plant punched into a room (which isn't itself a MEETING tile, so zoneAt
-// would miss it) still gets the room's carpet underneath it.
+// Meeting rooms read as carpet; the lounge reads as its own rug; the open office
+// reads as wood. Rooms are tested against the zone's bounding RECT, not per-tile
+// zone membership, so a desk/plant punched into a room (which isn't itself a
+// MEETING tile, so zoneAt would miss it) still gets the room's carpet underneath
+// it. The lounge is an open area (no zone), so it's keyed off the LOUNGE tile.
 export function floorKindAt(col: number, row: number): FloorKind {
+  if (row >= 0 && row < officeMap.length && col >= 0 && col < officeMap[row].length) {
+    if (officeMap[row][col] === Tile.LOUNGE) return 'lounge';
+  }
   const cx = col * TILE_SIZE + TILE_SIZE / 2;
   const cy = row * TILE_SIZE + TILE_SIZE / 2;
   for (const z of ZONES) {

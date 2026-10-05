@@ -15,6 +15,8 @@ import { CharacterSheet } from '@/world/character';
 import { floorKindAt, propFor } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import {
+  deskFacesSouth,
+  LOUNGE_RECT,
   MAP_COLS,
   MAP_ROWS,
   officeMap,
@@ -50,6 +52,14 @@ const PALETTE = {
   leaf: '#7d9b6a',
   leafDark: '#688457',
   border: '#cabfa8',
+  // Lounge (placeholder styling): a warm sage rug with soft seating, distinct
+  // from the oak open office and the cream meeting rooms.
+  loungeRug: '#dfe7d8',
+  loungeRugEdge: 'rgba(125,155,106,0.5)',
+  sofa: '#9aa7b8',
+  sofaShade: '#7f8da0',
+  coffeeTable: '#b98b63',
+  coffeeTableTop: '#caa078',
 } as const;
 
 // Emoji shown as the avatar status badge, matching the toolbar menu labels.
@@ -425,15 +435,17 @@ export class CanvasRenderer {
           this.drawWall(cx, tx, ty);
           continue;
         }
-        // Floor first (rooms read as a cream rug, the open office as oak)...
-        const inRoom = floorKindAt(c, r) === 'carpet';
+        // Floor first (meeting rooms = cream rug, lounge = sage rug, open = oak)...
+        const floorKind = floorKindAt(c, r);
+        const inRoom = floorKind === 'carpet';
         if (inRoom) this.drawRugFloor(cx, tx, ty);
+        else if (floorKind === 'lounge') this.drawLoungeFloor(cx, tx, ty);
         else this.drawWoodFloor(cx, tx, ty);
         // ...then the prop on top. Open-office desks are workstations (monitor);
         // in-room desks are drawn as designed tables/chairs by the furniture pass
         // below, so skip them here.
         const prop = propFor(tile);
-        if (prop === 'desk' && !inRoom) this.drawWorkstation(cx, tx, ty);
+        if (prop === 'desk' && !inRoom) this.drawWorkstation(cx, tx, ty, deskFacesSouth(c, r));
         else if (prop === 'plant') this.drawPlant(cx, tx, ty);
       }
     }
@@ -444,7 +456,7 @@ export class CanvasRenderer {
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         if (officeMap[r][c] === Tile.DESK && floorKindAt(c, r) === 'wood') {
-          this.drawDeskChair(cx, c * TILE_SIZE, r * TILE_SIZE);
+          this.drawDeskChair(cx, c * TILE_SIZE, r * TILE_SIZE, deskFacesSouth(c, r));
         }
       }
     }
@@ -452,6 +464,9 @@ export class CanvasRenderer {
     // Meeting-room furniture: proper tables with chairs (and an exec desk for the
     // president's office), drawn over the rug once the tiles are laid down.
     for (const f of ROOM_FURNITURE) this.drawRoomFurniture(cx, f);
+
+    // Lounge: sofas around a round coffee table, over the sage rug.
+    this.drawLounge(cx, LOUNGE_RECT);
 
     // Soft map border — a thin warm frame, no heavy vignette (a clean office is
     // bright, so the old dark corner shading is gone).
@@ -499,6 +514,52 @@ export class CanvasRenderer {
     }
   }
 
+  // The lounge: a round coffee table with sofas on each side. Purely cosmetic
+  // (the rug stays walkable), drawn over the sage lounge floor. Placeholder look.
+  private drawLounge(
+    cx: CanvasRenderingContext2D,
+    f: { x: number; y: number; w: number; h: number },
+  ) {
+    const cxp = f.x + f.w / 2;
+    const cyp = f.y + f.h / 2;
+
+    // Rug outline to frame the area.
+    this.roundRect(cx, f.x + 5, f.y + 5, f.w - 10, f.h - 10, 12);
+    cx.strokeStyle = PALETTE.loungeRugEdge;
+    cx.lineWidth = 2;
+    cx.stroke();
+
+    // Sofas: one on the left and one on the right of the coffee table, facing in.
+    const sofaW = 16;
+    const sofaH = 52;
+    const drawSofa = (sx: number) => {
+      this.roundRect(cx, sx, cyp - sofaH / 2, sofaW, sofaH, 6);
+      cx.fillStyle = PALETTE.sofa;
+      cx.fill();
+      cx.fillStyle = PALETTE.sofaShade;
+      cx.fillRect(sx, cyp - sofaH / 2 + sofaH - 5, sofaW, 5);
+    };
+    drawSofa(f.x + 16);
+    drawSofa(f.x + f.w - 16 - sofaW);
+
+    // Round coffee table in the middle.
+    cx.beginPath();
+    cx.arc(cxp, cyp, 20, 0, Math.PI * 2);
+    cx.fillStyle = PALETTE.coffeeTable;
+    cx.fill();
+    cx.beginPath();
+    cx.arc(cxp, cyp, 14, 0, Math.PI * 2);
+    cx.fillStyle = PALETTE.coffeeTableTop;
+    cx.fill();
+  }
+
+  // Lounge rug floor: a warm sage base, distinct from the oak open office and the
+  // cream meeting rooms.
+  private drawLoungeFloor(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+    cx.fillStyle = PALETTE.loungeRug;
+    cx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
+  }
+
   // Light oak plank floor: a warm base plus faint, world-aligned horizontal plank
   // seams (so they run continuously across tile boundaries).
   private drawWoodFloor(cx: CanvasRenderingContext2D, tx: number, ty: number) {
@@ -539,8 +600,15 @@ export class CanvasRenderer {
   }
 
   // Open-office workstation: a rounded off-white desk top on the floor, a dark
-  // monitor with a soft screen, and a hint of a keyboard.
-  private drawWorkstation(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+  // monitor with a soft screen, and a hint of a keyboard. `facesSouth` flips it
+  // vertically (monitor at the bottom, keyboard at the top) so the occupant sits
+  // above, facing down — used for the upper row of a facing pod.
+  private drawWorkstation(
+    cx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    facesSouth = false,
+  ) {
     const S = TILE_SIZE;
     const pad = 5;
     this.roundRect(cx, tx + pad, ty + pad, S - pad * 2, S - pad * 2, 6);
@@ -549,28 +617,31 @@ export class CanvasRenderer {
     cx.strokeStyle = PALETTE.deskEdge;
     cx.lineWidth = 1;
     cx.stroke();
-    // Monitor
+    // Monitor: near the far edge from the seat — top when facing up (default),
+    // bottom when flipped to face down.
     const mw = S * 0.44;
     const mh = S * 0.26;
     const mx = tx + S / 2 - mw / 2;
-    const my = ty + pad + 3;
+    const my = facesSouth ? ty + S - pad - 3 - mh : ty + pad + 3;
     cx.fillStyle = PALETTE.monitor;
     cx.fillRect(mx, my, mw, mh);
     cx.fillStyle = PALETTE.monitorScreen;
     cx.fillRect(mx + 2, my + 2, mw - 4, mh - 4);
-    // Keyboard hint
+    // Keyboard hint: on the seat side (opposite the monitor).
+    const ky = facesSouth ? ty + pad + S * 0.07 : ty + S - pad - S * 0.16;
     cx.fillStyle = PALETTE.deskEdge;
-    cx.fillRect(tx + S / 2 - S * 0.2, ty + S - pad - S * 0.16, S * 0.4, S * 0.09);
+    cx.fillRect(tx + S / 2 - S * 0.2, ky, S * 0.4, S * 0.09);
   }
 
-  // A chair just in front of (below) an open-office desk — the monitor faces up,
-  // so the seat sits on the south side. Same sage rounded seat as the meeting
-  // chairs, for consistency.
-  private drawDeskChair(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+  // A chair just in front of an open-office desk. Default: below the desk (the
+  // occupant faces up). `facesSouth` puts it above the desk (occupant faces
+  // down). Same sage rounded seat as the meeting chairs, for consistency.
+  private drawDeskChair(cx: CanvasRenderingContext2D, tx: number, ty: number, facesSouth = false) {
     const S = TILE_SIZE;
     const chair = 15;
+    const chairY = facesSouth ? ty - chair + 6 : ty + S - 6;
     cx.fillStyle = PALETTE.chair;
-    this.roundRect(cx, tx + S / 2 - chair / 2, ty + S - 6, chair, chair, 4);
+    this.roundRect(cx, tx + S / 2 - chair / 2, chairY, chair, chair, 4);
     cx.fill();
   }
 
