@@ -17,6 +17,7 @@ import {
   reconcilePeerTracks,
   remoteKey,
   SFU_API_MAX_ATTEMPTS,
+  SFU_API_TIMEOUT_MS,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
   sfuSessionError,
@@ -459,8 +460,10 @@ export class SfuManager {
   // response blind used to let error pages corrupt PC state silently. Transient
   // failures (network error, 5xx, 408/429, and 401 while a reconnect re-mints
   // the media token) are retried in place with a short backoff (issue #186), so
-  // one blip mid-op no longer degrades the whole group to mesh. Throwing rejects
-  // the op, which the op-chain handler turns into the fallback (see enqueue).
+  // one blip mid-op no longer degrades the whole group to mesh. Each attempt is
+  // bounded by SFU_API_TIMEOUT_MS so a request that never answers is treated as
+  // a network error instead of stalling the op chain (issue #194). Throwing
+  // rejects the op, which the op-chain handler turns into the fallback (see enqueue).
   private async api<T>(sessionPath: string, method: string, body: unknown): Promise<T> {
     let failure: number | 'network' = 'network';
     let detail = '';
@@ -471,6 +474,7 @@ export class SfuManager {
           method,
           headers: { 'Content-Type': 'application/json', ...mediaAuthHeaders() },
           body: body === undefined ? undefined : JSON.stringify(body),
+          signal: AbortSignal.timeout(SFU_API_TIMEOUT_MS),
         });
       } catch (err) {
         failure = 'network';

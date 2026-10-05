@@ -38,7 +38,7 @@ Slack のハドルや Gather.town のような「ちょっと話しかける」�
 | 🟢 | ステータス表示 | オンライン / 取り込み中 / 離席中 を切り替え |
 | 🔔 | 近接チャイム | 人が近づいた / 離れたときに軽い効果音 |
 | 🔒 | 入室パスワード | `ACCESS_PASSWORD` を設定すると入室時にパスワードを確認（任意。未設定ならオープン） |
-| 👥 | 大人数対応 | 会議室ゾーンや 5 人以上の集まりは自動で SFU 配信に切り替え（要 Cloudflare Realtime SFU 設定。未設定なら全員 P2P） |
+| 👥 | 大人数対応 | 会議室ゾーンや 4 人以上の集まりは自動で SFU 配信に切り替え（要 Cloudflare Realtime SFU 設定。未設定なら全員 P2P） |
 | 📲 | アプリとしてインストール | デスクトップ Chrome / Edge でインストール可能（PWA）。独立ウィンドウで起動でき、Dock / タスクバーに常駐できる |
 
 ---
@@ -131,7 +131,7 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.
 
 ## 🏗 アーキテクチャ
 
-メディア（音声・映像・画面共有）は **engawa のサーバーを経由しません**。屋外の少人数近接は P2P メッシュ、会議室ゾーンや 5 人以上の集まりは Cloudflare Realtime SFU 経由——どちらでもメディアは自前サーバーを通りません。サーバーがやるのは、出会いの仲介・位置同期・グループ方式の判定だけです。
+メディア（音声・映像・画面共有）は **engawa のサーバーを経由しません**。屋外の少人数近接は P2P メッシュ（最大 3 人）、会議室ゾーンや 4 人以上の集まりは Cloudflare Realtime SFU 経由——どちらでもメディアは自前サーバーを通りません。サーバーがやるのは、出会いの仲介・位置同期・グループ方式の判定だけです。
 
 ```
 [ブラウザA]                 [サーバー (Bun)]                 [ブラウザB]
@@ -142,7 +142,7 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.
    │                        └ /api/sfu/*（SFU 制御のプロキシ）    │
    │                                                            │
    ├── 屋外・少人数: WebRTC P2P メッシュ ───────────────────────┤
-   └── 会議室 / 5 人以上: Cloudflare Realtime SFU 経由 ──────────┘
+   └── 会議室 / 4 人以上: Cloudflare Realtime SFU 経由 ──────────┘
             ※ メディアは engawa を経由しない（P2P / Cloudflare のみ）
 ```
 
