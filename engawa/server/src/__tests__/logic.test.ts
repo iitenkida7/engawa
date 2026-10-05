@@ -313,6 +313,18 @@ describe('computeProximityGroups', () => {
     );
   });
 
+  // Pins the actual threshold (not just the symbol): mesh carries at most 3
+  // people, the 4th promotes the whole cluster to SFU. Changing this is a
+  // deliberate capacity decision, not an incidental refactor.
+  test('open floor: mesh up to 3 members, SFU from 4', () => {
+    const cluster = (n: number): GroupMember[] =>
+      Array.from({ length: n }, (_, i) => m(String(i), i * 30, 0));
+    expect(SFU_PROMOTE_AT).toBe(4);
+    expect(computeProximityGroups(cluster(2), { sfuEnabled: true })[0].method).toBe('mesh');
+    expect(computeProximityGroups(cluster(3), { sfuEnabled: true })[0].method).toBe('mesh');
+    expect(computeProximityGroups(cluster(4), { sfuEnabled: true })[0].method).toBe('sfu');
+  });
+
   test('meeting room: same-zone members are always SFU regardless of count/distance', () => {
     const groups = computeProximityGroups(
       [m('a', 0, 0, 'meeting-1'), m('b', 9999, 9999, 'meeting-1')],
@@ -340,18 +352,19 @@ describe('computeProximityGroups', () => {
   });
 
   test('latch: a shrinking SFU cluster stays SFU (no demotion)', () => {
-    // a, b, c, d, e were an open-floor SFU group; now e has left.
-    const members = ['a', 'b', 'c', 'd'].map((id, i) => m(id, i * 30, 0));
+    // a, b, c, d were an open-floor SFU group; now only a and b are left. Two
+    // members is below SFU_PROMOTE_AT, so SFU here can only come from the latch.
+    const members = ['a', 'b'].map((id, i) => m(id, i * 30, 0));
     const groups = computeProximityGroups(members, {
       sfuEnabled: true,
-      prevSfuMemberSets: [['a', 'b', 'c', 'd', 'e']],
+      prevSfuMemberSets: [['a', 'b', 'c', 'd']],
     });
-    expect(groups[0].memberIds).toEqual(['a', 'b', 'c', 'd']);
+    expect(groups[0].memberIds).toEqual(['a', 'b']);
     expect(groups[0].method).toBe('sfu');
   });
 
-  test('no latch without history: a fresh 4-person cluster is mesh', () => {
-    const members = ['a', 'b', 'c', 'd'].map((id, i) => m(id, i * 30, 0));
+  test('no latch without history: a fresh sub-threshold cluster is mesh', () => {
+    const members = ['a', 'b', 'c'].map((id, i) => m(id, i * 30, 0));
     const groups = computeProximityGroups(members, { sfuEnabled: true, prevSfuMemberSets: [] });
     expect(groups[0].method).toBe('mesh');
   });

@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { resetIceCache } from '@/rtc/ice';
 import { SfuManager } from '@/rtc/sfu';
+import { SFU_API_TIMEOUT_MS } from '@/rtc/sfu-logic';
 
 // A sender whose getParameters/setParameters round-trip so tuneSfuSender's
 // priority / degradationPreference writes can be observed (issue #146). Each
@@ -559,5 +560,63 @@ describe('SfuManager ops superseded by closeAll (issue #196)', () => {
     expect(createdPcs).toHaveLength(0);
     expect(sfu.active).toBe(false);
     expect(events.onFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe('SfuManager control-plane timeout (issue #194)', () => {
+  it('aborts a request that never answers and retries instead of stalling the op chain', async () => {
+    // Each attempt's deadline signal is handed to the test so it can fire the
+    // timeout by hand instead of waiting SFU_API_TIMEOUT_MS in real time.
+    const deadlines: { ms: number; ctl: AbortController }[] = [];
+    const timeoutSpy = spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      const ctl = new AbortController();
+      deadlines.push({ ms, ctl });
+      return ctl.signal;
+    });
+    try {
+      let sessionCalls = 0;
+      fetchMock = mock(async (url: string, init?: RequestInit) => {
+        const u = String(url);
+        if (u.includes('/sessions/new')) {
+          sessionCalls++;
+          // First attempt hangs until its deadline fires (half-open TCP).
+          if (sessionCalls === 1) {
+            return new Promise<Response>((_res, rej) => {
+              init?.signal?.addEventListener('abort', () =>
+                rej(new DOMException('timed out', 'TimeoutError')),
+              );
+            });
+          }
+          return jsonRes({ sessionId: 'sess-1' });
+        }
+        if (u.includes('/tracks/new')) {
+          return jsonRes({
+            sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
+            tracks: [{ mid: '0' }],
+          });
+        }
+        return jsonRes({});
+      });
+      globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+      const { events, waitPublish } = makeEvents();
+      const sfu = new SfuManager(events);
+      const published = waitPublish();
+      sfu.addLocalStream(makeStream('mic'), 'mic');
+      await settle();
+
+      // The hung request carries the control-plane deadline; firing it lets the
+      // retry go through and the publish completes.
+      expect(sessionCalls).toBe(1);
+      const first = deadlines.find((d) => d.ms === SFU_API_TIMEOUT_MS);
+      expect(first).toBeDefined();
+      first!.ctl.abort();
+      await published;
+
+      expect(sessionCalls).toBe(2);
+      expect(events.onFailed).not.toHaveBeenCalled();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 });

@@ -132,7 +132,7 @@ export class App {
   // Server-driven transport for our current proximity group. 'mesh' uses the
   // per-peer WebRtcManager; 'sfu' routes everything through Cloudflare Realtime
   // via SfuManager. Per group the switch is a one-way latch (issues #77/#78):
-  // outdoor clusters promote at 5 and never demote until the group disperses;
+  // outdoor clusters promote at 4 and never demote until the group disperses;
   // meeting rooms start as SFU. Membership for BOTH methods comes from the
   // server's group-update (the connected component), so a mesh client meshes
   // with every group member — not just peers inside its own radius.
@@ -267,6 +267,18 @@ export class App {
       media: this.media,
       recorder: this.recorder,
       getMyId: () => this.myId,
+      onAutoplayBlocked: (unlock) => {
+        this.dismissAutoplayToast?.();
+        this.dismissAutoplayToast = this.toasts.action(
+          t('app.autoplayBlocked'),
+          [{ label: t('app.autoplayEnable'), primary: true, onClick: unlock }],
+          0,
+        );
+      },
+      onAutoplayUnlocked: () => {
+        this.dismissAutoplayToast?.();
+        this.dismissAutoplayToast = null;
+      },
     });
 
     this.net = new NetworkClient({
@@ -784,6 +796,9 @@ export class App {
   private reconnectAttempt = 0;
   private reconnectAt: number | null = null;
   private dismissConnToast: (() => void) | null = null;
+  // The persistent "enable audio" prompt while remote playback is blocked by
+  // the autoplay policy (issue #201).
+  private dismissAutoplayToast: (() => void) | null = null;
   private connToastSteady = false;
 
   private onClose() {

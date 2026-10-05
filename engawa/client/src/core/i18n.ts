@@ -134,6 +134,14 @@ const STR: Record<string, Record<Lang, string>> = {
   // -- toolbar menus & toasts -----------------------------------------------
   'toolbar.errMic': { ja: 'マイクを使えません: {msg}', en: "Can't use the microphone: {msg}" },
   'toolbar.errCam': { ja: 'カメラを使えません: {msg}', en: "Can't use the camera: {msg}" },
+  'toolbar.micLost': {
+    ja: 'マイクが切断されたため、オフにしました',
+    en: 'Your microphone was disconnected, so it was turned off',
+  },
+  'toolbar.camLost': {
+    ja: 'カメラが切断されたため、オフにしました',
+    en: 'Your camera was disconnected, so it was turned off',
+  },
   'toolbar.errScreen': {
     ja: '画面共有を開始できません: {msg}',
     en: "Couldn't start screen sharing: {msg}",
@@ -216,6 +224,11 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: '接続が切れました。再接続しています…',
     en: 'Connection lost. Reconnecting…',
   },
+  'app.autoplayBlocked': {
+    ja: 'ブラウザが音声の再生をブロックしています。',
+    en: 'Your browser is blocking audio playback.',
+  },
+  'app.autoplayEnable': { ja: '🔊 音声を有効にする', en: '🔊 Enable audio' },
   'app.sfuFallback': {
     ja: '通話サーバーに接続できないため、P2P 接続に切り替えました。',
     en: "Couldn't reach the call server — switched to a P2P connection.",

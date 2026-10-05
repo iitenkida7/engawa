@@ -76,7 +76,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 
 ## アーキテクチャ（全体像）
 メディア（音声・映像・画面共有）は **engawa のサーバーを絶対に経由しない**。屋外の少人数近接は
-P2P メッシュ、会議室ゾーンと 5 人以上の屋外クラスタは Cloudflare Realtime SFU 経由（#77/#78）。
+P2P メッシュ（最大 3 人）、会議室ゾーンと 4 人以上の屋外クラスタは Cloudflare Realtime SFU 経由（#77/#78）。
 どちらでもメディアは自前サーバーを通らない。サーバーは「出会いの仲介」「位置同期」「グループ方式
 （mesh/SFU）の判定・配信」「SFU 制御のプロキシ」を行う。
 
@@ -89,7 +89,7 @@ P2P メッシュ、会議室ゾーンと 5 人以上の屋外クラスタは Clo
    │                       └ /api/sfu/*（SFU 制御をプロキシ）   │
    │                                                           │
    ├─ 屋外・少人数: WebRTC P2P メッシュ ───────────────────────┤
-   └─ 会議室 / 5 人以上: Cloudflare Realtime SFU 経由 ──────────┘
+   └─ 会議室 / 4 人以上: Cloudflare Realtime SFU 経由 ──────────┘
         ※ メディアは engawa を経由しない（P2P / Cloudflare のみ）
 ```
 
@@ -103,7 +103,7 @@ P2P メッシュ、会議室ゾーンと 5 人以上の屋外クラスタは Clo
   → `sfu-peer-tracks`）** をさばく。`broadcast` は**同一 workspace かつ join 済み**のみ配信。
 - `logic.ts` — **副作用のない純粋関数**（座標クランプ、スポーン生成、名前/workspace 正規化、
   パスワード検証/パース、**近接グループ判定 `computeProximityGroups`**）。グループ判定は位置＋zone
-  から連結成分を求め、会議室=常時 SFU・屋外は 5 人で SFU 昇格（一方向ラッチ）を割り当てる純粋関数。
+  から連結成分を求め、会議室=常時 SFU・屋外は 4 人で SFU 昇格（一方向ラッチ）を割り当てる純粋関数。
 - `turn.ts` — Cloudflare API を叩いて短期 ICE クレデンシャルを発行。**API キーはサーバーのみ保持**。
 - `sfu.ts` — Cloudflare Realtime SFU の制御プレーン（セッション/トラック）を**プロキシ**する。
   App ID/Token はサーバーのみ保持しブラウザに渡さない（turn.ts と同じ作法）。転送先パスはホワイト

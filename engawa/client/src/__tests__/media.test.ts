@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { MediaManager, parseNoiseSetting } from '@/media/media';
+import { isMissingDeviceError, MediaManager, parseNoiseSetting } from '@/media/media';
 
 // Fake MediaStreamTrack that records stop() and supports an 'ended' listener.
 function makeTrack(kind: 'audio' | 'video') {
@@ -286,5 +286,100 @@ describe('MediaManager noise suppression', () => {
     const got = await m.enableMic();
     expect(got).toBe(stream);
     expect(m.micStream).toBe(stream);
+  });
+});
+
+describe('MediaManager device loss (issue #200)', () => {
+  it('turns the mic off and notifies when its capture ends on its own', async () => {
+    const track = makeTrack('audio');
+    const stream = makeStream([track]);
+    getUserMedia.mockResolvedValue(stream);
+    const m = new MediaManager();
+    const ended = mock();
+    m.onDeviceEnded(ended);
+    await m.enableMic();
+
+    // Bluetooth headset drops: the browser ends the capture track.
+    track.fireEnded();
+
+    expect(m.micOn).toBe(false);
+    expect(ended).toHaveBeenCalledTimes(1);
+    expect(ended).toHaveBeenCalledWith('mic', stream);
+  });
+
+  it('turns the camera off and notifies when its capture ends on its own', async () => {
+    const track = makeTrack('video');
+    const stream = makeStream([track]);
+    getUserMedia.mockResolvedValue(stream);
+    const m = new MediaManager();
+    const ended = mock();
+    m.onDeviceEnded(ended);
+    await m.enableCam();
+
+    track.fireEnded();
+
+    expect(m.camOn).toBe(false);
+    expect(ended).toHaveBeenCalledWith('cam', stream);
+  });
+
+  it('ignores a late ended event from a capture that is no longer current', async () => {
+    const oldTrack = makeTrack('audio');
+    const newTrack = makeTrack('audio');
+    getUserMedia
+      .mockResolvedValueOnce(makeStream([oldTrack]))
+      .mockResolvedValueOnce(makeStream([newTrack]));
+    const m = new MediaManager();
+    const ended = mock();
+    m.onDeviceEnded(ended);
+    await m.enableMic();
+    // Device switch: the old capture is replaced by a new one.
+    m.disableMic();
+    await m.enableMic();
+
+    oldTrack.fireEnded();
+
+    expect(m.micOn).toBe(true);
+    expect(ended).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the default device when the selected one is gone', async () => {
+    const stream = makeStream([makeTrack('audio')]);
+    getUserMedia
+      .mockRejectedValueOnce(Object.assign(new Error('gone'), { name: 'OverconstrainedError' }))
+      .mockResolvedValueOnce(stream);
+    const m = new MediaManager();
+    m.selectedMicId = 'headset-1';
+
+    const got = await m.enableMic();
+
+    expect(got).toBe(stream);
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(getUserMedia.mock.calls[0][0].audio.deviceId).toEqual({ exact: 'headset-1' });
+    expect(getUserMedia.mock.calls[1][0].audio.deviceId).toBeUndefined();
+    // The dead selection is cleared so later acquisitions follow the default.
+    expect(m.selectedMicId).toBeNull();
+  });
+
+  it('does not retry a permission denial on the default device', async () => {
+    getUserMedia.mockRejectedValue(Object.assign(new Error('denied'), { name: 'NotAllowedError' }));
+    const m = new MediaManager();
+    m.selectedCamId = 'cam-1';
+
+    await expect(m.enableCam()).rejects.toThrow('denied');
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(m.selectedCamId).toBe('cam-1');
+  });
+});
+
+describe('isMissingDeviceError', () => {
+  it('matches the errors a vanished pinned device produces', () => {
+    expect(isMissingDeviceError({ name: 'OverconstrainedError' })).toBe(true);
+    expect(isMissingDeviceError({ name: 'NotFoundError' })).toBe(true);
+  });
+  it('rejects everything else', () => {
+    expect(isMissingDeviceError({ name: 'NotAllowedError' })).toBe(false);
+    expect(isMissingDeviceError({ name: 'NotReadableError' })).toBe(false);
+    expect(isMissingDeviceError(new Error('x'))).toBe(false);
+    expect(isMissingDeviceError(null)).toBe(false);
   });
 });

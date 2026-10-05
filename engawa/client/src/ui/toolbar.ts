@@ -117,6 +117,15 @@ export class ToolbarController {
 
     // OS/browser "stop sharing" routes through the same teardown as the button.
     this.media.onScreenEnded((old) => this.afterScreenStopped(old));
+    // A mic/cam that died on its own (unplugged, Bluetooth dropped — #200) gets
+    // the same teardown as the OFF button, so neither we nor peers keep showing
+    // a live-but-silent device, and the user learns why it switched off.
+    this.media.onDeviceEnded((kind, old) => {
+      if (kind === 'mic') this.afterMicStopped(old);
+      else this.rtc.removeLocalStream(old);
+      this.broadcastStatus();
+      this.toasts.error(t(kind === 'mic' ? 'toolbar.micLost' : 'toolbar.camLost'));
+    });
 
     this.loadBgSettings();
     this.loadNoiseSetting();
@@ -206,10 +215,13 @@ export class ToolbarController {
   }
   private stopMic() {
     const old = this.media.disableMic();
-    if (old) {
-      this.rtc.removeLocalStream(old);
-      this.recorder.removeAudioStream(old.id);
-    }
+    if (old) this.afterMicStopped(old);
+    else this.view.setLocalMicStream(null);
+  }
+  // Teardown after the mic stream has stopped (OFF button or device loss).
+  private afterMicStopped(old: MediaStream) {
+    this.rtc.removeLocalStream(old);
+    this.recorder.removeAudioStream(old.id);
     this.view.setLocalMicStream(null);
   }
   private async startCam() {
