@@ -122,7 +122,7 @@ export type ServerMessage =
   | { type: 'reaction'; userId: string; emoji: string }
   // SFU: the recipient's current proximity group and its transport. The client
   // talks to exactly these members (members includes self) via mesh or SFU.
-  // Meeting-room groups are always 'sfu'; outdoor groups promote at 5 and latch.
+  // Meeting-room groups are always 'sfu'; outdoor groups promote at 4 and latch.
   | { type: 'group-update'; method: GroupMethod; members: string[] }
   // SFU: a group peer's published track directory, so the recipient can pull
   // their tracks by (sessionId, trackName).

@@ -132,7 +132,7 @@ export class App {
   // Server-driven transport for our current proximity group. 'mesh' uses the
   // per-peer WebRtcManager; 'sfu' routes everything through Cloudflare Realtime
   // via SfuManager. Per group the switch is a one-way latch (issues #77/#78):
-  // outdoor clusters promote at 5 and never demote until the group disperses;
+  // outdoor clusters promote at 4 and never demote until the group disperses;
   // meeting rooms start as SFU. Membership for BOTH methods comes from the
   // server's group-update (the connected component), so a mesh client meshes
   // with every group member — not just peers inside its own radius.
