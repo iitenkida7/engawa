@@ -246,6 +246,74 @@
         border-right: 1px solid #3a4050;
       }
 
+      /* Crisp SVG glyphs for the layout toggles (grid = 4 equal tiles, sidebar =
+         a big stage + a column of thumbnails) — clearer than the old ▦/▤. */
+      #toolbar .layout-group>button>svg {
+        display: block;
+      }
+
+      /* Custom hover tooltip for icon-only buttons: instant and styled, versus
+         the slow, plain native `title`. The label comes from data-tip (set by
+         i18n). Shown on hover and keyboard focus. */
+      #toolbar button[data-tip] {
+        position: relative;
+      }
+
+      #toolbar button[data-tip]::after,
+      #toolbar button[data-tip]::before {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.12s ease;
+        position: absolute;
+        left: 50%;
+        z-index: 30;
+      }
+
+      #toolbar button[data-tip]::after {
+        content: attr(data-tip);
+        bottom: calc(100% + 9px);
+        transform: translateX(-50%);
+        background: rgba(28, 32, 40, 0.98);
+        color: #e6e8ee;
+        border: 1px solid #3a4050;
+        border-radius: 6px;
+        padding: 5px 9px;
+        font-size: 12px;
+        line-height: 1;
+        white-space: nowrap;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      }
+
+      #toolbar button[data-tip]::before {
+        content: '';
+        bottom: calc(100% + 4px);
+        transform: translateX(-50%);
+        border: 5px solid transparent;
+        border-top-color: rgba(28, 32, 40, 0.98);
+      }
+
+      #toolbar button[data-tip]:hover::after,
+      #toolbar button[data-tip]:hover::before,
+      #toolbar button[data-tip]:focus-visible::after,
+      #toolbar button[data-tip]:focus-visible::before {
+        opacity: 1;
+      }
+
+      /* The rightmost layout button sits near the viewport edge — anchor its
+         tooltip to the right so a centered bubble can't overflow and add a
+         horizontal scrollbar. */
+      #toolbar .layout-group>button:last-child[data-tip]::after {
+        left: auto;
+        right: 0;
+        transform: none;
+      }
+
+      #toolbar .layout-group>button:last-child[data-tip]::before {
+        left: auto;
+        right: 14px;
+        transform: none;
+      }
+
       #toolbar .btn-group {
         position: relative;
         display: flex;
@@ -1535,16 +1603,30 @@
         <button id="btn-screen" data-i18n-title="toolbar.screenTitle" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" data-i18n-title="toolbar.recTitle" title="録画">⏺ 録画</button>
         <div class="btn-group">
-          <button id="btn-reaction" data-i18n-title="toolbar.reactions" title="リアクション">😀</button>
+          <button id="btn-reaction" data-i18n-tip="toolbar.reactions" data-tip="リアクション" aria-label="リアクション">😀</button>
           <div id="reaction-menu" class="device-menu hidden"></div>
         </div>
         <div class="btn-group">
-          <button id="btn-more" data-i18n-title="toolbar.more" title="その他">⋯</button>
+          <button id="btn-more" data-i18n-tip="toolbar.more" data-tip="その他" aria-label="その他">⋯</button>
           <div id="more-menu" class="device-menu hidden"></div>
         </div>
         <div class="btn-group layout-group">
-          <button id="btn-layout-grid" data-mode="grid" data-i18n-title="layout.grid" title="グリッド整列">▦</button>
-          <button id="btn-layout-sidebar" data-mode="sidebar" data-i18n-title="layout.sidebar" title="サイドバー整列">▤</button>
+          <button id="btn-layout-grid" data-mode="grid" data-i18n-tip="layout.grid" data-tip="グリッド整列" aria-label="グリッド整列">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <rect x="1" y="1" width="6" height="6" rx="1.2" />
+              <rect x="9" y="1" width="6" height="6" rx="1.2" />
+              <rect x="1" y="9" width="6" height="6" rx="1.2" />
+              <rect x="9" y="9" width="6" height="6" rx="1.2" />
+            </svg>
+          </button>
+          <button id="btn-layout-sidebar" data-mode="sidebar" data-i18n-tip="layout.sidebar" data-tip="サイドバー整列" aria-label="サイドバー整列">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
+              <rect x="1" y="1" width="9" height="14" rx="1.2" />
+              <rect x="12" y="1" width="3" height="4" rx="1" />
+              <rect x="12" y="6" width="3" height="4" rx="1" />
+              <rect x="12" y="11" width="3" height="4" rx="1" />
+            </svg>
+          </button>
         </div>
       </div>
       <div id="chat" class="hidden">

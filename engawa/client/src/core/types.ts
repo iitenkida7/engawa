@@ -140,6 +140,12 @@ export const COLLISION_RADIUS = 16;
 // Pixels per second. Frame-rate independent; the per-frame delta is computed
 // with the actual dt of each frame.
 export const PLAYER_SPEED = 210;
+// Grid-step keyboard movement: one key press slides the avatar to the adjacent
+// tile center over this duration, then (if a key is still held) steps again.
+// Derived from PLAYER_SPEED so overall walk speed is unchanged (TILE_SIZE 50 /
+// 210px/s ≈ 238ms). While a step is in progress new input is ignored, so the
+// avatar always comes to rest on a tile center (Gather-like, issue #206).
+export const STEP_DURATION_MS = 238;
 // Double-click (click-to-move) travels at this multiple of PLAYER_SPEED.
 export const CLICK_MOVE_MULTIPLIER = 3;
 // Distance (px) within which a click-to-move waypoint counts as reached.

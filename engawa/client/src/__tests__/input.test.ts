@@ -95,3 +95,39 @@ describe('InputManager.getDirection', () => {
     expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
   });
 });
+
+describe('InputManager.getStepDirection', () => {
+  afterEach(() => {
+    window.dispatchEvent(new Event('blur'));
+  });
+
+  it('returns zero vector with no keys held', () => {
+    const im = new InputManager();
+    expect(im.getStepDirection()).toEqual({ dx: 0, dy: 0 });
+  });
+
+  it('returns a single cardinal direction per key (never diagonal)', () => {
+    const im = new InputManager();
+    press('w');
+    press('d');
+    // Last pressed wins — 'd' (right), not a diagonal.
+    expect(im.getStepDirection()).toEqual({ dx: 1, dy: 0 });
+  });
+
+  it('falls back to the still-held key when the latest is released', () => {
+    const im = new InputManager();
+    press('w');
+    press('d');
+    expect(im.getStepDirection()).toEqual({ dx: 1, dy: 0 });
+    release('d');
+    // 'w' is still held → resume moving up.
+    expect(im.getStepDirection()).toEqual({ dx: 0, dy: -1 });
+  });
+
+  it('clears order on blur', () => {
+    const im = new InputManager();
+    press('w');
+    window.dispatchEvent(new Event('blur'));
+    expect(im.getStepDirection()).toEqual({ dx: 0, dy: 0 });
+  });
+});
