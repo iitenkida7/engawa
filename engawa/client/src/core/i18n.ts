@@ -309,6 +309,7 @@ export function t(key: string, params?: Record<string, string | number>): string
  * Apply translations to a static DOM subtree via data attributes:
  *   data-i18n        → textContent
  *   data-i18n-title  → title
+ *   data-i18n-tip    → data-tip + aria-label (custom CSS hover tooltip)
  *   data-i18n-ph     → placeholder
  *   data-i18n-aria   → aria-label
  */
@@ -318,6 +319,14 @@ export function applyI18n(root: ParentNode = document): void {
   }
   for (const el of root.querySelectorAll<HTMLElement>('[data-i18n-title]')) {
     el.title = t(el.dataset.i18nTitle as string);
+  }
+  // Custom hover tooltip (styled, instant) for icon-only buttons. Feeds the CSS
+  // `[data-tip]` tooltip and doubles as the aria-label — no native `title`, so
+  // the slow default tooltip doesn't show on top of ours.
+  for (const el of root.querySelectorAll<HTMLElement>('[data-i18n-tip]')) {
+    const text = t(el.dataset.i18nTip as string);
+    el.setAttribute('data-tip', text);
+    el.setAttribute('aria-label', text);
   }
   for (const el of root.querySelectorAll<HTMLInputElement>('[data-i18n-ph]')) {
     el.placeholder = t(el.dataset.i18nPh as string);
