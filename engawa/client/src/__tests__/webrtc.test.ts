@@ -99,6 +99,26 @@ describe('WebRtcManager cancels a peer closed mid-creation (issue #195)', () => 
     expect(createdPeers).toHaveLength(1);
   });
 
+  it('drops a cancelled creation from peerIds so a rejoin mid-fetch reopens the peer', async () => {
+    const rtc = new WebRtcManager(media, makeEvents());
+
+    const first = rtc.createPeer('bob', true);
+    rtc.closePeer('bob');
+    // The cancelled attempt lingers in `creating` until the fetch settles. If
+    // peerIds still listed it, the App's group reconcile would read bob as
+    // already connected and never reopen him when he comes straight back.
+    expect(rtc.peerIds()).toEqual([]);
+
+    const second = rtc.createPeer('bob', true);
+    expect(rtc.peerIds()).toEqual(['bob']);
+    releaseIce();
+
+    expect(await first).toBeNull();
+    expect(await second).not.toBeNull();
+    expect(createdPeers).toHaveLength(1);
+    expect(rtc.hasPeer('bob')).toBe(true);
+  });
+
   it('a createPeer after the cancel starts a fresh creation instead of reusing the cancelled one', async () => {
     const rtc = new WebRtcManager(media, makeEvents());
 

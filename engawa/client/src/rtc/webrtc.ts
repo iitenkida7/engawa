@@ -170,8 +170,14 @@ export class WebRtcManager {
   // reconciles this against its server-assigned group membership to open/close
   // peers; listing in-flight creations lets a member who left mid-creation be
   // closed (cancelled) instead of connecting after the fact (issue #195).
+  // Cancelled attempts are excluded: they linger in `creating` until their ICE
+  // fetch settles, and counting them as connected would make the App skip the
+  // re-open when the same member rejoins before that (a flapping group edge).
   peerIds(): string[] {
-    return [...new Set([...this.peers.keys(), ...this.creating.keys()])];
+    const inFlight = [...this.creating]
+      .filter(([, attempt]) => !attempt.cancelled)
+      .map(([id]) => id);
+    return [...new Set([...this.peers.keys(), ...inFlight])];
   }
 
   // Number of currently connected proximity peers (the mesh degree). The App
