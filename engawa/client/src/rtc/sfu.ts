@@ -99,6 +99,14 @@ type RemoteEntry = {
   preferredRid: string | null;
 };
 
+// Thrown by an op that outlived the transport it started on (closeAll ran while
+// it awaited). Expected, not a transport fault: never trips onFailed (#196).
+class StaleSfuOpError extends Error {
+  constructor() {
+    super('sfu: op superseded by closeAll');
+  }
+}
+
 export class SfuManager {
   private events: SfuEvents;
 
@@ -109,6 +117,15 @@ export class SfuManager {
   private pcAbort: AbortController | null = null;
   private sessionId: string | null = null;
   private closed = false;
+  // Transport generation, bumped by every closeAll (issue #196). `closed` alone
+  // is only checked when an op starts, so an op already mid-await when closeAll
+  // ran — and every op queued before it — would carry on against the rebuilt
+  // state after reopen(): it could plant a ghost PC, write a stale session, or
+  // fail on the closed PC and trip a spurious onFailed (→ instant mesh
+  // fallback during a rebuild). Each op records the generation it was queued
+  // under (`opGen` while it runs) and bails once that is no longer current.
+  private generation = 0;
+  private opGen = 0;
 
   // Our published tracks, keyed by trackName.
   private localTracks = new Map<string, LocalEntry>();
@@ -275,6 +292,7 @@ export class SfuManager {
 
   closeAll() {
     this.closed = true;
+    this.generation++;
     this.pcAbort?.abort();
     this.pcAbort = null;
     // Emit the same closure events the mesh transport does (WebRtcManager.closeAll
@@ -378,11 +396,21 @@ export class SfuManager {
   // ─── internals ────────────────────────────────────────────────────────────
 
   private enqueue(op: () => Promise<void>) {
+    const gen = this.generation;
     this.opChain = chainOp(
       this.opChain,
-      () => this.closed,
-      op,
+      () => this.closed || gen !== this.generation,
+      () => {
+        this.opGen = gen;
+        return op();
+      },
       (err) => {
+        // Superseded by closeAll mid-op: its failure (stale-op bail-out, or a
+        // call on the now-closed PC) says nothing about the current transport.
+        if (err instanceof StaleSfuOpError || gen !== this.generation) {
+          logNet('sfu-op-stale');
+          return;
+        }
         // A control-plane op failed for good (bad HTTP status after retries,
         // invalid JSON, renegotiation error, …). The SFU transport can no longer
         // be trusted, so hand it to the App's failure path (one rebuild, then
@@ -397,11 +425,19 @@ export class SfuManager {
     );
   }
 
+  // Throw if the running op was superseded by closeAll (see `generation`).
+  private assertCurrentOp() {
+    if (this.opGen !== this.generation) throw new StaleSfuOpError();
+  }
+
   private async ensurePc(): Promise<RTCPeerConnection> {
     if (this.pc) return this.pc;
     // Shared, TTL-refreshed ICE fetch (rtc/ice.ts) — same helper the mesh uses,
     // so a long-lived tab never builds this PC with expired TURN credentials.
     const iceServers = await fetchIceServers();
+    // closeAll ran during the fetch: building the PC now would leave a ghost
+    // transport behind (issue #196).
+    this.assertCurrentOp();
     const pc = new RTCPeerConnection({ iceServers, bundlePolicy: 'max-bundle' });
     const abort = new AbortController();
     this.pcAbort = abort;
@@ -480,6 +516,9 @@ export class SfuManager {
         failure = 'network';
         detail = `network error (${(err as Error).message})`;
       }
+      // The response belongs to a transport closeAll already tore down; acting
+      // on it would write stale session/track state into the rebuilt one.
+      this.assertCurrentOp();
       if (res) {
         if (res.ok) {
           try {
@@ -666,7 +705,10 @@ export class SfuManager {
     // failed close never trips the op-chain mesh fallback. force:true closes
     // immediately without a renegotiation round-trip.
     const mid = entry.mid;
-    if (mid && this.sessionId && this.pc) {
+    // Captured before the await: after a closeAll mid-op this.pc may already be
+    // a rebuilt PC, whose transceiver with the same mid must not be stopped.
+    const pc = this.pc;
+    if (mid && this.sessionId && pc) {
       try {
         await this.api<TracksResponse>(`/${this.sessionId}/tracks/close`, 'PUT', {
           tracks: [{ mid }],
@@ -675,7 +717,7 @@ export class SfuManager {
       } catch (err) {
         console.warn('[sfu] track close failed', err);
       }
-      const tx = this.pc.getTransceivers().find((t) => t.mid === mid);
+      const tx = pc.getTransceivers().find((t) => t.mid === mid);
       if (tx) {
         try {
           tx.stop();

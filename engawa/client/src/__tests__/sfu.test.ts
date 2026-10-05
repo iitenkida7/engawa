@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { resetIceCache } from '@/rtc/ice';
 import { SfuManager } from '@/rtc/sfu';
 import { SFU_API_TIMEOUT_MS } from '@/rtc/sfu-logic';
 
@@ -34,28 +35,39 @@ class FakeRTCPeerConnection {
   localDescription = { type: 'offer', sdp: 'v=0\r\n' };
   lastSender: ReturnType<typeof makeFakeSender> | null = null;
   transceiverCount = 0;
+  closed = false;
   constructor() {
     createdPcs.push(this);
   }
+  // Like the browser, a closed PC rejects further negotiation (InvalidStateError).
+  private assertOpen() {
+    if (this.closed) throw new Error('InvalidStateError: RTCPeerConnection is closed');
+  }
   addEventListener() {}
   addTransceiver() {
+    this.assertOpen();
     this.transceiverCount++;
     const sender = makeFakeSender();
     this.lastSender = sender;
     return { mid: '0', sender };
   }
   async createOffer() {
+    this.assertOpen();
     return { type: 'offer', sdp: 'v=0\r\n' };
   }
   async setLocalDescription() {}
-  async setRemoteDescription() {}
+  async setRemoteDescription() {
+    this.assertOpen();
+  }
   async getStats() {
     return new Map();
   }
   getTransceivers() {
     return [] as unknown[];
   }
-  close() {}
+  close() {
+    this.closed = true;
+  }
 }
 
 // Fake local stream carrying one track of the requested kind. `suffix`
@@ -463,6 +475,90 @@ describe('SfuManager video-pull pause (issue #188)', () => {
       String(c[0]).includes('/tracks/new'),
     ).length;
     expect(pullsAfterResume).toBe(3);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe('SfuManager ops superseded by closeAll (issue #196)', () => {
+  it('a rebuild mid-op neither trips onFailed nor lets the stale op touch the new transport', async () => {
+    // Hold the first session/new so the publish op is mid-await when the App
+    // rebuilds the transport (closeAll → re-publish, as in onSfuFailed).
+    let releaseFirst!: () => void;
+    let sessionCalls = 0;
+    const bodies: string[] = [];
+    fetchMock = mock(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (typeof init?.body === 'string') bodies.push(init.body);
+      if (u.includes('/api/turn-credentials')) return jsonRes([]);
+      if (u.includes('/sessions/new')) {
+        sessionCalls++;
+        if (sessionCalls === 1) {
+          await new Promise<void>((r) => (releaseFirst = r));
+          return jsonRes({ sessionId: 'sess-old' });
+        }
+        return jsonRes({ sessionId: 'sess-new' });
+      }
+      if (u.includes('/tracks/new')) {
+        return jsonRes({
+          sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
+          tracks: [{ mid: '0' }],
+        });
+      }
+      return jsonRes({});
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+    sfu.addLocalStream(makeStream('mic'), 'mic');
+    // Queued behind the held op, before the rebuild: must not run afterwards.
+    sfu.setPeerTracks('peer-1', 'their-old', [{ kind: 'cam', trackName: 'cam' }]);
+    await settle();
+    expect(sessionCalls).toBe(1);
+
+    // Rebuild while the publish is mid-flight.
+    sfu.closeAll();
+    const published = waitPublish();
+    sfu.addLocalStream(makeStream('mic'), 'mic');
+    releaseFirst();
+    await published;
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
+
+    // The stale op bailed quietly: no spurious failure (→ instant mesh fallback).
+    expect(events.onFailed).not.toHaveBeenCalled();
+    // Only the rebuilt session was announced; the stale one never leaked in.
+    expect(events.onPublished).toHaveBeenCalledTimes(1);
+    expect(events.onPublished).toHaveBeenLastCalledWith('sess-new', [
+      { kind: 'mic', trackName: 'mic' },
+    ]);
+    // The pre-rebuild pull was skipped rather than replayed against the new PC.
+    expect(bodies.some((b) => b.includes('their-old'))).toBe(false);
+  });
+
+  it('closeAll while the PC awaits ICE leaves no ghost PC behind', async () => {
+    resetIceCache();
+    let releaseIce!: () => void;
+    fetchMock = mock(async (url: string) => {
+      if (String(url).includes('/api/turn-credentials')) {
+        await new Promise<void>((r) => (releaseIce = r));
+        return jsonRes([]);
+      }
+      return jsonRes({ sessionId: 'sess-1' });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+    sfu.addLocalStream(makeStream('cam'), 'cam');
+    await settle();
+
+    // Group falls back to mesh while ensurePc is still fetching credentials.
+    sfu.closeAll();
+    releaseIce();
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
+
+    expect(createdPcs).toHaveLength(0);
+    expect(sfu.active).toBe(false);
     expect(events.onFailed).not.toHaveBeenCalled();
   });
 });
