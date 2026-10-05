@@ -1307,8 +1307,11 @@ export class App {
       void this.sampleQuality();
     }
 
-    // Refresh the participant roster from the (now up-to-date) players map.
+    // Refresh the participant roster from the (now up-to-date) players map, and
+    // collapse it while media windows are up so the list doesn't overlap the
+    // call tiles (its header, with chat and status, stays reachable).
     this.roster.update(this.focusedId);
+    this.roster.setCallMode(this.view.hasMediaWindows());
 
     // Chime sounds. Both mesh and SFU membership are decided by the server's
     // group-update (the connected component, meeting-room isolation included),

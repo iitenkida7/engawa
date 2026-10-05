@@ -620,6 +620,19 @@ export class RemoteMediaView {
     return streams;
   }
 
+  // True when any media window is on screen (a remote camera tile, a screenshare
+  // stage, or the self preview) — the same set collectPanels() lays out. The App
+  // polls this every frame to collapse the roster during a call, so it counts
+  // the members directly instead of building the panel list (which reads
+  // getComputedStyle per tile).
+  hasMediaWindows(): boolean {
+    return (
+      this.screenshares.size > 0 ||
+      this.remoteTiles.size > 0 ||
+      !this.selfPreviewEl.classList.contains('hidden')
+    );
+  }
+
   // ============= Layout modes (auto-arrange) =============
   // The active layout mode. The toolbar reads this to mark the current mode in
   // its menu.
