@@ -170,6 +170,7 @@ export class ToolbarController {
   // reverts to grid when it stops, so we re-highlight on the view's change
   // callback too (issue #175).
   private setupLayoutControls() {
+    const group = document.querySelector<HTMLElement>('.layout-group');
     const buttons = Array.from(
       document.querySelectorAll<HTMLButtonElement>('.layout-group > button[data-mode]'),
     );
@@ -187,6 +188,12 @@ export class ToolbarController {
     }
     this.view.setOnLayoutModeChange(refresh);
     refresh();
+    // Only show the grid/sidebar toggle when there are windows to arrange; with
+    // no camera/screenshare/self-preview the toggle does nothing, so hiding it
+    // keeps the toolbar honest (issue: the toggle read as "broken" while idle).
+    this.view.setOnPanelsChange((count) => {
+      group?.classList.toggle('hidden', count === 0);
+    });
   }
 
   refresh() {

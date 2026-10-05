@@ -108,6 +108,11 @@ export class RemoteMediaView {
   // Fired whenever layoutMode changes (toolbar selection OR the screenshare
   // auto-switch) so the toolbar can re-highlight the active layout button.
   private onLayoutModeChange: ((mode: LayoutMode) => void) | null = null;
+  // Fired from reflowLayout with the current count of laid-out windows, so the
+  // toolbar can hide the grid/sidebar toggle when there is nothing to arrange
+  // (no camera tiles, screenshares or self-preview) — the toggle only does
+  // anything with ≥1 window, so showing it while idle just reads as "broken".
+  private onPanelsChange: ((count: number) => void) | null = null;
 
   // The maximized window's panel key ('cam:<id>' / 'screen:<id>' / 'self'), or
   // null when nothing is maximized. An override on top of layoutMode rather than
@@ -628,6 +633,14 @@ export class RemoteMediaView {
     this.onLayoutModeChange = cb;
   }
 
+  // Registers a callback fired from reflowLayout with the current window count,
+  // so the toolbar can show the layout toggle only when there is something to
+  // arrange. Invoked immediately with the current count.
+  setOnPanelsChange(cb: (count: number) => void) {
+    this.onPanelsChange = cb;
+    cb(this.collectPanels().length);
+  }
+
   // Switches the window-layout mode (toolbar grid/sidebar buttons) and re-flows.
   // The chosen mode sticks and re-flows on viewport/membership/screenshare
   // changes; a screenshare then temporarily forces the presentation view.
@@ -658,6 +671,9 @@ export class RemoteMediaView {
     // Drop a focus whose window is gone (peer left, camera off, share stopped)
     // so the layout can never be stranded on a panel that no longer exists.
     if (this.focusedKey && !panels.some((p) => p.key === this.focusedKey)) this.focusedKey = null;
+    // Tell the toolbar how many windows there are (even when zero) so it can
+    // show/hide the layout toggle as media comes and goes.
+    this.onPanelsChange?.(panels.length);
     if (panels.length === 0) return;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
