@@ -583,17 +583,39 @@
         box-shadow: 0 0 10px rgba(80, 220, 120, 0.3);
       }
 
-      .remote-tile.muted .panel-body::after,
-      #self-preview.muted .panel-body::after {
-        content: '🔇';
-        position: absolute;
-        top: 6px;
-        right: 6px;
-        background: rgba(220, 53, 69, 0.85);
-        border-radius: 4px;
-        padding: 2px 5px;
-        font-size: 11px;
-        line-height: 1;
+      /* Left side of a panel header: the muted mic icon + the name, grouped so
+         the maximize button stays at the far right. */
+      .panel-header .header-left {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+      }
+
+      /* Muted indicator: a red mic-with-strike icon next to the name (Gather-like),
+         shown only while that person's mic is off. Clearly sized so it's readable. */
+      .panel-header .mic-indicator {
+        display: none;
+        flex: none;
+        width: 18px;
+        height: 18px;
+        margin-right: 6px;
+        color: #e5484d;
+      }
+
+      .panel-header .mic-indicator svg {
+        display: block;
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .remote-tile.muted .panel-header .mic-indicator,
+      #self-preview.muted .panel-header .mic-indicator {
+        display: block;
       }
 
       .panel-body .no-video {
@@ -1636,7 +1658,18 @@
       <div id="remote-videos"></div>
       <div id="self-preview" class="panel hidden">
         <div class="panel-header">
-          <span class="label" id="self-preview-label" data-i18n="common.you">あなた</span>
+          <span class="header-left">
+            <span class="mic-indicator" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <rect x="9" y="3" width="6" height="11" rx="3" />
+                <path d="M6 11a6 6 0 0 0 12 0" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="4" y1="20" x2="20" y2="4" />
+              </svg>
+            </span>
+            <span class="label" id="self-preview-label" data-i18n="common.you">あなた</span>
+          </span>
         </div>
         <div class="panel-body">
           <video id="self-video" autoplay muted playsinline></video>

@@ -47,6 +47,13 @@ type Screenshare = {
   cleanup: () => void;
 };
 
+// Mic-with-strike glyph shown (red, via CSS) next to a name while that person is
+// muted. Matches the toolbar mic icon.
+const MIC_OFF_SVG =
+  '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" />' +
+  '<path d="M6 11a6 6 0 0 0 12 0" /><line x1="12" y1="17" x2="12" y2="21" />' +
+  '<line x1="8" y1="21" x2="16" y2="21" /><line x1="4" y1="20" x2="20" y2="4" /></svg>';
+
 // The maximize (⤢) button that sits at the right end of every panel header.
 // Clicks are caught by one delegated handler on #app, so the button carries no
 // listener of its own and needs no cleanup when its panel is removed.
@@ -380,13 +387,24 @@ export class RemoteMediaView {
     container.className = 'panel remote-tile';
     container.dataset.userId = userId;
     container.dataset.focusKey = `cam:${userId}`;
+    // Reflect the current mute state right away (a placeholder tile may be
+    // created between status broadcasts, which only fire on change).
+    if (p?.isMuted) container.classList.add('muted');
 
     const header = document.createElement('div');
     header.className = 'panel-header';
+    const left = document.createElement('span');
+    left.className = 'header-left';
+    const mic = document.createElement('span');
+    mic.className = 'mic-indicator';
+    mic.setAttribute('aria-hidden', 'true');
+    mic.innerHTML = MIC_OFF_SVG;
     const label = document.createElement('span');
     label.className = 'label';
     label.textContent = name;
-    header.appendChild(label);
+    left.appendChild(mic);
+    left.appendChild(label);
+    header.appendChild(left);
     header.appendChild(createFocusButton());
     container.appendChild(header);
 
