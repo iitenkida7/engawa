@@ -741,6 +741,43 @@
         z-index: 1100;
       }
 
+      /* ===== Reaction toasts (bottom-left, Gather-style) — #221 ===== */
+      #reaction-toasts {
+        position: fixed;
+        bottom: 16px;
+        left: 16px;
+        display: flex;
+        flex-direction: column-reverse; /* newest stacks on top */
+        gap: 6px;
+        /* Above the screenshare (z6) / camera tiles (z5), below the toolbar. */
+        z-index: 50;
+        pointer-events: none;
+      }
+
+      .reaction-toast {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        align-self: flex-start;
+        background: rgba(28, 32, 40, 0.92);
+        border: 1px solid #3a4050;
+        border-radius: 999px;
+        padding: 6px 12px;
+        color: #e6e8ee;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        white-space: nowrap;
+      }
+
+      .reaction-toast-name {
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .reaction-toast-emoji {
+        font-size: 18px;
+        line-height: 1;
+      }
+
       /* ===== Toasts (top-center stack) for knock requests/replies ===== */
       #toasts {
         position: fixed;
