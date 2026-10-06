@@ -64,6 +64,11 @@ const PALETTE = {
   // Faint tile grid drawn on every floor, and a soft shadow under furniture, for
   // a tidy "game floor" look with a little depth.
   floorGrid: 'rgba(90,75,50,0.07)',
+  floorStripe: 'rgba(70,95,75,0.13)',
+  floorCheck: 'rgba(120,95,140,0.14)',
+  floorCheckBlue: 'rgba(85,120,165,0.12)',
+  floorStripeV: 'rgba(230,155,190,0.16)',
+  brickMortar: 'rgba(150,120,80,0.22)',
   shadow: 'rgba(40,35,25,0.14)',
   // Team-island rug (accent under desk pods) and window glass on outer walls.
   podRug: '#ece1c8',
@@ -75,7 +80,7 @@ const PALETTE = {
 
 // Per-room floor tints (Gather-like colour coding). Open office stays oak wood.
 const ROOM_FLOOR: Record<RoomKind, string> = {
-  exec: '#f0e6d2', // president's office — warm cream
+  exec: '#f8e9f0', // president's office — pale pink
   meeting: '#dce7f1', // meeting / all-hands — soft blue
   oneonone: '#dde9d7', // 1-on-1 — soft green
   booth: '#e8ddee', // negotiation booths — soft lavender
@@ -183,6 +188,8 @@ export class CanvasRenderer {
   private characters = new CharacterSheet();
   private mapCache: HTMLCanvasElement | null = null;
   private mapCacheDpr = 0;
+  // Repeating houndstooth fill for the booth floors, built with the cache context.
+  private houndPattern: CanvasPattern | null = null;
 
   // Zoom factor about the camera center. ZOOM_DEFAULT (1.0) is the 1:1 view;
   // smaller surveys more of the office, larger magnifies. Driven by the mouse
@@ -445,6 +452,7 @@ export class CanvasRenderer {
     cache.height = Math.round(MAP_HEIGHT * dpr);
     const cx = cache.getContext('2d')!;
     cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.houndPattern = this.buildHoundstooth(cx);
 
     // Pass 1 — floors + walls: rooms/lounge get a colour-coded rug, the open
     // office oak; walls get a window where they face the open floor.
@@ -457,7 +465,25 @@ export class CanvasRenderer {
           continue;
         }
         const roomKind = roomKindAt(c, r);
-        this.drawFloorTile(cx, tx, ty, roomKind ? ROOM_FLOOR[roomKind] : PALETTE.floorWood);
+        const pattern =
+          roomKind === 'oneonone'
+            ? 'stripe'
+            : roomKind === 'booth'
+              ? 'houndstooth'
+              : roomKind === 'meeting'
+                ? 'checker'
+                : roomKind === 'exec'
+                  ? 'vstripe'
+                  : roomKind === 'lounge'
+                    ? 'brick'
+                    : 'none';
+        this.drawFloorTile(
+          cx,
+          tx,
+          ty,
+          roomKind ? ROOM_FLOOR[roomKind] : PALETTE.floorWood,
+          pattern,
+        );
       }
     }
 
@@ -588,10 +614,63 @@ export class CanvasRenderer {
 
   // One floor tile: a flat colour fill plus a faint square grid (right + bottom
   // edge), so every floor reads as tidy game tiles regardless of room colour.
-  private drawFloorTile(cx: CanvasRenderingContext2D, tx: number, ty: number, color: string) {
+  private drawFloorTile(
+    cx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    color: string,
+    pattern: 'none' | 'stripe' | 'vstripe' | 'checker' | 'houndstooth' | 'brick' = 'none',
+  ) {
     const S = TILE_SIZE;
     cx.fillStyle = color;
     cx.fillRect(tx, ty, S, S);
+    // Patterns are world-aligned so they run continuously across tile boundaries.
+    if (pattern === 'stripe') {
+      // Horizontal stripes (2px line every 14px) — the 1-on-1 rooms.
+      cx.fillStyle = PALETTE.floorStripe;
+      for (let y = Math.ceil(ty / 14) * 14; y < ty + S; y += 14) {
+        cx.fillRect(tx, y, S, 2);
+      }
+    } else if (pattern === 'vstripe') {
+      // Thin vertical bands (8px on / 8px off), world-aligned — president's office.
+      const band = 8;
+      const period = band * 2;
+      cx.fillStyle = PALETTE.floorStripeV;
+      for (let gx = Math.floor(tx / period) * period; gx < tx + S; gx += period) {
+        const x0 = Math.max(gx, tx);
+        const x1 = Math.min(gx + band, tx + S);
+        if (x1 > x0) cx.fillRect(x0, ty, x1 - x0, S);
+      }
+    } else if (pattern === 'checker') {
+      // Checkerboard (10px cells) — the meeting rooms.
+      const CS = 10;
+      cx.fillStyle = PALETTE.floorCheckBlue;
+      for (let gx = Math.floor(tx / CS) * CS; gx < tx + S; gx += CS) {
+        for (let gy = Math.floor(ty / CS) * CS; gy < ty + S; gy += CS) {
+          if ((gx / CS + gy / CS) % 2 === 0) cx.fillRect(gx, gy, CS, CS);
+        }
+      }
+    } else if (pattern === 'brick') {
+      // Running-bond brick: horizontal mortar lines, and vertical mortar offset
+      // half a brick every other row. World-aligned so it tiles seamlessly.
+      const BH = 16;
+      const BW = 46;
+      cx.fillStyle = PALETTE.brickMortar;
+      for (let y = Math.floor(ty / BH) * BH; y < ty + S; y += BH) {
+        if (y >= ty) cx.fillRect(tx, y, S, 2); // horizontal mortar
+        const off = (Math.floor(y / BH) % 2) * (BW / 2);
+        const y0 = Math.max(y, ty);
+        const y1 = Math.min(y + BH, ty + S);
+        for (let x = Math.ceil((tx - off) / BW) * BW + off; x < tx + S; x += BW) {
+          if (x >= tx && y1 > y0) cx.fillRect(x, y0, 2, y1 - y0); // vertical mortar
+        }
+      }
+    } else if (pattern === 'houndstooth' && this.houndPattern) {
+      // Houndstooth weave — the negotiation booths. Pattern is anchored to the
+      // world origin, so it tiles seamlessly across adjacent booth tiles.
+      cx.fillStyle = this.houndPattern;
+      cx.fillRect(tx, ty, S, S);
+    }
     cx.strokeStyle = PALETTE.floorGrid;
     cx.lineWidth = 1;
     cx.beginPath();
@@ -600,6 +679,31 @@ export class CanvasRenderer {
     cx.moveTo(tx, ty + S - 0.5);
     cx.lineTo(tx + S, ty + S - 0.5);
     cx.stroke();
+  }
+
+  // Build a repeating houndstooth (千鳥格子) tile in the booth accent colour. A
+  // 4×4 broken-twill mask tiled over the floor gives the classic woven look.
+  private buildHoundstooth(cx: CanvasRenderingContext2D): CanvasPattern | null {
+    const u = 7; // cell size (px)
+    const n = 4;
+    const p = document.createElement('canvas');
+    p.width = u * n;
+    p.height = u * n;
+    const g = p.getContext('2d');
+    if (!g) return null;
+    g.fillStyle = PALETTE.floorCheck;
+    const mask = [
+      [1, 1, 0, 1],
+      [1, 1, 1, 0],
+      [0, 1, 1, 1],
+      [1, 0, 1, 1],
+    ];
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        if (mask[y][x]) g.fillRect(x * u, y * u, u, u);
+      }
+    }
+    return cx.createPattern(p, 'repeat');
   }
 
   // Soft elliptical shadow on the floor under a prop, for a little depth.
@@ -620,6 +724,11 @@ export class CanvasRenderer {
     cx.fill();
     cx.strokeStyle = PALETTE.podRugEdge;
     cx.lineWidth = 1.5;
+    cx.stroke();
+    // Inset second border line, for a tidy framed-rug look.
+    const i = 5;
+    this.roundRect(cx, f.x + i, f.y + i, f.w - i * 2, f.h - i * 2, 7);
+    cx.lineWidth = 1;
     cx.stroke();
   }
 
