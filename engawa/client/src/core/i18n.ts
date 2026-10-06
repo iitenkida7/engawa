@@ -284,9 +284,12 @@ const STR: Record<string, Record<Lang, string>> = {
   'zone.1on1-1': { ja: '1on1ルーム1', en: '1-on-1 room 1' },
   'zone.1on1-2': { ja: '1on1ルーム2', en: '1-on-1 room 2' },
   'zone.1on1-3': { ja: '1on1ルーム3', en: '1-on-1 room 3' },
+  'zone.1on1-4': { ja: '1on1ルーム4', en: '1-on-1 room 4' },
   'zone.booth-1': { ja: '商談ブース1', en: 'Meeting booth 1' },
   'zone.booth-2': { ja: '商談ブース2', en: 'Meeting booth 2' },
   'zone.booth-3': { ja: '商談ブース3', en: 'Meeting booth 3' },
+  'zone.booth-4': { ja: '商談ブース4', en: 'Meeting booth 4' },
+  'zone.lounge': { ja: 'ラウンジ', en: 'Lounge' },
 };
 
 /**

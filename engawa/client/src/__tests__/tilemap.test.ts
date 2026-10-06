@@ -89,9 +89,9 @@ describe('findWalkableSpawn', () => {
 });
 
 describe('ZONES / zoneAt (meeting-room zones)', () => {
-  // One interior MEETING tile per walled-off room: the top strip (all-hands +
-  // three meeting rooms + president's office) and the bottom strip (three 1-on-1
-  // rooms + three negotiation booths).
+  // One interior MEETING tile per walled-off room: the top strip (president's
+  // office + all-hands + three meeting rooms) and the bottom strip (four 1-on-1
+  // rooms + four negotiation booths).
   const roomSamples: { col: number; row: number }[] = [
     { col: 1, row: 1 }, // 社長室
     { col: 6, row: 1 }, // 大会議室
@@ -99,22 +99,26 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     { col: 24, row: 1 }, // 会議室2
     { col: 29, row: 1 }, // 会議室3
     { col: 1, row: 20 }, // 1on1ルーム1
-    { col: 6, row: 20 }, // 1on1ルーム2
-    { col: 11, row: 20 }, // 1on1ルーム3
-    { col: 16, row: 20 }, // 商談ブース1
-    { col: 22, row: 20 }, // 商談ブース2
-    { col: 28, row: 20 }, // 商談ブース3
+    { col: 5, row: 20 }, // 1on1ルーム2
+    { col: 9, row: 20 }, // 1on1ルーム3
+    { col: 13, row: 20 }, // 1on1ルーム4
+    { col: 17, row: 20 }, // 商談ブース1
+    { col: 21, row: 20 }, // 商談ブース2
+    { col: 25, row: 20 }, // 商談ブース3
+    { col: 29, row: 20 }, // 商談ブース4
   ];
 
-  it('derives one zone per walled-off MEETING room', () => {
-    expect(ZONES).toHaveLength(roomSamples.length);
+  it('derives one zone per walled-off MEETING room, plus the lounge', () => {
+    // One zone per room sample + the open lounge (a conversation-restricted zone).
+    expect(ZONES).toHaveLength(roomSamples.length + 1);
   });
 
-  it('assigns a zone to every MEETING tile and none to other tiles', () => {
+  it('assigns a zone to every MEETING / LOUNGE tile and none to other tiles', () => {
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         const z = zoneAt(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2);
-        if (officeMap[r][c] === Tile.MEETING) {
+        // The lounge is a zone too (an open call bubble), keyed off LOUNGE tiles.
+        if (officeMap[r][c] === Tile.MEETING || officeMap[r][c] === Tile.LOUNGE) {
           expect(z).not.toBeNull();
         } else {
           expect(z).toBeNull();
