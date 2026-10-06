@@ -698,9 +698,11 @@
         font-size: 11px;
       }
 
+      /* Chat lives only on the collapsed rail (see #roster.collapsed rules), so
+         it's hidden in the expanded header where the participant list is the focus. */
       #roster-actions {
+        display: none;
         margin-left: auto;
-        display: flex;
         align-items: center;
         gap: 2px;
       }
@@ -721,6 +723,12 @@
       #roster-toggle:hover {
         background: #353a47;
         color: #e6e8ee;
+      }
+
+      /* Push the ✕ (stow) button to the far right of the header, like chat's
+         close button (the action group that used to do this is now hidden). */
+      #roster-toggle {
+        margin-left: auto;
       }
 
       /* Status menu is portaled to #app top-level (not nested in the roster's
@@ -808,14 +816,49 @@
         gap: 2px;
       }
 
-      /* Collapsed: hide only the participant list. The header keeps its full
-         width and its chat / status buttons, so nothing in the header shifts. */
+      /* Collapsed: shrink to a small vertical rail of icon buttons — participants
+         (👥, click to expand), chat (💬) and status (🟢) stacked. The title,
+         count, toggle glyph and list are hidden. */
+      #roster.collapsed {
+        width: auto;
+      }
+
       #roster.collapsed #roster-header {
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 6px;
         border-bottom: 0;
       }
 
+      #roster.collapsed #roster-title,
+      #roster.collapsed #roster-count,
+      #roster.collapsed #roster-toggle,
       #roster.collapsed #roster-list {
         display: none;
+      }
+
+      #roster.collapsed #roster-actions {
+        display: flex;
+        margin-left: 0;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      #roster.collapsed #roster-icon {
+        font-size: 18px;
+        cursor: pointer;
+        padding: 6px;
+        border-radius: 8px;
+      }
+
+      #roster.collapsed #roster-icon:hover {
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      #roster.collapsed #roster-actions button {
+        font-size: 16px;
+        padding: 6px;
       }
 
       .roster-row {
@@ -948,7 +991,7 @@
       #chat {
         position: absolute;
         left: 12px;
-        bottom: 76px;
+        top: 12px;
         width: 300px;
         max-width: calc(100vw - 24px);
         height: 46vh;
@@ -1573,9 +1616,8 @@
           <span id="roster-count">0</span>
           <div id="roster-actions">
             <button id="btn-chat" data-i18n-title="roster.chat" title="チャット">💬</button>
-            <button id="btn-status" data-i18n-title="roster.status" title="ステータス">🟢</button>
           </div>
-          <button id="roster-toggle" data-i18n-title="roster.collapse" title="折りたたむ">⟨</button>
+          <button id="roster-toggle" data-i18n-title="roster.collapse" title="折りたたむ">✕</button>
         </div>
         <div id="roster-list"></div>
       </div>
@@ -1596,6 +1638,7 @@
         <input id="bg-file" type="file" accept="image/*" class="hidden" />
         <button id="btn-screen" data-i18n-title="toolbar.screenTitle" title="画面共有">🖥 画面共有</button>
         <button id="btn-rec" data-i18n-title="toolbar.recTitle" title="録画">⏺ 録画</button>
+        <button id="btn-status" data-i18n-tip="roster.status" data-tip="ステータス" aria-label="ステータス">🟢</button>
         <div class="btn-group">
           <button id="btn-reaction" data-i18n-tip="toolbar.reactions" data-tip="リアクション" aria-label="リアクション">😀</button>
           <div id="reaction-menu" class="device-menu hidden"></div>
