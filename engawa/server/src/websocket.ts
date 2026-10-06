@@ -400,10 +400,14 @@ export function createWebSocketHandler(
           // connected and keep receiving the whole time (joined is untouched).
           if (nowAway && !wasAway) {
             ws.data.away = true;
-            broadcast(clients, ws.data.workspace, {
-              type: 'player-left',
-              userId: ws.data.userId,
-            });
+            // Except the sender: they stay connected and must keep their own
+            // avatar — only peers drop them from view (#220).
+            broadcast(
+              clients,
+              ws.data.workspace,
+              { type: 'player-left', userId: ws.data.userId },
+              ws.data.userId,
+            );
             broadcastGroups(clients, ws.data.workspace, groupState);
             break;
           }
