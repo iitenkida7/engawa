@@ -1164,7 +1164,7 @@ export class CanvasRenderer {
     const padX = 6;
     const lw = m.width + padX * 2;
     const lh = 18;
-    const ly = p.y + PLAYER_RADIUS + 8;
+    const ly = p.y - PLAYER_RADIUS - 6 - lh;
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     this.roundRect(ctx, p.x - lw / 2, ly, lw, lh, 4);
     ctx.fill();
@@ -1180,7 +1180,8 @@ export class CanvasRenderer {
       const nm = ctx.measureText(note);
       const nlw = nm.width + padX * 2;
       const nlh = 16;
-      const ny = p.y - PLAYER_RADIUS - 6 - nlh;
+      // Stacked above the name label (which now sits above the avatar's head).
+      const ny = ly - 4 - nlh;
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       this.roundRect(ctx, p.x - nlw / 2, ny, nlw, nlh, 4);
       ctx.fill();

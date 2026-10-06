@@ -484,8 +484,9 @@ export class App {
     let best: PlayerState | null = null;
     let bestD = Infinity;
     for (const p of this.players.values()) {
+      // Covers the avatar body plus the name label now sitting above its head.
       const withinX = Math.abs(p.x - x) <= PLAYER_RADIUS + 6;
-      const withinY = y >= p.y - PLAYER_RADIUS - 6 && y <= p.y + PLAYER_RADIUS + 34;
+      const withinY = y >= p.y - PLAYER_RADIUS - 32 && y <= p.y + PLAYER_RADIUS + 8;
       if (!withinX || !withinY) continue;
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < bestD) {
