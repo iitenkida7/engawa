@@ -335,6 +335,52 @@
         border-bottom-left-radius: 0;
       }
 
+      /* Icon-only mic/camera toggles: a white glyph with no button border; when
+         off, a red diagonal strike is drawn over it so the state reads at a glance. */
+      #toolbar button.icon-toggle {
+        padding: 7px 10px;
+        color: #e6e8ee;
+      }
+
+      #toolbar button.icon-toggle .ico {
+        display: block;
+        width: 22px;
+        height: 22px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      #toolbar button.icon-toggle.on {
+        color: #46d17f;
+      }
+
+      #toolbar button.icon-toggle .strike {
+        display: none;
+        stroke: #cc6b6b;
+        stroke-width: 3.2;
+      }
+
+      #toolbar button.icon-toggle.off .strike {
+        display: block;
+      }
+
+      /* Record button: a dot when idle, a stop square while recording (the red
+         pulsing background comes from .recording). */
+      #toolbar button#btn-rec .rec-stop {
+        display: none;
+      }
+
+      #toolbar button#btn-rec.recording .rec-dot {
+        display: none;
+      }
+
+      #toolbar button#btn-rec.recording .rec-stop {
+        display: block;
+      }
+
       .device-menu {
         position: absolute;
         bottom: calc(100% + 6px);
@@ -1584,18 +1630,45 @@
       <div id="status-menu" class="device-menu hidden"></div>
       <div id="toolbar" class="hidden">
         <div class="btn-group">
-          <button id="btn-mic" data-i18n-title="toolbar.micTitle" title="マイク">🎤 マイク</button>
+          <button id="btn-mic" class="icon-toggle" data-i18n-title="toolbar.micTitle" title="マイク">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="9" y="3" width="6" height="11" rx="3" />
+              <path d="M6 11a6 6 0 0 0 12 0" />
+              <line x1="12" y1="17" x2="12" y2="21" />
+              <line x1="8" y1="21" x2="16" y2="21" />
+              <line class="strike" x1="4" y1="20" x2="20" y2="4" />
+            </svg>
+          </button>
           <button id="btn-mic-devices" class="btn-caret" data-i18n-title="toolbar.selectMic" title="マイクを選択">▾</button>
           <div id="mic-menu" class="device-menu hidden"></div>
         </div>
         <div class="btn-group">
-          <button id="btn-cam" data-i18n-title="toolbar.camTitle" title="カメラ">📷 カメラ</button>
+          <button id="btn-cam" class="icon-toggle" data-i18n-title="toolbar.camTitle" title="カメラ">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="7" width="12" height="10" rx="2" />
+              <path d="M15 10l5-3v10l-5-3z" />
+              <line class="strike" x1="4" y1="20" x2="20" y2="4" />
+            </svg>
+          </button>
           <button id="btn-cam-devices" class="btn-caret" data-i18n-title="toolbar.selectCam" title="カメラ・背景を選択">▾</button>
           <div id="cam-menu" class="device-menu hidden"></div>
         </div>
         <input id="bg-file" type="file" accept="image/*" class="hidden" />
-        <button id="btn-screen" data-i18n-title="toolbar.screenTitle" title="画面共有">🖥 画面共有</button>
-        <button id="btn-rec" data-i18n-title="toolbar.recTitle" title="録画">⏺ 録画</button>
+        <button id="btn-screen" class="icon-toggle" data-i18n-title="toolbar.screenTitle" title="画面共有">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="13" rx="2" />
+            <path d="M12 14V8" />
+            <path d="M9 11l3-3 3 3" />
+            <line x1="8" y1="20" x2="16" y2="20" />
+          </svg>
+        </button>
+        <button id="btn-rec" class="icon-toggle" data-i18n-title="toolbar.recTitle" title="録画">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <circle class="rec-dot" cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2" />
+            <circle class="rec-dot" cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />
+            <rect class="rec-stop" x="8" y="8" width="8" height="8" rx="1.5" fill="currentColor" stroke="none" />
+          </svg>
+        </button>
         <div class="btn-group">
           <button id="btn-reaction" data-i18n-tip="toolbar.reactions" data-tip="リアクション" aria-label="リアクション">😀</button>
           <div id="reaction-menu" class="device-menu hidden"></div>
