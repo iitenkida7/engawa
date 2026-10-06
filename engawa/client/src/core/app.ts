@@ -63,6 +63,7 @@ import type { AvatarEditor } from '@/ui/avatar-editor';
 import { DebugConsole } from '@/ui/debug-console';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
+import { ReactionToasts } from '@/ui/reaction-toast';
 import { RemoteMediaView } from '@/ui/remote-media';
 import { SoundManager } from '@/ui/sounds';
 import { StatusMenu } from '@/ui/status-menu';
@@ -96,6 +97,7 @@ export class App {
   private statusMenu: StatusMenu;
   private debug: DebugConsole;
   private toasts = new Toasts();
+  private reactionToasts = new ReactionToasts();
   private sounds = new SoundManager();
   private knocks: KnockController;
   private editor: AvatarEditor;
@@ -1153,8 +1155,12 @@ export class App {
       }
       case 'reaction': {
         // The server echoes our own reactions back too, so this covers both
-        // peers' bubbles and our own (no separate local echo).
+        // peers' and our own (no separate local echo). Bubble on the map above
+        // the avatar, plus a bottom-left toast (#221) that stays visible over
+        // the screenshare / camera panels during a call.
         this.renderer.addReaction(msg.userId, msg.emoji);
+        const name = this.players.get(msg.userId)?.name ?? '';
+        this.reactionToasts.show(name, msg.emoji);
         break;
       }
       case 'knock': {
