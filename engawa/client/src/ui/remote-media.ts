@@ -80,6 +80,9 @@ export class RemoteMediaView {
   // (above the self preview) rather than being capped by #remote-videos' context.
   private stageLayerEl: HTMLElement;
   private remoteTiles = new Map<string, RemoteTile>();
+  // userIds in the current conversation group (excl. self); members without a cam
+  // keep a placeholder tile so you can see who you're talking to.
+  private conversationMembers = new Set<string>();
   // Mic audio is attached to dedicated <audio> elements so it plays even when
   // the user has no cam (no video tile yet). userId → audio element.
   private remoteAudios = new Map<string, RemoteAudio>();
@@ -279,9 +282,10 @@ export class RemoteMediaView {
       }
       // Reset a possibly-latched speaking ring (peer muted while flagged loud).
       this.clearSpeaking(userId);
-      // If no cam either, remove the tile entirely
+      // If no cam either, remove the tile — unless they're still in the
+      // conversation, where a placeholder tile is kept.
       const tile = this.remoteTiles.get(userId);
-      if (tile && !tile.hasCam) {
+      if (tile && !tile.hasCam && !this.conversationMembers.has(userId)) {
         tile.container.remove();
         this.remoteTiles.delete(userId);
       }
@@ -295,8 +299,9 @@ export class RemoteMediaView {
       } catch {
         /* noop */
       }
-      // If still has mic, show placeholder; otherwise remove tile
-      if (this.remoteAudios.has(userId)) {
+      // Still has mic, or still in the conversation → keep a placeholder tile;
+      // otherwise remove it.
+      if (this.remoteAudios.has(userId) || this.conversationMembers.has(userId)) {
         tile.video.style.display = 'none';
         tile.placeholder.style.display = '';
       } else {
@@ -336,6 +341,31 @@ export class RemoteMediaView {
     if (this.recorder.recording) {
       this.recorder.addAudioStream(stream);
     }
+  }
+
+  // Ensure every member of the current conversation group has a tile — even with
+  // their camera off — so you can see who you're talking to (issue: show camera
+  // windows for everyone in a call). Camera-off members get the no-video
+  // placeholder; a later cam stream fills it in. `members` excludes self. When the
+  // group shrinks, placeholder-only tiles for people who left are removed (tiles
+  // with a live cam/mic are left to the normal stream-detach cleanup).
+  setConversationMembers(members: string[]) {
+    const me = this.getMyId();
+    const set = new Set(members.filter((id) => id !== me));
+    this.conversationMembers = set;
+    let changed = false;
+    for (const id of set) {
+      if (!this.players.has(id) || this.remoteTiles.has(id)) continue;
+      this.remoteTiles.set(id, this.createRemoteTile(id));
+      changed = true;
+    }
+    for (const [id, tile] of this.remoteTiles) {
+      if (set.has(id) || tile.hasCam || this.remoteAudios.has(id)) continue;
+      tile.container.remove();
+      this.remoteTiles.delete(id);
+      changed = true;
+    }
+    if (changed) this.reflowLayout();
   }
 
   private createRemoteTile(userId: string): RemoteTile {
