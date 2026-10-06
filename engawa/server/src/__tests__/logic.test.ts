@@ -15,7 +15,6 @@ import {
   normalizeName,
   normalizePlayerStatus,
   normalizeSfuTracks,
-  normalizeStatusNote,
   normalizeStreamId,
   normalizeVelocity,
   normalizeWorkspace,
@@ -25,7 +24,6 @@ import {
   SFU_MAX_TRACKS,
   SFU_PROMOTE_AT,
   SFU_TRACK_NAME_MAX_LENGTH,
-  STATUS_NOTE_MAX_LENGTH,
   STREAM_ID_MAX_LENGTH,
   sfuLatchSeeds,
   verifyAccessPassword,
@@ -133,23 +131,6 @@ describe('normalizeStreamId', () => {
   test('accepts an id exactly at the length cap', () => {
     const id = 'x'.repeat(STREAM_ID_MAX_LENGTH);
     expect(normalizeStreamId(id)).toBe(id);
-  });
-});
-
-describe('normalizeStatusNote', () => {
-  test('trims and keeps the note', () => {
-    expect(normalizeStatusNote('  ランチ  ')).toBe('ランチ');
-  });
-
-  test('returns empty for non-string or empty input', () => {
-    expect(normalizeStatusNote(undefined)).toBe('');
-    expect(normalizeStatusNote(42)).toBe('');
-    expect(normalizeStatusNote('   ')).toBe('');
-  });
-
-  test('caps length at STATUS_NOTE_MAX_LENGTH', () => {
-    const long = 'あ'.repeat(STATUS_NOTE_MAX_LENGTH + 10);
-    expect(normalizeStatusNote(long)).toHaveLength(STATUS_NOTE_MAX_LENGTH);
   });
 });
 

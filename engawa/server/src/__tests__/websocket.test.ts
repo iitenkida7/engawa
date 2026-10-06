@@ -552,7 +552,6 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       status: 'busy',
       isMuted: true,
       isVideoOn: false,
-      note: '',
     });
   });
 
@@ -575,30 +574,6 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     expect(status.status).toBe('online');
     expect(status.isMuted).toBe(false);
     expect(status.isVideoOn).toBe(false);
-  });
-
-  test('relays the status one-liner, normalized (#85)', () => {
-    const sender = makeWs({ workspace: 'ws1', joined: true });
-    const peer = makeWs({ workspace: 'ws1', joined: true });
-    handler.open!(sender);
-    handler.open!(peer);
-
-    deliver(handler, sender, {
-      type: 'status',
-      status: 'away',
-      isMuted: false,
-      isVideoOn: false,
-      note: '  ランチ  ',
-    });
-
-    expect(peer.sent).toContainEqual({
-      type: 'player-status',
-      userId: sender.data.userId,
-      status: 'away',
-      isMuted: false,
-      isVideoOn: false,
-      note: 'ランチ',
-    });
   });
 
   test('relays stream-meta only to the named target', () => {

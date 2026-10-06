@@ -41,14 +41,11 @@ export type ClientMessage =
   // re-render this avatar. Stateless: the server forwards it, keeping nothing.
   | { type: 'outfit-update'; outfit: Outfit }
   | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
-  // `note` is an optional free-text one-liner ("ランチ") that rides the existing
-  // status sync (#85); the server relays it without storing.
   | {
       type: 'status';
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
-      note?: string;
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
@@ -98,7 +95,6 @@ export type ServerMessage =
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
-      note?: string;
     }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
@@ -165,11 +161,6 @@ export const ZOOM_MAX = 2.0;
 export const ZOOM_DEFAULT = 1.0;
 export const ZOOM_WHEEL_GAIN = 0.0015;
 export const ZOOM_PINCH_GAIN = 0.01;
-
-// Max length of a status one-liner (issue #85). The input enforces it client
-// side; the server also clamps to this on relay so a crafted message can't
-// flood peers with a huge note.
-export const STATUS_NOTE_MAX_LEN = 40;
 
 // Emoji reactions (issue #23). The toolbar offers these as buttons and number
 // keys 1–6 map to them in order; the server validates against the same list

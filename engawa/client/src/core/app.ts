@@ -132,8 +132,6 @@ export class App {
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
   private myStatus: PlayerStatus = 'online';
-  // Status one-liner (#85), relayed with the status, never stored.
-  private myNote = '';
 
   // Server-driven transport for our current proximity group. 'mesh' uses the
   // per-peer WebRtcManager; 'sfu' routes everything through Cloudflare Realtime
@@ -390,8 +388,7 @@ export class App {
     // Self-status menu, triggered from the toolbar's status button.
     this.statusMenu = new StatusMenu({
       getStatus: () => this.myStatus,
-      getNote: () => this.myNote,
-      onSetStatus: (status, note) => this.setStatus(status, note),
+      onSetStatus: (status) => this.setStatus(status),
     });
 
     // Knock (call-request) feature: owns its own pending/cooldown state. App
@@ -1111,7 +1108,6 @@ export class App {
         const p = this.players.get(msg.userId);
         if (p) {
           p.status = msg.status;
-          p.note = msg.note ?? '';
           p.isMuted = msg.isMuted;
           p.isVideoOn = msg.isVideoOn;
           this.view.setTileMuted(msg.userId, msg.isMuted);
@@ -1476,7 +1472,6 @@ export class App {
   private broadcastStatus() {
     if (!this.me) return;
     this.me.status = this.myStatus;
-    this.me.note = this.myNote;
     this.me.isMuted = !this.media.micOn;
     this.me.isVideoOn = this.media.camOn;
     this.net.send({
@@ -1484,16 +1479,13 @@ export class App {
       status: this.myStatus,
       isMuted: !this.media.micOn,
       isVideoOn: this.media.camOn,
-      note: this.myNote,
     });
   }
 
-  // Set status plus an optional one-liner (#85). No-ops when status and note
-  // both match.
-  private setStatus(status: PlayerStatus, note = '') {
-    if (this.myStatus === status && this.myNote === note) return;
+  // Set the presence status. No-ops when it already matches.
+  private setStatus(status: PlayerStatus) {
+    if (this.myStatus === status) return;
     this.myStatus = status;
-    this.myNote = note;
     this.broadcastStatus();
     this.statusMenu.refresh();
   }

@@ -52,14 +52,11 @@ export type ClientMessage =
   // Avatar appearance changed; relayed to the workspace (sanitized, never stored).
   | { type: 'outfit-update'; outfit: Outfit }
   | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
-  // `note` is an optional free-text one-liner. Relayed with the status, never
-  // stored (#85).
   | {
       type: 'status';
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
-      note?: string;
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
@@ -109,7 +106,6 @@ export type ServerMessage =
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
-      note?: string;
     }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }

@@ -94,8 +94,6 @@ const STR: Record<string, Record<Lang, string>> = {
   // Avatar action menu (click an avatar on the map).
   'avatar.goto': { ja: 'そこへ行く', en: 'Go there' },
   'avatar.knock': { ja: '呼ぶ', en: 'Call' },
-  'roster.noteLabel': { ja: '一言メッセージ', en: 'Status message' },
-  'roster.notePlaceholder': { ja: '例: ランチ', en: 'e.g. Lunch' },
 
   // -- status labels --------------------------------------------------------
   'status.online': { ja: '🟢 オンライン', en: '🟢 Online' },

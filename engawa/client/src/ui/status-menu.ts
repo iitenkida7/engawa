@@ -1,12 +1,10 @@
 // Self-status menu, opened from the bottom toolbar's status button. Lets you pick
-// a presence status (online / busy / away / meeting / break) plus an optional
-// one-liner note and return time (#85). Extracted from the old roster panel when
-// that was removed — the participant list is gone, but setting your own status
-// stays, now living with the other self controls in the toolbar.
+// a presence status (online / busy / away). Extracted from the old roster panel
+// when that was removed — the participant list is gone, but setting your own
+// status stays, now living with the other self controls in the toolbar.
 
 import { t } from '@/core/i18n';
 import type { PlayerStatus } from '@/core/types';
-import { STATUS_NOTE_MAX_LEN } from '@/core/types';
 
 // Status → emoji, shown on the toolbar button and next to avatar names on the
 // map. `online` gets an explicit 🟢 so every avatar carries a status mark.
@@ -25,20 +23,16 @@ const STATUS_LABELS: Record<PlayerStatus, string> = {
 
 export class StatusMenu {
   private getStatus: () => PlayerStatus;
-  private getNote: () => string;
-  private onSetStatus: (status: PlayerStatus, note: string) => void;
+  private onSetStatus: (status: PlayerStatus) => void;
 
   private btn: HTMLButtonElement;
   private menu: HTMLDivElement;
-  private noteInput: HTMLInputElement | null = null;
 
   constructor(opts: {
     getStatus: () => PlayerStatus;
-    getNote: () => string;
-    onSetStatus: (status: PlayerStatus, note: string) => void;
+    onSetStatus: (status: PlayerStatus) => void;
   }) {
     this.getStatus = opts.getStatus;
-    this.getNote = opts.getNote;
     this.onSetStatus = opts.onSetStatus;
 
     this.btn = document.getElementById('btn-status') as HTMLButtonElement;
@@ -78,36 +72,10 @@ export class StatusMenu {
     this.menu.style.left = 'auto';
   }
 
-  // Build the menu fresh each open: a one-liner input seeded from the current
-  // note; the status buttons commit it and close.
+  // Build the menu fresh each open: one button per status; picking one commits
+  // it and closes.
   private populate() {
     this.menu.replaceChildren();
-
-    const noteField = document.createElement('label');
-    noteField.className = 'status-field';
-    const noteLabel = document.createElement('span');
-    noteLabel.className = 'status-field-label';
-    noteLabel.textContent = t('roster.noteLabel');
-    const note = document.createElement('input');
-    note.type = 'text';
-    note.className = 'status-note-input';
-    note.maxLength = STATUS_NOTE_MAX_LEN;
-    note.placeholder = t('roster.notePlaceholder');
-    note.value = this.getNote();
-    note.addEventListener('click', (e) => e.stopPropagation());
-    note.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.commit(this.getStatus());
-      }
-    });
-    this.noteInput = note;
-    noteField.append(noteLabel, note);
-    this.menu.appendChild(noteField);
-
-    const divider = document.createElement('div');
-    divider.className = 'status-divider';
-    this.menu.appendChild(divider);
 
     const current = this.getStatus();
     for (const status of STATUS_ORDER) {
@@ -118,21 +86,10 @@ export class StatusMenu {
       item.textContent = (isSelected ? '✓ ' : '') + STATUS_LABELS[status];
       item.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.commit(status);
+        this.menu.classList.add('hidden');
+        this.onSetStatus(status);
       });
       this.menu.appendChild(item);
     }
-  }
-
-  // Apply the picked status with the draft note, then close. `online` clears the
-  // note so "back online" is a clean reset.
-  private commit(status: PlayerStatus) {
-    this.menu.classList.add('hidden');
-    if (status === 'online') {
-      this.onSetStatus(status, '');
-      return;
-    }
-    const note = this.noteInput?.value.trim() ?? '';
-    this.onSetStatus(status, note);
   }
 }

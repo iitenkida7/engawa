@@ -13,7 +13,6 @@ import {
   normalizePlayerStatus,
   normalizeResumeToken,
   normalizeSfuTracks,
-  normalizeStatusNote,
   normalizeStreamId,
   normalizeVelocity,
   normalizeWorkspace,
@@ -399,7 +398,6 @@ export function createWebSocketHandler(
               status: normalizePlayerStatus(msg.status),
               isMuted: normalizeBool(msg.isMuted),
               isVideoOn: normalizeBool(msg.isVideoOn),
-              note: normalizeStatusNote(msg.note),
             },
             ws.data.userId,
           );
