@@ -457,6 +457,9 @@
         align-items: center;
         justify-content: space-between;
         padding: 6px 10px;
+        /* Fixed height so the header doesn't grow/shrink as the (taller) muted
+           mic icon appears and disappears next to the name. */
+        min-height: 30px;
         flex-shrink: 0;
         user-select: none;
         border-bottom: 1px solid #2a2f3a;
