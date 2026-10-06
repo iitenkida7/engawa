@@ -20,6 +20,7 @@ import {
   MAP_COLS,
   MAP_ROWS,
   officeMap,
+  POD_RUGS,
   ROOM_FURNITURE,
   type RoomFurniture,
   TILE_SIZE,
@@ -64,6 +65,12 @@ const PALETTE = {
   // a tidy "game floor" look with a little depth.
   floorGrid: 'rgba(90,75,50,0.07)',
   shadow: 'rgba(40,35,25,0.14)',
+  // Team-island rug (accent under desk pods) and window glass on outer walls.
+  podRug: '#ece1c8',
+  podRugEdge: 'rgba(150,130,95,0.45)',
+  windowFrame: '#b9ad92',
+  windowGlass: '#cfe3ec',
+  windowGlint: 'rgba(255,255,255,0.55)',
 } as const;
 
 // Per-room floor tints (Gather-like colour coding). Open office stays oak wood.
@@ -439,27 +446,37 @@ export class CanvasRenderer {
     const cx = cache.getContext('2d')!;
     cx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+    // Pass 1 — floors + walls: rooms/lounge get a colour-coded rug, the open
+    // office oak; walls get a window where they face the open floor.
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        const tx = c * TILE_SIZE;
+        const ty = r * TILE_SIZE;
+        if (officeMap[r][c] === Tile.WALL) {
+          this.drawWall(cx, tx, ty, c, r);
+          continue;
+        }
+        const roomKind = roomKindAt(c, r);
+        this.drawFloorTile(cx, tx, ty, roomKind ? ROOM_FLOOR[roomKind] : PALETTE.floorWood);
+      }
+    }
+
+    // Team-island rugs under the desk pods (over the floor, under the desks).
+    for (const rug of POD_RUGS) this.drawPodRug(cx, rug);
+
+    // Pass 2 — props: open-office desks are workstations; in-room desks are drawn
+    // as designed tables/chairs by the furniture pass below, so skip them here.
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         const tile = officeMap[r][c];
         const tx = c * TILE_SIZE;
         const ty = r * TILE_SIZE;
-        if (tile === Tile.WALL) {
-          this.drawWall(cx, tx, ty);
-          continue;
-        }
-        // Floor first: rooms/lounge get a colour-coded rug, the open office oak.
-        const floorKind = floorKindAt(c, r);
-        const inRoom = floorKind === 'carpet';
-        const roomKind = roomKindAt(c, r);
-        if (roomKind) this.drawFloorTile(cx, tx, ty, ROOM_FLOOR[roomKind]);
-        else this.drawFloorTile(cx, tx, ty, PALETTE.floorWood);
-        // ...then the prop on top. Open-office desks are workstations (monitor);
-        // in-room desks are drawn as designed tables/chairs by the furniture pass
-        // below, so skip them here.
         const prop = propFor(tile);
-        if (prop === 'desk' && !inRoom) this.drawWorkstation(cx, tx, ty, deskFacesSouth(c, r));
-        else if (prop === 'plant') this.drawPlant(cx, tx, ty);
+        if (prop === 'desk' && floorKindAt(c, r) === 'wood') {
+          this.drawWorkstation(cx, tx, ty, deskFacesSouth(c, r));
+        } else if (prop === 'plant') {
+          this.drawPlant(cx, tx, ty);
+        }
       }
     }
 
@@ -593,9 +610,23 @@ export class CanvasRenderer {
     cx.fill();
   }
 
+  // Soft accent rug under a desk pod, so team islands read as neighbourhoods.
+  private drawPodRug(
+    cx: CanvasRenderingContext2D,
+    f: { x: number; y: number; w: number; h: number },
+  ) {
+    this.roundRect(cx, f.x, f.y, f.w, f.h, 10);
+    cx.fillStyle = PALETTE.podRug;
+    cx.fill();
+    cx.strokeStyle = PALETTE.podRugEdge;
+    cx.lineWidth = 1.5;
+    cx.stroke();
+  }
+
   // Warm off-white wall: a light base with a soft top highlight, a subtle bottom
   // shadow, and a faint seam — a clean partition, not the old near-black block.
-  private drawWall(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+  // Outer side walls facing the open office (every other row) get a window.
+  private drawWall(cx: CanvasRenderingContext2D, tx: number, ty: number, col: number, row: number) {
     const S = TILE_SIZE;
     cx.fillStyle = PALETTE.wall;
     cx.fillRect(tx, ty, S, S);
@@ -606,6 +637,24 @@ export class CanvasRenderer {
     cx.strokeStyle = PALETTE.wallSeam;
     cx.lineWidth = 1;
     cx.strokeRect(tx + 0.5, ty + 0.5, S - 1, S - 1);
+
+    // Windows: left/right outer walls along the open-office rows, every other tile.
+    const onSideWall = col === 0 || col === MAP_COLS - 1;
+    if (onSideWall && row >= 7 && row <= 17 && row % 2 === 1) {
+      const m = 9; // inset from the tile edge
+      cx.fillStyle = PALETTE.windowFrame;
+      this.roundRect(cx, tx + m - 2, ty + m - 2, S - (m - 2) * 2, S - (m - 2) * 2, 3);
+      cx.fill();
+      cx.fillStyle = PALETTE.windowGlass;
+      this.roundRect(cx, tx + m, ty + m, S - m * 2, S - m * 2, 2);
+      cx.fill();
+      cx.strokeStyle = PALETTE.windowGlint;
+      cx.lineWidth = 2;
+      cx.beginPath();
+      cx.moveTo(tx + m + 3, ty + S - m - 4);
+      cx.lineTo(tx + S - m - 4, ty + m + 3);
+      cx.stroke();
+    }
   }
 
   // Open-office workstation: a rounded off-white desk top on the floor, a dark

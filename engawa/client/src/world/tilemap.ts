@@ -394,6 +394,28 @@ export const LOUNGE_RECT = {
   h: LOUNGE.h * TILE_SIZE,
 };
 
+// Team-island (pod) footprints as [colStart, colEnd, rowStart, rowEnd], mirroring
+// OPEN_DESKS. The renderer draws a soft accent rug under each so the desk clusters
+// read as team neighbourhoods (Gather-like).
+const PODS: [number, number, number, number][] = [
+  [3, 4, 8, 9],
+  [11, 12, 8, 9],
+  [19, 20, 8, 9],
+  [27, 28, 8, 9],
+  [5, 6, 14, 15],
+  [11, 12, 14, 15],
+  [18, 20, 14, 15],
+];
+
+// Pixel rects for the pod rugs, padded to tuck the chairs (rows above/below the
+// desks) onto the rug too.
+export const POD_RUGS = PODS.map(([cs, ce, rs, re]) => ({
+  x: cs * TILE_SIZE - 7,
+  y: rs * TILE_SIZE - 7,
+  w: (ce - cs + 1) * TILE_SIZE + 14,
+  h: (re - rs + 1) * TILE_SIZE + 14,
+}));
+
 /**
  * Named meeting-room zone. Rooms act as isolated call bubbles: everyone inside
  * the same zone is connected regardless of distance, and audio/video never
