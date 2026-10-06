@@ -12,7 +12,7 @@ import {
   ZOOM_WHEEL_GAIN,
 } from '@/core/types';
 import { CharacterSheet } from '@/world/character';
-import { floorKindAt, propFor } from '@/world/decor';
+import { floorKindAt, propFor, type RoomKind, roomKindAt } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import {
   deskFacesSouth,
@@ -60,7 +60,20 @@ const PALETTE = {
   sofaShade: '#7f8da0',
   coffeeTable: '#b98b63',
   coffeeTableTop: '#caa078',
+  // Faint tile grid drawn on every floor, and a soft shadow under furniture, for
+  // a tidy "game floor" look with a little depth.
+  floorGrid: 'rgba(90,75,50,0.07)',
+  shadow: 'rgba(40,35,25,0.14)',
 } as const;
+
+// Per-room floor tints (Gather-like colour coding). Open office stays oak wood.
+const ROOM_FLOOR: Record<RoomKind, string> = {
+  exec: '#f0e6d2', // president's office — warm cream
+  meeting: '#dce7f1', // meeting / all-hands — soft blue
+  oneonone: '#dde9d7', // 1-on-1 — soft green
+  booth: '#e8ddee', // negotiation booths — soft lavender
+  lounge: '#dfe7d8', // lounge — sage
+};
 
 // Emoji shown as the avatar status badge, matching the toolbar menu labels.
 // `online` has no badge.
@@ -435,12 +448,12 @@ export class CanvasRenderer {
           this.drawWall(cx, tx, ty);
           continue;
         }
-        // Floor first (meeting rooms = cream rug, lounge = sage rug, open = oak)...
+        // Floor first: rooms/lounge get a colour-coded rug, the open office oak.
         const floorKind = floorKindAt(c, r);
         const inRoom = floorKind === 'carpet';
-        if (inRoom) this.drawRugFloor(cx, tx, ty);
-        else if (floorKind === 'lounge') this.drawLoungeFloor(cx, tx, ty);
-        else this.drawWoodFloor(cx, tx, ty);
+        const roomKind = roomKindAt(c, r);
+        if (roomKind) this.drawFloorTile(cx, tx, ty, ROOM_FLOOR[roomKind]);
+        else this.drawFloorTile(cx, tx, ty, PALETTE.floorWood);
         // ...then the prop on top. Open-office desks are workstations (monitor);
         // in-room desks are drawn as designed tables/chairs by the furniture pass
         // below, so skip them here.
@@ -484,6 +497,8 @@ export class CanvasRenderer {
     // Chairs first (behind the table), then the table top over the rug.
     this.drawChairs(cx, f);
     const inset = 7;
+    // Soft shadow under the table.
+    this.softShadow(cx, f.x + f.w / 2, f.y + f.h - inset + 3, f.w / 2 - inset, 7);
     this.roundRect(cx, f.x + inset, f.y + inset, f.w - inset * 2, f.h - inset * 2, 8);
     cx.fillStyle = PALETTE.tableTop;
     cx.fill();
@@ -542,7 +557,8 @@ export class CanvasRenderer {
     drawSofa(f.x + 16);
     drawSofa(f.x + f.w - 16 - sofaW);
 
-    // Round coffee table in the middle.
+    // Round coffee table in the middle (with a soft shadow).
+    this.softShadow(cx, cxp, cyp + 20, 22, 7);
     cx.beginPath();
     cx.arc(cxp, cyp, 20, 0, Math.PI * 2);
     cx.fillStyle = PALETTE.coffeeTable;
@@ -553,35 +569,28 @@ export class CanvasRenderer {
     cx.fill();
   }
 
-  // Lounge rug floor: a warm sage base, distinct from the oak open office and the
-  // cream meeting rooms.
-  private drawLoungeFloor(cx: CanvasRenderingContext2D, tx: number, ty: number) {
-    cx.fillStyle = PALETTE.loungeRug;
-    cx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
-  }
-
-  // Light oak plank floor: a warm base plus faint, world-aligned horizontal plank
-  // seams (so they run continuously across tile boundaries).
-  private drawWoodFloor(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+  // One floor tile: a flat colour fill plus a faint square grid (right + bottom
+  // edge), so every floor reads as tidy game tiles regardless of room colour.
+  private drawFloorTile(cx: CanvasRenderingContext2D, tx: number, ty: number, color: string) {
     const S = TILE_SIZE;
-    cx.fillStyle = PALETTE.floorWood;
+    cx.fillStyle = color;
     cx.fillRect(tx, ty, S, S);
-    cx.strokeStyle = PALETTE.floorWoodSeam;
+    cx.strokeStyle = PALETTE.floorGrid;
     cx.lineWidth = 1;
-    for (let y = Math.ceil(ty / 25) * 25; y < ty + S; y += 25) {
-      cx.beginPath();
-      cx.moveTo(tx, y + 0.5);
-      cx.lineTo(tx + S, y + 0.5);
-      cx.stroke();
-    }
+    cx.beginPath();
+    cx.moveTo(tx + S - 0.5, ty);
+    cx.lineTo(tx + S - 0.5, ty + S);
+    cx.moveTo(tx, ty + S - 0.5);
+    cx.lineTo(tx + S, ty + S - 0.5);
+    cx.stroke();
   }
 
-  // Meeting-room cream rug: a flat, calm fill with a faint inset edge so the room
-  // floor reads as a soft rug rather than the same plane as the open office.
-  private drawRugFloor(cx: CanvasRenderingContext2D, tx: number, ty: number) {
-    const S = TILE_SIZE;
-    cx.fillStyle = PALETTE.floorRug;
-    cx.fillRect(tx, ty, S, S);
+  // Soft elliptical shadow on the floor under a prop, for a little depth.
+  private softShadow(cx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number) {
+    cx.fillStyle = PALETTE.shadow;
+    cx.beginPath();
+    cx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+    cx.fill();
   }
 
   // Warm off-white wall: a light base with a soft top highlight, a subtle bottom
@@ -611,6 +620,7 @@ export class CanvasRenderer {
   ) {
     const S = TILE_SIZE;
     const pad = 5;
+    this.softShadow(cx, tx + S / 2, ty + S - pad + 1, S / 2 - pad + 1, 5);
     this.roundRect(cx, tx + pad, ty + pad, S - pad * 2, S - pad * 2, 6);
     cx.fillStyle = PALETTE.deskTop;
     cx.fill();
@@ -650,6 +660,7 @@ export class CanvasRenderer {
   private drawPlant(cx: CanvasRenderingContext2D, tx: number, ty: number) {
     const S = TILE_SIZE;
     const cx0 = tx + S / 2;
+    this.softShadow(cx, cx0, ty + S * 0.86, S * 0.26, S * 0.08);
     // Pot
     const potTop = ty + S * 0.62;
     const potH = S * 0.24;
