@@ -148,12 +148,20 @@ export class RosterPanel {
     this.btnStatus = document.getElementById('btn-status') as HTMLButtonElement;
     this.statusMenu = document.getElementById('status-menu') as HTMLDivElement;
 
-    this.toggleEl.addEventListener('click', () => this.setCollapsed(!this.collapsed));
+    // Clicking anywhere on the header tab toggles collapse — except the chat /
+    // status action buttons, which keep their own behaviour. (The ⟨ / ⟩ toggle
+    // glyph sits outside #roster-actions, so clicking it collapses/expands too.)
+    (document.getElementById('roster-header') as HTMLElement)?.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement)?.closest('#roster-actions')) return;
+      this.setCollapsed(!this.collapsed);
+    });
     this.setupStatusMenu();
 
-    // Auto-collapse on narrow viewports; expand again when it widens.
+    // Collapsed by default (low-traffic panel); the user expands it when needed.
+    // A narrowing viewport also collapses it, but widening never auto-expands —
+    // it stays collapsed until clicked.
     this.wasNarrow = window.innerWidth <= NARROW_BREAKPOINT;
-    this.collapsed = this.wasNarrow;
+    this.collapsed = true;
     window.addEventListener('resize', () => this.onResize());
     this.applyCollapsed();
   }
@@ -200,13 +208,13 @@ export class RosterPanel {
     });
   }
 
-  // The status menu is portaled to #app top-level (not nested in the roster's
-  // overflow:hidden box), so we anchor it under the button each time it opens:
-  // dropping downward, right-aligned to the button. Measuring on open keeps it
-  // correct regardless of header width (chat button present, count digits, …).
+  // The status menu is portaled to #app top-level. Its trigger lives in the
+  // bottom toolbar, so anchor the menu ABOVE the button (right-aligned to it),
+  // measuring on open so it stays correct across viewport sizes.
   private positionStatusMenu() {
     const r = this.btnStatus.getBoundingClientRect();
-    this.statusMenu.style.top = `${r.bottom + 6}px`;
+    this.statusMenu.style.top = 'auto';
+    this.statusMenu.style.bottom = `${window.innerHeight - r.top + 6}px`;
     this.statusMenu.style.right = `${window.innerWidth - r.right}px`;
     this.statusMenu.style.left = 'auto';
   }
@@ -305,10 +313,9 @@ export class RosterPanel {
 
   private onResize() {
     const narrow = window.innerWidth <= NARROW_BREAKPOINT;
-    if (narrow !== this.wasNarrow) {
-      this.wasNarrow = narrow;
-      this.setCollapsed(narrow);
-    }
+    // Collapse when the viewport becomes narrow; never auto-expand on widening.
+    if (narrow && !this.wasNarrow) this.setCollapsed(true);
+    this.wasNarrow = narrow;
     // The portaled status menu is positioned by JS from the button's rect, so a
     // resize while it's open would leave it misaligned — re-anchor it. The
     // status button stays in the header even when collapsed, so this still holds.
@@ -322,8 +329,9 @@ export class RosterPanel {
 
   private applyCollapsed() {
     this.panelEl.classList.toggle('collapsed', this.collapsed);
-    this.toggleEl.textContent = this.collapsed ? '⟩' : '⟨';
-    this.toggleEl.title = this.collapsed ? t('roster.expand') : t('roster.collapse');
+    // The ✕ "stow" button only shows while expanded (hidden on the collapsed
+    // rail), so it always reads as "collapse".
+    this.toggleEl.title = t('roster.collapse');
   }
 
   // Pumped once per frame from the game loop: reconciles the rows with the
