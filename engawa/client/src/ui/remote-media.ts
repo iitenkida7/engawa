@@ -11,14 +11,13 @@ import {
 import { AutoplayGate } from '@/ui/autoplay';
 import {
   applyPanelGeometry,
-  bindCamAspect,
+  CAM_ASPECT,
   computeFocusLayout,
   computeGridLayout,
   computePresentationLayout,
   computeSidebarLayout,
   type LayoutItem,
   type LayoutMode,
-  readCamAspect,
 } from '@/ui/panels';
 import type { PlayerState } from '@/world/player';
 
@@ -46,6 +45,13 @@ type Screenshare = {
   // relying on the element being GC'd).
   cleanup: () => void;
 };
+
+// Mic-with-strike glyph shown (red, via CSS) next to a name while that person is
+// muted. Matches the toolbar mic icon.
+const MIC_OFF_SVG =
+  '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" />' +
+  '<path d="M6 11a6 6 0 0 0 12 0" /><line x1="12" y1="17" x2="12" y2="21" />' +
+  '<line x1="8" y1="21" x2="16" y2="21" /><line x1="4" y1="20" x2="20" y2="4" /></svg>';
 
 // The maximize (⤢) button that sits at the right end of every panel header.
 // Clicks are caught by one delegated handler on #app, so the button carries no
@@ -80,6 +86,9 @@ export class RemoteMediaView {
   // (above the self preview) rather than being capped by #remote-videos' context.
   private stageLayerEl: HTMLElement;
   private remoteTiles = new Map<string, RemoteTile>();
+  // userIds in the current conversation group (excl. self); members without a cam
+  // keep a placeholder tile so you can see who you're talking to.
+  private conversationMembers = new Set<string>();
   // Mic audio is attached to dedicated <audio> elements so it plays even when
   // the user has no cam (no video tile yet). userId → audio element.
   private remoteAudios = new Map<string, RemoteAudio>();
@@ -148,9 +157,6 @@ export class RemoteMediaView {
     this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
 
-    // Lock the self-preview window to the live camera's aspect ratio; its
-    // position/size come from reflowLayout (it joins the grid like any tile).
-    bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
     // The self preview is static markup, so its maximize button is added here;
     // dynamic panels get theirs at creation.
     this.selfPreviewEl.dataset.focusKey = 'self';
@@ -279,9 +285,10 @@ export class RemoteMediaView {
       }
       // Reset a possibly-latched speaking ring (peer muted while flagged loud).
       this.clearSpeaking(userId);
-      // If no cam either, remove the tile entirely
+      // If no cam either, remove the tile — unless they're still in the
+      // conversation, where a placeholder tile is kept.
       const tile = this.remoteTiles.get(userId);
-      if (tile && !tile.hasCam) {
+      if (tile && !tile.hasCam && !this.conversationMembers.has(userId)) {
         tile.container.remove();
         this.remoteTiles.delete(userId);
       }
@@ -295,8 +302,9 @@ export class RemoteMediaView {
       } catch {
         /* noop */
       }
-      // If still has mic, show placeholder; otherwise remove tile
-      if (this.remoteAudios.has(userId)) {
+      // Still has mic, or still in the conversation → keep a placeholder tile;
+      // otherwise remove it.
+      if (this.remoteAudios.has(userId) || this.conversationMembers.has(userId)) {
         tile.video.style.display = 'none';
         tile.placeholder.style.display = '';
       } else {
@@ -338,6 +346,31 @@ export class RemoteMediaView {
     }
   }
 
+  // Ensure every member of the current conversation group has a tile — even with
+  // their camera off — so you can see who you're talking to (issue: show camera
+  // windows for everyone in a call). Camera-off members get the no-video
+  // placeholder; a later cam stream fills it in. `members` excludes self. When the
+  // group shrinks, placeholder-only tiles for people who left are removed (tiles
+  // with a live cam/mic are left to the normal stream-detach cleanup).
+  setConversationMembers(members: string[]) {
+    const me = this.getMyId();
+    const set = new Set(members.filter((id) => id !== me));
+    this.conversationMembers = set;
+    let changed = false;
+    for (const id of set) {
+      if (!this.players.has(id) || this.remoteTiles.has(id)) continue;
+      this.remoteTiles.set(id, this.createRemoteTile(id));
+      changed = true;
+    }
+    for (const [id, tile] of this.remoteTiles) {
+      if (set.has(id) || tile.hasCam || this.remoteAudios.has(id)) continue;
+      tile.container.remove();
+      this.remoteTiles.delete(id);
+      changed = true;
+    }
+    if (changed) this.reflowLayout();
+  }
+
   private createRemoteTile(userId: string): RemoteTile {
     const p = this.players.get(userId);
     const name = p?.name || userId.slice(0, 6);
@@ -350,13 +383,24 @@ export class RemoteMediaView {
     container.className = 'panel remote-tile';
     container.dataset.userId = userId;
     container.dataset.focusKey = `cam:${userId}`;
+    // Reflect the current mute state right away (a placeholder tile may be
+    // created between status broadcasts, which only fire on change).
+    if (p?.isMuted) container.classList.add('muted');
 
     const header = document.createElement('div');
     header.className = 'panel-header';
+    const left = document.createElement('span');
+    left.className = 'header-left';
+    const mic = document.createElement('span');
+    mic.className = 'mic-indicator';
+    mic.setAttribute('aria-hidden', 'true');
+    mic.innerHTML = MIC_OFF_SVG;
     const label = document.createElement('span');
     label.className = 'label';
     label.textContent = name;
-    header.appendChild(label);
+    left.appendChild(mic);
+    left.appendChild(label);
+    header.appendChild(left);
     header.appendChild(createFocusButton());
     container.appendChild(header);
 
@@ -369,8 +413,6 @@ export class RemoteMediaView {
     video.playsInline = true;
     video.style.display = 'none';
     body.appendChild(video);
-    // Lock the window to this camera's aspect ratio.
-    bindCamAspect(container, video);
 
     const placeholder = document.createElement('div');
     placeholder.className = 'no-video';
@@ -764,14 +806,14 @@ export class RemoteMediaView {
     for (const [userId, tile] of this.remoteTiles) {
       panels.push({
         el: tile.container,
-        item: { aspectLocked: true, aspect: readCamAspect(tile.container) },
+        item: { aspectLocked: true, aspect: CAM_ASPECT },
         key: `cam:${userId}`,
       });
     }
     if (!this.selfPreviewEl.classList.contains('hidden')) {
       panels.push({
         el: this.selfPreviewEl,
-        item: { aspectLocked: true, aspect: readCamAspect(this.selfPreviewEl) },
+        item: { aspectLocked: true, aspect: CAM_ASPECT },
         key: 'self',
       });
     }

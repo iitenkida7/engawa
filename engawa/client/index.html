@@ -335,6 +335,52 @@
         border-bottom-left-radius: 0;
       }
 
+      /* Icon-only mic/camera toggles: a white glyph with no button border; when
+         off, a red diagonal strike is drawn over it so the state reads at a glance. */
+      #toolbar button.icon-toggle {
+        padding: 7px 10px;
+        color: #e6e8ee;
+      }
+
+      #toolbar button.icon-toggle .ico {
+        display: block;
+        width: 22px;
+        height: 22px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      #toolbar button.icon-toggle.on {
+        color: #46d17f;
+      }
+
+      #toolbar button.icon-toggle .strike {
+        display: none;
+        stroke: #cc6b6b;
+        stroke-width: 3.2;
+      }
+
+      #toolbar button.icon-toggle.off .strike {
+        display: block;
+      }
+
+      /* Record button: a dot when idle, a stop square while recording (the red
+         pulsing background comes from .recording). */
+      #toolbar button#btn-rec .rec-stop {
+        display: none;
+      }
+
+      #toolbar button#btn-rec.recording .rec-dot {
+        display: none;
+      }
+
+      #toolbar button#btn-rec.recording .rec-stop {
+        display: block;
+      }
+
       .device-menu {
         position: absolute;
         bottom: calc(100% + 6px);
@@ -457,6 +503,9 @@
         align-items: center;
         justify-content: space-between;
         padding: 6px 10px;
+        /* Fixed height so the header doesn't grow/shrink as the (taller) muted
+           mic icon appears and disappears next to the name. */
+        min-height: 30px;
         flex-shrink: 0;
         user-select: none;
         border-bottom: 1px solid #2a2f3a;
@@ -495,14 +544,15 @@
         padding: 6px 10px;
         border: none;
         background: none;
-        color: #9da3b0;
-        font-size: 13px;
+        color: #ffffff;
+        font-size: 26px;
         line-height: 1;
         cursor: pointer;
       }
 
       .panel-focus-btn:hover {
-        color: #e6e8ee;
+        color: #ffffff;
+        opacity: 0.8;
       }
 
       /* Maximized: the same accent the toolbar uses for an active control. */
@@ -562,11 +612,10 @@
         width: 180px;
       }
 
-      /* Camera windows (tiles + self preview) stay locked to the camera's
-         aspect ratio: the layout pins only the width and the height follows the
-         live video's --cam-aspect, so the face is never cropped. --cam-aspect
-         is updated from the real video dimensions in game.ts; 4/3 matches the
-         requested 320x240 capture as a fallback. */
+      /* Camera windows (tiles + self preview) use a FIXED 16:9 aspect so every
+         tile is the same shape and the grid stays tidy regardless of each
+         camera's real dimensions. The video fills the box with object-fit:cover
+         (so it may crop slightly); camera-off placeholders use the same box. */
       .remote-tile,
       #self-preview {
         height: auto;
@@ -575,7 +624,7 @@
       .remote-tile .panel-body,
       #self-preview .panel-body {
         flex: none;
-        aspect-ratio: var(--cam-aspect, 4 / 3);
+        aspect-ratio: 16 / 9;
       }
 
       .remote-tile.speaking {
@@ -583,17 +632,39 @@
         box-shadow: 0 0 10px rgba(80, 220, 120, 0.3);
       }
 
-      .remote-tile.muted .panel-body::after,
-      #self-preview.muted .panel-body::after {
-        content: '🔇';
-        position: absolute;
-        top: 6px;
-        right: 6px;
-        background: rgba(220, 53, 69, 0.85);
-        border-radius: 4px;
-        padding: 2px 5px;
-        font-size: 11px;
-        line-height: 1;
+      /* Left side of a panel header: the muted mic icon + the name, grouped so
+         the maximize button stays at the far right. */
+      .panel-header .header-left {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+      }
+
+      /* Muted indicator: a red mic-with-strike icon next to the name (Gather-like),
+         shown only while that person's mic is off. Clearly sized so it's readable. */
+      .panel-header .mic-indicator {
+        display: none;
+        flex: none;
+        width: 18px;
+        height: 18px;
+        margin-right: 6px;
+        color: #e5484d;
+      }
+
+      .panel-header .mic-indicator svg {
+        display: block;
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .remote-tile.muted .panel-header .mic-indicator,
+      #self-preview.muted .panel-header .mic-indicator {
+        display: block;
       }
 
       .panel-body .no-video {
@@ -1626,18 +1697,45 @@
       <div id="status-menu" class="device-menu hidden"></div>
       <div id="toolbar" class="hidden">
         <div class="btn-group">
-          <button id="btn-mic" data-i18n-title="toolbar.micTitle" title="マイク">🎤 マイク</button>
+          <button id="btn-mic" class="icon-toggle" data-i18n-title="toolbar.micTitle" title="マイク">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="9" y="3" width="6" height="11" rx="3" />
+              <path d="M6 11a6 6 0 0 0 12 0" />
+              <line x1="12" y1="17" x2="12" y2="21" />
+              <line x1="8" y1="21" x2="16" y2="21" />
+              <line class="strike" x1="4" y1="20" x2="20" y2="4" />
+            </svg>
+          </button>
           <button id="btn-mic-devices" class="btn-caret" data-i18n-title="toolbar.selectMic" title="マイクを選択">▾</button>
           <div id="mic-menu" class="device-menu hidden"></div>
         </div>
         <div class="btn-group">
-          <button id="btn-cam" data-i18n-title="toolbar.camTitle" title="カメラ">📷 カメラ</button>
+          <button id="btn-cam" class="icon-toggle" data-i18n-title="toolbar.camTitle" title="カメラ">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="7" width="12" height="10" rx="2" />
+              <path d="M15 10l5-3v10l-5-3z" />
+              <line class="strike" x1="4" y1="20" x2="20" y2="4" />
+            </svg>
+          </button>
           <button id="btn-cam-devices" class="btn-caret" data-i18n-title="toolbar.selectCam" title="カメラ・背景を選択">▾</button>
           <div id="cam-menu" class="device-menu hidden"></div>
         </div>
         <input id="bg-file" type="file" accept="image/*" class="hidden" />
-        <button id="btn-screen" data-i18n-title="toolbar.screenTitle" title="画面共有">🖥 画面共有</button>
-        <button id="btn-rec" data-i18n-title="toolbar.recTitle" title="録画">⏺ 録画</button>
+        <button id="btn-screen" class="icon-toggle" data-i18n-title="toolbar.screenTitle" title="画面共有">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="13" rx="2" />
+            <path d="M12 14V8" />
+            <path d="M9 11l3-3 3 3" />
+            <line x1="8" y1="20" x2="16" y2="20" />
+          </svg>
+        </button>
+        <button id="btn-rec" class="icon-toggle" data-i18n-title="toolbar.recTitle" title="録画">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <circle class="rec-dot" cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2" />
+            <circle class="rec-dot" cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />
+            <rect class="rec-stop" x="8" y="8" width="8" height="8" rx="1.5" fill="currentColor" stroke="none" />
+          </svg>
+        </button>
         <button id="btn-status" data-i18n-tip="roster.status" data-tip="ステータス" aria-label="ステータス">🟢</button>
         <div class="btn-group">
           <button id="btn-reaction" data-i18n-tip="toolbar.reactions" data-tip="リアクション" aria-label="リアクション">😀</button>
@@ -1679,7 +1777,18 @@
       <div id="remote-videos"></div>
       <div id="self-preview" class="panel hidden">
         <div class="panel-header">
-          <span class="label" id="self-preview-label" data-i18n="common.you">あなた</span>
+          <span class="header-left">
+            <span class="mic-indicator" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <rect x="9" y="3" width="6" height="11" rx="3" />
+                <path d="M6 11a6 6 0 0 0 12 0" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="4" y1="20" x2="20" y2="4" />
+              </svg>
+            </span>
+            <span class="label" id="self-preview-label" data-i18n="common.you">あなた</span>
+          </span>
         </div>
         <div class="panel-body">
           <video id="self-video" autoplay muted playsinline></video>

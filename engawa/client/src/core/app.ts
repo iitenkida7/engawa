@@ -1334,6 +1334,9 @@ export class App {
         }
       }
       this.inProximity = nowInProximity;
+      // Show a tile for everyone in the conversation, even camera-off (issue:
+      // see who you're talking to). Camera-off members get a placeholder.
+      this.view.setConversationMembers([...nowInProximity]);
     }
   }
 

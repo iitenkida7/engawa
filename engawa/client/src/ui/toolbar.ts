@@ -197,14 +197,15 @@ export class ToolbarController {
   }
 
   refresh() {
-    this.btnMic.classList.toggle('active', this.media.micOn);
-    this.btnMic.textContent = this.media.micOn ? t('toolbar.micOn') : t('toolbar.mic');
-    this.btnCam.classList.toggle('active', this.media.camOn);
-    this.btnCam.textContent = this.media.camOn ? t('toolbar.camOn') : t('toolbar.cam');
+    // Mic/cam are icon-only toggles: green when on, red + strike when off.
+    this.btnMic.classList.toggle('on', this.media.micOn);
+    this.btnMic.classList.toggle('off', !this.media.micOn);
+    this.btnCam.classList.toggle('on', this.media.camOn);
+    this.btnCam.classList.toggle('off', !this.media.camOn);
+    // Screen share goes blue (.active) while sharing; record goes red (.recording)
+    // and swaps its dot for a stop square. Both are icon-only.
     this.btnScreen.classList.toggle('active', this.media.screenOn);
-    this.btnScreen.textContent = this.media.screenOn ? t('toolbar.screenOn') : t('toolbar.screen');
     this.btnRec.classList.toggle('recording', this.recorder.recording);
-    this.btnRec.textContent = this.recorder.recording ? t('toolbar.recOn') : t('toolbar.rec');
   }
 
   // ---- Mic/cam enable & disable flows (shared by toolbar and device switch) ----
