@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  CHAT_MAX_LENGTH,
   clampPosition,
   computeProximityGroups,
   type GroupMember,
@@ -12,14 +11,11 @@ import {
   MAP_WIDTH,
   MAX_VELOCITY,
   normalizeBool,
-  normalizeChatText,
   normalizeIceServers,
   normalizeName,
   normalizePlayerStatus,
   normalizeSfuTracks,
-  normalizeStatusNote,
   normalizeStreamId,
-  normalizeUntil,
   normalizeVelocity,
   normalizeWorkspace,
   PLAYER_STATUSES,
@@ -28,7 +24,6 @@ import {
   SFU_MAX_TRACKS,
   SFU_PROMOTE_AT,
   SFU_TRACK_NAME_MAX_LENGTH,
-  STATUS_NOTE_MAX_LENGTH,
   STREAM_ID_MAX_LENGTH,
   sfuLatchSeeds,
   verifyAccessPassword,
@@ -136,59 +131,6 @@ describe('normalizeStreamId', () => {
   test('accepts an id exactly at the length cap', () => {
     const id = 'x'.repeat(STREAM_ID_MAX_LENGTH);
     expect(normalizeStreamId(id)).toBe(id);
-  });
-});
-
-describe('normalizeChatText', () => {
-  test('trims surrounding whitespace', () => {
-    expect(normalizeChatText('  hello  ')).toBe('hello');
-  });
-
-  test('returns empty for non-string input', () => {
-    expect(normalizeChatText(undefined)).toBe('');
-    expect(normalizeChatText(123)).toBe('');
-    expect(normalizeChatText(null)).toBe('');
-  });
-
-  test('returns empty for whitespace-only input', () => {
-    expect(normalizeChatText('   ')).toBe('');
-  });
-
-  test('caps length at CHAT_MAX_LENGTH', () => {
-    const long = 'a'.repeat(CHAT_MAX_LENGTH + 50);
-    expect(normalizeChatText(long)).toHaveLength(CHAT_MAX_LENGTH);
-  });
-});
-
-describe('normalizeStatusNote', () => {
-  test('trims and keeps the note', () => {
-    expect(normalizeStatusNote('  ランチ  ')).toBe('ランチ');
-  });
-
-  test('returns empty for non-string or empty input', () => {
-    expect(normalizeStatusNote(undefined)).toBe('');
-    expect(normalizeStatusNote(42)).toBe('');
-    expect(normalizeStatusNote('   ')).toBe('');
-  });
-
-  test('caps length at STATUS_NOTE_MAX_LENGTH', () => {
-    const long = 'あ'.repeat(STATUS_NOTE_MAX_LENGTH + 10);
-    expect(normalizeStatusNote(long)).toHaveLength(STATUS_NOTE_MAX_LENGTH);
-  });
-});
-
-describe('normalizeUntil', () => {
-  test('passes through a finite positive epoch ms', () => {
-    expect(normalizeUntil(1893456000000)).toBe(1893456000000);
-  });
-
-  test('rejects non-numbers, non-finite, and non-positive values', () => {
-    expect(normalizeUntil(undefined)).toBeNull();
-    expect(normalizeUntil('soon')).toBeNull();
-    expect(normalizeUntil(Number.NaN)).toBeNull();
-    expect(normalizeUntil(Infinity)).toBeNull();
-    expect(normalizeUntil(0)).toBeNull();
-    expect(normalizeUntil(-5)).toBeNull();
   });
 });
 

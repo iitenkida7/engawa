@@ -1,3 +1,4 @@
+import { t } from '@/core/i18n';
 import type { Point } from '@/core/proximity';
 import {
   CONNECT_RADIUS,
@@ -11,6 +12,7 @@ import {
   ZOOM_PINCH_GAIN,
   ZOOM_WHEEL_GAIN,
 } from '@/core/types';
+import { STATUS_EMOJI } from '@/ui/status-menu';
 import { CharacterSheet } from '@/world/character';
 import { floorKindAt, propFor, type RoomKind, roomKindAt } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
@@ -109,28 +111,6 @@ const ROOM_FLOOR: Record<RoomKind, string> = {
   booth: '#e8ddee', // negotiation booths — soft lavender
   lounge: '#dfe7d8', // lounge — sage
 };
-
-// Emoji shown as the avatar status badge, matching the toolbar menu labels.
-// `online` has no badge.
-const STATUS_BADGE: Record<string, string> = {
-  busy: '🔴',
-  away: '🟡',
-  meeting: '🤝',
-  break: '☕',
-};
-
-// Max chars of the status one-liner shown above an avatar (#85); longer notes
-// are truncated with an ellipsis. The full text stays in the roster.
-const AVATAR_NOTE_MAX = 12;
-
-/**
- * Pure: shorten a status one-liner for the above-avatar label. Trims, then caps
- * to `max` chars with a trailing ellipsis. '' (or whitespace-only) yields ''.
- */
-export function truncateNote(note: string, max = AVATAR_NOTE_MAX): string {
-  const t = note.trim();
-  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
-}
 
 // How far (world px) a reaction bubble drifts upward over its lifetime.
 const REACTION_RISE_PX = 36;
@@ -428,14 +408,46 @@ export class CanvasRenderer {
     }
 
     // players
+    const selfAway = self?.status === 'away';
     const sortedPlayers = [...players].sort((a, b) => a.y - b.y);
     for (const p of sortedPlayers) {
+      // While away (#220) our own avatar is hidden; we only spectate others.
+      if (p.isSelf && selfAway) continue;
       this.drawPlayer(ctx, p, p.userId === highlightId);
     }
 
     // Floating emoji reactions, on top of the avatars they belong to.
     this.drawReactions(ctx, sortedPlayers);
 
+    ctx.restore();
+
+    // Away overlay (#220): a faint veil plus a small badge, drawn in screen space
+    // on top of everything so it reads as "you've stepped away" without hiding
+    // the room — others still move underneath.
+    if (selfAway) this.drawAwayOverlay(ctx, w, h);
+  }
+
+  private drawAwayOverlay(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(20,24,33,0.28)';
+    ctx.fillRect(0, 0, w, h);
+
+    // Small pill, top-center.
+    const label = t('status.awayOverlay');
+    ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(label).width;
+    const padX = 14;
+    const pw = tw + padX * 2;
+    const ph = 30;
+    const px = w / 2 - pw / 2;
+    const py = 16;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    this.roundRect(ctx, px, py, pw, ph, 15);
+    ctx.fill();
+    ctx.fillStyle = '#ffd27a';
+    ctx.fillText(label, w / 2, py + ph / 2 + 1);
     ctx.restore();
   }
 
@@ -1160,53 +1172,24 @@ export class CanvasRenderer {
       ctx.fillText(p.initials(), p.x, p.y);
     }
 
-    // Status badge (top-right of avatar). Show the status emoji — matching the
-    // toolbar menu — so meeting/break read clearly, not just as a colored dot.
-    const badge = STATUS_BADGE[p.status];
-    if (badge) {
-      const bx = p.x + PLAYER_RADIUS * 0.7;
-      const by = p.y - PLAYER_RADIUS * 0.7;
-      ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(badge, bx, by);
-    }
-
-    // name label. Set alignment explicitly: the background rect is centered on
-    // p.x, but ctx.textAlign/textBaseline carry over from earlier draws (default
-    // 'start'/'alphabetic' when a sprite is drawn and no status badge ran), which
-    // would shift the text off the rect.
+    // name label, prefixed with the status mark (🟢/🔴/… for every status) so
+    // presence reads right next to the name. Set alignment explicitly: the
+    // background rect is centered on p.x, but ctx.textAlign/textBaseline carry
+    // over from earlier draws, which would shift the text off the rect.
     ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const label = p.name + (p.isSharingScreen ? '  🖥' : '');
+    const label = `${STATUS_EMOJI[p.status]} ${p.name}${p.isSharingScreen ? '  🖥' : ''}`;
     const m = ctx.measureText(label);
     const padX = 6;
     const lw = m.width + padX * 2;
     const lh = 18;
-    const ly = p.y + PLAYER_RADIUS + 8;
+    const ly = p.y - PLAYER_RADIUS - 6 - lh;
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     this.roundRect(ctx, p.x - lw / 2, ly, lw, lh, 4);
     ctx.fill();
     ctx.fillStyle = 'white';
     ctx.fillText(label, p.x, ly + lh / 2 + 1);
-
-    // Status one-liner (#85): a small pill above the avatar, so "なぜ離れている
-    // か" reads at a glance on the map. Truncated; the return time lives in the
-    // roster. Reactions float in the same area but are transient and on top.
-    const note = truncateNote(p.note);
-    if (note) {
-      ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-      const nm = ctx.measureText(note);
-      const nlw = nm.width + padX * 2;
-      const nlh = 16;
-      const ny = p.y - PLAYER_RADIUS - 6 - nlh;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      this.roundRect(ctx, p.x - nlw / 2, ny, nlw, nlh, 4);
-      ctx.fill();
-      ctx.fillStyle = '#ffe7a3';
-      ctx.fillText(note, p.x, ny + nlh / 2 + 1);
-    }
   }
 
   private roundRect(

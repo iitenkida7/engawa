@@ -38,7 +38,6 @@ describe('t', () => {
   });
 
   test('interpolates {var} params', () => {
-    expect(t('roster.minutes', { n: 15 })).toContain('15');
     expect(t('media.screenOf', { name: 'Alice' })).toContain('Alice');
   });
 });

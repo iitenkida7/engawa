@@ -49,6 +49,7 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       resumeToken: data.resumeToken ?? null,
       lastGroupAt: data.lastGroupAt ?? 0,
       joined: data.joined ?? false,
+      away: data.away ?? false,
     } satisfies WsData,
     send(payload: string | Bun.BufferSource) {
       sent.push(JSON.parse(payload as string) as ServerMessage);
@@ -552,8 +553,6 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       status: 'busy',
       isMuted: true,
       isVideoOn: false,
-      note: '',
-      until: null,
     });
   });
 
@@ -578,30 +577,57 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     expect(status.isVideoOn).toBe(false);
   });
 
-  test('relays the status one-liner and return time, normalized (#85)', () => {
+  test('going away broadcasts player-left and hides the sender from grouping (#220)', () => {
     const sender = makeWs({ workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(peer);
+
+    deliver(handler, sender, { type: 'status', status: 'away', isMuted: true, isVideoOn: false });
+
+    expect(sender.data.away).toBe(true);
+    expect(peer.sent).toContainEqual({ type: 'player-left', userId: sender.data.userId });
+    // Away is invisible: no player-status for the away transition.
+    expect(peer.sent.find((m) => m.type === 'player-status')).toBeUndefined();
+  });
+
+  test('returning from away re-announces the sender with player-joined (#220)', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true, away: true });
     const peer = makeWs({ workspace: 'ws1', joined: true });
     handler.open!(sender);
     handler.open!(peer);
 
     deliver(handler, sender, {
       type: 'status',
-      status: 'break',
+      status: 'online',
       isMuted: false,
       isVideoOn: false,
-      note: '  ランチ  ',
-      until: 1893456000000,
     });
 
+    expect(sender.data.away).toBe(false);
+    const joined = peer.sent.find((m) => m.type === 'player-joined');
+    if (joined?.type !== 'player-joined') throw new Error('expected player-joined');
+    expect(joined.player.userId).toBe(sender.data.userId);
     expect(peer.sent).toContainEqual({
       type: 'player-status',
       userId: sender.data.userId,
-      status: 'break',
+      status: 'online',
       isMuted: false,
       isVideoOn: false,
-      note: 'ランチ',
-      until: 1893456000000,
     });
+  });
+
+  test('an away client is not sent to a newly joining peer (#220)', () => {
+    const away = makeWs({ workspace: 'ws1', joined: true, away: true, name: 'Ghost' });
+    handler.open!(away);
+
+    const joiner = makeWs({ workspace: 'ws1' });
+    handler.open!(joiner);
+    deliver(handler, joiner, { type: 'join', name: 'Newbie' });
+
+    const welcome = joiner.sent.find((m) => m.type === 'welcome');
+    if (welcome?.type !== 'welcome') throw new Error('expected welcome');
+    expect(welcome.players.some((p) => p.userId === away.data.userId)).toBe(false);
   });
 
   test('relays stream-meta only to the named target', () => {
@@ -894,90 +920,6 @@ describe('createWebSocketHandler — SFU grouping', () => {
     const gb = lastGroupUpdate(b);
     expect(ga?.type === 'group-update' && ga.method).toBe('mesh');
     expect(gb?.type === 'group-update' && gb.method).toBe('mesh');
-  });
-});
-
-describe('createWebSocketHandler — chat', () => {
-  let clients: Map<string, ServerWebSocket<WsData>>;
-  let handler: ReturnType<typeof createWebSocketHandler>;
-
-  beforeEach(() => {
-    clients = new Map();
-    handler = createWebSocketHandler(clients);
-  });
-
-  // Join + position a client so the proximity grouping has coordinates to work
-  // with (chat is scoped to the sender's proximity group).
-  const joinAt = (x: number, y: number): FakeWs => {
-    const ws = makeWs();
-    handler.open!(ws);
-    deliver(handler, ws, { type: 'join', name: 'U', workspace: 'ws1' });
-    deliver(handler, ws, { type: 'move', x, y, vx: 0, vy: 0 });
-    return ws;
-  };
-
-  test('relays a chat line to the sender and a nearby peer, but not a distant one', () => {
-    const a = joinAt(100, 100);
-    const near = joinAt(150, 100); // within CONNECT_RADIUS of a
-    const far = joinAt(1500, 1200); // its own proximity group
-
-    deliver(handler, a, { type: 'chat', text: 'hello' });
-
-    const chatOf = (ws: FakeWs) => ws.sent.find((m) => m.type === 'chat');
-    // Sender sees their own echo.
-    expect(chatOf(a)).toMatchObject({
-      type: 'chat',
-      from: a.data.userId,
-      name: 'U',
-      text: 'hello',
-    });
-    // Nearby peer receives it.
-    expect(chatOf(near)).toMatchObject({ type: 'chat', from: a.data.userId, text: 'hello' });
-    // Distant peer does not.
-    expect(chatOf(far)).toBeUndefined();
-  });
-
-  test('trims and drops an empty chat message', () => {
-    const a = joinAt(100, 100);
-    deliver(handler, a, { type: 'chat', text: '   ' });
-    expect(a.sent.some((m) => m.type === 'chat')).toBe(false);
-  });
-
-  test('ignores chat from a client that has not joined', () => {
-    const a = makeWs({ workspace: 'ws1', joined: false });
-    handler.open!(a);
-    deliver(handler, a, { type: 'chat', text: 'hi' });
-    expect(a.sent.some((m) => m.type === 'chat')).toBe(false);
-  });
-
-  test('a peer held in the call by hysteresis (120-150px) still receives chat', () => {
-    // Uses an injected clock so the second move actually recomputes groups
-    // (past the per-connection throttle). The pair forms at the same spot, then
-    // one drifts to 135px — beyond the 120px connect radius but within the 150px
-    // disconnect radius, so the group hysteresis keeps them together. Chat must
-    // follow that real call group, not a fresh connect-radius-only recompute.
-    let t = 1000;
-    const now = () => t;
-    const clients2 = new Map<string, ServerWebSocket<WsData>>();
-    const h = createWebSocketHandler(clients2, undefined, 'dev', new Set(), now);
-    const move = (ws: FakeWs, x: number, y: number) =>
-      deliver(h, ws, { type: 'move', x, y, vx: 0, vy: 0 });
-
-    const a = makeWs();
-    h.open!(a);
-    deliver(h, a, { type: 'join', name: 'A', workspace: 'ws1' });
-    move(a, 100, 100);
-
-    const b = makeWs();
-    h.open!(b);
-    deliver(h, b, { type: 'join', name: 'B', workspace: 'ws1' });
-    move(b, 100, 100); // same spot → grouped
-
-    t = 2000;
-    move(b, 235, 100); // 135px from a: past connect (120), within disconnect (150)
-
-    deliver(h, a, { type: 'chat', text: 'still here?' });
-    expect(b.sent.some((m) => m.type === 'chat' && m.text === 'still here?')).toBe(true);
   });
 });
 

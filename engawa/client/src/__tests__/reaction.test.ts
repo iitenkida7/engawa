@@ -1,21 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { REACTION_LIFETIME_MS } from '@/core/types';
-import { reactionAnim, truncateNote } from '@/world/canvas';
-
-describe('truncateNote', () => {
-  it('keeps a short note as-is, trimmed', () => {
-    expect(truncateNote('  ランチ  ')).toBe('ランチ');
-  });
-
-  it('truncates a long note with an ellipsis', () => {
-    expect(truncateNote('あいうえおかきくけこさし', 5)).toBe('あいうえ…');
-  });
-
-  it('returns empty for an empty or whitespace-only note', () => {
-    expect(truncateNote('')).toBe('');
-    expect(truncateNote('   ')).toBe('');
-  });
-});
+import { reactionAnim } from '@/world/canvas';
 
 describe('reactionAnim', () => {
   it('starts fully opaque with no rise', () => {

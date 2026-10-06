@@ -60,13 +60,12 @@ import { partitionMembers, SFU_REBUILD_MIN_INTERVAL_MS } from '@/rtc/sfu-logic';
 import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
-import { ChatPanel } from '@/ui/chat';
 import { DebugConsole } from '@/ui/debug-console';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
 import { RemoteMediaView } from '@/ui/remote-media';
-import { RosterPanel } from '@/ui/roster';
 import { SoundManager } from '@/ui/sounds';
+import { StatusMenu } from '@/ui/status-menu';
 import { type MediaSink, ToolbarController } from '@/ui/toolbar';
 import { CanvasRenderer } from '@/world/canvas';
 import { OUTFIT_COUNTS } from '@/world/character';
@@ -94,8 +93,7 @@ export class App {
   private compositor: SceneCompositor;
   private view: RemoteMediaView;
   private toolbar: ToolbarController;
-  private roster: RosterPanel;
-  private chat: ChatPanel;
+  private statusMenu: StatusMenu;
   private debug: DebugConsole;
   private toasts = new Toasts();
   private sounds = new SoundManager();
@@ -134,13 +132,6 @@ export class App {
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
   private myStatus: PlayerStatus = 'online';
-  // Status one-liner and return time (#85). `myUntil` is an absolute epoch ms
-  // (null = none); `myUntilMin` is the chosen preset in minutes, kept so the
-  // status menu can re-highlight it. A timer auto-returns to online at `myUntil`.
-  private myNote = '';
-  private myUntil: number | null = null;
-  private myUntilMin: number | null = null;
-  private untilTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Server-driven transport for our current proximity group. 'mesh' uses the
   // per-peer WebRtcManager; 'sfu' routes everything through Cloudflare Realtime
@@ -230,6 +221,8 @@ export class App {
   // Global listeners are held as stable references so dispose() can detach them
   // (an inline arrow can't be removed). See issue #127.
   private onCanvasDblClick = (e: MouseEvent) => this.handleCanvasDblClick(e);
+  private onCanvasClick = (e: MouseEvent) => this.handleCanvasClick(e);
+  private avatarMenuEl = document.getElementById('avatar-menu') as HTMLDivElement;
   private onReactionKey = (e: KeyboardEvent) => this.handleReactionKey(e);
   private onBeforeUnload = (e: BeforeUnloadEvent) => {
     if (!shouldConfirmUnload(this.me !== null)) return;
@@ -392,24 +385,14 @@ export class App {
       },
     });
 
-    this.roster = new RosterPanel({
-      players: this.players,
-      getMyId: () => this.myId,
-      onFocus: (userId) => this.focusPlayer(userId),
-      onGoTo: (userId) => this.goToPlayer(userId),
-      onKnock: (userId) => this.knocks.request(userId),
+    // Self-status menu, triggered from the toolbar's status button.
+    this.statusMenu = new StatusMenu({
       getStatus: () => this.myStatus,
-      getNote: () => this.myNote,
-      getUntilMin: () => this.myUntilMin,
-      onSetStatus: (status, note, untilMin) => this.setStatus(status, note, untilMin),
-    });
-
-    this.chat = new ChatPanel({
-      onSend: (text) => this.net.send({ type: 'chat', text }),
+      onSetStatus: (status) => this.setStatus(status),
     });
 
     // Knock (call-request) feature: owns its own pending/cooldown state. App
-    // forwards roster clicks and the knock/knock-reply server messages here.
+    // forwards avatar clicks and the knock/knock-reply server messages here.
     this.knocks = new KnockController({
       players: this.players,
       send: (msg) => this.net.send(msg),
@@ -438,6 +421,7 @@ export class App {
 
     // Double-click the map to walk to that point (A* around walls, boosted speed).
     this.canvas.addEventListener('dblclick', this.onCanvasDblClick);
+    this.canvas.addEventListener('click', this.onCanvasClick);
 
     // Number keys 1–6 fire the matching reaction (issue #23). Ignored while
     // typing in a field, and key-repeat is dropped so holding a key doesn't spam.
@@ -475,14 +459,74 @@ export class App {
     this.moveIndex = 0;
   }
 
-  // Roster row click: toggle the highlight ring on that avatar. A light,
-  // non-destructive action — it never moves self.
-  private focusPlayer(userId: string) {
-    this.focusedId = this.focusedId === userId ? null : userId;
+  // Single click: if it landed on another avatar (body or name), open the action
+  // menu (go to them / call); otherwise dismiss any open menu.
+  private handleCanvasClick(e: MouseEvent) {
+    if (!this.me) return;
+    const world = this.renderer.screenToWorld(e.clientX, e.clientY, this.me);
+    const hit = this.playerAt(world.x, world.y);
+    if (hit && !hit.isSelf) this.openAvatarMenu(hit.userId, e.clientX, e.clientY);
+    else this.hideAvatarMenu();
   }
 
-  // Roster "→" button: walk self over to a walkable tile next to that player
-  // (reusing the click-to-move A*), so getting into call range is one click.
+  // The player whose avatar (or name label just below it) contains world (x,y),
+  // nearest first. Returns null on empty floor.
+  private playerAt(x: number, y: number): PlayerState | null {
+    let best: PlayerState | null = null;
+    let bestD = Infinity;
+    for (const p of this.players.values()) {
+      // Covers the avatar body plus the name label now sitting above its head.
+      const withinX = Math.abs(p.x - x) <= PLAYER_RADIUS + 6;
+      const withinY = y >= p.y - PLAYER_RADIUS - 32 && y <= p.y + PLAYER_RADIUS + 8;
+      if (!withinX || !withinY) continue;
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  // Popover with "go there" / "call" for the clicked avatar, placed at the cursor.
+  private openAvatarMenu(userId: string, clientX: number, clientY: number) {
+    const p = this.players.get(userId);
+    if (!p) return;
+    this.focusedId = userId;
+    const menu = this.avatarMenuEl;
+    menu.replaceChildren();
+    const go = document.createElement('button');
+    go.className = 'device-item';
+    go.textContent = t('avatar.goto');
+    go.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.hideAvatarMenu();
+      this.goToPlayer(userId);
+    });
+    const call = document.createElement('button');
+    call.className = 'device-item';
+    call.textContent = t('avatar.knock');
+    call.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.hideAvatarMenu();
+      this.knocks.request(userId);
+    });
+    menu.append(go, call);
+    menu.style.left = `${clientX}px`;
+    menu.style.top = `${clientY}px`;
+    menu.style.right = 'auto';
+    menu.style.bottom = 'auto';
+    menu.classList.remove('hidden');
+  }
+
+  private hideAvatarMenu() {
+    this.avatarMenuEl.classList.add('hidden');
+    this.focusedId = null;
+  }
+
+  // Walk self over to a walkable tile next to that player (reusing the click-to-
+  // move A*), so getting into call range is one click. Invoked from the avatar
+  // action menu ("そこへ行く").
   private goToPlayer(userId: string) {
     if (!this.me) return;
     const target = this.players.get(userId);
@@ -624,6 +668,7 @@ export class App {
     this.bgTicker?.terminate();
     this.bgTicker = null;
     this.canvas.removeEventListener('dblclick', this.onCanvasDblClick);
+    this.canvas.removeEventListener('click', this.onCanvasClick);
     window.removeEventListener('keydown', this.onReactionKey);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -1038,8 +1083,7 @@ export class App {
         }
         this.view.setSelfName(this.joinedName);
         document.getElementById('toolbar')?.classList.remove('hidden');
-        this.roster.show();
-        this.roster.refreshStatus();
+        this.statusMenu.refresh();
         this.broadcastStatus();
         break;
       }
@@ -1064,8 +1108,6 @@ export class App {
         const p = this.players.get(msg.userId);
         if (p) {
           p.status = msg.status;
-          p.note = msg.note ?? '';
-          p.until = msg.until ?? null;
           p.isMuted = msg.isMuted;
           p.isVideoOn = msg.isVideoOn;
           this.view.setTileMuted(msg.userId, msg.isMuted);
@@ -1107,15 +1149,6 @@ export class App {
       }
       case 'group-update': {
         this.applyGroupMethod(msg.method, msg.members);
-        break;
-      }
-      case 'chat': {
-        this.chat.addMessage({
-          from: msg.from,
-          name: msg.name,
-          text: msg.text,
-          isSelf: msg.from === this.myId,
-        });
         break;
       }
       case 'reaction': {
@@ -1212,7 +1245,8 @@ export class App {
     // Move self by input (frame-rate independent: dt × speed-per-second)
     let selfVx = 0;
     let selfVy = 0;
-    if (this.me) {
+    // While away (#220) the avatar is hidden and frozen — spectate only.
+    if (this.me && this.myStatus !== 'away') {
       // Grid-step movement (issue #206): a step in progress slides to the next
       // tile center; only once it finishes do we read input for the next step,
       // so the avatar always rests on a tile (never between tiles).
@@ -1262,7 +1296,8 @@ export class App {
     // Periodic position broadcast. Also send when velocity changes (especially
     // when it transitions to 0) so the receiver stops extrapolating.
     const now = performance.now();
-    if (this.me) {
+    // While away (#220) we're invisible to peers, so don't send position.
+    if (this.me && this.myStatus !== 'away') {
       const velChanged = selfVx !== this.lastSentVx || selfVy !== this.lastSentVy;
       const posMoved =
         Math.abs(this.me.x - this.lastSentX) > 0.5 || Math.abs(this.me.y - this.lastSentY) > 0.5;
@@ -1306,12 +1341,6 @@ export class App {
       this.lastQualitySampleAt = now;
       void this.sampleQuality();
     }
-
-    // Refresh the participant roster from the (now up-to-date) players map, and
-    // collapse it while media windows are up so the list doesn't overlap the
-    // call tiles (its header, with chat and status, stays reachable).
-    this.roster.update(this.focusedId);
-    this.roster.setCallMode(this.view.hasMediaWindows());
 
     // Chime sounds. Both mesh and SFU membership are decided by the server's
     // group-update (the connected component, meeting-room isolation included),
@@ -1445,8 +1474,6 @@ export class App {
   private broadcastStatus() {
     if (!this.me) return;
     this.me.status = this.myStatus;
-    this.me.note = this.myNote;
-    this.me.until = this.myUntil;
     this.me.isMuted = !this.media.micOn;
     this.me.isVideoOn = this.media.camOn;
     this.net.send({
@@ -1454,40 +1481,34 @@ export class App {
       status: this.myStatus,
       isMuted: !this.media.micOn,
       isVideoOn: this.media.camOn,
-      note: this.myNote,
-      until: this.myUntil,
     });
   }
 
-  // Set status plus optional one-liner and return time (#85). `untilMin` is a
-  // preset in minutes (null = no time); it's resolved to an absolute epoch ms so
-  // every peer shows the same clock target. A timer flips us back to online when
-  // the time arrives. No-ops only when status, note, and time all match.
-  private setStatus(status: PlayerStatus, note = '', untilMin: number | null = null) {
-    const until = untilMin == null ? null : Date.now() + untilMin * 60_000;
-    if (this.myStatus === status && this.myNote === note && this.myUntilMin === untilMin) return;
+  // Set the presence status. No-ops when it already matches. Going away (#220)
+  // tears down all calls and media and hides us; returning to online/busy lets
+  // the server re-add us and the ensuing group-update rebuilds our calls.
+  private setStatus(status: PlayerStatus) {
+    if (this.myStatus === status) return;
     this.myStatus = status;
-    this.myNote = note;
-    this.myUntil = until;
-    this.myUntilMin = untilMin;
-    this.broadcastStatus();
-    this.roster.refreshStatus();
-    this.scheduleAutoReturn();
+    if (status === 'away') {
+      this.enterAway();
+    } else {
+      this.broadcastStatus();
+    }
+    this.statusMenu.refresh();
   }
 
-  // (Re)arm the auto-return-to-online timer for the current `myUntil`. Cleared
-  // and reset on every status change; on fire it broadcasts online with no note.
-  private scheduleAutoReturn() {
-    if (this.untilTimer != null) {
-      clearTimeout(this.untilTimer);
-      this.untilTimer = null;
-    }
-    if (this.myUntil == null) return;
-    const delay = Math.max(0, this.myUntil - Date.now());
-    this.untilTimer = setTimeout(() => {
-      this.untilTimer = null;
-      this.setStatus('online');
-    }, delay);
+  // Enter away: stop publishing, cut every call, and forget group membership.
+  // disableAllMedia() broadcasts the (away, all-off) status; the server then
+  // tells peers we left. We keep the socket and keep receiving their movement.
+  private enterAway() {
+    this.toolbar.disableAllMedia();
+    this.rtc.closeAll();
+    this.sfu.closeAll();
+    this.meshMembers.clear();
+    this.sfuMembers.clear();
+    this.inProximity.clear();
+    this.currentMethod = 'mesh';
   }
 
   // Apply a server group-update: the server is the single source of truth for

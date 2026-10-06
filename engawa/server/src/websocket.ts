@@ -9,14 +9,11 @@ import {
   MAP_HEIGHT,
   MAP_WIDTH,
   normalizeBool,
-  normalizeChatText,
   normalizeName,
   normalizePlayerStatus,
   normalizeResumeToken,
   normalizeSfuTracks,
-  normalizeStatusNote,
   normalizeStreamId,
-  normalizeUntil,
   normalizeVelocity,
   normalizeWorkspace,
   PROXIMITY_DISCONNECT_RADIUS,
@@ -84,21 +81,6 @@ function playerFromWs(ws: ServerWebSocket<WsData>): Player {
   };
 }
 
-// The member ids of the proximity group this connection currently belongs to,
-// read straight off the last group signature the server sent it
-// (groupKey = "<method>:<id1>,<id2>,..."). broadcastGroups keeps groupKey in
-// sync on every join / move / close, so it is the authoritative current group —
-// crucially including the open-floor hysteresis (connect 120px, disconnect
-// 150px) and the SFU latch that a fresh, option-less computeProximityGroups
-// would drop, silently splitting a pair still held together in the same call.
-// Always includes this user, so a solo speaker still sees their own chat echo.
-function groupMemberIdsOf(ws: ServerWebSocket<WsData>): string[] {
-  const key = ws.data.groupKey;
-  if (!key) return [ws.data.userId];
-  const sep = key.indexOf(':');
-  return sep < 0 ? [ws.data.userId] : key.slice(sep + 1).split(',');
-}
-
 // Recompute one workspace's proximity groups and notify every client whose
 // group membership changed. Returns userId → group so callers can look up a
 // member's current group. Both mesh and SFU groups are signaled via
@@ -117,6 +99,8 @@ function broadcastGroups(
   const wsClients: ServerWebSocket<WsData>[] = [];
   for (const c of clients.values()) {
     if (!c.data.joined || c.data.workspace !== workspace) continue;
+    // Away clients are hidden from grouping (#220): no one connects to them.
+    if (c.data.away) continue;
     members.push({ userId: c.data.userId, x: c.data.x, y: c.data.y, zoneId: c.data.zoneId });
     wsClients.push(c);
   }
@@ -338,7 +322,7 @@ export function createWebSocketHandler(
 
             const others: Player[] = [];
             for (const [id, c] of clients) {
-              if (id === ws.data.userId || !c.data.joined) continue;
+              if (id === ws.data.userId || !c.data.joined || c.data.away) continue;
               if (c.data.workspace !== ws.data.workspace) continue;
               others.push(playerFromWs(c));
             }
@@ -379,7 +363,7 @@ export function createWebSocketHandler(
           const existing: Player[] = [];
           for (const [id, c] of clients) {
             if (id === ws.data.userId) continue;
-            if (!c.data.joined) continue;
+            if (!c.data.joined || c.data.away) continue;
             if (c.data.workspace !== ws.data.workspace) continue;
             existing.push(playerFromWs(c));
           }
@@ -407,20 +391,49 @@ export function createWebSocketHandler(
 
         case 'status': {
           if (!ws.data.joined) return;
+          const status = normalizePlayerStatus(msg.status);
+          const nowAway = status === 'away';
+          const wasAway = ws.data.away;
+
+          // Away toggles visibility (#220): going away is broadcast as a leave so
+          // peers drop our tile and call; returning is a fresh join. We stay
+          // connected and keep receiving the whole time (joined is untouched).
+          if (nowAway && !wasAway) {
+            ws.data.away = true;
+            // Except the sender: they stay connected and must keep their own
+            // avatar — only peers drop them from view (#220).
+            broadcast(
+              clients,
+              ws.data.workspace,
+              { type: 'player-left', userId: ws.data.userId },
+              ws.data.userId,
+            );
+            broadcastGroups(clients, ws.data.workspace, groupState);
+            break;
+          }
+          if (!nowAway && wasAway) {
+            ws.data.away = false;
+            broadcast(
+              clients,
+              ws.data.workspace,
+              { type: 'player-joined', player: playerFromWs(ws) },
+              ws.data.userId,
+            );
+          }
+
           broadcast(
             clients,
             ws.data.workspace,
             {
               type: 'player-status',
               userId: ws.data.userId,
-              status: normalizePlayerStatus(msg.status),
+              status,
               isMuted: normalizeBool(msg.isMuted),
               isVideoOn: normalizeBool(msg.isVideoOn),
-              note: normalizeStatusNote(msg.note),
-              until: normalizeUntil(msg.until),
             },
             ws.data.userId,
           );
+          if (!nowAway && wasAway) broadcastGroups(clients, ws.data.workspace, groupState);
           break;
         }
 
@@ -448,6 +461,9 @@ export function createWebSocketHandler(
           ws.data.x = x;
           ws.data.y = y;
           ws.data.zoneId = msg.zoneId ?? null;
+          // Away clients are invisible (#220): keep their position current for
+          // when they return, but don't relay movement or regroup around them.
+          if (ws.data.away) break;
           broadcast(
             clients,
             ws.data.workspace,
@@ -505,27 +521,6 @@ export function createWebSocketHandler(
             streamId,
             kind: msg.kind,
           });
-          break;
-        }
-
-        case 'chat': {
-          if (!ws.data.joined) return;
-          const text = normalizeChatText(msg.text);
-          if (!text) return;
-          // Scope to the sender's proximity group so chat stays spatial; the
-          // group always includes the sender, so they see their own line too.
-          const memberIds = groupMemberIdsOf(ws);
-          const out: ServerMessage = {
-            type: 'chat',
-            from: ws.data.userId,
-            name: ws.data.name,
-            text,
-            ts: Date.now(),
-          };
-          for (const id of memberIds) {
-            const c = clients.get(id);
-            if (c?.data.joined) send(c, out);
-          }
           break;
         }
 

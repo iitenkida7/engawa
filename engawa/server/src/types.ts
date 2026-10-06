@@ -33,7 +33,7 @@ export type GroupMethod = 'mesh' | 'sfu';
 // can pull each other (kind → Cloudflare trackName).
 export type SfuTrack = { kind: StreamKind; trackName: string };
 
-export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
+export type PlayerStatus = 'online' | 'busy' | 'away';
 
 export type ClientMessage =
   // `workspace` is legacy (single-space now); the client no longer sends it and
@@ -52,24 +52,17 @@ export type ClientMessage =
   // Avatar appearance changed; relayed to the workspace (sanitized, never stored).
   | { type: 'outfit-update'; outfit: Outfit }
   | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
-  // `note` is an optional free-text one-liner; `until` an optional return time
-  // (absolute epoch ms, null = none). Relayed with the status, never stored (#85).
   | {
       type: 'status';
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
-      note?: string;
-      until?: number | null;
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
   // Mesh-peer recovery (issue #184): the non-initiator side of a dead pair asks
   // the elected initiator to rebuild it. Relayed 1:1 like signal.
   | { type: 'rtc-restart'; to: string }
-  // A chat line, relayed to the sender's current proximity group (the people
-  // they're in a call with), so text stays spatial. The server keeps no history.
-  | { type: 'chat'; text: string }
   // A knock (call request) and its accept/decline reply, both relayed 1:1.
   | { type: 'knock'; to: string }
   | { type: 'knock-reply'; to: string; accept: boolean }
@@ -113,17 +106,12 @@ export type ServerMessage =
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
-      note?: string;
-      until?: number | null;
     }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
   | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' }
   // A group peer asks the recipient (their elected initiator) to rebuild the pair.
   | { type: 'rtc-restart'; from: string }
-  // A chat line from a proximity-group peer (from === self when it's the echo
-  // of our own message). `name` is the sender's display name; `ts` is server ms.
-  | { type: 'chat'; from: string; name: string; text: string; ts: number }
   // An incoming knock, and the reply to a knock we sent.
   | { type: 'knock'; from: string; name: string }
   | { type: 'knock-reply'; from: string; name: string; accept: boolean }
@@ -170,4 +158,9 @@ export type WsData = {
   // wire speed. Position updates and player-moved broadcasts are never throttled.
   lastGroupAt: number;
   joined: boolean;
+  // Away mode (#220): a joined client that has stepped away. Stays connected and
+  // keeps receiving broadcasts, but is hidden from peers (treated like a leave:
+  // removed from their view and from proximity grouping) until it returns to
+  // online/busy. Transient, memory-only (invariant #2).
+  away: boolean;
 };

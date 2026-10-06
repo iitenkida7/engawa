@@ -22,7 +22,7 @@ export type GroupMethod = 'mesh' | 'sfu';
 // directory the server relays so peers can pull each other.
 export type SfuTrack = { kind: StreamKind; trackName: string };
 
-export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
+export type PlayerStatus = 'online' | 'busy' | 'away';
 
 export type ClientMessage =
   // Single-space now: the client no longer sends `workspace`. `password` is only
@@ -41,16 +41,11 @@ export type ClientMessage =
   // re-render this avatar. Stateless: the server forwards it, keeping nothing.
   | { type: 'outfit-update'; outfit: Outfit }
   | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
-  // `note` is an optional free-text one-liner ("ランチ"); `until` is an optional
-  // return time as absolute epoch ms (null = none). Both ride the existing
-  // status sync (#85); the server relays them without storing.
   | {
       type: 'status';
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
-      note?: string;
-      until?: number | null;
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
@@ -58,9 +53,6 @@ export type ClientMessage =
   // the elected initiator to rebuild it (only the initiator can send the fresh
   // offer). Relayed 1:1 like signal.
   | { type: 'rtc-restart'; to: string }
-  // A chat line, relayed to the sender's current proximity group (the people
-  // they're in a call with), so text stays spatial. The server keeps no history.
-  | { type: 'chat'; text: string }
   // A knock (call request) and its accept/decline reply, both relayed 1:1.
   | { type: 'knock'; to: string }
   | { type: 'knock-reply'; to: string; accept: boolean }
@@ -103,17 +95,12 @@ export type ServerMessage =
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
-      note?: string;
-      until?: number | null;
     }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
   | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' }
   // A group peer asks us (their elected initiator) to rebuild the mesh pair.
   | { type: 'rtc-restart'; from: string }
-  // A chat line from a proximity-group peer (from === self when it's the echo
-  // of our own message). `name` is the sender's display name; `ts` is server ms.
-  | { type: 'chat'; from: string; name: string; text: string; ts: number }
   // An incoming knock, and the reply to a knock we sent.
   | { type: 'knock'; from: string; name: string }
   | { type: 'knock-reply'; from: string; name: string; accept: boolean }
@@ -174,24 +161,6 @@ export const ZOOM_MAX = 2.0;
 export const ZOOM_DEFAULT = 1.0;
 export const ZOOM_WHEEL_GAIN = 0.0015;
 export const ZOOM_PINCH_GAIN = 0.01;
-
-// Max length of a status one-liner (issue #85). The input enforces it client
-// side; the server also clamps to this on relay so a crafted message can't
-// flood peers with a huge note.
-export const STATUS_NOTE_MAX_LEN = 40;
-// Return-time presets offered in the status menu, in minutes. `null` = no time.
-export const STATUS_UNTIL_PRESETS_MIN = [15, 30, 60] as const;
-
-// Format an absolute return time (epoch ms) as local HH:MM, or '' when there's
-// no time or it has already passed. Pure so the label logic is unit-testable;
-// each client formats with its own clock (minor skew is fine for a "戻り時刻").
-export function formatUntil(until: number | null | undefined, now = Date.now()): string {
-  if (until == null || until <= now) return '';
-  const d = new Date(until);
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${hh}:${mm}`;
-}
 
 // Emoji reactions (issue #23). The toolbar offers these as buttons and number
 // keys 1–6 map to them in order; the server validates against the same list

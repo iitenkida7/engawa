@@ -49,47 +49,11 @@ export function normalizeName(name: unknown): string {
   return (typeof name === 'string' && name ? name : 'anon').slice(0, 24);
 }
 
-/** Max length (chars) of a single chat message after trimming. */
-export const CHAT_MAX_LENGTH = 500;
-
-/**
- * Normalize an incoming chat message: coerce to string, trim surrounding
- * whitespace, and cap length. Non-string or empty-after-trim input yields ''
- * (the caller drops empty messages). The browser renders chat with textContent,
- * so HTML is never interpreted; this only guards length and type.
- */
-export function normalizeChatText(raw: unknown): string {
-  if (typeof raw !== 'string') return '';
-  return raw.trim().slice(0, CHAT_MAX_LENGTH);
-}
-
-/** Max length (chars) of a status one-liner. Mirrors STATUS_NOTE_MAX_LEN on the client. */
-export const STATUS_NOTE_MAX_LENGTH = 40;
-
-/**
- * Normalize a status one-liner (#85): coerce to string, trim, cap length. Non-
- * string or empty-after-trim input yields '' (no note). Like chat, the browser
- * renders it with textContent, so this only guards length and type.
- */
-export function normalizeStatusNote(raw: unknown): string {
-  if (typeof raw !== 'string') return '';
-  return raw.trim().slice(0, STATUS_NOTE_MAX_LENGTH);
-}
-
-/**
- * Normalize a status return time (#85): a finite positive epoch-ms number, else
- * null (no return time). The server doesn't interpret it — clients format and
- * auto-clear — so this only rejects garbage so peers get a clean number|null.
- */
-export function normalizeUntil(raw: unknown): number | null {
-  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : null;
-}
-
 /**
  * Valid player statuses. Mirrors PlayerStatus in types.ts. Used to enum-check
  * an incoming status so a malformed value can't propagate to peers.
  */
-export const PLAYER_STATUSES = ['online', 'busy', 'away', 'meeting', 'break'] as const;
+export const PLAYER_STATUSES = ['online', 'busy', 'away'] as const;
 
 /**
  * Normalize an incoming player status: keep it only when it's one of the known

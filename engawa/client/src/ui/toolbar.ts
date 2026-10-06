@@ -255,6 +255,16 @@ export class ToolbarController {
     this.broadcastStatus();
   }
 
+  // Turn off every local media capture at once (mic, cam, screen). Used when
+  // stepping away (#220), which disconnects all calls — same teardown as the
+  // individual buttons, then one status broadcast reflects the all-off state.
+  disableAllMedia() {
+    if (this.media.micOn) this.stopMic();
+    if (this.media.camOn) this.stopCam();
+    this.stopScreenShare();
+    this.broadcastStatus();
+  }
+
   // Programmatic screen-share stop for audio-only mode (#188): same teardown as
   // the button / the OS "stop sharing" bar.
   stopScreenShare() {
