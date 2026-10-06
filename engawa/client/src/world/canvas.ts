@@ -44,11 +44,20 @@ const PALETTE = {
   wallShadow: 'rgba(120,105,80,0.20)',
   wallSeam: 'rgba(150,136,110,0.4)',
   deskTop: '#fbfbf9',
+  deskTopHi: '#ffffff',
   deskEdge: '#d8c6a4',
   monitor: '#3b414c',
   monitorScreen: '#6f93a3',
+  screenGlow: '#a3c3d1',
+  keyboard: '#e2e6e0',
+  mouse: '#cfd3cd',
   tableTop: '#f4efe6', // meeting-table surface (warm off-white)
+  tableTopHi: '#fbf7ef', // lighter top of the surface gradient
+  tableEdge2: '#cdbb96', // table side/thickness (darker wood)
+  tableGrain: 'rgba(170,150,110,0.16)',
+  tableHi: 'rgba(255,255,255,0.4)',
   chair: '#8f9c8a', // sage-gray chairs around meeting tables
+  chairBack: '#76836f', // chair backrest (a touch darker)
   pot: '#c98a5e',
   potShade: '#b2764a',
   leaf: '#7d9b6a',
@@ -60,8 +69,12 @@ const PALETTE = {
   loungeRugEdge: 'rgba(125,155,106,0.5)',
   sofa: '#9aa7b8',
   sofaShade: '#7f8da0',
-  coffeeTable: '#b98b63',
-  coffeeTableTop: '#caa078',
+  sofaBack: '#78879b',
+  sofaArm: '#8b98aa',
+  sofaHi: '#b2bdcb',
+  coffeeTable: '#a9774f',
+  coffeeTableTop: '#c79b70',
+  coffeeTableHi: '#dcbb95',
   // Faint tile grid drawn on every floor, and a soft shadow under furniture, for
   // a tidy "game floor" look with a little depth.
   floorGrid: 'rgba(90,75,50,0.07)',
@@ -555,16 +568,44 @@ export class CanvasRenderer {
   // A meeting room's furniture: a table with chairs around it (every room,
   // including the president's office).
   private drawRoomFurniture(cx: CanvasRenderingContext2D, f: RoomFurniture) {
-    // Chairs first (behind the table), then the table top over the rug.
+    // Chairs first (behind the table), then the table over the rug.
     this.drawChairs(cx, f);
     const inset = 7;
-    // Soft shadow under the table.
-    this.softShadow(cx, f.x + f.w / 2, f.y + f.h - inset + 3, f.w / 2 - inset, 7);
-    this.roundRect(cx, f.x + inset, f.y + inset, f.w - inset * 2, f.h - inset * 2, 8);
-    cx.fillStyle = PALETTE.tableTop;
+    const x = f.x + inset;
+    const y = f.y + inset;
+    const w = f.w - inset * 2;
+    const h = f.h - inset * 2;
+    const r = 9;
+    // Drop shadow under the whole table.
+    this.softShadow(cx, f.x + f.w / 2, y + h + 2, w / 2, 8);
+    // Table side/thickness: a darker rounded slab offset down a few px.
+    this.roundRect(cx, x, y + 3, w, h, r);
+    cx.fillStyle = PALETTE.tableEdge2;
     cx.fill();
+    // Top surface with a soft top-to-bottom gradient (a hint of sheen).
+    const g = cx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, PALETTE.tableTopHi);
+    g.addColorStop(1, PALETTE.tableTop);
+    this.roundRect(cx, x, y, w, h, r);
+    cx.fillStyle = g;
+    cx.fill();
+    // Faint wood grain across the surface.
+    cx.strokeStyle = PALETTE.tableGrain;
+    cx.lineWidth = 1;
+    for (let gy = y + 9; gy < y + h - 4; gy += 9) {
+      cx.beginPath();
+      cx.moveTo(x + 6, gy + 0.5);
+      cx.lineTo(x + w - 6, gy + 0.5);
+      cx.stroke();
+    }
+    // Inner top highlight, then the outer rim.
+    cx.strokeStyle = PALETTE.tableHi;
+    cx.lineWidth = 1.5;
+    this.roundRect(cx, x + 1.5, y + 1.5, w - 3, h - 3, r - 1);
+    cx.stroke();
     cx.strokeStyle = PALETTE.deskEdge;
     cx.lineWidth = 1;
+    this.roundRect(cx, x, y, w, h, r);
     cx.stroke();
   }
 
@@ -574,20 +615,37 @@ export class CanvasRenderer {
     const chair = 15;
     const gap = 5;
     const cols = Math.max(1, Math.round(f.w / TILE_SIZE));
-    cx.fillStyle = PALETTE.chair;
     for (let i = 0; i < cols; i++) {
       const cxp = f.x + (i + 0.5) * (f.w / cols);
       const topY = f.y - gap - chair;
-      if (topY >= f.iy) {
-        this.roundRect(cx, cxp - chair / 2, topY, chair, chair, 4);
-        cx.fill();
-      }
+      // Backrest sits on the far side from the table (top chairs: top edge).
+      if (topY >= f.iy) this.drawOfficeChair(cx, cxp, topY, chair, 'top');
       const botY = f.y + f.h + gap;
-      if (botY + chair <= f.iy + f.ih) {
-        this.roundRect(cx, cxp - chair / 2, botY, chair, chair, 4);
-        cx.fill();
-      }
+      if (botY + chair <= f.iy + f.ih) this.drawOfficeChair(cx, cxp, botY, chair, 'bottom');
     }
+  }
+
+  // A simple chair: a seat with a backrest bar on `back` side (the side away from
+  // the table) and a soft shadow, so it reads as a chair rather than a square.
+  private drawOfficeChair(
+    cx: CanvasRenderingContext2D,
+    cxp: number,
+    top: number,
+    size: number,
+    back: 'top' | 'bottom',
+  ) {
+    const backH = size * 0.3;
+    this.softShadow(cx, cxp, top + size + 1, size / 2, 3);
+    // Backrest.
+    cx.fillStyle = PALETTE.chairBack;
+    const backY = back === 'top' ? top : top + size - backH;
+    this.roundRect(cx, cxp - size / 2, backY, size, backH, 3);
+    cx.fill();
+    // Seat.
+    cx.fillStyle = PALETTE.chair;
+    const seatY = back === 'top' ? top + backH - 2 : top;
+    this.roundRect(cx, cxp - size / 2 + 1, seatY, size - 2, size - backH + 2, 3);
+    cx.fill();
   }
 
   // The lounge: a round coffee table with sofas on each side. Purely cosmetic
@@ -605,29 +663,98 @@ export class CanvasRenderer {
     cx.lineWidth = 2;
     cx.stroke();
 
-    // Sofas: one on the left and one on the right of the coffee table, facing in.
-    const sofaW = 16;
-    const sofaH = 52;
-    const drawSofa = (sx: number) => {
-      this.roundRect(cx, sx, cyp - sofaH / 2, sofaW, sofaH, 6);
-      cx.fillStyle = PALETTE.sofa;
-      cx.fill();
-      cx.fillStyle = PALETTE.sofaShade;
-      cx.fillRect(sx, cyp - sofaH / 2 + sofaH - 5, sofaW, 5);
-    };
-    drawSofa(f.x + 16);
-    drawSofa(f.x + f.w - 16 - sofaW);
+    // Long, thin rectangular coffee table in the middle.
+    const tw = f.w * 0.46;
+    const th = f.h * 0.2;
+    const tx = cxp - tw / 2;
+    const ty = cyp - th / 2;
 
-    // Round coffee table in the middle (with a soft shadow).
-    this.softShadow(cx, cxp, cyp + 20, 22, 7);
-    cx.beginPath();
-    cx.arc(cxp, cyp, 20, 0, Math.PI * 2);
+    // Sofas tucked right up to the table on all four sides, facing in: 2-seaters
+    // left/right, 4-seaters top/bottom. Offset = half the table + half the sofa
+    // thickness (9) + a small gap.
+    const near = 9 + 14;
+    this.drawCouch(cx, cxp - tw / 2 - near, cyp, 'right', 54);
+    this.drawCouch(cx, cxp + tw / 2 + near, cyp, 'left', 54);
+    this.drawCouch(cx, cxp, cyp - th / 2 - near, 'down', 150);
+    this.drawCouch(cx, cxp, cyp + th / 2 + near, 'up', 150);
+
+    // Table surface: thickness, lit top, rim.
+    this.softShadow(cx, cxp, ty + th + 2, tw / 2, 6);
+    this.roundRect(cx, tx, ty + 3, tw, th, 6); // side/thickness
     cx.fillStyle = PALETTE.coffeeTable;
     cx.fill();
-    cx.beginPath();
-    cx.arc(cxp, cyp, 14, 0, Math.PI * 2);
-    cx.fillStyle = PALETTE.coffeeTableTop;
+    const tg = cx.createLinearGradient(0, ty, 0, ty + th);
+    tg.addColorStop(0, PALETTE.coffeeTableHi);
+    tg.addColorStop(1, PALETTE.coffeeTableTop);
+    this.roundRect(cx, tx, ty, tw, th, 6);
+    cx.fillStyle = tg;
     cx.fill();
+    cx.strokeStyle = PALETTE.coffeeTable;
+    cx.lineWidth = 1;
+    this.roundRect(cx, tx, ty, tw, th, 6);
+    cx.stroke();
+  }
+
+  // A couch centred at (cxc, cyc) facing toward the coffee table. `len` is its
+  // long dimension (so 150 ≈ a 4-seater, 54 ≈ a 2-seater). Backrest on the far
+  // side, arm caps at both ends, evenly-spaced seat cushions, and a soft shadow.
+  private drawCouch(
+    cx: CanvasRenderingContext2D,
+    cxc: number,
+    cyc: number,
+    facing: 'left' | 'right' | 'up' | 'down',
+    len: number,
+  ) {
+    const thick = 18;
+    const backW = 6;
+    const arm = 7;
+    const horizontal = facing === 'up' || facing === 'down';
+    const w = horizontal ? len : thick;
+    const h = horizontal ? thick : len;
+    const x = cxc - w / 2;
+    const y = cyc - h / 2;
+    this.softShadow(cx, cxc, y + h + 1, w / 2, 4);
+    // Base.
+    this.roundRect(cx, x, y, w, h, 6);
+    cx.fillStyle = PALETTE.sofa;
+    cx.fill();
+    // Backrest on the far side from the table.
+    cx.fillStyle = PALETTE.sofaBack;
+    if (facing === 'right') this.roundRect(cx, x, y, backW, h, 5);
+    else if (facing === 'left') this.roundRect(cx, x + w - backW, y, backW, h, 5);
+    else if (facing === 'down') this.roundRect(cx, x, y, w, backW, 5);
+    else this.roundRect(cx, x, y + h - backW, w, backW, 5);
+    cx.fill();
+    // Arm caps at the two ends.
+    cx.fillStyle = PALETTE.sofaArm;
+    if (horizontal) {
+      this.roundRect(cx, x, y, arm, h, 5);
+      cx.fill();
+      this.roundRect(cx, x + w - arm, y, arm, h, 5);
+      cx.fill();
+    } else {
+      this.roundRect(cx, x, y, w, arm, 5);
+      cx.fill();
+      this.roundRect(cx, x, y + h - arm, w, arm, 5);
+      cx.fill();
+    }
+    // Evenly-spaced seat cushions along the long axis, on the seat side.
+    const avail = len - arm * 2;
+    const n = Math.max(2, Math.round(avail / 30));
+    const step = avail / n;
+    cx.fillStyle = PALETTE.sofaHi;
+    for (let k = 0; k < n; k++) {
+      if (horizontal) {
+        const cxk = x + arm + k * step;
+        const cyk = facing === 'down' ? y + backW + 1 : y + 1;
+        this.roundRect(cx, cxk + 1, cyk, step - 2, thick - backW - 2, 3);
+      } else {
+        const cyk = y + arm + k * step;
+        const cxk = facing === 'right' ? x + backW + 1 : x + 1;
+        this.roundRect(cx, cxk, cyk + 1, thick - backW - 2, step - 2, 3);
+      }
+      cx.fill();
+    }
   }
 
   // A wall-mounted whiteboard along the top interior edge of a meeting room, with
@@ -858,27 +985,49 @@ export class CanvasRenderer {
   ) {
     const S = TILE_SIZE;
     const pad = 5;
-    this.softShadow(cx, tx + S / 2, ty + S - pad + 1, S / 2 - pad + 1, 5);
+    const cxm = tx + S / 2;
+    this.softShadow(cx, cxm, ty + S - pad + 1, S / 2 - pad + 1, 5);
+    // Desk: thickness slab, then a gradient top and rim.
+    this.roundRect(cx, tx + pad, ty + pad + 2, S - pad * 2, S - pad * 2, 6);
+    cx.fillStyle = PALETTE.deskEdge;
+    cx.fill();
+    const dg = cx.createLinearGradient(0, ty + pad, 0, ty + S - pad);
+    dg.addColorStop(0, PALETTE.deskTopHi);
+    dg.addColorStop(1, PALETTE.deskTop);
     this.roundRect(cx, tx + pad, ty + pad, S - pad * 2, S - pad * 2, 6);
-    cx.fillStyle = PALETTE.deskTop;
+    cx.fillStyle = dg;
     cx.fill();
     cx.strokeStyle = PALETTE.deskEdge;
     cx.lineWidth = 1;
     cx.stroke();
-    // Monitor: near the far edge from the seat — top when facing up (default),
-    // bottom when flipped to face down.
-    const mw = S * 0.44;
-    const mh = S * 0.26;
-    const mx = tx + S / 2 - mw / 2;
+
+    // Monitor (screen + stand) near the far edge; keyboard + mouse on the seat
+    // side (top when the desk is flipped to face south).
+    const mw = S * 0.4;
+    const mh = S * 0.2;
+    const mx = cxm - mw / 2;
     const my = facesSouth ? ty + S - pad - 3 - mh : ty + pad + 3;
+    // Stand: a neck and base on the seat side of the screen.
     cx.fillStyle = PALETTE.monitor;
-    cx.fillRect(mx, my, mw, mh);
-    cx.fillStyle = PALETTE.monitorScreen;
+    cx.fillRect(cxm - 1.5, facesSouth ? my - 4 : my + mh, 3, 4);
+    cx.fillRect(cxm - 5, facesSouth ? my - 6 : my + mh + 4, 10, 2);
+    // Screen with a soft glow.
+    this.roundRect(cx, mx, my, mw, mh, 2);
+    cx.fillStyle = PALETTE.monitor;
+    cx.fill();
+    const sg = cx.createLinearGradient(0, my, 0, my + mh);
+    sg.addColorStop(0, PALETTE.screenGlow);
+    sg.addColorStop(1, PALETTE.monitorScreen);
+    cx.fillStyle = sg;
     cx.fillRect(mx + 2, my + 2, mw - 4, mh - 4);
-    // Keyboard hint: on the seat side (opposite the monitor).
-    const ky = facesSouth ? ty + pad + S * 0.07 : ty + S - pad - S * 0.16;
-    cx.fillStyle = PALETTE.deskEdge;
-    cx.fillRect(tx + S / 2 - S * 0.2, ky, S * 0.4, S * 0.09);
+    // Keyboard + mouse on the seat side.
+    const ky = facesSouth ? ty + pad + 4 : ty + S - pad - 10;
+    cx.fillStyle = PALETTE.keyboard;
+    this.roundRect(cx, cxm - S * 0.22, ky, S * 0.34, 6, 2);
+    cx.fill();
+    cx.fillStyle = PALETTE.mouse;
+    this.roundRect(cx, cxm + S * 0.16, ky + 1, 4, 5, 2);
+    cx.fill();
   }
 
   // A chair just in front of an open-office desk. Default: below the desk (the
@@ -886,11 +1035,9 @@ export class CanvasRenderer {
   // down). Same sage rounded seat as the meeting chairs, for consistency.
   private drawDeskChair(cx: CanvasRenderingContext2D, tx: number, ty: number, facesSouth = false) {
     const S = TILE_SIZE;
-    const chair = 15;
-    const chairY = facesSouth ? ty - chair + 6 : ty + S - 6;
-    cx.fillStyle = PALETTE.chair;
-    this.roundRect(cx, tx + S / 2 - chair / 2, chairY, chair, chair, 4);
-    cx.fill();
+    const size = 16;
+    const top = facesSouth ? ty - size + 6 : ty + S - 6;
+    this.drawOfficeChair(cx, tx + S / 2, top, size, facesSouth ? 'top' : 'bottom');
   }
 
   // Sage plant in a terracotta pot: a small trapezoid pot with a cluster of
