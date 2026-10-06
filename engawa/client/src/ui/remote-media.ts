@@ -11,14 +11,13 @@ import {
 import { AutoplayGate } from '@/ui/autoplay';
 import {
   applyPanelGeometry,
-  bindCamAspect,
+  CAM_ASPECT,
   computeFocusLayout,
   computeGridLayout,
   computePresentationLayout,
   computeSidebarLayout,
   type LayoutItem,
   type LayoutMode,
-  readCamAspect,
 } from '@/ui/panels';
 import type { PlayerState } from '@/world/player';
 
@@ -158,9 +157,6 @@ export class RemoteMediaView {
     this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
 
-    // Lock the self-preview window to the live camera's aspect ratio; its
-    // position/size come from reflowLayout (it joins the grid like any tile).
-    bindCamAspect(this.selfPreviewEl, this.selfVideoEl);
     // The self preview is static markup, so its maximize button is added here;
     // dynamic panels get theirs at creation.
     this.selfPreviewEl.dataset.focusKey = 'self';
@@ -417,8 +413,6 @@ export class RemoteMediaView {
     video.playsInline = true;
     video.style.display = 'none';
     body.appendChild(video);
-    // Lock the window to this camera's aspect ratio.
-    bindCamAspect(container, video);
 
     const placeholder = document.createElement('div');
     placeholder.className = 'no-video';
@@ -812,14 +806,14 @@ export class RemoteMediaView {
     for (const [userId, tile] of this.remoteTiles) {
       panels.push({
         el: tile.container,
-        item: { aspectLocked: true, aspect: readCamAspect(tile.container) },
+        item: { aspectLocked: true, aspect: CAM_ASPECT },
         key: `cam:${userId}`,
       });
     }
     if (!this.selfPreviewEl.classList.contains('hidden')) {
       panels.push({
         el: this.selfPreviewEl,
-        item: { aspectLocked: true, aspect: readCamAspect(this.selfPreviewEl) },
+        item: { aspectLocked: true, aspect: CAM_ASPECT },
         key: 'self',
       });
     }

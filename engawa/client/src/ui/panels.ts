@@ -30,17 +30,11 @@ export type PanelGeometry = {
   height: number | null;
 };
 
-// Reads the camera aspect ratio stored in --cam-aspect ("w / h"); falls back
-// to 4/3. Used to size aspect-locked camera windows by width.
-export function readCamAspect(el: HTMLElement): number {
-  const v = getComputedStyle(el).getPropertyValue('--cam-aspect').trim();
-  const m = v.match(/([\d.]+)\s*\/\s*([\d.]+)/);
-  if (m) {
-    const r = parseFloat(m[1]) / parseFloat(m[2]);
-    if (r > 0) return r;
-  }
-  return 4 / 3;
-}
+// Fixed aspect ratio for every camera window (tiles + self preview), so the grid
+// stays uniform regardless of each camera's real dimensions. Must match the
+// `aspect-ratio` on .panel-body in index.html. The video fills it (object-fit:
+// cover), so a differently-shaped camera is cropped rather than resizing the tile.
+export const CAM_ASPECT = 16 / 9;
 
 // Writes a computed geometry onto a panel as explicit inline styles. Position +
 // size only; aspect-locked windows leave height unset so it follows the CSS
@@ -177,19 +171,4 @@ export function computePresentationLayout(
     result[idx] = fitInCell(items[idx], stripX, area.y + k * cellH, stripW, cellH);
   });
   return result;
-}
-
-// Keeps a camera panel's --cam-aspect in sync with its live video dimensions,
-// so the aspect-locked window matches the actual camera (and re-adjusts when
-// the device changes). No-op until the video reports real dimensions.
-export function bindCamAspect(panel: HTMLElement, video: HTMLVideoElement) {
-  const update = () => {
-    if (video.videoWidth > 0 && video.videoHeight > 0) {
-      panel.style.setProperty('--cam-aspect', `${video.videoWidth} / ${video.videoHeight}`);
-    }
-  };
-  // loadedmetadata: first frame sized; resize: intrinsic size changed (device switch).
-  video.addEventListener('loadedmetadata', update);
-  video.addEventListener('resize', update);
-  update();
 }

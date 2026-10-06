@@ -612,11 +612,10 @@
         width: 180px;
       }
 
-      /* Camera windows (tiles + self preview) stay locked to the camera's
-         aspect ratio: the layout pins only the width and the height follows the
-         live video's --cam-aspect, so the face is never cropped. --cam-aspect
-         is updated from the real video dimensions in game.ts; 4/3 matches the
-         requested 320x240 capture as a fallback. */
+      /* Camera windows (tiles + self preview) use a FIXED 16:9 aspect so every
+         tile is the same shape and the grid stays tidy regardless of each
+         camera's real dimensions. The video fills the box with object-fit:cover
+         (so it may crop slightly); camera-off placeholders use the same box. */
       .remote-tile,
       #self-preview {
         height: auto;
@@ -625,7 +624,7 @@
       .remote-tile .panel-body,
       #self-preview .panel-body {
         flex: none;
-        aspect-ratio: var(--cam-aspect, 4 / 3);
+        aspect-ratio: 16 / 9;
       }
 
       .remote-tile.speaking {
