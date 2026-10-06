@@ -22,9 +22,8 @@ export class PlayerState implements Player {
   color: string;
   isSelf: boolean;
   status: PlayerStatus = 'online';
-  // Optional status one-liner and return time (epoch ms, null = none) (#85).
+  // Optional status one-liner (#85).
   note = '';
-  until: number | null = null;
   isSpeaking = false;
   isMuted = false;
   isVideoOn = false;

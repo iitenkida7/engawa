@@ -91,21 +91,11 @@ const STR: Record<string, Record<Lang, string>> = {
   'roster.title': { ja: '参加者', en: 'Participants' },
   'roster.chat': { ja: 'チャット', en: 'Chat' },
   'roster.status': { ja: 'ステータス', en: 'Status' },
-  'roster.collapse': { ja: '折りたたむ', en: 'Collapse' },
-  'roster.expand': { ja: '参加者リストを開く', en: 'Open participant list' },
-  'roster.until': { ja: '〜{time}まで', en: 'until ~{time}' },
-  'roster.knock': {
-    ja: '{name} さんにノック（話したいと伝える）',
-    en: "Knock for {name} (let them know you'd like to talk)",
-  },
-  'roster.goto': { ja: '{name} のそばへ移動', en: 'Move next to {name}' },
   // Avatar action menu (click an avatar on the map).
   'avatar.goto': { ja: 'そこへ行く', en: 'Go there' },
   'avatar.knock': { ja: '呼ぶ', en: 'Call' },
   'roster.noteLabel': { ja: '一言メッセージ', en: 'Status message' },
   'roster.notePlaceholder': { ja: '例: ランチ', en: 'e.g. Lunch' },
-  'roster.returnLabel': { ja: '戻り時刻', en: 'Back at' },
-  'roster.minutes': { ja: '{n}分', en: '{n} min' },
 
   // -- status labels --------------------------------------------------------
   'status.online': { ja: '🟢 オンライン', en: '🟢 Online' },

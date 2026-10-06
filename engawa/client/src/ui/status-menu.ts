@@ -6,7 +6,7 @@
 
 import { t } from '@/core/i18n';
 import type { PlayerStatus } from '@/core/types';
-import { STATUS_NOTE_MAX_LEN, STATUS_UNTIL_PRESETS_MIN } from '@/core/types';
+import { STATUS_NOTE_MAX_LEN } from '@/core/types';
 
 // Status → emoji, shown on the toolbar button and next to avatar names on the
 // map. `online` gets an explicit 🟢 so every avatar carries a status mark.
@@ -26,23 +26,19 @@ const STATUS_LABELS: Record<PlayerStatus, string> = {
 export class StatusMenu {
   private getStatus: () => PlayerStatus;
   private getNote: () => string;
-  private getUntilMin: () => number | null;
-  private onSetStatus: (status: PlayerStatus, note: string, untilMin: number | null) => void;
+  private onSetStatus: (status: PlayerStatus, note: string) => void;
 
   private btn: HTMLButtonElement;
   private menu: HTMLDivElement;
   private noteInput: HTMLInputElement | null = null;
-  private untilMinDraft: number | null = null;
 
   constructor(opts: {
     getStatus: () => PlayerStatus;
     getNote: () => string;
-    getUntilMin: () => number | null;
-    onSetStatus: (status: PlayerStatus, note: string, untilMin: number | null) => void;
+    onSetStatus: (status: PlayerStatus, note: string) => void;
   }) {
     this.getStatus = opts.getStatus;
     this.getNote = opts.getNote;
-    this.getUntilMin = opts.getUntilMin;
     this.onSetStatus = opts.onSetStatus;
 
     this.btn = document.getElementById('btn-status') as HTMLButtonElement;
@@ -82,11 +78,10 @@ export class StatusMenu {
     this.menu.style.left = 'auto';
   }
 
-  // Build the menu fresh each open: a one-liner input + return-time presets seed
-  // from the current status as a draft; the status buttons commit it and close.
+  // Build the menu fresh each open: a one-liner input seeded from the current
+  // note; the status buttons commit it and close.
   private populate() {
     this.menu.replaceChildren();
-    this.untilMinDraft = this.getUntilMin();
 
     const noteField = document.createElement('label');
     noteField.className = 'status-field';
@@ -110,33 +105,6 @@ export class StatusMenu {
     noteField.append(noteLabel, note);
     this.menu.appendChild(noteField);
 
-    const untilField = document.createElement('div');
-    untilField.className = 'status-field';
-    const untilLabel = document.createElement('span');
-    untilLabel.className = 'status-field-label';
-    untilLabel.textContent = t('roster.returnLabel');
-    const untilRow = document.createElement('div');
-    untilRow.className = 'status-until-row';
-    const presets: { min: number | null; text: string }[] = [
-      { min: null, text: t('common.none') },
-      ...STATUS_UNTIL_PRESETS_MIN.map((min) => ({ min, text: t('roster.minutes', { n: min }) })),
-    ];
-    for (const preset of presets) {
-      const b = document.createElement('button');
-      b.className = 'status-until-btn';
-      b.textContent = preset.text;
-      if (preset.min === this.untilMinDraft) b.classList.add('selected');
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.untilMinDraft = preset.min;
-        for (const other of untilRow.children) other.classList.remove('selected');
-        b.classList.add('selected');
-      });
-      untilRow.appendChild(b);
-    }
-    untilField.append(untilLabel, untilRow);
-    this.menu.appendChild(untilField);
-
     const divider = document.createElement('div');
     divider.className = 'status-divider';
     this.menu.appendChild(divider);
@@ -156,15 +124,15 @@ export class StatusMenu {
     }
   }
 
-  // Apply the picked status with the draft note/return-time, then close. `online`
-  // clears the note/time so "back online" is a clean reset.
+  // Apply the picked status with the draft note, then close. `online` clears the
+  // note so "back online" is a clean reset.
   private commit(status: PlayerStatus) {
     this.menu.classList.add('hidden');
     if (status === 'online') {
-      this.onSetStatus(status, '', null);
+      this.onSetStatus(status, '');
       return;
     }
     const note = this.noteInput?.value.trim() ?? '';
-    this.onSetStatus(status, note, this.untilMinDraft);
+    this.onSetStatus(status, note);
   }
 }

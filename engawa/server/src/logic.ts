@@ -63,15 +63,6 @@ export function normalizeStatusNote(raw: unknown): string {
 }
 
 /**
- * Normalize a status return time (#85): a finite positive epoch-ms number, else
- * null (no return time). The server doesn't interpret it — clients format and
- * auto-clear — so this only rejects garbage so peers get a clean number|null.
- */
-export function normalizeUntil(raw: unknown): number | null {
-  return typeof raw === 'number' && Number.isFinite(raw) && raw > 0 ? raw : null;
-}
-
-/**
  * Valid player statuses. Mirrors PlayerStatus in types.ts. Used to enum-check
  * an incoming status so a malformed value can't propagate to peers.
  */

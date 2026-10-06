@@ -553,7 +553,6 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       isMuted: true,
       isVideoOn: false,
       note: '',
-      until: null,
     });
   });
 
@@ -578,7 +577,7 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     expect(status.isVideoOn).toBe(false);
   });
 
-  test('relays the status one-liner and return time, normalized (#85)', () => {
+  test('relays the status one-liner, normalized (#85)', () => {
     const sender = makeWs({ workspace: 'ws1', joined: true });
     const peer = makeWs({ workspace: 'ws1', joined: true });
     handler.open!(sender);
@@ -590,7 +589,6 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       isMuted: false,
       isVideoOn: false,
       note: '  ランチ  ',
-      until: 1893456000000,
     });
 
     expect(peer.sent).toContainEqual({
@@ -600,7 +598,6 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       isMuted: false,
       isVideoOn: false,
       note: 'ランチ',
-      until: 1893456000000,
     });
   });
 

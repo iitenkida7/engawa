@@ -15,7 +15,6 @@ import {
   normalizeSfuTracks,
   normalizeStatusNote,
   normalizeStreamId,
-  normalizeUntil,
   normalizeVelocity,
   normalizeWorkspace,
   PROXIMITY_DISCONNECT_RADIUS,
@@ -401,7 +400,6 @@ export function createWebSocketHandler(
               isMuted: normalizeBool(msg.isMuted),
               isVideoOn: normalizeBool(msg.isVideoOn),
               note: normalizeStatusNote(msg.note),
-              until: normalizeUntil(msg.until),
             },
             ws.data.userId,
           );

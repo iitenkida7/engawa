@@ -17,7 +17,6 @@ import {
   normalizeSfuTracks,
   normalizeStatusNote,
   normalizeStreamId,
-  normalizeUntil,
   normalizeVelocity,
   normalizeWorkspace,
   PLAYER_STATUSES,
@@ -151,21 +150,6 @@ describe('normalizeStatusNote', () => {
   test('caps length at STATUS_NOTE_MAX_LENGTH', () => {
     const long = 'あ'.repeat(STATUS_NOTE_MAX_LENGTH + 10);
     expect(normalizeStatusNote(long)).toHaveLength(STATUS_NOTE_MAX_LENGTH);
-  });
-});
-
-describe('normalizeUntil', () => {
-  test('passes through a finite positive epoch ms', () => {
-    expect(normalizeUntil(1893456000000)).toBe(1893456000000);
-  });
-
-  test('rejects non-numbers, non-finite, and non-positive values', () => {
-    expect(normalizeUntil(undefined)).toBeNull();
-    expect(normalizeUntil('soon')).toBeNull();
-    expect(normalizeUntil(Number.NaN)).toBeNull();
-    expect(normalizeUntil(Infinity)).toBeNull();
-    expect(normalizeUntil(0)).toBeNull();
-    expect(normalizeUntil(-5)).toBeNull();
   });
 });
 
