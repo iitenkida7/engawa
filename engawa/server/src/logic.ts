@@ -49,20 +49,6 @@ export function normalizeName(name: unknown): string {
   return (typeof name === 'string' && name ? name : 'anon').slice(0, 24);
 }
 
-/** Max length (chars) of a single chat message after trimming. */
-export const CHAT_MAX_LENGTH = 500;
-
-/**
- * Normalize an incoming chat message: coerce to string, trim surrounding
- * whitespace, and cap length. Non-string or empty-after-trim input yields ''
- * (the caller drops empty messages). The browser renders chat with textContent,
- * so HTML is never interpreted; this only guards length and type.
- */
-export function normalizeChatText(raw: unknown): string {
-  if (typeof raw !== 'string') return '';
-  return raw.trim().slice(0, CHAT_MAX_LENGTH);
-}
-
 /** Max length (chars) of a status one-liner. Mirrors STATUS_NOTE_MAX_LEN on the client. */
 export const STATUS_NOTE_MAX_LENGTH = 40;
 

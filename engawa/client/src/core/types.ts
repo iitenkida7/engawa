@@ -58,9 +58,6 @@ export type ClientMessage =
   // the elected initiator to rebuild it (only the initiator can send the fresh
   // offer). Relayed 1:1 like signal.
   | { type: 'rtc-restart'; to: string }
-  // A chat line, relayed to the sender's current proximity group (the people
-  // they're in a call with), so text stays spatial. The server keeps no history.
-  | { type: 'chat'; text: string }
   // A knock (call request) and its accept/decline reply, both relayed 1:1.
   | { type: 'knock'; to: string }
   | { type: 'knock-reply'; to: string; accept: boolean }
@@ -111,9 +108,6 @@ export type ServerMessage =
   | { type: 'stream-meta'; from: string; streamId: string; kind: StreamKind | 'removed' }
   // A group peer asks us (their elected initiator) to rebuild the mesh pair.
   | { type: 'rtc-restart'; from: string }
-  // A chat line from a proximity-group peer (from === self when it's the echo
-  // of our own message). `name` is the sender's display name; `ts` is server ms.
-  | { type: 'chat'; from: string; name: string; text: string; ts: number }
   // An incoming knock, and the reply to a knock we sent.
   | { type: 'knock'; from: string; name: string }
   | { type: 'knock-reply'; from: string; name: string; accept: boolean }

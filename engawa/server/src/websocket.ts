@@ -9,7 +9,6 @@ import {
   MAP_HEIGHT,
   MAP_WIDTH,
   normalizeBool,
-  normalizeChatText,
   normalizeName,
   normalizePlayerStatus,
   normalizeResumeToken,
@@ -82,21 +81,6 @@ function playerFromWs(ws: ServerWebSocket<WsData>): Player {
     y: ws.data.y,
     outfit: ws.data.outfit,
   };
-}
-
-// The member ids of the proximity group this connection currently belongs to,
-// read straight off the last group signature the server sent it
-// (groupKey = "<method>:<id1>,<id2>,..."). broadcastGroups keeps groupKey in
-// sync on every join / move / close, so it is the authoritative current group —
-// crucially including the open-floor hysteresis (connect 120px, disconnect
-// 150px) and the SFU latch that a fresh, option-less computeProximityGroups
-// would drop, silently splitting a pair still held together in the same call.
-// Always includes this user, so a solo speaker still sees their own chat echo.
-function groupMemberIdsOf(ws: ServerWebSocket<WsData>): string[] {
-  const key = ws.data.groupKey;
-  if (!key) return [ws.data.userId];
-  const sep = key.indexOf(':');
-  return sep < 0 ? [ws.data.userId] : key.slice(sep + 1).split(',');
 }
 
 // Recompute one workspace's proximity groups and notify every client whose
@@ -505,27 +489,6 @@ export function createWebSocketHandler(
             streamId,
             kind: msg.kind,
           });
-          break;
-        }
-
-        case 'chat': {
-          if (!ws.data.joined) return;
-          const text = normalizeChatText(msg.text);
-          if (!text) return;
-          // Scope to the sender's proximity group so chat stays spatial; the
-          // group always includes the sender, so they see their own line too.
-          const memberIds = groupMemberIdsOf(ws);
-          const out: ServerMessage = {
-            type: 'chat',
-            from: ws.data.userId,
-            name: ws.data.name,
-            text,
-            ts: Date.now(),
-          };
-          for (const id of memberIds) {
-            const c = clients.get(id);
-            if (c?.data.joined) send(c, out);
-          }
           break;
         }
 

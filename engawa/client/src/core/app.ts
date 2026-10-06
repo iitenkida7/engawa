@@ -60,7 +60,6 @@ import { partitionMembers, SFU_REBUILD_MIN_INTERVAL_MS } from '@/rtc/sfu-logic';
 import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
-import { ChatPanel } from '@/ui/chat';
 import { DebugConsole } from '@/ui/debug-console';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
@@ -95,7 +94,6 @@ export class App {
   private view: RemoteMediaView;
   private toolbar: ToolbarController;
   private roster: RosterPanel;
-  private chat: ChatPanel;
   private debug: DebugConsole;
   private toasts = new Toasts();
   private sounds = new SoundManager();
@@ -404,12 +402,8 @@ export class App {
       onSetStatus: (status, note, untilMin) => this.setStatus(status, note, untilMin),
     });
 
-    this.chat = new ChatPanel({
-      onSend: (text) => this.net.send({ type: 'chat', text }),
-    });
-
     // Knock (call-request) feature: owns its own pending/cooldown state. App
-    // forwards roster clicks and the knock/knock-reply server messages here.
+    // forwards avatar clicks and the knock/knock-reply server messages here.
     this.knocks = new KnockController({
       players: this.players,
       send: (msg) => this.net.send(msg),
@@ -1107,15 +1101,6 @@ export class App {
       }
       case 'group-update': {
         this.applyGroupMethod(msg.method, msg.members);
-        break;
-      }
-      case 'chat': {
-        this.chat.addMessage({
-          from: msg.from,
-          name: msg.name,
-          text: msg.text,
-          isSelf: msg.from === this.myId,
-        });
         break;
       }
       case 'reaction': {

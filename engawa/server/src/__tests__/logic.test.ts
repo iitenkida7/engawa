@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  CHAT_MAX_LENGTH,
   clampPosition,
   computeProximityGroups,
   type GroupMember,
@@ -12,7 +11,6 @@ import {
   MAP_WIDTH,
   MAX_VELOCITY,
   normalizeBool,
-  normalizeChatText,
   normalizeIceServers,
   normalizeName,
   normalizePlayerStatus,
@@ -136,27 +134,6 @@ describe('normalizeStreamId', () => {
   test('accepts an id exactly at the length cap', () => {
     const id = 'x'.repeat(STREAM_ID_MAX_LENGTH);
     expect(normalizeStreamId(id)).toBe(id);
-  });
-});
-
-describe('normalizeChatText', () => {
-  test('trims surrounding whitespace', () => {
-    expect(normalizeChatText('  hello  ')).toBe('hello');
-  });
-
-  test('returns empty for non-string input', () => {
-    expect(normalizeChatText(undefined)).toBe('');
-    expect(normalizeChatText(123)).toBe('');
-    expect(normalizeChatText(null)).toBe('');
-  });
-
-  test('returns empty for whitespace-only input', () => {
-    expect(normalizeChatText('   ')).toBe('');
-  });
-
-  test('caps length at CHAT_MAX_LENGTH', () => {
-    const long = 'a'.repeat(CHAT_MAX_LENGTH + 50);
-    expect(normalizeChatText(long)).toHaveLength(CHAT_MAX_LENGTH);
   });
 });
 
