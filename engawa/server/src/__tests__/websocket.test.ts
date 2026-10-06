@@ -586,7 +586,7 @@ describe('createWebSocketHandler — status & stream-meta', () => {
 
     deliver(handler, sender, {
       type: 'status',
-      status: 'break',
+      status: 'away',
       isMuted: false,
       isVideoOn: false,
       note: '  ランチ  ',
@@ -596,7 +596,7 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     expect(peer.sent).toContainEqual({
       type: 'player-status',
       userId: sender.data.userId,
-      status: 'break',
+      status: 'away',
       isMuted: false,
       isVideoOn: false,
       note: 'ランチ',

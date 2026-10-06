@@ -14,17 +14,13 @@ export const STATUS_EMOJI: Record<PlayerStatus, string> = {
   online: '🟢',
   busy: '🔴',
   away: '🟡',
-  meeting: '🤝',
-  break: '☕',
 };
 
-const STATUS_ORDER: PlayerStatus[] = ['online', 'busy', 'away', 'meeting', 'break'];
+const STATUS_ORDER: PlayerStatus[] = ['online', 'busy', 'away'];
 const STATUS_LABELS: Record<PlayerStatus, string> = {
   online: t('status.online'),
   busy: t('status.busy'),
   away: t('status.away'),
-  meeting: t('status.meeting'),
-  break: t('status.break'),
 };
 
 export class StatusMenu {

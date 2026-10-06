@@ -75,7 +75,7 @@ export function normalizeUntil(raw: unknown): number | null {
  * Valid player statuses. Mirrors PlayerStatus in types.ts. Used to enum-check
  * an incoming status so a malformed value can't propagate to peers.
  */
-export const PLAYER_STATUSES = ['online', 'busy', 'away', 'meeting', 'break'] as const;
+export const PLAYER_STATUSES = ['online', 'busy', 'away'] as const;
 
 /**
  * Normalize an incoming player status: keep it only when it's one of the known

@@ -33,7 +33,7 @@ export type GroupMethod = 'mesh' | 'sfu';
 // can pull each other (kind → Cloudflare trackName).
 export type SfuTrack = { kind: StreamKind; trackName: string };
 
-export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
+export type PlayerStatus = 'online' | 'busy' | 'away';
 
 export type ClientMessage =
   // `workspace` is legacy (single-space now); the client no longer sends it and

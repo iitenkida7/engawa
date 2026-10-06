@@ -111,8 +111,6 @@ const STR: Record<string, Record<Lang, string>> = {
   'status.online': { ja: '🟢 オンライン', en: '🟢 Online' },
   'status.busy': { ja: '🔴 取り込み中', en: '🔴 Busy' },
   'status.away': { ja: '🟡 離席中', en: '🟡 Away' },
-  'status.meeting': { ja: '🤝 商談中', en: '🤝 In a meeting' },
-  'status.break': { ja: '☕ 休憩中', en: '☕ On a break' },
 
   // -- toolbar buttons (state-dependent labels) -----------------------------
   'toolbar.micOn': { ja: '🎤 ON', en: '🎤 On' },

@@ -22,7 +22,7 @@ export type GroupMethod = 'mesh' | 'sfu';
 // directory the server relays so peers can pull each other.
 export type SfuTrack = { kind: StreamKind; trackName: string };
 
-export type PlayerStatus = 'online' | 'busy' | 'away' | 'meeting' | 'break';
+export type PlayerStatus = 'online' | 'busy' | 'away';
 
 export type ClientMessage =
   // Single-space now: the client no longer sends `workspace`. `password` is only
