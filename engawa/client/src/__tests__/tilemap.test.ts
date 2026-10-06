@@ -94,7 +94,7 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
   // rooms + four negotiation booths).
   const roomSamples: { col: number; row: number }[] = [
     { col: 1, row: 1 }, // 社長室
-    { col: 6, row: 1 }, // 大会議室
+    { col: 9, row: 1 }, // 大会議室 (corner tiles now hold plants)
     { col: 19, row: 1 }, // 会議室1
     { col: 24, row: 1 }, // 会議室2
     { col: 29, row: 1 }, // 会議室3

@@ -274,6 +274,17 @@ export const ROOM_FURNITURE: RoomFurniture[] = ROOMS.map((room) => {
   };
 });
 
+// Interior pixel rects of the meeting rooms (all-hands + meeting-N), for the
+// renderer to add a wall whiteboard and a filing cabinet.
+export const MEETING_ROOM_RECTS = ROOMS.filter(
+  (room) => room.id === 'all-hands' || room.id.startsWith('meeting'),
+).map((room) => ({
+  x: room.c * TILE_SIZE,
+  y: room.r * TILE_SIZE,
+  w: room.w * TILE_SIZE,
+  h: room.h * TILE_SIZE,
+}));
+
 // 26 open-office seats grouped into team "islands" (pods) instead of uniform
 // benches. Within a pod the two desk-rows are adjacent and face each other: the
 // upper row faces south (monitor flipped down, chair above), the lower faces
@@ -282,10 +293,10 @@ export const ROOM_FURNITURE: RoomFurniture[] = ROOMS.map((room) => {
 //   Bottom pod-row (desks on rows 14/15): two 4-seat islands + one 6-seat island.
 const OPEN_DESKS: [number, number][] = [
   // ── Top row: four 4-seat pods (upper desk row 8 faces south, row 9 north) ──
-  [3, 8],
   [4, 8],
-  [3, 9],
+  [5, 8],
   [4, 9],
+  [5, 9],
   [11, 8],
   [12, 8],
   [11, 9],
@@ -334,13 +345,23 @@ export function deskFacesSouth(col: number, row: number): boolean {
 // (Design is a placeholder — easy to restyle later.)
 export const LOUNGE = { c: 24, r: 12, w: 7, h: 5 } as const;
 
-// A little greenery down the open floor's sides and center.
+// Greenery dotted around the open floor — along the side walls and in the aisles
+// between the pod rugs. Kept off the island rugs, the central spawn path, the
+// lounge, and the room doorways so nothing blocks movement.
 const OPEN_PLANTS: [number, number][] = [
-  [2, 9],
-  [31, 9],
-  [2, 16],
-  [31, 16],
-  [16, 17],
+  [1, 7],
+  [1, 12],
+  [1, 18],
+  [32, 7],
+  [32, 12],
+  [32, 18],
+  [8, 11],
+  [25, 11],
+  // All-hands room corners (interior cols 6-17, rows 1-4) — a little greenery.
+  [6, 1],
+  [17, 1],
+  [6, 4],
+  [17, 4],
 ];
 
 function buildOfficeMap(): number[][] {
@@ -393,6 +414,28 @@ export const LOUNGE_RECT = {
   w: LOUNGE.w * TILE_SIZE,
   h: LOUNGE.h * TILE_SIZE,
 };
+
+// Team-island (pod) footprints as [colStart, colEnd, rowStart, rowEnd], mirroring
+// OPEN_DESKS. The renderer draws a soft accent rug under each so the desk clusters
+// read as team neighbourhoods (Gather-like).
+const PODS: [number, number, number, number][] = [
+  [4, 5, 8, 9],
+  [11, 12, 8, 9],
+  [19, 20, 8, 9],
+  [27, 28, 8, 9],
+  [5, 6, 14, 15],
+  [11, 12, 14, 15],
+  [18, 20, 14, 15],
+];
+
+// Pixel rects for the pod rugs: the desk block plus a full one-tile border all
+// around (so a 2×2 desk pod sits on a 4×4 rug).
+export const POD_RUGS = PODS.map(([cs, ce, rs, re]) => ({
+  x: (cs - 1) * TILE_SIZE,
+  y: (rs - 1) * TILE_SIZE,
+  w: (ce - cs + 3) * TILE_SIZE,
+  h: (re - rs + 3) * TILE_SIZE,
+}));
 
 /**
  * Named meeting-room zone. Rooms act as isolated call bubbles: everyone inside

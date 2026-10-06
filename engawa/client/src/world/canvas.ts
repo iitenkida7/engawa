@@ -12,14 +12,16 @@ import {
   ZOOM_WHEEL_GAIN,
 } from '@/core/types';
 import { CharacterSheet } from '@/world/character';
-import { floorKindAt, propFor } from '@/world/decor';
+import { floorKindAt, propFor, type RoomKind, roomKindAt } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import {
   deskFacesSouth,
   LOUNGE_RECT,
   MAP_COLS,
   MAP_ROWS,
+  MEETING_ROOM_RECTS,
   officeMap,
+  POD_RUGS,
   ROOM_FURNITURE,
   type RoomFurniture,
   TILE_SIZE,
@@ -42,11 +44,20 @@ const PALETTE = {
   wallShadow: 'rgba(120,105,80,0.20)',
   wallSeam: 'rgba(150,136,110,0.4)',
   deskTop: '#fbfbf9',
+  deskTopHi: '#ffffff',
   deskEdge: '#d8c6a4',
   monitor: '#3b414c',
   monitorScreen: '#6f93a3',
+  screenGlow: '#a3c3d1',
+  keyboard: '#e2e6e0',
+  mouse: '#cfd3cd',
   tableTop: '#f4efe6', // meeting-table surface (warm off-white)
+  tableTopHi: '#fbf7ef', // lighter top of the surface gradient
+  tableEdge2: '#cdbb96', // table side/thickness (darker wood)
+  tableGrain: 'rgba(170,150,110,0.16)',
+  tableHi: 'rgba(255,255,255,0.4)',
   chair: '#8f9c8a', // sage-gray chairs around meeting tables
+  chairBack: '#76836f', // chair backrest (a touch darker)
   pot: '#c98a5e',
   potShade: '#b2764a',
   leaf: '#7d9b6a',
@@ -58,9 +69,46 @@ const PALETTE = {
   loungeRugEdge: 'rgba(125,155,106,0.5)',
   sofa: '#9aa7b8',
   sofaShade: '#7f8da0',
-  coffeeTable: '#b98b63',
-  coffeeTableTop: '#caa078',
+  sofaBack: '#78879b',
+  sofaArm: '#8b98aa',
+  sofaHi: '#b2bdcb',
+  coffeeTable: '#a9774f',
+  coffeeTableTop: '#c79b70',
+  coffeeTableHi: '#dcbb95',
+  // Faint tile grid drawn on every floor, and a soft shadow under furniture, for
+  // a tidy "game floor" look with a little depth.
+  floorGrid: 'rgba(90,75,50,0.07)',
+  floorStripe: 'rgba(70,95,75,0.13)',
+  floorCheck: 'rgba(120,95,140,0.14)',
+  floorCheckBlue: 'rgba(85,120,165,0.12)',
+  floorStripeV: 'rgba(230,155,190,0.16)',
+  brickMortar: 'rgba(150,120,80,0.22)',
+  shadow: 'rgba(40,35,25,0.14)',
+  // Team-island rug (accent under desk pods) and window glass on outer walls.
+  podRug: '#ece1c8',
+  podRugEdge: 'rgba(150,130,95,0.45)',
+  windowFrame: '#b9ad92',
+  windowGlass: '#cfe3ec',
+  windowGlint: 'rgba(255,255,255,0.55)',
+  // Meeting-room props: a wall whiteboard and a filing cabinet.
+  boardFrame: '#9aa2ad',
+  boardFace: '#fbfdff',
+  boardTray: '#cfd4db',
+  marker1: '#5a8fd6',
+  marker2: '#d66a6a',
+  cabinet: '#b6bcc6',
+  cabinetDark: '#9aa1ad',
+  cabinetHandle: '#6f7784',
 } as const;
+
+// Per-room floor tints (Gather-like colour coding). Open office stays oak wood.
+const ROOM_FLOOR: Record<RoomKind, string> = {
+  exec: '#f8e9f0', // president's office — pale pink
+  meeting: '#dce7f1', // meeting / all-hands — soft blue
+  oneonone: '#dde9d7', // 1-on-1 — soft green
+  booth: '#e8ddee', // negotiation booths — soft lavender
+  lounge: '#dfe7d8', // lounge — sage
+};
 
 // Emoji shown as the avatar status badge, matching the toolbar menu labels.
 // `online` has no badge.
@@ -163,6 +211,8 @@ export class CanvasRenderer {
   private characters = new CharacterSheet();
   private mapCache: HTMLCanvasElement | null = null;
   private mapCacheDpr = 0;
+  // Repeating houndstooth fill for the booth floors, built with the cache context.
+  private houndPattern: CanvasPattern | null = null;
 
   // Zoom factor about the camera center. ZOOM_DEFAULT (1.0) is the 1:1 view;
   // smaller surveys more of the office, larger magnifies. Driven by the mouse
@@ -425,28 +475,57 @@ export class CanvasRenderer {
     cache.height = Math.round(MAP_HEIGHT * dpr);
     const cx = cache.getContext('2d')!;
     cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.houndPattern = this.buildHoundstooth(cx);
 
+    // Pass 1 — floors + walls: rooms/lounge get a colour-coded rug, the open
+    // office oak; walls get a window where they face the open floor.
+    for (let r = 0; r < MAP_ROWS; r++) {
+      for (let c = 0; c < MAP_COLS; c++) {
+        const tx = c * TILE_SIZE;
+        const ty = r * TILE_SIZE;
+        if (officeMap[r][c] === Tile.WALL) {
+          this.drawWall(cx, tx, ty, c, r);
+          continue;
+        }
+        const roomKind = roomKindAt(c, r);
+        const pattern =
+          roomKind === 'oneonone'
+            ? 'stripe'
+            : roomKind === 'booth'
+              ? 'houndstooth'
+              : roomKind === 'meeting'
+                ? 'checker'
+                : roomKind === 'exec'
+                  ? 'vstripe'
+                  : roomKind === 'lounge'
+                    ? 'brick'
+                    : 'none';
+        this.drawFloorTile(
+          cx,
+          tx,
+          ty,
+          roomKind ? ROOM_FLOOR[roomKind] : PALETTE.floorWood,
+          pattern,
+        );
+      }
+    }
+
+    // Team-island rugs under the desk pods (over the floor, under the desks).
+    for (const rug of POD_RUGS) this.drawPodRug(cx, rug);
+
+    // Pass 2 — props: open-office desks are workstations; in-room desks are drawn
+    // as designed tables/chairs by the furniture pass below, so skip them here.
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         const tile = officeMap[r][c];
         const tx = c * TILE_SIZE;
         const ty = r * TILE_SIZE;
-        if (tile === Tile.WALL) {
-          this.drawWall(cx, tx, ty);
-          continue;
-        }
-        // Floor first (meeting rooms = cream rug, lounge = sage rug, open = oak)...
-        const floorKind = floorKindAt(c, r);
-        const inRoom = floorKind === 'carpet';
-        if (inRoom) this.drawRugFloor(cx, tx, ty);
-        else if (floorKind === 'lounge') this.drawLoungeFloor(cx, tx, ty);
-        else this.drawWoodFloor(cx, tx, ty);
-        // ...then the prop on top. Open-office desks are workstations (monitor);
-        // in-room desks are drawn as designed tables/chairs by the furniture pass
-        // below, so skip them here.
         const prop = propFor(tile);
-        if (prop === 'desk' && !inRoom) this.drawWorkstation(cx, tx, ty, deskFacesSouth(c, r));
-        else if (prop === 'plant') this.drawPlant(cx, tx, ty);
+        if (prop === 'desk' && floorKindAt(c, r) === 'wood') {
+          this.drawWorkstation(cx, tx, ty, deskFacesSouth(c, r));
+        } else if (prop === 'plant') {
+          this.drawPlant(cx, tx, ty);
+        }
       }
     }
 
@@ -468,6 +547,14 @@ export class CanvasRenderer {
     // Lounge: sofas around a round coffee table, over the sage rug.
     this.drawLounge(cx, LOUNGE_RECT);
 
+    // Meeting-room props: a wall whiteboard and a corner filing cabinet.
+    for (const rect of MEETING_ROOM_RECTS) {
+      this.drawWhiteboard(cx, rect);
+      // The wide all-hands room has corner plants, so nudge its cabinet one tile
+      // right of the corner plant; small rooms keep it in the corner.
+      this.drawCabinet(cx, rect, rect.w > 5 * TILE_SIZE ? TILE_SIZE : 0);
+    }
+
     // Soft map border — a thin warm frame, no heavy vignette (a clean office is
     // bright, so the old dark corner shading is gone).
     cx.strokeStyle = PALETTE.border;
@@ -481,14 +568,44 @@ export class CanvasRenderer {
   // A meeting room's furniture: a table with chairs around it (every room,
   // including the president's office).
   private drawRoomFurniture(cx: CanvasRenderingContext2D, f: RoomFurniture) {
-    // Chairs first (behind the table), then the table top over the rug.
+    // Chairs first (behind the table), then the table over the rug.
     this.drawChairs(cx, f);
     const inset = 7;
-    this.roundRect(cx, f.x + inset, f.y + inset, f.w - inset * 2, f.h - inset * 2, 8);
-    cx.fillStyle = PALETTE.tableTop;
+    const x = f.x + inset;
+    const y = f.y + inset;
+    const w = f.w - inset * 2;
+    const h = f.h - inset * 2;
+    const r = 9;
+    // Drop shadow under the whole table.
+    this.softShadow(cx, f.x + f.w / 2, y + h + 2, w / 2, 8);
+    // Table side/thickness: a darker rounded slab offset down a few px.
+    this.roundRect(cx, x, y + 3, w, h, r);
+    cx.fillStyle = PALETTE.tableEdge2;
     cx.fill();
+    // Top surface with a soft top-to-bottom gradient (a hint of sheen).
+    const g = cx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, PALETTE.tableTopHi);
+    g.addColorStop(1, PALETTE.tableTop);
+    this.roundRect(cx, x, y, w, h, r);
+    cx.fillStyle = g;
+    cx.fill();
+    // Faint wood grain across the surface.
+    cx.strokeStyle = PALETTE.tableGrain;
+    cx.lineWidth = 1;
+    for (let gy = y + 9; gy < y + h - 4; gy += 9) {
+      cx.beginPath();
+      cx.moveTo(x + 6, gy + 0.5);
+      cx.lineTo(x + w - 6, gy + 0.5);
+      cx.stroke();
+    }
+    // Inner top highlight, then the outer rim.
+    cx.strokeStyle = PALETTE.tableHi;
+    cx.lineWidth = 1.5;
+    this.roundRect(cx, x + 1.5, y + 1.5, w - 3, h - 3, r - 1);
+    cx.stroke();
     cx.strokeStyle = PALETTE.deskEdge;
     cx.lineWidth = 1;
+    this.roundRect(cx, x, y, w, h, r);
     cx.stroke();
   }
 
@@ -498,20 +615,37 @@ export class CanvasRenderer {
     const chair = 15;
     const gap = 5;
     const cols = Math.max(1, Math.round(f.w / TILE_SIZE));
-    cx.fillStyle = PALETTE.chair;
     for (let i = 0; i < cols; i++) {
       const cxp = f.x + (i + 0.5) * (f.w / cols);
       const topY = f.y - gap - chair;
-      if (topY >= f.iy) {
-        this.roundRect(cx, cxp - chair / 2, topY, chair, chair, 4);
-        cx.fill();
-      }
+      // Backrest sits on the far side from the table (top chairs: top edge).
+      if (topY >= f.iy) this.drawOfficeChair(cx, cxp, topY, chair, 'top');
       const botY = f.y + f.h + gap;
-      if (botY + chair <= f.iy + f.ih) {
-        this.roundRect(cx, cxp - chair / 2, botY, chair, chair, 4);
-        cx.fill();
-      }
+      if (botY + chair <= f.iy + f.ih) this.drawOfficeChair(cx, cxp, botY, chair, 'bottom');
     }
+  }
+
+  // A simple chair: a seat with a backrest bar on `back` side (the side away from
+  // the table) and a soft shadow, so it reads as a chair rather than a square.
+  private drawOfficeChair(
+    cx: CanvasRenderingContext2D,
+    cxp: number,
+    top: number,
+    size: number,
+    back: 'top' | 'bottom',
+  ) {
+    const backH = size * 0.3;
+    this.softShadow(cx, cxp, top + size + 1, size / 2, 3);
+    // Backrest.
+    cx.fillStyle = PALETTE.chairBack;
+    const backY = back === 'top' ? top : top + size - backH;
+    this.roundRect(cx, cxp - size / 2, backY, size, backH, 3);
+    cx.fill();
+    // Seat.
+    cx.fillStyle = PALETTE.chair;
+    const seatY = back === 'top' ? top + backH - 2 : top;
+    this.roundRect(cx, cxp - size / 2 + 1, seatY, size - 2, size - backH + 2, 3);
+    cx.fill();
   }
 
   // The lounge: a round coffee table with sofas on each side. Purely cosmetic
@@ -529,64 +663,286 @@ export class CanvasRenderer {
     cx.lineWidth = 2;
     cx.stroke();
 
-    // Sofas: one on the left and one on the right of the coffee table, facing in.
-    const sofaW = 16;
-    const sofaH = 52;
-    const drawSofa = (sx: number) => {
-      this.roundRect(cx, sx, cyp - sofaH / 2, sofaW, sofaH, 6);
-      cx.fillStyle = PALETTE.sofa;
-      cx.fill();
-      cx.fillStyle = PALETTE.sofaShade;
-      cx.fillRect(sx, cyp - sofaH / 2 + sofaH - 5, sofaW, 5);
-    };
-    drawSofa(f.x + 16);
-    drawSofa(f.x + f.w - 16 - sofaW);
+    // Long, thin rectangular coffee table in the middle.
+    const tw = f.w * 0.46;
+    const th = f.h * 0.2;
+    const tx = cxp - tw / 2;
+    const ty = cyp - th / 2;
 
-    // Round coffee table in the middle.
-    cx.beginPath();
-    cx.arc(cxp, cyp, 20, 0, Math.PI * 2);
+    // Sofas tucked right up to the table on all four sides, facing in: 2-seaters
+    // left/right, 4-seaters top/bottom. Offset = half the table + half the sofa
+    // thickness (9) + a small gap.
+    const near = 9 + 14;
+    this.drawCouch(cx, cxp - tw / 2 - near, cyp, 'right', 54);
+    this.drawCouch(cx, cxp + tw / 2 + near, cyp, 'left', 54);
+    this.drawCouch(cx, cxp, cyp - th / 2 - near, 'down', 150);
+    this.drawCouch(cx, cxp, cyp + th / 2 + near, 'up', 150);
+
+    // Table surface: thickness, lit top, rim.
+    this.softShadow(cx, cxp, ty + th + 2, tw / 2, 6);
+    this.roundRect(cx, tx, ty + 3, tw, th, 6); // side/thickness
     cx.fillStyle = PALETTE.coffeeTable;
     cx.fill();
-    cx.beginPath();
-    cx.arc(cxp, cyp, 14, 0, Math.PI * 2);
-    cx.fillStyle = PALETTE.coffeeTableTop;
+    const tg = cx.createLinearGradient(0, ty, 0, ty + th);
+    tg.addColorStop(0, PALETTE.coffeeTableHi);
+    tg.addColorStop(1, PALETTE.coffeeTableTop);
+    this.roundRect(cx, tx, ty, tw, th, 6);
+    cx.fillStyle = tg;
     cx.fill();
-  }
-
-  // Lounge rug floor: a warm sage base, distinct from the oak open office and the
-  // cream meeting rooms.
-  private drawLoungeFloor(cx: CanvasRenderingContext2D, tx: number, ty: number) {
-    cx.fillStyle = PALETTE.loungeRug;
-    cx.fillRect(tx, ty, TILE_SIZE, TILE_SIZE);
-  }
-
-  // Light oak plank floor: a warm base plus faint, world-aligned horizontal plank
-  // seams (so they run continuously across tile boundaries).
-  private drawWoodFloor(cx: CanvasRenderingContext2D, tx: number, ty: number) {
-    const S = TILE_SIZE;
-    cx.fillStyle = PALETTE.floorWood;
-    cx.fillRect(tx, ty, S, S);
-    cx.strokeStyle = PALETTE.floorWoodSeam;
+    cx.strokeStyle = PALETTE.coffeeTable;
     cx.lineWidth = 1;
-    for (let y = Math.ceil(ty / 25) * 25; y < ty + S; y += 25) {
-      cx.beginPath();
-      cx.moveTo(tx, y + 0.5);
-      cx.lineTo(tx + S, y + 0.5);
-      cx.stroke();
+    this.roundRect(cx, tx, ty, tw, th, 6);
+    cx.stroke();
+  }
+
+  // A couch centred at (cxc, cyc) facing toward the coffee table. `len` is its
+  // long dimension (so 150 ≈ a 4-seater, 54 ≈ a 2-seater). Backrest on the far
+  // side, arm caps at both ends, evenly-spaced seat cushions, and a soft shadow.
+  private drawCouch(
+    cx: CanvasRenderingContext2D,
+    cxc: number,
+    cyc: number,
+    facing: 'left' | 'right' | 'up' | 'down',
+    len: number,
+  ) {
+    const thick = 18;
+    const backW = 6;
+    const arm = 7;
+    const horizontal = facing === 'up' || facing === 'down';
+    const w = horizontal ? len : thick;
+    const h = horizontal ? thick : len;
+    const x = cxc - w / 2;
+    const y = cyc - h / 2;
+    this.softShadow(cx, cxc, y + h + 1, w / 2, 4);
+    // Base.
+    this.roundRect(cx, x, y, w, h, 6);
+    cx.fillStyle = PALETTE.sofa;
+    cx.fill();
+    // Backrest on the far side from the table.
+    cx.fillStyle = PALETTE.sofaBack;
+    if (facing === 'right') this.roundRect(cx, x, y, backW, h, 5);
+    else if (facing === 'left') this.roundRect(cx, x + w - backW, y, backW, h, 5);
+    else if (facing === 'down') this.roundRect(cx, x, y, w, backW, 5);
+    else this.roundRect(cx, x, y + h - backW, w, backW, 5);
+    cx.fill();
+    // Arm caps at the two ends.
+    cx.fillStyle = PALETTE.sofaArm;
+    if (horizontal) {
+      this.roundRect(cx, x, y, arm, h, 5);
+      cx.fill();
+      this.roundRect(cx, x + w - arm, y, arm, h, 5);
+      cx.fill();
+    } else {
+      this.roundRect(cx, x, y, w, arm, 5);
+      cx.fill();
+      this.roundRect(cx, x, y + h - arm, w, arm, 5);
+      cx.fill();
+    }
+    // Evenly-spaced seat cushions along the long axis, on the seat side.
+    const avail = len - arm * 2;
+    const n = Math.max(2, Math.round(avail / 30));
+    const step = avail / n;
+    cx.fillStyle = PALETTE.sofaHi;
+    for (let k = 0; k < n; k++) {
+      if (horizontal) {
+        const cxk = x + arm + k * step;
+        const cyk = facing === 'down' ? y + backW + 1 : y + 1;
+        this.roundRect(cx, cxk + 1, cyk, step - 2, thick - backW - 2, 3);
+      } else {
+        const cyk = y + arm + k * step;
+        const cxk = facing === 'right' ? x + backW + 1 : x + 1;
+        this.roundRect(cx, cxk, cyk + 1, thick - backW - 2, step - 2, 3);
+      }
+      cx.fill();
     }
   }
 
-  // Meeting-room cream rug: a flat, calm fill with a faint inset edge so the room
-  // floor reads as a soft rug rather than the same plane as the open office.
-  private drawRugFloor(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+  // A wall-mounted whiteboard along the top interior edge of a meeting room, with
+  // a frame, a pen tray, and a couple of marker scribbles.
+  private drawWhiteboard(
+    cx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; w: number; h: number },
+  ) {
+    const w = Math.min(rect.w - 20, 86);
+    const h = 11;
+    const x = rect.x + (rect.w - w) / 2;
+    const y = rect.y + 3;
+    cx.fillStyle = PALETTE.boardFrame;
+    this.roundRect(cx, x - 2, y - 2, w + 4, h + 6, 2);
+    cx.fill();
+    cx.fillStyle = PALETTE.boardFace;
+    cx.fillRect(x, y, w, h);
+    cx.fillStyle = PALETTE.boardTray;
+    cx.fillRect(x - 1, y + h, w + 2, 2);
+    // Marker scribbles.
+    cx.strokeStyle = PALETTE.marker1;
+    cx.lineWidth = 1.5;
+    cx.beginPath();
+    cx.moveTo(x + 6, y + 4);
+    cx.lineTo(x + w * 0.4, y + 4);
+    cx.moveTo(x + 6, y + 7);
+    cx.lineTo(x + w * 0.28, y + 7);
+    cx.stroke();
+    cx.strokeStyle = PALETTE.marker2;
+    cx.beginPath();
+    cx.moveTo(x + w * 0.55, y + 5);
+    cx.lineTo(x + w - 6, y + 5);
+    cx.stroke();
+  }
+
+  // A small filing cabinet in the bottom-left interior corner of a room: a body
+  // with a few drawers and handles, plus a soft shadow.
+  private drawCabinet(
+    cx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; w: number; h: number },
+    xShift = 0,
+  ) {
+    const cw = 16;
+    const ch = 24;
+    const x = rect.x + 4 + xShift;
+    const y = rect.y + rect.h - ch - 4;
+    this.softShadow(cx, x + cw / 2, y + ch + 1, cw / 2 + 1, 4);
+    cx.fillStyle = PALETTE.cabinet;
+    this.roundRect(cx, x, y, cw, ch, 2);
+    cx.fill();
+    // Drawers + handles.
+    cx.strokeStyle = PALETTE.cabinetDark;
+    cx.lineWidth = 1;
+    cx.fillStyle = PALETTE.cabinetHandle;
+    for (let i = 0; i < 3; i++) {
+      const dy = y + 3 + i * ((ch - 4) / 3);
+      cx.beginPath();
+      cx.moveTo(x + 1, dy + (ch - 4) / 3 - 1);
+      cx.lineTo(x + cw - 1, dy + (ch - 4) / 3 - 1);
+      cx.stroke();
+      cx.fillRect(x + cw / 2 - 3, dy + 2, 6, 2);
+    }
+  }
+
+  // One floor tile: a flat colour fill plus a faint square grid (right + bottom
+  // edge), so every floor reads as tidy game tiles regardless of room colour.
+  private drawFloorTile(
+    cx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    color: string,
+    pattern: 'none' | 'stripe' | 'vstripe' | 'checker' | 'houndstooth' | 'brick' = 'none',
+  ) {
     const S = TILE_SIZE;
-    cx.fillStyle = PALETTE.floorRug;
+    cx.fillStyle = color;
     cx.fillRect(tx, ty, S, S);
+    // Patterns are world-aligned so they run continuously across tile boundaries.
+    if (pattern === 'stripe') {
+      // Horizontal stripes (2px line every 14px) — the 1-on-1 rooms.
+      cx.fillStyle = PALETTE.floorStripe;
+      for (let y = Math.ceil(ty / 14) * 14; y < ty + S; y += 14) {
+        cx.fillRect(tx, y, S, 2);
+      }
+    } else if (pattern === 'vstripe') {
+      // Thin vertical bands (8px on / 8px off), world-aligned — president's office.
+      const band = 8;
+      const period = band * 2;
+      cx.fillStyle = PALETTE.floorStripeV;
+      for (let gx = Math.floor(tx / period) * period; gx < tx + S; gx += period) {
+        const x0 = Math.max(gx, tx);
+        const x1 = Math.min(gx + band, tx + S);
+        if (x1 > x0) cx.fillRect(x0, ty, x1 - x0, S);
+      }
+    } else if (pattern === 'checker') {
+      // Checkerboard (10px cells) — the meeting rooms.
+      const CS = 10;
+      cx.fillStyle = PALETTE.floorCheckBlue;
+      for (let gx = Math.floor(tx / CS) * CS; gx < tx + S; gx += CS) {
+        for (let gy = Math.floor(ty / CS) * CS; gy < ty + S; gy += CS) {
+          if ((gx / CS + gy / CS) % 2 === 0) cx.fillRect(gx, gy, CS, CS);
+        }
+      }
+    } else if (pattern === 'brick') {
+      // Running-bond brick: horizontal mortar lines, and vertical mortar offset
+      // half a brick every other row. World-aligned so it tiles seamlessly.
+      const BH = 16;
+      const BW = 46;
+      cx.fillStyle = PALETTE.brickMortar;
+      for (let y = Math.floor(ty / BH) * BH; y < ty + S; y += BH) {
+        if (y >= ty) cx.fillRect(tx, y, S, 2); // horizontal mortar
+        const off = (Math.floor(y / BH) % 2) * (BW / 2);
+        const y0 = Math.max(y, ty);
+        const y1 = Math.min(y + BH, ty + S);
+        for (let x = Math.ceil((tx - off) / BW) * BW + off; x < tx + S; x += BW) {
+          if (x >= tx && y1 > y0) cx.fillRect(x, y0, 2, y1 - y0); // vertical mortar
+        }
+      }
+    } else if (pattern === 'houndstooth' && this.houndPattern) {
+      // Houndstooth weave — the negotiation booths. Pattern is anchored to the
+      // world origin, so it tiles seamlessly across adjacent booth tiles.
+      cx.fillStyle = this.houndPattern;
+      cx.fillRect(tx, ty, S, S);
+    }
+    cx.strokeStyle = PALETTE.floorGrid;
+    cx.lineWidth = 1;
+    cx.beginPath();
+    cx.moveTo(tx + S - 0.5, ty);
+    cx.lineTo(tx + S - 0.5, ty + S);
+    cx.moveTo(tx, ty + S - 0.5);
+    cx.lineTo(tx + S, ty + S - 0.5);
+    cx.stroke();
+  }
+
+  // Build a repeating houndstooth (千鳥格子) tile in the booth accent colour. A
+  // 4×4 broken-twill mask tiled over the floor gives the classic woven look.
+  private buildHoundstooth(cx: CanvasRenderingContext2D): CanvasPattern | null {
+    const u = 7; // cell size (px)
+    const n = 4;
+    const p = document.createElement('canvas');
+    p.width = u * n;
+    p.height = u * n;
+    const g = p.getContext('2d');
+    if (!g) return null;
+    g.fillStyle = PALETTE.floorCheck;
+    const mask = [
+      [1, 1, 0, 1],
+      [1, 1, 1, 0],
+      [0, 1, 1, 1],
+      [1, 0, 1, 1],
+    ];
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        if (mask[y][x]) g.fillRect(x * u, y * u, u, u);
+      }
+    }
+    return cx.createPattern(p, 'repeat');
+  }
+
+  // Soft elliptical shadow on the floor under a prop, for a little depth.
+  private softShadow(cx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number) {
+    cx.fillStyle = PALETTE.shadow;
+    cx.beginPath();
+    cx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  // Soft accent rug under a desk pod, so team islands read as neighbourhoods.
+  private drawPodRug(
+    cx: CanvasRenderingContext2D,
+    f: { x: number; y: number; w: number; h: number },
+  ) {
+    this.roundRect(cx, f.x, f.y, f.w, f.h, 10);
+    cx.fillStyle = PALETTE.podRug;
+    cx.fill();
+    cx.strokeStyle = PALETTE.podRugEdge;
+    cx.lineWidth = 1.5;
+    cx.stroke();
+    // Inset second border line, for a tidy framed-rug look.
+    const i = 5;
+    this.roundRect(cx, f.x + i, f.y + i, f.w - i * 2, f.h - i * 2, 7);
+    cx.lineWidth = 1;
+    cx.stroke();
   }
 
   // Warm off-white wall: a light base with a soft top highlight, a subtle bottom
   // shadow, and a faint seam — a clean partition, not the old near-black block.
-  private drawWall(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+  // Outer side walls facing the open office (every other row) get a window.
+  private drawWall(cx: CanvasRenderingContext2D, tx: number, ty: number, col: number, row: number) {
     const S = TILE_SIZE;
     cx.fillStyle = PALETTE.wall;
     cx.fillRect(tx, ty, S, S);
@@ -597,6 +953,24 @@ export class CanvasRenderer {
     cx.strokeStyle = PALETTE.wallSeam;
     cx.lineWidth = 1;
     cx.strokeRect(tx + 0.5, ty + 0.5, S - 1, S - 1);
+
+    // Windows: left/right outer walls along the open-office rows, every other tile.
+    const onSideWall = col === 0 || col === MAP_COLS - 1;
+    if (onSideWall && row >= 7 && row <= 17 && row % 2 === 1) {
+      const m = 9; // inset from the tile edge
+      cx.fillStyle = PALETTE.windowFrame;
+      this.roundRect(cx, tx + m - 2, ty + m - 2, S - (m - 2) * 2, S - (m - 2) * 2, 3);
+      cx.fill();
+      cx.fillStyle = PALETTE.windowGlass;
+      this.roundRect(cx, tx + m, ty + m, S - m * 2, S - m * 2, 2);
+      cx.fill();
+      cx.strokeStyle = PALETTE.windowGlint;
+      cx.lineWidth = 2;
+      cx.beginPath();
+      cx.moveTo(tx + m + 3, ty + S - m - 4);
+      cx.lineTo(tx + S - m - 4, ty + m + 3);
+      cx.stroke();
+    }
   }
 
   // Open-office workstation: a rounded off-white desk top on the floor, a dark
@@ -611,26 +985,49 @@ export class CanvasRenderer {
   ) {
     const S = TILE_SIZE;
     const pad = 5;
+    const cxm = tx + S / 2;
+    this.softShadow(cx, cxm, ty + S - pad + 1, S / 2 - pad + 1, 5);
+    // Desk: thickness slab, then a gradient top and rim.
+    this.roundRect(cx, tx + pad, ty + pad + 2, S - pad * 2, S - pad * 2, 6);
+    cx.fillStyle = PALETTE.deskEdge;
+    cx.fill();
+    const dg = cx.createLinearGradient(0, ty + pad, 0, ty + S - pad);
+    dg.addColorStop(0, PALETTE.deskTopHi);
+    dg.addColorStop(1, PALETTE.deskTop);
     this.roundRect(cx, tx + pad, ty + pad, S - pad * 2, S - pad * 2, 6);
-    cx.fillStyle = PALETTE.deskTop;
+    cx.fillStyle = dg;
     cx.fill();
     cx.strokeStyle = PALETTE.deskEdge;
     cx.lineWidth = 1;
     cx.stroke();
-    // Monitor: near the far edge from the seat — top when facing up (default),
-    // bottom when flipped to face down.
-    const mw = S * 0.44;
-    const mh = S * 0.26;
-    const mx = tx + S / 2 - mw / 2;
+
+    // Monitor (screen + stand) near the far edge; keyboard + mouse on the seat
+    // side (top when the desk is flipped to face south).
+    const mw = S * 0.4;
+    const mh = S * 0.2;
+    const mx = cxm - mw / 2;
     const my = facesSouth ? ty + S - pad - 3 - mh : ty + pad + 3;
+    // Stand: a neck and base on the seat side of the screen.
     cx.fillStyle = PALETTE.monitor;
-    cx.fillRect(mx, my, mw, mh);
-    cx.fillStyle = PALETTE.monitorScreen;
+    cx.fillRect(cxm - 1.5, facesSouth ? my - 4 : my + mh, 3, 4);
+    cx.fillRect(cxm - 5, facesSouth ? my - 6 : my + mh + 4, 10, 2);
+    // Screen with a soft glow.
+    this.roundRect(cx, mx, my, mw, mh, 2);
+    cx.fillStyle = PALETTE.monitor;
+    cx.fill();
+    const sg = cx.createLinearGradient(0, my, 0, my + mh);
+    sg.addColorStop(0, PALETTE.screenGlow);
+    sg.addColorStop(1, PALETTE.monitorScreen);
+    cx.fillStyle = sg;
     cx.fillRect(mx + 2, my + 2, mw - 4, mh - 4);
-    // Keyboard hint: on the seat side (opposite the monitor).
-    const ky = facesSouth ? ty + pad + S * 0.07 : ty + S - pad - S * 0.16;
-    cx.fillStyle = PALETTE.deskEdge;
-    cx.fillRect(tx + S / 2 - S * 0.2, ky, S * 0.4, S * 0.09);
+    // Keyboard + mouse on the seat side.
+    const ky = facesSouth ? ty + pad + 4 : ty + S - pad - 10;
+    cx.fillStyle = PALETTE.keyboard;
+    this.roundRect(cx, cxm - S * 0.22, ky, S * 0.34, 6, 2);
+    cx.fill();
+    cx.fillStyle = PALETTE.mouse;
+    this.roundRect(cx, cxm + S * 0.16, ky + 1, 4, 5, 2);
+    cx.fill();
   }
 
   // A chair just in front of an open-office desk. Default: below the desk (the
@@ -638,11 +1035,9 @@ export class CanvasRenderer {
   // down). Same sage rounded seat as the meeting chairs, for consistency.
   private drawDeskChair(cx: CanvasRenderingContext2D, tx: number, ty: number, facesSouth = false) {
     const S = TILE_SIZE;
-    const chair = 15;
-    const chairY = facesSouth ? ty - chair + 6 : ty + S - 6;
-    cx.fillStyle = PALETTE.chair;
-    this.roundRect(cx, tx + S / 2 - chair / 2, chairY, chair, chair, 4);
-    cx.fill();
+    const size = 16;
+    const top = facesSouth ? ty - size + 6 : ty + S - 6;
+    this.drawOfficeChair(cx, tx + S / 2, top, size, facesSouth ? 'top' : 'bottom');
   }
 
   // Sage plant in a terracotta pot: a small trapezoid pot with a cluster of
@@ -650,6 +1045,7 @@ export class CanvasRenderer {
   private drawPlant(cx: CanvasRenderingContext2D, tx: number, ty: number) {
     const S = TILE_SIZE;
     const cx0 = tx + S / 2;
+    this.softShadow(cx, cx0, ty + S * 0.86, S * 0.26, S * 0.08);
     // Pot
     const potTop = ty + S * 0.62;
     const potH = S * 0.24;

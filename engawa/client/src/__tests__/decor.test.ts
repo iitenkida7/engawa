@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { floorKindAt, propFor } from '@/world/decor';
+import { floorKindAt, propFor, roomKindAt } from '@/world/decor';
 import { canOccupy, LOUNGE, TILE_SIZE, Tile } from '@/world/tilemap';
 
 describe('propFor', () => {
@@ -28,6 +28,18 @@ describe('floorKindAt', () => {
     const c = LOUNGE.c + Math.floor(LOUNGE.w / 2);
     const r = LOUNGE.r + Math.floor(LOUNGE.h / 2);
     expect(floorKindAt(c, r)).toBe('lounge');
+  });
+});
+
+describe('roomKindAt', () => {
+  it('classifies rooms for floor colour-coding, null in the open office', () => {
+    expect(roomKindAt(3, 2)).toBe('exec'); // president's office
+    expect(roomKindAt(1, 20)).toBe('oneonone'); // 1on1-1
+    expect(roomKindAt(17, 20)).toBe('booth'); // booth-1
+    expect(roomKindAt(20, 11)).toBeNull(); // open office
+    const lc = LOUNGE.c + Math.floor(LOUNGE.w / 2);
+    const lr = LOUNGE.r + Math.floor(LOUNGE.h / 2);
+    expect(roomKindAt(lc, lr)).toBe('lounge');
   });
 });
 
