@@ -19,6 +19,7 @@ import {
   LOUNGE_RECT,
   MAP_COLS,
   MAP_ROWS,
+  MEETING_ROOM_RECTS,
   officeMap,
   POD_RUGS,
   ROOM_FURNITURE,
@@ -76,6 +77,15 @@ const PALETTE = {
   windowFrame: '#b9ad92',
   windowGlass: '#cfe3ec',
   windowGlint: 'rgba(255,255,255,0.55)',
+  // Meeting-room props: a wall whiteboard and a filing cabinet.
+  boardFrame: '#9aa2ad',
+  boardFace: '#fbfdff',
+  boardTray: '#cfd4db',
+  marker1: '#5a8fd6',
+  marker2: '#d66a6a',
+  cabinet: '#b6bcc6',
+  cabinetDark: '#9aa1ad',
+  cabinetHandle: '#6f7784',
 } as const;
 
 // Per-room floor tints (Gather-like colour coding). Open office stays oak wood.
@@ -524,6 +534,14 @@ export class CanvasRenderer {
     // Lounge: sofas around a round coffee table, over the sage rug.
     this.drawLounge(cx, LOUNGE_RECT);
 
+    // Meeting-room props: a wall whiteboard and a corner filing cabinet.
+    for (const rect of MEETING_ROOM_RECTS) {
+      this.drawWhiteboard(cx, rect);
+      // The wide all-hands room has corner plants, so nudge its cabinet one tile
+      // right of the corner plant; small rooms keep it in the corner.
+      this.drawCabinet(cx, rect, rect.w > 5 * TILE_SIZE ? TILE_SIZE : 0);
+    }
+
     // Soft map border — a thin warm frame, no heavy vignette (a clean office is
     // bright, so the old dark corner shading is gone).
     cx.strokeStyle = PALETTE.border;
@@ -610,6 +628,68 @@ export class CanvasRenderer {
     cx.arc(cxp, cyp, 14, 0, Math.PI * 2);
     cx.fillStyle = PALETTE.coffeeTableTop;
     cx.fill();
+  }
+
+  // A wall-mounted whiteboard along the top interior edge of a meeting room, with
+  // a frame, a pen tray, and a couple of marker scribbles.
+  private drawWhiteboard(
+    cx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; w: number; h: number },
+  ) {
+    const w = Math.min(rect.w - 20, 86);
+    const h = 11;
+    const x = rect.x + (rect.w - w) / 2;
+    const y = rect.y + 3;
+    cx.fillStyle = PALETTE.boardFrame;
+    this.roundRect(cx, x - 2, y - 2, w + 4, h + 6, 2);
+    cx.fill();
+    cx.fillStyle = PALETTE.boardFace;
+    cx.fillRect(x, y, w, h);
+    cx.fillStyle = PALETTE.boardTray;
+    cx.fillRect(x - 1, y + h, w + 2, 2);
+    // Marker scribbles.
+    cx.strokeStyle = PALETTE.marker1;
+    cx.lineWidth = 1.5;
+    cx.beginPath();
+    cx.moveTo(x + 6, y + 4);
+    cx.lineTo(x + w * 0.4, y + 4);
+    cx.moveTo(x + 6, y + 7);
+    cx.lineTo(x + w * 0.28, y + 7);
+    cx.stroke();
+    cx.strokeStyle = PALETTE.marker2;
+    cx.beginPath();
+    cx.moveTo(x + w * 0.55, y + 5);
+    cx.lineTo(x + w - 6, y + 5);
+    cx.stroke();
+  }
+
+  // A small filing cabinet in the bottom-left interior corner of a room: a body
+  // with a few drawers and handles, plus a soft shadow.
+  private drawCabinet(
+    cx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; w: number; h: number },
+    xShift = 0,
+  ) {
+    const cw = 16;
+    const ch = 24;
+    const x = rect.x + 4 + xShift;
+    const y = rect.y + rect.h - ch - 4;
+    this.softShadow(cx, x + cw / 2, y + ch + 1, cw / 2 + 1, 4);
+    cx.fillStyle = PALETTE.cabinet;
+    this.roundRect(cx, x, y, cw, ch, 2);
+    cx.fill();
+    // Drawers + handles.
+    cx.strokeStyle = PALETTE.cabinetDark;
+    cx.lineWidth = 1;
+    cx.fillStyle = PALETTE.cabinetHandle;
+    for (let i = 0; i < 3; i++) {
+      const dy = y + 3 + i * ((ch - 4) / 3);
+      cx.beginPath();
+      cx.moveTo(x + 1, dy + (ch - 4) / 3 - 1);
+      cx.lineTo(x + cw - 1, dy + (ch - 4) / 3 - 1);
+      cx.stroke();
+      cx.fillRect(x + cw / 2 - 3, dy + 2, 6, 2);
+    }
   }
 
   // One floor tile: a flat colour fill plus a faint square grid (right + bottom

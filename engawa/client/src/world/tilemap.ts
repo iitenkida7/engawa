@@ -274,6 +274,17 @@ export const ROOM_FURNITURE: RoomFurniture[] = ROOMS.map((room) => {
   };
 });
 
+// Interior pixel rects of the meeting rooms (all-hands + meeting-N), for the
+// renderer to add a wall whiteboard and a filing cabinet.
+export const MEETING_ROOM_RECTS = ROOMS.filter(
+  (room) => room.id === 'all-hands' || room.id.startsWith('meeting'),
+).map((room) => ({
+  x: room.c * TILE_SIZE,
+  y: room.r * TILE_SIZE,
+  w: room.w * TILE_SIZE,
+  h: room.h * TILE_SIZE,
+}));
+
 // 26 open-office seats grouped into team "islands" (pods) instead of uniform
 // benches. Within a pod the two desk-rows are adjacent and face each other: the
 // upper row faces south (monitor flipped down, chair above), the lower faces
