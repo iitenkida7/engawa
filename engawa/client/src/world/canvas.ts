@@ -1,3 +1,4 @@
+import { t } from '@/core/i18n';
 import type { Point } from '@/core/proximity';
 import {
   CONNECT_RADIUS,
@@ -407,14 +408,46 @@ export class CanvasRenderer {
     }
 
     // players
+    const selfAway = self?.status === 'away';
     const sortedPlayers = [...players].sort((a, b) => a.y - b.y);
     for (const p of sortedPlayers) {
+      // While away (#220) our own avatar is hidden; we only spectate others.
+      if (p.isSelf && selfAway) continue;
       this.drawPlayer(ctx, p, p.userId === highlightId);
     }
 
     // Floating emoji reactions, on top of the avatars they belong to.
     this.drawReactions(ctx, sortedPlayers);
 
+    ctx.restore();
+
+    // Away overlay (#220): a faint veil plus a small badge, drawn in screen space
+    // on top of everything so it reads as "you've stepped away" without hiding
+    // the room — others still move underneath.
+    if (selfAway) this.drawAwayOverlay(ctx, w, h);
+  }
+
+  private drawAwayOverlay(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(20,24,33,0.28)';
+    ctx.fillRect(0, 0, w, h);
+
+    // Small pill, top-center.
+    const label = t('status.awayOverlay');
+    ctx.font = '13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const tw = ctx.measureText(label).width;
+    const padX = 14;
+    const pw = tw + padX * 2;
+    const ph = 30;
+    const px = w / 2 - pw / 2;
+    const py = 16;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    this.roundRect(ctx, px, py, pw, ph, 15);
+    ctx.fill();
+    ctx.fillStyle = '#ffd27a';
+    ctx.fillText(label, w / 2, py + ph / 2 + 1);
     ctx.restore();
   }
 

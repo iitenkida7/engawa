@@ -49,6 +49,7 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       resumeToken: data.resumeToken ?? null,
       lastGroupAt: data.lastGroupAt ?? 0,
       joined: data.joined ?? false,
+      away: data.away ?? false,
     } satisfies WsData,
     send(payload: string | Bun.BufferSource) {
       sent.push(JSON.parse(payload as string) as ServerMessage);
@@ -574,6 +575,59 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     expect(status.status).toBe('online');
     expect(status.isMuted).toBe(false);
     expect(status.isVideoOn).toBe(false);
+  });
+
+  test('going away broadcasts player-left and hides the sender from grouping (#220)', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(peer);
+
+    deliver(handler, sender, { type: 'status', status: 'away', isMuted: true, isVideoOn: false });
+
+    expect(sender.data.away).toBe(true);
+    expect(peer.sent).toContainEqual({ type: 'player-left', userId: sender.data.userId });
+    // Away is invisible: no player-status for the away transition.
+    expect(peer.sent.find((m) => m.type === 'player-status')).toBeUndefined();
+  });
+
+  test('returning from away re-announces the sender with player-joined (#220)', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true, away: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(peer);
+
+    deliver(handler, sender, {
+      type: 'status',
+      status: 'online',
+      isMuted: false,
+      isVideoOn: false,
+    });
+
+    expect(sender.data.away).toBe(false);
+    const joined = peer.sent.find((m) => m.type === 'player-joined');
+    if (joined?.type !== 'player-joined') throw new Error('expected player-joined');
+    expect(joined.player.userId).toBe(sender.data.userId);
+    expect(peer.sent).toContainEqual({
+      type: 'player-status',
+      userId: sender.data.userId,
+      status: 'online',
+      isMuted: false,
+      isVideoOn: false,
+    });
+  });
+
+  test('an away client is not sent to a newly joining peer (#220)', () => {
+    const away = makeWs({ workspace: 'ws1', joined: true, away: true, name: 'Ghost' });
+    handler.open!(away);
+
+    const joiner = makeWs({ workspace: 'ws1' });
+    handler.open!(joiner);
+    deliver(handler, joiner, { type: 'join', name: 'Newbie' });
+
+    const welcome = joiner.sent.find((m) => m.type === 'welcome');
+    if (welcome?.type !== 'welcome') throw new Error('expected welcome');
+    expect(welcome.players.some((p) => p.userId === away.data.userId)).toBe(false);
   });
 
   test('relays stream-meta only to the named target', () => {

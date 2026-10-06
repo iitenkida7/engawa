@@ -77,6 +77,7 @@ const server = Bun.serve({
           resumeToken: null,
           lastGroupAt: 0,
           joined: false,
+          away: false,
         } satisfies WsData,
       });
       if (upgraded) return undefined;

@@ -99,6 +99,8 @@ function broadcastGroups(
   const wsClients: ServerWebSocket<WsData>[] = [];
   for (const c of clients.values()) {
     if (!c.data.joined || c.data.workspace !== workspace) continue;
+    // Away clients are hidden from grouping (#220): no one connects to them.
+    if (c.data.away) continue;
     members.push({ userId: c.data.userId, x: c.data.x, y: c.data.y, zoneId: c.data.zoneId });
     wsClients.push(c);
   }
@@ -320,7 +322,7 @@ export function createWebSocketHandler(
 
             const others: Player[] = [];
             for (const [id, c] of clients) {
-              if (id === ws.data.userId || !c.data.joined) continue;
+              if (id === ws.data.userId || !c.data.joined || c.data.away) continue;
               if (c.data.workspace !== ws.data.workspace) continue;
               others.push(playerFromWs(c));
             }
@@ -361,7 +363,7 @@ export function createWebSocketHandler(
           const existing: Player[] = [];
           for (const [id, c] of clients) {
             if (id === ws.data.userId) continue;
-            if (!c.data.joined) continue;
+            if (!c.data.joined || c.data.away) continue;
             if (c.data.workspace !== ws.data.workspace) continue;
             existing.push(playerFromWs(c));
           }
@@ -389,18 +391,45 @@ export function createWebSocketHandler(
 
         case 'status': {
           if (!ws.data.joined) return;
+          const status = normalizePlayerStatus(msg.status);
+          const nowAway = status === 'away';
+          const wasAway = ws.data.away;
+
+          // Away toggles visibility (#220): going away is broadcast as a leave so
+          // peers drop our tile and call; returning is a fresh join. We stay
+          // connected and keep receiving the whole time (joined is untouched).
+          if (nowAway && !wasAway) {
+            ws.data.away = true;
+            broadcast(clients, ws.data.workspace, {
+              type: 'player-left',
+              userId: ws.data.userId,
+            });
+            broadcastGroups(clients, ws.data.workspace, groupState);
+            break;
+          }
+          if (!nowAway && wasAway) {
+            ws.data.away = false;
+            broadcast(
+              clients,
+              ws.data.workspace,
+              { type: 'player-joined', player: playerFromWs(ws) },
+              ws.data.userId,
+            );
+          }
+
           broadcast(
             clients,
             ws.data.workspace,
             {
               type: 'player-status',
               userId: ws.data.userId,
-              status: normalizePlayerStatus(msg.status),
+              status,
               isMuted: normalizeBool(msg.isMuted),
               isVideoOn: normalizeBool(msg.isVideoOn),
             },
             ws.data.userId,
           );
+          if (!nowAway && wasAway) broadcastGroups(clients, ws.data.workspace, groupState);
           break;
         }
 
@@ -428,6 +457,9 @@ export function createWebSocketHandler(
           ws.data.x = x;
           ws.data.y = y;
           ws.data.zoneId = msg.zoneId ?? null;
+          // Away clients are invisible (#220): keep their position current for
+          // when they return, but don't relay movement or regroup around them.
+          if (ws.data.away) break;
           broadcast(
             clients,
             ws.data.workspace,

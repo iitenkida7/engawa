@@ -158,4 +158,9 @@ export type WsData = {
   // wire speed. Position updates and player-moved broadcasts are never throttled.
   lastGroupAt: number;
   joined: boolean;
+  // Away mode (#220): a joined client that has stepped away. Stays connected and
+  // keeps receiving broadcasts, but is hidden from peers (treated like a leave:
+  // removed from their view and from proximity grouping) until it returns to
+  // online/busy. Transient, memory-only (invariant #2).
+  away: boolean;
 };

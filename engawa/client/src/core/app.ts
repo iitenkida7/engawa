@@ -1245,7 +1245,8 @@ export class App {
     // Move self by input (frame-rate independent: dt × speed-per-second)
     let selfVx = 0;
     let selfVy = 0;
-    if (this.me) {
+    // While away (#220) the avatar is hidden and frozen — spectate only.
+    if (this.me && this.myStatus !== 'away') {
       // Grid-step movement (issue #206): a step in progress slides to the next
       // tile center; only once it finishes do we read input for the next step,
       // so the avatar always rests on a tile (never between tiles).
@@ -1295,7 +1296,8 @@ export class App {
     // Periodic position broadcast. Also send when velocity changes (especially
     // when it transitions to 0) so the receiver stops extrapolating.
     const now = performance.now();
-    if (this.me) {
+    // While away (#220) we're invisible to peers, so don't send position.
+    if (this.me && this.myStatus !== 'away') {
       const velChanged = selfVx !== this.lastSentVx || selfVy !== this.lastSentVy;
       const posMoved =
         Math.abs(this.me.x - this.lastSentX) > 0.5 || Math.abs(this.me.y - this.lastSentY) > 0.5;
@@ -1482,12 +1484,31 @@ export class App {
     });
   }
 
-  // Set the presence status. No-ops when it already matches.
+  // Set the presence status. No-ops when it already matches. Going away (#220)
+  // tears down all calls and media and hides us; returning to online/busy lets
+  // the server re-add us and the ensuing group-update rebuilds our calls.
   private setStatus(status: PlayerStatus) {
     if (this.myStatus === status) return;
     this.myStatus = status;
-    this.broadcastStatus();
+    if (status === 'away') {
+      this.enterAway();
+    } else {
+      this.broadcastStatus();
+    }
     this.statusMenu.refresh();
+  }
+
+  // Enter away: stop publishing, cut every call, and forget group membership.
+  // disableAllMedia() broadcasts the (away, all-off) status; the server then
+  // tells peers we left. We keep the socket and keep receiving their movement.
+  private enterAway() {
+    this.toolbar.disableAllMedia();
+    this.rtc.closeAll();
+    this.sfu.closeAll();
+    this.meshMembers.clear();
+    this.sfuMembers.clear();
+    this.inProximity.clear();
+    this.currentMethod = 'mesh';
   }
 
   // Apply a server group-update: the server is the single source of truth for
