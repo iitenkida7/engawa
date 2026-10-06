@@ -99,6 +99,9 @@ const STR: Record<string, Record<Lang, string>> = {
     en: "Knock for {name} (let them know you'd like to talk)",
   },
   'roster.goto': { ja: '{name} のそばへ移動', en: 'Move next to {name}' },
+  // Avatar action menu (click an avatar on the map).
+  'avatar.goto': { ja: 'そこへ行く', en: 'Go there' },
+  'avatar.knock': { ja: '呼ぶ', en: 'Call' },
   'roster.noteLabel': { ja: '一言メッセージ', en: 'Status message' },
   'roster.notePlaceholder': { ja: '例: ランチ', en: 'e.g. Lunch' },
   'roster.returnLabel': { ja: '戻り時刻', en: 'Back at' },

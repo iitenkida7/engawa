@@ -11,6 +11,7 @@ import {
   ZOOM_PINCH_GAIN,
   ZOOM_WHEEL_GAIN,
 } from '@/core/types';
+import { STATUS_EMOJI } from '@/ui/status-menu';
 import { CharacterSheet } from '@/world/character';
 import { floorKindAt, propFor, type RoomKind, roomKindAt } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
@@ -108,15 +109,6 @@ const ROOM_FLOOR: Record<RoomKind, string> = {
   oneonone: '#dde9d7', // 1-on-1 — soft green
   booth: '#e8ddee', // negotiation booths — soft lavender
   lounge: '#dfe7d8', // lounge — sage
-};
-
-// Emoji shown as the avatar status badge, matching the toolbar menu labels.
-// `online` has no badge.
-const STATUS_BADGE: Record<string, string> = {
-  busy: '🔴',
-  away: '🟡',
-  meeting: '🤝',
-  break: '☕',
 };
 
 // Max chars of the status one-liner shown above an avatar (#85); longer notes
@@ -1160,26 +1152,14 @@ export class CanvasRenderer {
       ctx.fillText(p.initials(), p.x, p.y);
     }
 
-    // Status badge (top-right of avatar). Show the status emoji — matching the
-    // toolbar menu — so meeting/break read clearly, not just as a colored dot.
-    const badge = STATUS_BADGE[p.status];
-    if (badge) {
-      const bx = p.x + PLAYER_RADIUS * 0.7;
-      const by = p.y - PLAYER_RADIUS * 0.7;
-      ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(badge, bx, by);
-    }
-
-    // name label. Set alignment explicitly: the background rect is centered on
-    // p.x, but ctx.textAlign/textBaseline carry over from earlier draws (default
-    // 'start'/'alphabetic' when a sprite is drawn and no status badge ran), which
-    // would shift the text off the rect.
+    // name label, prefixed with the status mark (🟢/🔴/… for every status) so
+    // presence reads right next to the name. Set alignment explicitly: the
+    // background rect is centered on p.x, but ctx.textAlign/textBaseline carry
+    // over from earlier draws, which would shift the text off the rect.
     ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const label = p.name + (p.isSharingScreen ? '  🖥' : '');
+    const label = `${STATUS_EMOJI[p.status]} ${p.name}${p.isSharingScreen ? '  🖥' : ''}`;
     const m = ctx.measureText(label);
     const padX = 6;
     const lw = m.width + padX * 2;

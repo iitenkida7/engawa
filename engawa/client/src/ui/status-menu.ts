@@ -1,0 +1,174 @@
+// Self-status menu, opened from the bottom toolbar's status button. Lets you pick
+// a presence status (online / busy / away / meeting / break) plus an optional
+// one-liner note and return time (#85). Extracted from the old roster panel when
+// that was removed — the participant list is gone, but setting your own status
+// stays, now living with the other self controls in the toolbar.
+
+import { t } from '@/core/i18n';
+import type { PlayerStatus } from '@/core/types';
+import { STATUS_NOTE_MAX_LEN, STATUS_UNTIL_PRESETS_MIN } from '@/core/types';
+
+// Status → emoji, shown on the toolbar button and next to avatar names on the
+// map. `online` gets an explicit 🟢 so every avatar carries a status mark.
+export const STATUS_EMOJI: Record<PlayerStatus, string> = {
+  online: '🟢',
+  busy: '🔴',
+  away: '🟡',
+  meeting: '🤝',
+  break: '☕',
+};
+
+const STATUS_ORDER: PlayerStatus[] = ['online', 'busy', 'away', 'meeting', 'break'];
+const STATUS_LABELS: Record<PlayerStatus, string> = {
+  online: t('status.online'),
+  busy: t('status.busy'),
+  away: t('status.away'),
+  meeting: t('status.meeting'),
+  break: t('status.break'),
+};
+
+export class StatusMenu {
+  private getStatus: () => PlayerStatus;
+  private getNote: () => string;
+  private getUntilMin: () => number | null;
+  private onSetStatus: (status: PlayerStatus, note: string, untilMin: number | null) => void;
+
+  private btn: HTMLButtonElement;
+  private menu: HTMLDivElement;
+  private noteInput: HTMLInputElement | null = null;
+  private untilMinDraft: number | null = null;
+
+  constructor(opts: {
+    getStatus: () => PlayerStatus;
+    getNote: () => string;
+    getUntilMin: () => number | null;
+    onSetStatus: (status: PlayerStatus, note: string, untilMin: number | null) => void;
+  }) {
+    this.getStatus = opts.getStatus;
+    this.getNote = opts.getNote;
+    this.getUntilMin = opts.getUntilMin;
+    this.onSetStatus = opts.onSetStatus;
+
+    this.btn = document.getElementById('btn-status') as HTMLButtonElement;
+    this.menu = document.getElementById('status-menu') as HTMLDivElement;
+
+    this.btn.addEventListener('click', () => {
+      const open = this.menu.classList.contains('hidden');
+      if (open) {
+        this.populate();
+        this.position();
+      }
+      this.menu.classList.toggle('hidden', !open);
+    });
+    document.addEventListener('click', (e) => {
+      const target = e.target as Node;
+      if (!this.menu.contains(target) && target !== this.btn) {
+        this.menu.classList.add('hidden');
+      }
+    });
+    window.addEventListener('resize', () => {
+      if (!this.menu.classList.contains('hidden')) this.position();
+    });
+  }
+
+  // Sync the toolbar button's emoji to the current status.
+  refresh() {
+    this.btn.textContent = STATUS_EMOJI[this.getStatus()];
+  }
+
+  // The menu is portaled to #app top-level; its trigger is in the bottom toolbar,
+  // so anchor it ABOVE the button (right-aligned), measured on open.
+  private position() {
+    const r = this.btn.getBoundingClientRect();
+    this.menu.style.top = 'auto';
+    this.menu.style.bottom = `${window.innerHeight - r.top + 6}px`;
+    this.menu.style.right = `${window.innerWidth - r.right}px`;
+    this.menu.style.left = 'auto';
+  }
+
+  // Build the menu fresh each open: a one-liner input + return-time presets seed
+  // from the current status as a draft; the status buttons commit it and close.
+  private populate() {
+    this.menu.replaceChildren();
+    this.untilMinDraft = this.getUntilMin();
+
+    const noteField = document.createElement('label');
+    noteField.className = 'status-field';
+    const noteLabel = document.createElement('span');
+    noteLabel.className = 'status-field-label';
+    noteLabel.textContent = t('roster.noteLabel');
+    const note = document.createElement('input');
+    note.type = 'text';
+    note.className = 'status-note-input';
+    note.maxLength = STATUS_NOTE_MAX_LEN;
+    note.placeholder = t('roster.notePlaceholder');
+    note.value = this.getNote();
+    note.addEventListener('click', (e) => e.stopPropagation());
+    note.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.commit(this.getStatus());
+      }
+    });
+    this.noteInput = note;
+    noteField.append(noteLabel, note);
+    this.menu.appendChild(noteField);
+
+    const untilField = document.createElement('div');
+    untilField.className = 'status-field';
+    const untilLabel = document.createElement('span');
+    untilLabel.className = 'status-field-label';
+    untilLabel.textContent = t('roster.returnLabel');
+    const untilRow = document.createElement('div');
+    untilRow.className = 'status-until-row';
+    const presets: { min: number | null; text: string }[] = [
+      { min: null, text: t('common.none') },
+      ...STATUS_UNTIL_PRESETS_MIN.map((min) => ({ min, text: t('roster.minutes', { n: min }) })),
+    ];
+    for (const preset of presets) {
+      const b = document.createElement('button');
+      b.className = 'status-until-btn';
+      b.textContent = preset.text;
+      if (preset.min === this.untilMinDraft) b.classList.add('selected');
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.untilMinDraft = preset.min;
+        for (const other of untilRow.children) other.classList.remove('selected');
+        b.classList.add('selected');
+      });
+      untilRow.appendChild(b);
+    }
+    untilField.append(untilLabel, untilRow);
+    this.menu.appendChild(untilField);
+
+    const divider = document.createElement('div');
+    divider.className = 'status-divider';
+    this.menu.appendChild(divider);
+
+    const current = this.getStatus();
+    for (const status of STATUS_ORDER) {
+      const item = document.createElement('button');
+      item.className = 'device-item';
+      const isSelected = status === current;
+      if (isSelected) item.classList.add('selected');
+      item.textContent = (isSelected ? '✓ ' : '') + STATUS_LABELS[status];
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.commit(status);
+      });
+      this.menu.appendChild(item);
+    }
+  }
+
+  // Apply the picked status with the draft note/return-time, then close. `online`
+  // clears the note/time so "back online" is a clean reset.
+  private commit(status: PlayerStatus) {
+    this.menu.classList.add('hidden');
+    if (status === 'online') {
+      this.onSetStatus(status, '', null);
+      return;
+    }
+    const note = this.noteInput?.value.trim() ?? '';
+    this.onSetStatus(status, note, this.untilMinDraft);
+  }
+}

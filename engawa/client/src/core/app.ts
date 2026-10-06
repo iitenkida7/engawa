@@ -64,8 +64,8 @@ import { DebugConsole } from '@/ui/debug-console';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
 import { RemoteMediaView } from '@/ui/remote-media';
-import { RosterPanel } from '@/ui/roster';
 import { SoundManager } from '@/ui/sounds';
+import { StatusMenu } from '@/ui/status-menu';
 import { type MediaSink, ToolbarController } from '@/ui/toolbar';
 import { CanvasRenderer } from '@/world/canvas';
 import { OUTFIT_COUNTS } from '@/world/character';
@@ -93,7 +93,7 @@ export class App {
   private compositor: SceneCompositor;
   private view: RemoteMediaView;
   private toolbar: ToolbarController;
-  private roster: RosterPanel;
+  private statusMenu: StatusMenu;
   private debug: DebugConsole;
   private toasts = new Toasts();
   private sounds = new SoundManager();
@@ -228,6 +228,8 @@ export class App {
   // Global listeners are held as stable references so dispose() can detach them
   // (an inline arrow can't be removed). See issue #127.
   private onCanvasDblClick = (e: MouseEvent) => this.handleCanvasDblClick(e);
+  private onCanvasClick = (e: MouseEvent) => this.handleCanvasClick(e);
+  private avatarMenuEl = document.getElementById('avatar-menu') as HTMLDivElement;
   private onReactionKey = (e: KeyboardEvent) => this.handleReactionKey(e);
   private onBeforeUnload = (e: BeforeUnloadEvent) => {
     if (!shouldConfirmUnload(this.me !== null)) return;
@@ -390,12 +392,8 @@ export class App {
       },
     });
 
-    this.roster = new RosterPanel({
-      players: this.players,
-      getMyId: () => this.myId,
-      onFocus: (userId) => this.focusPlayer(userId),
-      onGoTo: (userId) => this.goToPlayer(userId),
-      onKnock: (userId) => this.knocks.request(userId),
+    // Self-status menu, triggered from the toolbar's status button.
+    this.statusMenu = new StatusMenu({
       getStatus: () => this.myStatus,
       getNote: () => this.myNote,
       getUntilMin: () => this.myUntilMin,
@@ -432,6 +430,7 @@ export class App {
 
     // Double-click the map to walk to that point (A* around walls, boosted speed).
     this.canvas.addEventListener('dblclick', this.onCanvasDblClick);
+    this.canvas.addEventListener('click', this.onCanvasClick);
 
     // Number keys 1–6 fire the matching reaction (issue #23). Ignored while
     // typing in a field, and key-repeat is dropped so holding a key doesn't spam.
@@ -469,14 +468,73 @@ export class App {
     this.moveIndex = 0;
   }
 
-  // Roster row click: toggle the highlight ring on that avatar. A light,
-  // non-destructive action — it never moves self.
-  private focusPlayer(userId: string) {
-    this.focusedId = this.focusedId === userId ? null : userId;
+  // Single click: if it landed on another avatar (body or name), open the action
+  // menu (go to them / call); otherwise dismiss any open menu.
+  private handleCanvasClick(e: MouseEvent) {
+    if (!this.me) return;
+    const world = this.renderer.screenToWorld(e.clientX, e.clientY, this.me);
+    const hit = this.playerAt(world.x, world.y);
+    if (hit && !hit.isSelf) this.openAvatarMenu(hit.userId, e.clientX, e.clientY);
+    else this.hideAvatarMenu();
   }
 
-  // Roster "→" button: walk self over to a walkable tile next to that player
-  // (reusing the click-to-move A*), so getting into call range is one click.
+  // The player whose avatar (or name label just below it) contains world (x,y),
+  // nearest first. Returns null on empty floor.
+  private playerAt(x: number, y: number): PlayerState | null {
+    let best: PlayerState | null = null;
+    let bestD = Infinity;
+    for (const p of this.players.values()) {
+      const withinX = Math.abs(p.x - x) <= PLAYER_RADIUS + 6;
+      const withinY = y >= p.y - PLAYER_RADIUS - 6 && y <= p.y + PLAYER_RADIUS + 34;
+      if (!withinX || !withinY) continue;
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  // Popover with "go there" / "call" for the clicked avatar, placed at the cursor.
+  private openAvatarMenu(userId: string, clientX: number, clientY: number) {
+    const p = this.players.get(userId);
+    if (!p) return;
+    this.focusedId = userId;
+    const menu = this.avatarMenuEl;
+    menu.replaceChildren();
+    const go = document.createElement('button');
+    go.className = 'device-item';
+    go.textContent = t('avatar.goto');
+    go.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.hideAvatarMenu();
+      this.goToPlayer(userId);
+    });
+    const call = document.createElement('button');
+    call.className = 'device-item';
+    call.textContent = t('avatar.knock');
+    call.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      this.hideAvatarMenu();
+      this.knocks.request(userId);
+    });
+    menu.append(go, call);
+    menu.style.left = `${clientX}px`;
+    menu.style.top = `${clientY}px`;
+    menu.style.right = 'auto';
+    menu.style.bottom = 'auto';
+    menu.classList.remove('hidden');
+  }
+
+  private hideAvatarMenu() {
+    this.avatarMenuEl.classList.add('hidden');
+    this.focusedId = null;
+  }
+
+  // Walk self over to a walkable tile next to that player (reusing the click-to-
+  // move A*), so getting into call range is one click. Invoked from the avatar
+  // action menu ("そこへ行く").
   private goToPlayer(userId: string) {
     if (!this.me) return;
     const target = this.players.get(userId);
@@ -618,6 +676,7 @@ export class App {
     this.bgTicker?.terminate();
     this.bgTicker = null;
     this.canvas.removeEventListener('dblclick', this.onCanvasDblClick);
+    this.canvas.removeEventListener('click', this.onCanvasClick);
     window.removeEventListener('keydown', this.onReactionKey);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -1032,8 +1091,7 @@ export class App {
         }
         this.view.setSelfName(this.joinedName);
         document.getElementById('toolbar')?.classList.remove('hidden');
-        this.roster.show();
-        this.roster.refreshStatus();
+        this.statusMenu.refresh();
         this.broadcastStatus();
         break;
       }
@@ -1292,12 +1350,6 @@ export class App {
       void this.sampleQuality();
     }
 
-    // Refresh the participant roster from the (now up-to-date) players map, and
-    // collapse it while media windows are up so the list doesn't overlap the
-    // call tiles (its header, with chat and status, stays reachable).
-    this.roster.update(this.focusedId);
-    this.roster.setCallMode(this.view.hasMediaWindows());
-
     // Chime sounds. Both mesh and SFU membership are decided by the server's
     // group-update (the connected component, meeting-room isolation included),
     // so the chime mirrors who we are *actually* in a call with — it can no
@@ -1456,7 +1508,7 @@ export class App {
     this.myUntil = until;
     this.myUntilMin = untilMin;
     this.broadcastStatus();
-    this.roster.refreshStatus();
+    this.statusMenu.refresh();
     this.scheduleAutoReturn();
   }
 
