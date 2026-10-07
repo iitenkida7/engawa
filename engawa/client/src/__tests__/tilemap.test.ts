@@ -58,9 +58,9 @@ describe('canOccupy', () => {
   });
 
   it('returns false when a corner overlaps a wall', () => {
-    // The outer border (row 0) is wall; a point just inside row 1 with a large
-    // radius will have its top corner cross into the wall.
-    const { x, y } = center(5, 1);
+    // The building's top outer wall is at row OUTDOOR_MARGIN; a point just inside
+    // it with a large radius has its top corner cross into the wall.
+    const { x, y } = center(OUTDOOR_MARGIN + 2, OUTDOOR_MARGIN + 1);
     expect(canOccupy(x, y, TILE_SIZE)).toBe(false);
   });
 

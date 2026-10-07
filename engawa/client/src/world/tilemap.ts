@@ -24,13 +24,12 @@ export const Tile = {
   MEETING: 3,
   LOUNGE: 4,
   PLANT: 5,
-  // Outdoor tiles (#229): walkable grass, plus solid trees and pond on it.
+  // Outdoor tiles (#229): walkable grass, plus solid trees on it.
   GRASS: 6,
   TREE: 7,
-  POND: 8,
 } as const;
 
-export const SOLID = new Set<number>([Tile.WALL, Tile.DESK, Tile.PLANT, Tile.TREE, Tile.POND]);
+export const SOLID = new Set<number>([Tile.WALL, Tile.DESK, Tile.PLANT, Tile.TREE]);
 
 // Tile colours live with the renderer (world/canvas.ts PALETTE), which draws the
 // map procedurally. tilemap.ts stays pure layout + collision.
@@ -379,9 +378,6 @@ const OPEN_PLANTS: [number, number][] = [
   [17, 4],
 ];
 
-// Pond footprint in outdoor grass (map-absolute tile coords), top-left grounds.
-export const POND = { c: 2, r: 2, w: 4, h: 3 } as const;
-
 // Building-local column of the south gate: a 2-tile gap in the bottom outer wall
 // so you can walk out of the building into the grounds (#229).
 const GATE_C = 16;
@@ -439,12 +435,9 @@ function buildOfficeMap(): number[][] {
   for (const [c, r] of OPEN_DESKS) set(c, r, Tile.DESK);
   for (const [c, r] of OPEN_PLANTS) set(c, r, Tile.PLANT);
 
-  // ── Outdoor grounds: a pond and trees scattered over the grass margin ──
-  for (let rr = POND.r; rr < POND.r + POND.h; rr++)
-    for (let cc = POND.c; cc < POND.c + POND.w; cc++) setAbs(cc, rr, Tile.POND);
-
+  // ── Outdoor grounds: trees scattered over the grass margin ──
   // Trees framing the grounds: a loose ring near the map edge (every other tile),
-  // skipping the pond and leaving the gate column clear so the exit stays open.
+  // leaving the gate column clear so the exit stays open.
   const gateMapCol = GATE_C + OUTDOOR_MARGIN;
   const onGatePath = (c: number) => c === gateMapCol || c === gateMapCol + 1;
   const free = (c: number, r: number) => m[r][c] === Tile.GRASS;
@@ -470,14 +463,6 @@ export const LOUNGE_RECT = {
   y: LOUNGE.r * TILE_SIZE + OFF_Y,
   w: LOUNGE.w * TILE_SIZE,
   h: LOUNGE.h * TILE_SIZE,
-};
-
-// Pixel rect of the outdoor pond (map-absolute; POND is already in map coords).
-export const POND_RECT = {
-  x: POND.c * TILE_SIZE,
-  y: POND.r * TILE_SIZE,
-  w: POND.w * TILE_SIZE,
-  h: POND.h * TILE_SIZE,
 };
 
 // Team-island (pod) footprints as [colStart, colEnd, rowStart, rowEnd], mirroring

@@ -24,7 +24,6 @@ import {
   MEETING_ROOM_RECTS,
   officeMap,
   POD_RUGS,
-  POND_RECT,
   ROOM_FURNITURE,
   type RoomFurniture,
   TILE_SIZE,
@@ -78,7 +77,7 @@ const PALETTE = {
   coffeeTable: '#a9774f',
   coffeeTableTop: '#c79b70',
   coffeeTableHi: '#dcbb95',
-  // Outdoor grounds (#229): grass lawn, trees, and a pond around the building.
+  // Outdoor grounds (#229): grass lawn and trees around the building.
   grass: '#a9c98c',
   grassSeam: 'rgba(110,145,85,0.18)',
   grassTuft: 'rgba(120,160,95,0.5)',
@@ -86,9 +85,6 @@ const PALETTE = {
   treeCanopy: '#6fa052',
   treeCanopyHi: '#8bbd68',
   treeCanopyShade: '#577f41',
-  water: '#7fb8d4',
-  waterHi: '#a6d4e6',
-  waterEdge: 'rgba(55,105,135,0.55)',
   // Faint tile grid drawn on every floor, and a soft shadow under furniture, for
   // a tidy "game floor" look with a little depth.
   floorGrid: 'rgba(90,75,50,0.07)',
@@ -512,9 +508,8 @@ export class CanvasRenderer {
           this.drawWall(cx, tx, ty, c, r);
           continue;
         }
-        // Outdoor tiles (#229): grass base under trees/pond too; the pond body is
-        // painted once below so it reads as one shape.
-        if (tile === Tile.GRASS || tile === Tile.TREE || tile === Tile.POND) {
+        // Outdoor tiles (#229): grass base, with trees drawn on top in pass 2.
+        if (tile === Tile.GRASS || tile === Tile.TREE) {
           this.drawGrassTile(cx, tx, ty, c, r);
           continue;
         }
@@ -540,9 +535,6 @@ export class CanvasRenderer {
         );
       }
     }
-
-    // Outdoor pond: one water shape over the grass (POND tiles handle collision).
-    this.drawPond(cx, POND_RECT);
 
     // Team-island rugs under the desk pods (over the floor, under the desks).
     for (const rug of POD_RUGS) this.drawPodRug(cx, rug);
@@ -1026,29 +1018,6 @@ export class CanvasRenderer {
     this.circle(cx, cxp, cy, S * 0.3);
     cx.fillStyle = PALETTE.treeCanopyHi;
     this.circle(cx, cxp - S * 0.1, cy - S * 0.1, S * 0.14);
-  }
-
-  // The outdoor pond: a water ellipse filling its rect, with a soft edge ring and
-  // a light glint. Collision is handled by the POND tiles underneath (#229).
-  private drawPond(
-    cx: CanvasRenderingContext2D,
-    rect: { x: number; y: number; w: number; h: number },
-  ) {
-    const cxp = rect.x + rect.w / 2;
-    const cyp = rect.y + rect.h / 2;
-    const rx = rect.w / 2 - 4;
-    const ry = rect.h / 2 - 4;
-    cx.beginPath();
-    cx.ellipse(cxp, cyp, rx, ry, 0, 0, Math.PI * 2);
-    cx.fillStyle = PALETTE.water;
-    cx.fill();
-    cx.strokeStyle = PALETTE.waterEdge;
-    cx.lineWidth = 3;
-    cx.stroke();
-    cx.beginPath();
-    cx.ellipse(cxp - rx * 0.3, cyp - ry * 0.3, rx * 0.35, ry * 0.25, 0, 0, Math.PI * 2);
-    cx.fillStyle = PALETTE.waterHi;
-    cx.fill();
   }
 
   // Warm off-white wall: a light base with a soft top highlight, a subtle bottom
