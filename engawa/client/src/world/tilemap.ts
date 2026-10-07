@@ -243,11 +243,13 @@ const ROOMS: RoomDef[] = [
     desks: [[26, 21]],
   },
   {
+    // One tile wider than the other booths so its right wall meets the outer wall
+    // directly (no doubled wall / spare column on the right edge).
     id: 'booth-4',
     name: t('zone.booth-4'),
     c: 29,
     r: 20,
-    w: 3,
+    w: 4,
     h: 3,
     doors: [[30, 19]],
     desks: [[30, 21]],
@@ -363,11 +365,9 @@ export const LOUNGE = { c: 24, r: 12, w: 7, h: 5 } as const;
 // between the pod rugs. Kept off the island rugs, the central spawn path, the
 // lounge, and the room doorways so nothing blocks movement.
 const OPEN_PLANTS: [number, number][] = [
-  [1, 7],
-  [1, 12],
+  [1, 6],
   [1, 18],
-  [32, 7],
-  [32, 12],
+  [32, 6],
   [32, 18],
   [8, 11],
   [25, 11],
@@ -479,7 +479,7 @@ function placeTrees(m: number[][]): Tree[] {
   // walkable (both the left and right grass strips at the gate rows).
   const gateTop = OUTDOOR_MARGIN + GATE_R;
   const blocksGate = (c: number, r: number, span: number): boolean =>
-    r + span > gateTop - 1 && r < gateTop + 3 && (c < OUTDOOR_MARGIN || c + span > buildingRight);
+    r + span > gateTop - 3 && r < gateTop + 5 && (c < OUTDOOR_MARGIN || c + span > buildingRight);
 
   // Try to place one tree somewhere in [colMin,colMax]×[rowMin,rowMax]. Biased
   // toward big trees; spaced so nothing clumps. Returns whether it placed.

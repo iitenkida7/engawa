@@ -1049,13 +1049,14 @@ export class CanvasRenderer {
     cx.lineWidth = 1;
     cx.strokeRect(tx + 0.5, ty + 0.5, S - 1, S - 1);
 
-    // Windows: the building's left/right outer walls along the open-office rows,
-    // every other tile. A vertical outer wall has grass on exactly one horizontal
-    // side (the grounds); the open-office band is rows 13–23 after the margin.
+    // Windows: the building's left/right outer walls. A vertical outer wall has
+    // grass on exactly one horizontal side (the grounds). Two windows above the
+    // side gate (rows 17–18) and two below it, at fixed building-local rows.
     const leftGrass = officeMap[row]?.[col - 1] === Tile.GRASS;
     const rightGrass = officeMap[row]?.[col + 1] === Tile.GRASS;
     const onSideWall = leftGrass !== rightGrass;
-    if (onSideWall && row >= OUTDOOR_MARGIN + 7 && row <= OUTDOOR_MARGIN + 17 && row % 2 === 1) {
+    const windowRow = [7, 9, 14, 16].includes(row - OUTDOOR_MARGIN);
+    if (onSideWall && windowRow) {
       const m = 9; // inset from the tile edge
       cx.fillStyle = PALETTE.windowFrame;
       this.roundRect(cx, tx + m - 2, ty + m - 2, S - (m - 2) * 2, S - (m - 2) * 2, 3);
