@@ -425,6 +425,65 @@ export class CanvasRenderer {
     // on top of everything so it reads as "you've stepped away" without hiding
     // the room — others still move underneath.
     if (selfAway) this.drawAwayOverlay(ctx, w, h);
+
+    // Name labels last, in screen space at a constant size (#227), so you can
+    // read who is where even zoomed out — and on top of the veil above.
+    this.drawNameLabels(ctx, sortedPlayers, w, h, selfAway);
+  }
+
+  // Draw every player's name label in SCREEN space at a fixed size, so labels
+  // stay readable at any zoom (unlike the world-space room labels, which scale).
+  // Positions are projected from world→screen; overlapping labels are nudged
+  // downward so a cluster stays legible (#227).
+  private drawNameLabels(
+    ctx: CanvasRenderingContext2D,
+    players: PlayerState[],
+    w: number,
+    h: number,
+    selfAway: boolean,
+  ) {
+    const zoom = this.zoomLevel;
+    ctx.save();
+    ctx.font = '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const lh = 22;
+    const gap = 2;
+    const placed: { cx: number; top: number; lw: number }[] = [];
+    const toDraw: { text: string; cx: number; top: number; lw: number; isSelf: boolean }[] = [];
+    for (const p of players) {
+      if (p.isSelf && selfAway) continue;
+      // Project the avatar's head (world) to screen; the label sits just above it
+      // with a constant pixel gap regardless of zoom.
+      const sx = (p.x - this.camX) * zoom + w / 2;
+      const headY = (p.y - PLAYER_RADIUS - this.camY) * zoom + h / 2;
+      if (sx < -150 || sx > w + 150 || headY < -80 || headY > h + 80) continue;
+
+      const text = `${STATUS_EMOJI[p.status]} ${p.name}${p.isSharingScreen ? '  🖥' : ''}`;
+      const lw = ctx.measureText(text).width + 12;
+      let top = headY - 6 - lh;
+
+      // Nudge below any already-placed label it overlaps (both axes), so a cluster
+      // reads as a vertical stack instead of a pile.
+      for (const q of placed) {
+        const overlapX = Math.abs(sx - q.cx) < (lw + q.lw) / 2;
+        const overlapY = top < q.top + lh + gap && top + lh + gap > q.top;
+        if (overlapX && overlapY) top = q.top + lh + gap;
+      }
+      placed.push({ cx: sx, top, lw });
+      toDraw.push({ text, cx: sx, top, lw, isSelf: p.isSelf });
+    }
+
+    for (const l of toDraw) {
+      // Tint our own label a solid indigo so "which one is me" reads at a glance.
+      ctx.fillStyle = l.isSelf ? 'rgba(85,70,183,1)' : 'rgba(0,0,0,0.65)';
+      this.roundRect(ctx, l.cx - l.lw / 2, l.top, l.lw, lh, 8);
+      ctx.fill();
+      ctx.fillStyle = 'white';
+      ctx.fillText(l.text, l.cx, l.top + lh / 2 + 1);
+    }
+    ctx.restore();
   }
 
   private drawAwayOverlay(ctx: CanvasRenderingContext2D, w: number, h: number) {
@@ -1106,10 +1165,12 @@ export class CanvasRenderer {
     const m = ctx.measureText(label);
     const padX = 6;
     const lh = 20;
-    ctx.fillStyle = active ? 'rgba(79,140,255,0.9)' : 'rgba(20,23,30,0.8)';
-    this.roundRect(ctx, zone.x + 4, zone.y + 4, m.width + padX * 2, lh, 4);
+    // Idle rooms wear a subtle light-gray pill so they recede; the room you're in
+    // keeps the blue accent. Match the name labels' rounder corners.
+    ctx.fillStyle = active ? 'rgba(79,140,255,0.85)' : 'rgba(90,96,108,0.6)';
+    this.roundRect(ctx, zone.x + 4, zone.y + 4, m.width + padX * 2, lh, 8);
     ctx.fill();
-    ctx.fillStyle = 'white';
+    ctx.fillStyle = active ? 'white' : 'rgba(255,255,255,0.92)';
     ctx.fillText(label, zone.x + 4 + padX, zone.y + 4 + 4);
     ctx.restore();
   }
@@ -1171,27 +1232,8 @@ export class CanvasRenderer {
       ctx.textBaseline = 'middle';
       ctx.fillText(p.initials(), p.x, p.y);
     }
-
-    // name label, prefixed with the status mark (🟢/🔴/… for every status) so
-    // presence reads right next to the name. Set alignment explicitly: the
-    // background rect is centered on p.x, but ctx.textAlign/textBaseline carry
-    // over from earlier draws, which would shift the text off the rect.
-    ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const label = `${STATUS_EMOJI[p.status]} ${p.name}${p.isSharingScreen ? '  🖥' : ''}`;
-    const m = ctx.measureText(label);
-    const padX = 6;
-    const lw = m.width + padX * 2;
-    const lh = 18;
-    const ly = p.y - PLAYER_RADIUS - 6 - lh;
-    // Tint our own label a muted indigo so "which one is me" reads at a glance
-    // without shouting; everyone else keeps the neutral dark pill.
-    ctx.fillStyle = p.isSelf ? 'rgba(85,70,183,1)' : 'rgba(0,0,0,0.65)';
-    this.roundRect(ctx, p.x - lw / 2, ly, lw, lh, 4);
-    ctx.fill();
-    ctx.fillStyle = 'white';
-    ctx.fillText(label, p.x, ly + lh / 2 + 1);
+    // The name label is drawn separately, in screen space (drawNameLabels), so it
+    // stays a constant readable size at any zoom — see render().
   }
 
   private roundRect(
