@@ -1185,7 +1185,9 @@ export class CanvasRenderer {
     const lw = m.width + padX * 2;
     const lh = 18;
     const ly = p.y - PLAYER_RADIUS - 6 - lh;
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    // Tint our own label a muted indigo so "which one is me" reads at a glance
+    // without shouting; everyone else keeps the neutral dark pill.
+    ctx.fillStyle = p.isSelf ? 'rgba(85,70,183,1)' : 'rgba(0,0,0,0.65)';
     this.roundRect(ctx, p.x - lw / 2, ly, lw, lh, 4);
     ctx.fill();
     ctx.fillStyle = 'white';
