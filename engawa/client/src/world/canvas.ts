@@ -1051,11 +1051,11 @@ export class CanvasRenderer {
 
     // Windows: the building's left/right outer walls. A vertical outer wall has
     // grass on exactly one horizontal side (the grounds). Two windows above the
-    // side gate (rows 17–18) and two below it, at fixed building-local rows.
+    // side gate and two below it, at fixed building-local rows.
     const leftGrass = officeMap[row]?.[col - 1] === Tile.GRASS;
     const rightGrass = officeMap[row]?.[col + 1] === Tile.GRASS;
     const onSideWall = leftGrass !== rightGrass;
-    const windowRow = [7, 9, 14, 16].includes(row - OUTDOOR_MARGIN);
+    const windowRow = [8, 10, 15, 17].includes(row - OUTDOOR_MARGIN);
     if (onSideWall && windowRow) {
       const m = 9; // inset from the tile edge
       cx.fillStyle = PALETTE.windowFrame;

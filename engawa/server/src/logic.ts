@@ -5,10 +5,10 @@
 import type { GroupMethod, Outfit, PlayerStatus, SfuTrack, StreamKind } from './types';
 
 /** Map bounds used to clamp player positions. Must match the client (core/types.ts
- * MAP_WIDTH/HEIGHT) and world/tilemap.ts MAP_COLS/ROWS × TILE_SIZE (a 34×24
- * building plus a 6-tile grass margin on each side = 46×36 tiles). */
+ * MAP_WIDTH/HEIGHT) and world/tilemap.ts MAP_COLS/ROWS × TILE_SIZE (a 34×25
+ * building plus a 6-tile grass margin on each side = 46×37 tiles). */
 export const MAP_WIDTH = 2300;
-export const MAP_HEIGHT = 1800;
+export const MAP_HEIGHT = 1850;
 
 /**
  * Whether an access password is configured (a non-empty ACCESS_PASSWORD). When

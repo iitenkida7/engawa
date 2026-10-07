@@ -115,11 +115,11 @@ export type ServerMessage =
   // their tracks by (sessionId, trackName).
   | { type: 'sfu-peer-tracks'; userId: string; sessionId: string; tracks: SfuTrack[] };
 
-// Must equal MAP_COLS/ROWS × TILE_SIZE in world/tilemap.ts (a 34×24 building plus
-// a 6-tile grass margin on each side = 46×36 tiles) and match the server's
+// Must equal MAP_COLS/ROWS × TILE_SIZE in world/tilemap.ts (a 34×25 building plus
+// a 6-tile grass margin on each side = 46×37 tiles) and match the server's
 // MAP_WIDTH/HEIGHT.
 export const MAP_WIDTH = 2300;
-export const MAP_HEIGHT = 1800;
+export const MAP_HEIGHT = 1850;
 export const PLAYER_RADIUS = 20;
 // Collision uses a smaller radius than the drawn avatar so squeezing between
 // solid tiles is forgiving: a one-tile (50px) gap leaves an 18px window for the

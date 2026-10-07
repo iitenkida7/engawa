@@ -7,7 +7,7 @@ export const TILE_SIZE = 50;
 // shifted into the map by OUTDOOR_MARGIN when the grid and the exported pixel
 // rects are built — so nothing below needs to know about the margin.
 const BUILDING_COLS = 34;
-const BUILDING_ROWS = 24;
+const BUILDING_ROWS = 25;
 // Grass margin (tiles) on each side of the building. Exported so tests/callers
 // can convert building-local coords to map coords.
 export const OUTDOOR_MARGIN = 6;
@@ -168,7 +168,7 @@ const ROOMS: RoomDef[] = [
       [31, 3],
     ],
   },
-  // ── Bottom strip (rows 20-22): four 1-on-1 rooms + four negotiation booths,
+  // ── Bottom strip (rows 21-23): four 1-on-1 rooms + four negotiation booths,
   // all 3 tiles wide and packed edge-to-edge (shared walls). Each has one centred
   // door and one centred desk. The rightmost room's wall meets the outer wall, so
   // the right edge is one tile thicker — the 1 spare column of the 8-room fit.
@@ -176,71 +176,71 @@ const ROOMS: RoomDef[] = [
     id: '1on1-1',
     name: t('zone.1on1-1'),
     c: 1,
-    r: 20,
+    r: 21,
     w: 3,
     h: 3,
-    doors: [[2, 19]],
-    desks: [[2, 21]],
+    doors: [[2, 20]],
+    desks: [[2, 22]],
   },
   {
     id: '1on1-2',
     name: t('zone.1on1-2'),
     c: 5,
-    r: 20,
+    r: 21,
     w: 3,
     h: 3,
-    doors: [[6, 19]],
-    desks: [[6, 21]],
+    doors: [[6, 20]],
+    desks: [[6, 22]],
   },
   {
     id: '1on1-3',
     name: t('zone.1on1-3'),
     c: 9,
-    r: 20,
+    r: 21,
     w: 3,
     h: 3,
-    doors: [[10, 19]],
-    desks: [[10, 21]],
+    doors: [[10, 20]],
+    desks: [[10, 22]],
   },
   {
     id: '1on1-4',
     name: t('zone.1on1-4'),
     c: 13,
-    r: 20,
+    r: 21,
     w: 3,
     h: 3,
-    doors: [[14, 19]],
-    desks: [[14, 21]],
+    doors: [[14, 20]],
+    desks: [[14, 22]],
   },
   {
     id: 'booth-1',
     name: t('zone.booth-1'),
     c: 17,
-    r: 20,
+    r: 21,
     w: 3,
     h: 3,
-    doors: [[18, 19]],
-    desks: [[18, 21]],
+    doors: [[18, 20]],
+    desks: [[18, 22]],
   },
   {
     id: 'booth-2',
     name: t('zone.booth-2'),
     c: 21,
-    r: 20,
+    r: 21,
     w: 3,
     h: 3,
-    doors: [[22, 19]],
-    desks: [[22, 21]],
+    doors: [[22, 20]],
+    desks: [[22, 22]],
   },
   {
     id: 'booth-3',
     name: t('zone.booth-3'),
     c: 25,
-    r: 20,
+    r: 21,
     w: 3,
     h: 3,
-    doors: [[26, 19]],
-    desks: [[26, 21]],
+    doors: [[26, 20]],
+    desks: [[26, 22]],
   },
   {
     // One tile wider than the other booths so its right wall meets the outer wall
@@ -248,11 +248,11 @@ const ROOMS: RoomDef[] = [
     id: 'booth-4',
     name: t('zone.booth-4'),
     c: 29,
-    r: 20,
+    r: 21,
     w: 4,
     h: 3,
-    doors: [[30, 19]],
-    desks: [[30, 21]],
+    doors: [[30, 20]],
+    desks: [[30, 22]],
   },
 ];
 
@@ -305,49 +305,49 @@ export const MEETING_ROOM_RECTS = ROOMS.filter(
 // benches. Within a pod the two desk-rows are adjacent and face each other: the
 // upper row faces south (monitor flipped down, chair above), the lower faces
 // north, so people sit across the island. Wide aisles run between the pods.
-//   Top pod-row (desks on rows 8/9):   four 4-seat islands.
-//   Bottom pod-row (desks on rows 14/15): two 4-seat islands + one 6-seat island.
+//   Top pod-row (desks on rows 9/10):   four 4-seat islands.
+//   Bottom pod-row (desks on rows 15/16): two 4-seat islands + one 6-seat island.
 const OPEN_DESKS: [number, number][] = [
-  // ── Top row: four 4-seat pods (upper desk row 8 faces south, row 9 north) ──
-  [4, 8],
-  [5, 8],
+  // ── Top row: four 4-seat pods (upper desk row 9 faces south, row 10 north) ──
   [4, 9],
   [5, 9],
-  [11, 8],
-  [12, 8],
+  [4, 10],
+  [5, 10],
   [11, 9],
   [12, 9],
-  [19, 8],
-  [20, 8],
+  [11, 10],
+  [12, 10],
   [19, 9],
   [20, 9],
-  [27, 8],
-  [28, 8],
+  [19, 10],
+  [20, 10],
   [27, 9],
   [28, 9],
+  [27, 10],
+  [28, 10],
   // ── Bottom row: two 4-seat pods ──
-  [5, 14],
-  [6, 14],
   [5, 15],
   [6, 15],
-  [11, 14],
-  [12, 14],
+  [5, 16],
+  [6, 16],
   [11, 15],
   [12, 15],
+  [11, 16],
+  [12, 16],
   // ── Bottom row: one 6-seat pod (3 wide × 2 rows) ──
-  [18, 14],
-  [19, 14],
-  [20, 14],
   [18, 15],
   [19, 15],
   [20, 15],
+  [18, 16],
+  [19, 16],
+  [20, 16],
 ];
 
 // The upper desk-row of each pod faces SOUTH (chair above the desk, monitor
 // flipped to the bottom) so a pod's two rows sit face-to-face — two people
 // looking at each other across the island. These are the open-office desks on
-// rows 8 and 14 (the lower rows, 10 and 16, keep the default north facing).
-const SOUTH_FACING_DESK_ROWS = new Set<number>([8 + OUTDOOR_MARGIN, 14 + OUTDOOR_MARGIN]);
+// rows 9 and 15 (the lower rows, 10 and 16, keep the default north facing).
+const SOUTH_FACING_DESK_ROWS = new Set<number>([9 + OUTDOOR_MARGIN, 15 + OUTDOOR_MARGIN]);
 
 /** True when the open-office desk at (col,row) is drawn facing south (flipped). */
 export function deskFacesSouth(col: number, row: number): boolean {
@@ -359,18 +359,18 @@ export function deskFacesSouth(col: number, row: number): boolean {
 // chat. Walkable rug (LOUNGE tiles aren't SOLID); the renderer draws sofas + a
 // coffee table on top. Placed clear of the desk pods and the booth doors below.
 // (Design is a placeholder — easy to restyle later.)
-export const LOUNGE = { c: 24, r: 12, w: 7, h: 5 } as const;
+export const LOUNGE = { c: 24, r: 13, w: 7, h: 5 } as const;
 
 // Greenery dotted around the open floor — along the side walls and in the aisles
 // between the pod rugs. Kept off the island rugs, the central spawn path, the
 // lounge, and the room doorways so nothing blocks movement.
 const OPEN_PLANTS: [number, number][] = [
   [1, 6],
-  [1, 18],
+  [1, 19],
   [32, 6],
-  [32, 18],
-  [8, 11],
-  [25, 11],
+  [32, 19],
+  [8, 12],
+  [25, 12],
   // All-hands room corners (interior cols 6-17, rows 1-4) — a little greenery.
   [6, 1],
   [17, 1],
@@ -381,7 +381,7 @@ const OPEN_PLANTS: [number, number][] = [
 // Building-local top row of the side gates: a 2-tile gap in BOTH the left and
 // right outer walls at the open-office aisle, so you can walk out to the grounds
 // (#229). The south wall can't be used — the bottom room strip blocks it.
-const GATE_R = 11;
+const GATE_R = 12;
 
 function buildOfficeMap(): number[][] {
   const m: number[][] = [];
@@ -535,13 +535,13 @@ export const LOUNGE_RECT = {
 // OPEN_DESKS. The renderer draws a soft accent rug under each so the desk clusters
 // read as team neighbourhoods (Gather-like).
 const PODS: [number, number, number, number][] = [
-  [4, 5, 8, 9],
-  [11, 12, 8, 9],
-  [19, 20, 8, 9],
-  [27, 28, 8, 9],
-  [5, 6, 14, 15],
-  [11, 12, 14, 15],
-  [18, 20, 14, 15],
+  [4, 5, 9, 10],
+  [11, 12, 9, 10],
+  [19, 20, 9, 10],
+  [27, 28, 9, 10],
+  [5, 6, 15, 16],
+  [11, 12, 15, 16],
+  [18, 20, 15, 16],
 ];
 
 // Pixel rects for the pod rugs: the desk block plus a full one-tile border all
