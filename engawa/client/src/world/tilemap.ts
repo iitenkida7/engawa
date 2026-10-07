@@ -403,10 +403,6 @@ function buildOfficeMap(): number[][] {
     const mc = c + OUTDOOR_MARGIN;
     if (mr >= 0 && mr < MAP_ROWS && mc >= 0 && mc < MAP_COLS) m[mr][mc] = t;
   };
-  // Map-absolute setter, for outdoor features placed in the grass margin.
-  const setAbs = (c: number, r: number, t: number) => {
-    if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS) m[r][c] = t;
-  };
 
   // ── Building floor, then outer walls (building-local) ──
   fill(0, 0, BUILDING_COLS, BUILDING_ROWS, Tile.FLOOR);
@@ -435,27 +431,92 @@ function buildOfficeMap(): number[][] {
   for (const [c, r] of OPEN_DESKS) set(c, r, Tile.DESK);
   for (const [c, r] of OPEN_PLANTS) set(c, r, Tile.PLANT);
 
-  // ── Outdoor grounds: trees scattered over the grass margin ──
-  // Trees framing the grounds: a loose ring near the map edge (every other tile),
-  // leaving the gate column clear so the exit stays open.
-  const gateMapCol = GATE_C + OUTDOOR_MARGIN;
-  const onGatePath = (c: number) => c === gateMapCol || c === gateMapCol + 1;
-  const free = (c: number, r: number) => m[r][c] === Tile.GRASS;
-  for (let c = 1; c < MAP_COLS - 1; c += 2) {
-    if (!onGatePath(c)) {
-      if (free(c, 1)) setAbs(c, 1, Tile.TREE);
-      if (free(c, MAP_ROWS - 2)) setAbs(c, MAP_ROWS - 2, Tile.TREE);
-    }
-  }
-  for (let r = 3; r < MAP_ROWS - 1; r += 2) {
-    if (free(1, r)) setAbs(1, r, Tile.TREE);
-    if (free(MAP_COLS - 2, r)) setAbs(MAP_COLS - 2, r, Tile.TREE);
-  }
-
   return m;
 }
 
 export const officeMap = buildOfficeMap();
+
+// One tree on the grounds: its top-left pixel and tile span (1 = small, 2 = a big
+// 2×2 tree). The renderer draws from this list; its footprint tiles are stamped
+// TREE in officeMap for collision (#229).
+export type Tree = { x: number; y: number; tiles: number; variant: number };
+
+// Small deterministic PRNG (mulberry32) so the random tree layout is stable
+// across reloads/clients instead of shuffling every build.
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Scatter trees randomly over the grass margin, mixing small (1×1) and big (2×2)
+// trees. Stamps each footprint as TREE (solid) and returns the draw instances.
+// Keeps clear of the south gate corridor so the exit stays walkable.
+function placeTrees(m: number[][]): Tree[] {
+  const rng = mulberry32(0x5eed);
+  const trees: Tree[] = [];
+  const gateCol = GATE_C + OUTDOOR_MARGIN;
+  const buildingBottom = OUTDOOR_MARGIN + BUILDING_ROWS;
+
+  const allGrass = (c: number, r: number, span: number): boolean => {
+    for (let rr = r; rr < r + span; rr++)
+      for (let cc = c; cc < c + span; cc++) {
+        if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) return false;
+        if (m[rr][cc] !== Tile.GRASS) return false;
+      }
+    return true;
+  };
+  // Keep a 2-tile-wide corridor south of the gate clear down to the map edge.
+  const blocksGate = (c: number, r: number, span: number): boolean =>
+    r + span > buildingBottom && c <= gateCol + 1 && c + span > gateCol - 1;
+
+  // Try to place one tree somewhere in [colMin,colMax]×[rowMin,rowMax]. Biased
+  // toward big trees; spaced so nothing clumps. Returns whether it placed.
+  const tryPlace = (
+    colMin: number,
+    colMax: number,
+    rowMin: number,
+    rowMax: number,
+    bigProb = 0.68,
+  ): boolean => {
+    const tiles = rng() < bigProb ? 2 : 1;
+    const c = colMin + Math.floor(rng() * (colMax - colMin + 1));
+    const r = rowMin + Math.floor(rng() * (rowMax - rowMin + 1));
+    if (blocksGate(c, r, tiles) || !allGrass(c, r, tiles)) return false;
+    // Require a one-tile grass gap around the footprint so trees stay spaced out.
+    if (!allGrass(c - 1, r - 1, tiles + 2)) return false;
+    for (let rr = r; rr < r + tiles; rr++)
+      for (let cc = c; cc < c + tiles; cc++) m[rr][cc] = Tile.TREE;
+    trees.push({ x: c * TILE_SIZE, y: r * TILE_SIZE, tiles, variant: rng() < 0.5 ? 1 : 0 });
+    return true;
+  };
+
+  // Place per margin band so the four sides stay balanced (a single uniform
+  // scatter left the narrow left/right strips too sparse). Each band gets its own
+  // attempt budget scaled to its size.
+  const buildingRight = OUTDOOR_MARGIN + BUILDING_COLS; // first grass col on the right
+  const midRow0 = OUTDOOR_MARGIN + 8;
+  const midRow1 = buildingBottom - 8;
+  const bands: [number, number, number, number, number, number][] = [
+    [1, MAP_COLS - 2, 1, OUTDOOR_MARGIN - 1, 24, 0.68], // top
+    [1, MAP_COLS - 2, buildingBottom, MAP_ROWS - 2, 24, 0.68], // bottom
+    [1, OUTDOOR_MARGIN - 1, OUTDOOR_MARGIN, buildingBottom - 1, 18, 0.68], // left
+    [buildingRight, MAP_COLS - 2, OUTDOOR_MARGIN, buildingBottom - 1, 18, 0.68], // right
+    // Fill the sparse right-middle strip with a few small trees so it's not bare.
+    [buildingRight, MAP_COLS - 2, midRow0, midRow1, 12, 0], // right-middle (small)
+  ];
+  for (const [colMin, colMax, rowMin, rowMax, attempts, bigProb] of bands) {
+    for (let i = 0; i < attempts; i++) tryPlace(colMin, colMax, rowMin, rowMax, bigProb);
+  }
+  return trees;
+}
+
+export const TREES: Tree[] = placeTrees(officeMap);
 
 // Pixel rect of the lounge, for the renderer (rug accent + sofas/coffee table).
 export const LOUNGE_RECT = {
