@@ -492,8 +492,10 @@ export class CanvasRenderer {
 
     // Away overlay (#220): a faint veil plus a small badge, drawn in screen space
     // on top of everything so it reads as "you've stepped away" without hiding
-    // the room — others still move underneath.
+    // the room — others still move underneath. Away takes priority over the
+    // zone-focus veil (#223), which dims everything outside the room you're in.
     if (selfAway) this.drawAwayOverlay(ctx, w, h);
+    else if (selfZone) this.drawZoneFocusOverlay(ctx, w, h, selfZone);
 
     // Name labels last, in screen space at a constant size (#227), so you can
     // read who is where even zoomed out — and on top of the veil above.
@@ -552,6 +554,27 @@ export class CanvasRenderer {
       ctx.fillStyle = 'white';
       ctx.fillText(l.text, l.cx, l.top + lh / 2 + 1);
     }
+    ctx.restore();
+  }
+
+  // Zone-focus veil (#223): while inside a conversation zone, dim everything
+  // outside its rectangle so the room reads as "where you are". Drawn in screen
+  // space with an even-odd fill (viewport rect minus the zone's projected rect).
+  private drawZoneFocusOverlay(
+    ctx: CanvasRenderingContext2D,
+    w: number,
+    h: number,
+    zone: { x: number; y: number; w: number; h: number },
+  ) {
+    const z = this.zoomLevel;
+    const zx = (zone.x - this.camX) * z + w / 2;
+    const zy = (zone.y - this.camY) * z + h / 2;
+    ctx.save();
+    ctx.fillStyle = 'rgba(16,20,28,0.3)';
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h);
+    ctx.rect(zx, zy, zone.w * z, zone.h * z);
+    ctx.fill('evenodd');
     ctx.restore();
   }
 
