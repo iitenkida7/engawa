@@ -5,6 +5,7 @@ import {
   isSolid,
   MAP_COLS,
   MAP_ROWS,
+  OUTDOOR_MARGIN,
   officeMap,
   SOLID,
   TILE_SIZE,
@@ -128,8 +129,11 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
   });
 
   it('groups each room into a single distinct zone', () => {
+    // roomSamples are building-local coords; shift into the map (#229).
     const ids = roomSamples.map((s) => {
-      const z = zoneAt(s.col * TILE_SIZE + TILE_SIZE / 2, s.row * TILE_SIZE + TILE_SIZE / 2);
+      const cx = (s.col + OUTDOOR_MARGIN) * TILE_SIZE + TILE_SIZE / 2;
+      const cy = (s.row + OUTDOOR_MARGIN) * TILE_SIZE + TILE_SIZE / 2;
+      const z = zoneAt(cx, cy);
       expect(z).not.toBeNull();
       return z!.id;
     });

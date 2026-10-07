@@ -24,6 +24,7 @@ import {
   MEETING_ROOM_RECTS,
   officeMap,
   POD_RUGS,
+  POND_RECT,
   ROOM_FURNITURE,
   type RoomFurniture,
   TILE_SIZE,
@@ -77,6 +78,17 @@ const PALETTE = {
   coffeeTable: '#a9774f',
   coffeeTableTop: '#c79b70',
   coffeeTableHi: '#dcbb95',
+  // Outdoor grounds (#229): grass lawn, trees, and a pond around the building.
+  grass: '#a9c98c',
+  grassSeam: 'rgba(110,145,85,0.18)',
+  grassTuft: 'rgba(120,160,95,0.5)',
+  treeTrunk: '#8a6a43',
+  treeCanopy: '#6fa052',
+  treeCanopyHi: '#8bbd68',
+  treeCanopyShade: '#577f41',
+  water: '#7fb8d4',
+  waterHi: '#a6d4e6',
+  waterEdge: 'rgba(55,105,135,0.55)',
   // Faint tile grid drawn on every floor, and a soft shadow under furniture, for
   // a tidy "game floor" look with a little depth.
   floorGrid: 'rgba(90,75,50,0.07)',
@@ -495,8 +507,15 @@ export class CanvasRenderer {
       for (let c = 0; c < MAP_COLS; c++) {
         const tx = c * TILE_SIZE;
         const ty = r * TILE_SIZE;
-        if (officeMap[r][c] === Tile.WALL) {
+        const tile = officeMap[r][c];
+        if (tile === Tile.WALL) {
           this.drawWall(cx, tx, ty, c, r);
+          continue;
+        }
+        // Outdoor tiles (#229): grass base under trees/pond too; the pond body is
+        // painted once below so it reads as one shape.
+        if (tile === Tile.GRASS || tile === Tile.TREE || tile === Tile.POND) {
+          this.drawGrassTile(cx, tx, ty, c, r);
           continue;
         }
         const roomKind = roomKindAt(c, r);
@@ -522,6 +541,9 @@ export class CanvasRenderer {
       }
     }
 
+    // Outdoor pond: one water shape over the grass (POND tiles handle collision).
+    this.drawPond(cx, POND_RECT);
+
     // Team-island rugs under the desk pods (over the floor, under the desks).
     for (const rug of POD_RUGS) this.drawPodRug(cx, rug);
 
@@ -532,6 +554,10 @@ export class CanvasRenderer {
         const tile = officeMap[r][c];
         const tx = c * TILE_SIZE;
         const ty = r * TILE_SIZE;
+        if (tile === Tile.TREE) {
+          this.drawTree(cx, tx, ty);
+          continue;
+        }
         const prop = propFor(tile);
         if (prop === 'desk' && floorKindAt(c, r) === 'wood') {
           this.drawWorkstation(cx, tx, ty, deskFacesSouth(c, r));
@@ -949,6 +975,80 @@ export class CanvasRenderer {
     this.roundRect(cx, f.x + i, f.y + i, f.w - i * 2, f.h - i * 2, 7);
     cx.lineWidth = 1;
     cx.stroke();
+  }
+
+  // Outdoor grass tile: a flat green base, a faint seam grid (matching the indoor
+  // floor), and a small deterministic tuft so the lawn isn't a flat slab (#229).
+  private drawGrassTile(
+    cx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    col: number,
+    row: number,
+  ) {
+    const S = TILE_SIZE;
+    cx.fillStyle = PALETTE.grass;
+    cx.fillRect(tx, ty, S, S);
+    cx.strokeStyle = PALETTE.grassSeam;
+    cx.lineWidth = 1;
+    cx.beginPath();
+    cx.moveTo(tx + S - 0.5, ty);
+    cx.lineTo(tx + S - 0.5, ty + S);
+    cx.moveTo(tx, ty + S - 0.5);
+    cx.lineTo(tx + S, ty + S - 0.5);
+    cx.stroke();
+    // One tuft per tile, placed by a cheap hash of (col,row) so it's stable.
+    const hx = ((col * 7 + row * 13) % 5) * 8 + 8;
+    const hy = ((col * 11 + row * 5) % 5) * 8 + 8;
+    cx.strokeStyle = PALETTE.grassTuft;
+    cx.lineWidth = 1.5;
+    cx.beginPath();
+    cx.moveTo(tx + hx, ty + hy);
+    cx.lineTo(tx + hx - 2, ty + hy - 5);
+    cx.moveTo(tx + hx, ty + hy);
+    cx.lineTo(tx + hx + 2, ty + hy - 5);
+    cx.stroke();
+  }
+
+  // A simple procedural tree on the grass: a short trunk and a layered round
+  // canopy, slightly overflowing the tile upward so a row of them reads as trees.
+  private drawTree(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+    const S = TILE_SIZE;
+    const cxp = tx + S / 2;
+    const base = ty + S - 6;
+    this.softShadow(cx, cxp, base + 2, S * 0.34, 5);
+    cx.fillStyle = PALETTE.treeTrunk;
+    cx.fillRect(cxp - 3, base - 12, 6, 14);
+    const cy = ty + S * 0.42;
+    cx.fillStyle = PALETTE.treeCanopyShade;
+    this.circle(cx, cxp, cy + 3, S * 0.32);
+    cx.fillStyle = PALETTE.treeCanopy;
+    this.circle(cx, cxp, cy, S * 0.3);
+    cx.fillStyle = PALETTE.treeCanopyHi;
+    this.circle(cx, cxp - S * 0.1, cy - S * 0.1, S * 0.14);
+  }
+
+  // The outdoor pond: a water ellipse filling its rect, with a soft edge ring and
+  // a light glint. Collision is handled by the POND tiles underneath (#229).
+  private drawPond(
+    cx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; w: number; h: number },
+  ) {
+    const cxp = rect.x + rect.w / 2;
+    const cyp = rect.y + rect.h / 2;
+    const rx = rect.w / 2 - 4;
+    const ry = rect.h / 2 - 4;
+    cx.beginPath();
+    cx.ellipse(cxp, cyp, rx, ry, 0, 0, Math.PI * 2);
+    cx.fillStyle = PALETTE.water;
+    cx.fill();
+    cx.strokeStyle = PALETTE.waterEdge;
+    cx.lineWidth = 3;
+    cx.stroke();
+    cx.beginPath();
+    cx.ellipse(cxp - rx * 0.3, cyp - ry * 0.3, rx * 0.35, ry * 0.25, 0, 0, Math.PI * 2);
+    cx.fillStyle = PALETTE.waterHi;
+    cx.fill();
   }
 
   // Warm off-white wall: a light base with a soft top highlight, a subtle bottom

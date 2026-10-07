@@ -1,10 +1,21 @@
 import { t } from '@/core/i18n';
 
 export const TILE_SIZE = 50;
-// A compact floor (1700×1200) keeps walking short. Must stay in sync with
-// MAP_WIDTH/MAP_HEIGHT (client core/types.ts and server logic.ts).
-export const MAP_COLS = 34;
-export const MAP_ROWS = 24;
+// The building itself is a compact 34×24 floor; the world adds an outdoor grass
+// margin on every side (#229), so the full map is larger. The building's tile
+// definitions (ROOMS/LOUNGE/OPEN_DESKS/…) stay in building-local coords and are
+// shifted into the map by OUTDOOR_MARGIN when the grid and the exported pixel
+// rects are built — so nothing below needs to know about the margin.
+const BUILDING_COLS = 34;
+const BUILDING_ROWS = 24;
+// Grass margin (tiles) on each side of the building. Exported so tests/callers
+// can convert building-local coords to map coords.
+export const OUTDOOR_MARGIN = 6;
+export const MAP_COLS = BUILDING_COLS + OUTDOOR_MARGIN * 2;
+export const MAP_ROWS = BUILDING_ROWS + OUTDOOR_MARGIN * 2;
+// Pixel offset of the building's origin within the map.
+const OFF_X = OUTDOOR_MARGIN * TILE_SIZE;
+const OFF_Y = OUTDOOR_MARGIN * TILE_SIZE;
 
 export const Tile = {
   FLOOR: 0,
@@ -13,9 +24,13 @@ export const Tile = {
   MEETING: 3,
   LOUNGE: 4,
   PLANT: 5,
+  // Outdoor tiles (#229): walkable grass, plus solid trees and pond on it.
+  GRASS: 6,
+  TREE: 7,
+  POND: 8,
 } as const;
 
-export const SOLID = new Set<number>([Tile.WALL, Tile.DESK, Tile.PLANT]);
+export const SOLID = new Set<number>([Tile.WALL, Tile.DESK, Tile.PLANT, Tile.TREE, Tile.POND]);
 
 // Tile colours live with the renderer (world/canvas.ts PALETTE), which draws the
 // map procedurally. tilemap.ts stays pure layout + collision.
@@ -263,12 +278,12 @@ export const ROOM_FURNITURE: RoomFurniture[] = ROOMS.map((room) => {
   const minR = Math.min(...rows);
   const maxR = Math.max(...rows);
   return {
-    x: minC * TILE_SIZE,
-    y: minR * TILE_SIZE,
+    x: minC * TILE_SIZE + OFF_X,
+    y: minR * TILE_SIZE + OFF_Y,
     w: (maxC - minC + 1) * TILE_SIZE,
     h: (maxR - minR + 1) * TILE_SIZE,
-    ix: room.c * TILE_SIZE,
-    iy: room.r * TILE_SIZE,
+    ix: room.c * TILE_SIZE + OFF_X,
+    iy: room.r * TILE_SIZE + OFF_Y,
     iw: room.w * TILE_SIZE,
     ih: room.h * TILE_SIZE,
   };
@@ -279,8 +294,8 @@ export const ROOM_FURNITURE: RoomFurniture[] = ROOMS.map((room) => {
 export const MEETING_ROOM_RECTS = ROOMS.filter(
   (room) => room.id === 'all-hands' || room.id.startsWith('meeting'),
 ).map((room) => ({
-  x: room.c * TILE_SIZE,
-  y: room.r * TILE_SIZE,
+  x: room.c * TILE_SIZE + OFF_X,
+  y: room.r * TILE_SIZE + OFF_Y,
   w: room.w * TILE_SIZE,
   h: room.h * TILE_SIZE,
 }));
@@ -331,7 +346,7 @@ const OPEN_DESKS: [number, number][] = [
 // flipped to the bottom) so a pod's two rows sit face-to-face — two people
 // looking at each other across the island. These are the open-office desks on
 // rows 8 and 14 (the lower rows, 10 and 16, keep the default north facing).
-const SOUTH_FACING_DESK_ROWS = new Set<number>([8, 14]);
+const SOUTH_FACING_DESK_ROWS = new Set<number>([8 + OUTDOOR_MARGIN, 14 + OUTDOOR_MARGIN]);
 
 /** True when the open-office desk at (col,row) is drawn facing south (flipped). */
 export function deskFacesSouth(col: number, row: number): boolean {
@@ -364,26 +379,48 @@ const OPEN_PLANTS: [number, number][] = [
   [17, 4],
 ];
 
+// Pond footprint in outdoor grass (map-absolute tile coords), top-left grounds.
+export const POND = { c: 2, r: 2, w: 4, h: 3 } as const;
+
+// Building-local column of the south gate: a 2-tile gap in the bottom outer wall
+// so you can walk out of the building into the grounds (#229).
+const GATE_C = 16;
+
 function buildOfficeMap(): number[][] {
   const m: number[][] = [];
   for (let r = 0; r < MAP_ROWS; r++) {
-    m.push(new Array(MAP_COLS).fill(Tile.FLOOR));
+    m.push(new Array(MAP_COLS).fill(Tile.GRASS));
   }
 
+  // Building helpers: coords are building-local; the margin offset is baked in
+  // here, so every ROOMS/LOUNGE/OPEN_* definition below stays unchanged.
   const fill = (c: number, r: number, w: number, h: number, t: number) => {
     for (let rr = r; rr < r + h; rr++)
-      for (let cc = c; cc < c + w; cc++)
-        if (rr >= 0 && rr < MAP_ROWS && cc >= 0 && cc < MAP_COLS) m[rr][cc] = t;
+      for (let cc = c; cc < c + w; cc++) {
+        const mr = rr + OUTDOOR_MARGIN;
+        const mc = cc + OUTDOOR_MARGIN;
+        if (mr >= 0 && mr < MAP_ROWS && mc >= 0 && mc < MAP_COLS) m[mr][mc] = t;
+      }
   };
   const set = (c: number, r: number, t: number) => {
+    const mr = r + OUTDOOR_MARGIN;
+    const mc = c + OUTDOOR_MARGIN;
+    if (mr >= 0 && mr < MAP_ROWS && mc >= 0 && mc < MAP_COLS) m[mr][mc] = t;
+  };
+  // Map-absolute setter, for outdoor features placed in the grass margin.
+  const setAbs = (c: number, r: number, t: number) => {
     if (r >= 0 && r < MAP_ROWS && c >= 0 && c < MAP_COLS) m[r][c] = t;
   };
 
-  // ── Outer walls ──
-  fill(0, 0, MAP_COLS, 1, Tile.WALL);
-  fill(0, MAP_ROWS - 1, MAP_COLS, 1, Tile.WALL);
-  fill(0, 0, 1, MAP_ROWS, Tile.WALL);
-  fill(MAP_COLS - 1, 0, 1, MAP_ROWS, Tile.WALL);
+  // ── Building floor, then outer walls (building-local) ──
+  fill(0, 0, BUILDING_COLS, BUILDING_ROWS, Tile.FLOOR);
+  fill(0, 0, BUILDING_COLS, 1, Tile.WALL);
+  fill(0, BUILDING_ROWS - 1, BUILDING_COLS, 1, Tile.WALL);
+  fill(0, 0, 1, BUILDING_ROWS, Tile.WALL);
+  fill(BUILDING_COLS - 1, 0, 1, BUILDING_ROWS, Tile.WALL);
+  // South gate: a 2-tile door in the bottom wall out to the grounds.
+  set(GATE_C, BUILDING_ROWS - 1, Tile.FLOOR);
+  set(GATE_C + 1, BUILDING_ROWS - 1, Tile.FLOOR);
 
   // ── Rooms: wall ring → MEETING interior → doors → desks ──
   for (const room of ROOMS) {
@@ -402,6 +439,26 @@ function buildOfficeMap(): number[][] {
   for (const [c, r] of OPEN_DESKS) set(c, r, Tile.DESK);
   for (const [c, r] of OPEN_PLANTS) set(c, r, Tile.PLANT);
 
+  // ── Outdoor grounds: a pond and trees scattered over the grass margin ──
+  for (let rr = POND.r; rr < POND.r + POND.h; rr++)
+    for (let cc = POND.c; cc < POND.c + POND.w; cc++) setAbs(cc, rr, Tile.POND);
+
+  // Trees framing the grounds: a loose ring near the map edge (every other tile),
+  // skipping the pond and leaving the gate column clear so the exit stays open.
+  const gateMapCol = GATE_C + OUTDOOR_MARGIN;
+  const onGatePath = (c: number) => c === gateMapCol || c === gateMapCol + 1;
+  const free = (c: number, r: number) => m[r][c] === Tile.GRASS;
+  for (let c = 1; c < MAP_COLS - 1; c += 2) {
+    if (!onGatePath(c)) {
+      if (free(c, 1)) setAbs(c, 1, Tile.TREE);
+      if (free(c, MAP_ROWS - 2)) setAbs(c, MAP_ROWS - 2, Tile.TREE);
+    }
+  }
+  for (let r = 3; r < MAP_ROWS - 1; r += 2) {
+    if (free(1, r)) setAbs(1, r, Tile.TREE);
+    if (free(MAP_COLS - 2, r)) setAbs(MAP_COLS - 2, r, Tile.TREE);
+  }
+
   return m;
 }
 
@@ -409,10 +466,18 @@ export const officeMap = buildOfficeMap();
 
 // Pixel rect of the lounge, for the renderer (rug accent + sofas/coffee table).
 export const LOUNGE_RECT = {
-  x: LOUNGE.c * TILE_SIZE,
-  y: LOUNGE.r * TILE_SIZE,
+  x: LOUNGE.c * TILE_SIZE + OFF_X,
+  y: LOUNGE.r * TILE_SIZE + OFF_Y,
   w: LOUNGE.w * TILE_SIZE,
   h: LOUNGE.h * TILE_SIZE,
+};
+
+// Pixel rect of the outdoor pond (map-absolute; POND is already in map coords).
+export const POND_RECT = {
+  x: POND.c * TILE_SIZE,
+  y: POND.r * TILE_SIZE,
+  w: POND.w * TILE_SIZE,
+  h: POND.h * TILE_SIZE,
 };
 
 // Team-island (pod) footprints as [colStart, colEnd, rowStart, rowEnd], mirroring
@@ -431,8 +496,8 @@ const PODS: [number, number, number, number][] = [
 // Pixel rects for the pod rugs: the desk block plus a full one-tile border all
 // around (so a 2×2 desk pod sits on a 4×4 rug).
 export const POD_RUGS = PODS.map(([cs, ce, rs, re]) => ({
-  x: (cs - 1) * TILE_SIZE,
-  y: (rs - 1) * TILE_SIZE,
+  x: (cs - 1) * TILE_SIZE + OFF_X,
+  y: (rs - 1) * TILE_SIZE + OFF_Y,
   w: (ce - cs + 3) * TILE_SIZE,
   h: (re - rs + 3) * TILE_SIZE,
 }));
@@ -454,8 +519,8 @@ export type Zone = { id: string; name: string; x: number; y: number; w: number; 
 function buildZones(): { zones: Zone[]; grid: number[][] } {
   const grid: number[][] = officeMap.map((row) => row.map(() => -1));
   const zones: Zone[] = ROOMS.map((room, idx) => {
-    for (let rr = room.r; rr < room.r + room.h; rr++) {
-      for (let cc = room.c; cc < room.c + room.w; cc++) {
+    for (let rr = room.r + OUTDOOR_MARGIN; rr < room.r + room.h + OUTDOOR_MARGIN; rr++) {
+      for (let cc = room.c + OUTDOOR_MARGIN; cc < room.c + room.w + OUTDOOR_MARGIN; cc++) {
         if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) continue;
         if (officeMap[rr][cc] === Tile.MEETING) grid[rr][cc] = idx;
       }
@@ -463,8 +528,8 @@ function buildZones(): { zones: Zone[]; grid: number[][] } {
     return {
       id: room.id,
       name: room.name,
-      x: room.c * TILE_SIZE,
-      y: room.r * TILE_SIZE,
+      x: room.c * TILE_SIZE + OFF_X,
+      y: room.r * TILE_SIZE + OFF_Y,
       w: room.w * TILE_SIZE,
       h: room.h * TILE_SIZE,
     };
@@ -474,8 +539,8 @@ function buildZones(): { zones: Zone[]; grid: number[][] } {
   // isolated call bubble where everyone inside is connected and audio doesn't
   // leak out — but it has no walls, so its grid cells are the LOUNGE tiles.
   const loungeIdx = zones.length;
-  for (let rr = LOUNGE.r; rr < LOUNGE.r + LOUNGE.h; rr++) {
-    for (let cc = LOUNGE.c; cc < LOUNGE.c + LOUNGE.w; cc++) {
+  for (let rr = LOUNGE.r + OUTDOOR_MARGIN; rr < LOUNGE.r + LOUNGE.h + OUTDOOR_MARGIN; rr++) {
+    for (let cc = LOUNGE.c + OUTDOOR_MARGIN; cc < LOUNGE.c + LOUNGE.w + OUTDOOR_MARGIN; cc++) {
       if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) continue;
       if (officeMap[rr][cc] === Tile.LOUNGE) grid[rr][cc] = loungeIdx;
     }
