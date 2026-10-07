@@ -265,6 +265,13 @@ export class App {
     this.canvas = opts.canvas;
     this.editor = opts.editor;
     this.renderer = new CanvasRenderer(this.canvas);
+    // One-button camera controls (#231): zoom to self / fit the whole map.
+    document
+      .getElementById('btn-zoom-self')
+      ?.addEventListener('click', () => this.renderer.zoomToSelf());
+    document
+      .getElementById('btn-zoom-fit')
+      ?.addEventListener('click', () => this.renderer.zoomToFit());
     this.input = new InputManager();
     this.media = new MediaManager();
     this.recorder = new RecorderManager();

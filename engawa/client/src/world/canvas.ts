@@ -271,6 +271,24 @@ export class CanvasRenderer {
     this.following = true;
   }
 
+  // One-button "zoom to me": reset to the 1:1 view centered on self (#231).
+  zoomToSelf() {
+    this.zoomLevel = ZOOM_DEFAULT;
+    this.following = true;
+  }
+
+  // One-button "see everything": zoom out to fit the whole map and park the
+  // camera at its center (stops following until you move or zoom to self) (#231).
+  zoomToFit() {
+    const fit = Math.min(this.viewW / MAP_WIDTH, this.viewH / MAP_HEIGHT);
+    // Small margin so the grounds aren't flush to the edges. This can go below the
+    // wheel's ZOOM_MIN (the whole map must fit); a wheel tick snaps back into range.
+    this.zoomLevel = Math.max(0.2, fit * 0.95);
+    this.following = false;
+    this.camX = MAP_WIDTH / 2;
+    this.camY = MAP_HEIGHT / 2;
+  }
+
   resize() {
     // Refresh dpr (it can change when the window moves between monitors) and
     // invalidate the cache if it did, so the baked layer stays crisp.
