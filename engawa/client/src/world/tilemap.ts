@@ -24,7 +24,12 @@ export function isSolid(px: number, py: number): boolean {
   const col = Math.floor(px / TILE_SIZE);
   const row = Math.floor(py / TILE_SIZE);
   if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) return true;
-  return SOLID.has(officeMap[row][col]);
+  if (SOLID.has(officeMap[row][col])) return true;
+  // Sub-tile props that don't align to the grid (e.g. the lounge coffee table).
+  for (const r of SOLID_RECTS) {
+    if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return true;
+  }
+  return false;
 }
 
 export function canOccupy(cx: number, cy: number, radius: number): boolean {
@@ -414,6 +419,20 @@ export const LOUNGE_RECT = {
   w: LOUNGE.w * TILE_SIZE,
   h: LOUNGE.h * TILE_SIZE,
 };
+
+// Pixel rect of the lounge coffee table, centered in the lounge (46% × 20% of
+// it). Shared by the renderer (draws it) and collision (SOLID_RECTS) so the two
+// can't drift — you can't walk onto the table (#225).
+export const LOUNGE_TABLE_RECT = {
+  x: LOUNGE_RECT.x + LOUNGE_RECT.w / 2 - (LOUNGE_RECT.w * 0.46) / 2,
+  y: LOUNGE_RECT.y + LOUNGE_RECT.h / 2 - (LOUNGE_RECT.h * 0.2) / 2,
+  w: LOUNGE_RECT.w * 0.46,
+  h: LOUNGE_RECT.h * 0.2,
+};
+
+// Impassable sub-tile props, checked by isSolid in addition to the SOLID tile
+// kinds. Pixel rects so props that don't fill a whole tile still block.
+const SOLID_RECTS: { x: number; y: number; w: number; h: number }[] = [LOUNGE_TABLE_RECT];
 
 // Team-island (pod) footprints as [colStart, colEnd, rowStart, rowEnd], mirroring
 // OPEN_DESKS. The renderer draws a soft accent rug under each so the desk clusters
