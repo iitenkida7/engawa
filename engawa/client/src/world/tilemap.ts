@@ -378,9 +378,10 @@ const OPEN_PLANTS: [number, number][] = [
   [17, 4],
 ];
 
-// Building-local column of the south gate: a 2-tile gap in the bottom outer wall
-// so you can walk out of the building into the grounds (#229).
-const GATE_C = 16;
+// Building-local top row of the side gates: a 2-tile gap in BOTH the left and
+// right outer walls at the open-office aisle, so you can walk out to the grounds
+// (#229). The south wall can't be used — the bottom room strip blocks it.
+const GATE_R = 11;
 
 function buildOfficeMap(): number[][] {
   const m: number[][] = [];
@@ -410,9 +411,12 @@ function buildOfficeMap(): number[][] {
   fill(0, BUILDING_ROWS - 1, BUILDING_COLS, 1, Tile.WALL);
   fill(0, 0, 1, BUILDING_ROWS, Tile.WALL);
   fill(BUILDING_COLS - 1, 0, 1, BUILDING_ROWS, Tile.WALL);
-  // South gate: a 2-tile door in the bottom wall out to the grounds.
-  set(GATE_C, BUILDING_ROWS - 1, Tile.FLOOR);
-  set(GATE_C + 1, BUILDING_ROWS - 1, Tile.FLOOR);
+  // Side gates: a 2-tile door in each of the left and right walls, at the open
+  // aisle, so both sides open onto the grounds.
+  for (const dr of [GATE_R, GATE_R + 1]) {
+    set(0, dr, Tile.FLOOR);
+    set(BUILDING_COLS - 1, dr, Tile.FLOOR);
+  }
 
   // ── Rooms: wall ring → MEETING interior → doors → desks ──
   for (const room of ROOMS) {
@@ -460,8 +464,8 @@ function mulberry32(seed: number): () => number {
 function placeTrees(m: number[][]): Tree[] {
   const rng = mulberry32(0x5eed);
   const trees: Tree[] = [];
-  const gateCol = GATE_C + OUTDOOR_MARGIN;
   const buildingBottom = OUTDOOR_MARGIN + BUILDING_ROWS;
+  const buildingRight = OUTDOOR_MARGIN + BUILDING_COLS; // first grass col on the right
 
   const allGrass = (c: number, r: number, span: number): boolean => {
     for (let rr = r; rr < r + span; rr++)
@@ -471,9 +475,11 @@ function placeTrees(m: number[][]): Tree[] {
       }
     return true;
   };
-  // Keep a 2-tile-wide corridor south of the gate clear down to the map edge.
+  // Keep the horizontal corridor outside each side gate clear so the exits stay
+  // walkable (both the left and right grass strips at the gate rows).
+  const gateTop = OUTDOOR_MARGIN + GATE_R;
   const blocksGate = (c: number, r: number, span: number): boolean =>
-    r + span > buildingBottom && c <= gateCol + 1 && c + span > gateCol - 1;
+    r + span > gateTop - 1 && r < gateTop + 3 && (c < OUTDOOR_MARGIN || c + span > buildingRight);
 
   // Try to place one tree somewhere in [colMin,colMax]×[rowMin,rowMax]. Biased
   // toward big trees; spaced so nothing clumps. Returns whether it placed.
@@ -499,7 +505,6 @@ function placeTrees(m: number[][]): Tree[] {
   // Place per margin band so the four sides stay balanced (a single uniform
   // scatter left the narrow left/right strips too sparse). Each band gets its own
   // attempt budget scaled to its size.
-  const buildingRight = OUTDOOR_MARGIN + BUILDING_COLS; // first grass col on the right
   const midRow0 = OUTDOOR_MARGIN + 8;
   const midRow1 = buildingBottom - 8;
   const bands: [number, number, number, number, number, number][] = [
