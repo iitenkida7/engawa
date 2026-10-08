@@ -56,7 +56,12 @@ import {
 import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
 import { setPreferRedAudio } from '@/rtc/sdp';
 import { SfuManager } from '@/rtc/sfu';
-import { partitionMembers, SFU_REBUILD_MIN_INTERVAL_MS } from '@/rtc/sfu-logic';
+import {
+  partitionMembers,
+  SFU_MAX_CAM_PULLS,
+  SFU_REBUILD_MIN_INTERVAL_MS,
+  selectActiveCameras,
+} from '@/rtc/sfu-logic';
 import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
@@ -178,6 +183,10 @@ export class App {
 
   // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
   private lastLayerUpdate = 0;
+  // Last time (ms) each SFU peer was heard speaking, and the last camera-allow
+  // set pushed to the SFU — both drive the active-speaker camera cap (#237).
+  private lastSpokeAtMs = new Map<string, number>();
+  private lastCamAllowedKey: string | null = null;
 
   // Call-quality sampling (issue #182): every QUALITY_SAMPLE_INTERVAL_MS the
   // active transport's stats are folded into one QualitySample and appended to
@@ -657,6 +666,8 @@ export class App {
     // a session reset must not schedule rebuilds of the peers it is dropping.
     this.meshMembers.clear();
     this.sfuMembers.clear();
+    this.lastSpokeAtMs.clear();
+    this.lastCamAllowedKey = null;
     this.clearPeerRecovery();
     this.rtc.closeAll();
     this.sfu.closeAll();
@@ -1337,14 +1348,22 @@ export class App {
 
     // Speaking detection (local + remote tiles) is owned by the media view.
     this.view.updateSpeaking();
+    // Track when each remote peer last spoke, for the active-speaker camera cap
+    // (#237). Mic is always pulled, so this stays accurate even for peers whose
+    // camera we're not currently receiving.
+    for (const [id, p] of this.players) {
+      if (id !== this.myId && p.isSpeaking) this.lastSpokeAtMs.set(id, now);
+    }
 
     // Speaker-aware send policy: in big proximity groups, lower our own camera
     // (and screen) ceilings while we are not the (recent) speaker.
     this.updateSendPolicy(now);
 
-    // SFU simulcast: re-pick each remote camera's layer by tile size (~1s cadence).
+    // SFU simulcast: re-pick each remote camera's layer by tile size, and (in a
+    // big group) which cameras to pull at all by active speaker (~1s cadence).
     if (now - this.lastLayerUpdate > 1000) {
       this.lastLayerUpdate = now;
+      this.updateCameraPulls();
       this.updateSfuLayers();
     }
 
@@ -1536,6 +1555,8 @@ export class App {
       this.sfuMembers = new Set(members);
       this.meshMembers.clear();
       this.clearPeerRecovery();
+      // Membership changed → recompute the camera-pull allow-set next tick (#237).
+      this.lastCamAllowedKey = null;
       if (wasMesh) {
         // mesh → SFU: drop every mesh peer, then publish our live streams to the
         // SFU. Remote media comes back via sfu-peer-tracks → pull. (meshMembers
@@ -1626,6 +1647,34 @@ export class App {
   // #78): small thumbnails take the half layer to save downlink, the stage-sized
   // view takes full. setPreferredLayer no-ops when the rid is unchanged, so this
   // is cheap to call on a slow cadence from the loop.
+  // Cap how many remote cameras we pull in a big SFU group (#237): only the
+  // active speakers' cameras are received; everyone else stays audio-only until
+  // they speak. Small groups (≤ cap) are unrestricted, preserving prior behavior.
+  private updateCameraPulls() {
+    if (this.currentMethod !== 'sfu') return;
+    const peers = [...this.sfuMembers].filter((id) => id !== this.myId);
+    let allowed: string[] | null;
+    if (peers.length <= SFU_MAX_CAM_PULLS) {
+      allowed = null;
+    } else {
+      allowed = selectActiveCameras(
+        peers.map((id) => ({
+          userId: id,
+          hasCam: (this.sfuDirectory.get(id)?.tracks ?? []).some((t) => t.kind === 'cam'),
+          speaking: this.players.get(id)?.isSpeaking ?? false,
+          lastSpokeMs: this.lastSpokeAtMs.get(id) ?? 0,
+        })),
+      );
+    }
+    // Only act when the allow-set actually changes, so we don't re-feed the SFU
+    // directories every tick.
+    const key = allowed ? [...allowed].sort().join(',') : '*';
+    if (key === this.lastCamAllowedKey) return;
+    this.lastCamAllowedKey = key;
+    this.sfu.setCamAllowed(allowed);
+    this.refeedSfuDirectories();
+  }
+
   private updateSfuLayers() {
     if (this.currentMethod !== 'sfu') return;
     for (const userId of this.sfuMembers) {

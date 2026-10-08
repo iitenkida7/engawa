@@ -6,6 +6,8 @@ import {
   partitionMembers,
   reconcilePeerTracks,
   remoteKey,
+  SFU_MAX_CAM_PULLS,
+  selectActiveCameras,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
   sfuSessionError,
@@ -230,5 +232,48 @@ describe('sfu control-plane retry policy (issue #186)', () => {
     expect(isRetryableSfuHttp(400)).toBe(false);
     expect(isRetryableSfuHttp(403)).toBe(false);
     expect(isRetryableSfuHttp(404)).toBe(false);
+  });
+});
+
+describe('selectActiveCameras (#237)', () => {
+  const c = (userId: string, hasCam: boolean, speaking: boolean, lastSpokeMs: number) => ({
+    userId,
+    hasCam,
+    speaking,
+    lastSpokeMs,
+  });
+
+  it('returns all camera-havers when within the cap', () => {
+    const got = selectActiveCameras([c('a', true, false, 0), c('b', true, false, 0)], 9);
+    expect(new Set(got)).toEqual(new Set(['a', 'b']));
+  });
+
+  it('excludes peers without a camera', () => {
+    const got = selectActiveCameras([c('a', true, false, 0), c('b', false, true, 999)], 9);
+    expect(got).toEqual(['a']);
+  });
+
+  it('caps the count, preferring speakers then recency', () => {
+    const cands = [
+      c('quiet-old', true, false, 10),
+      c('quiet-new', true, false, 50),
+      c('speaking', true, true, 0),
+    ];
+    const got = selectActiveCameras(cands, 2);
+    expect(got).toHaveLength(2);
+    expect(got[0]).toBe('speaking');
+    expect(got[1]).toBe('quiet-new');
+  });
+
+  it('is deterministic on ties (by userId)', () => {
+    const cands = [c('b', true, false, 0), c('a', true, false, 0), c('c', true, false, 0)];
+    expect(selectActiveCameras(cands, 2)).toEqual(['a', 'b']);
+  });
+
+  it('defaults the cap to SFU_MAX_CAM_PULLS', () => {
+    const many = Array.from({ length: SFU_MAX_CAM_PULLS + 3 }, (_, i) =>
+      c(`u${i}`, true, false, i),
+    );
+    expect(selectActiveCameras(many)).toHaveLength(SFU_MAX_CAM_PULLS);
   });
 });

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>engawa 本番運用 readiness（最大23人・常時利用）</title>
+    <style>
+      :root {
+        --bg: #faf7f0; --ink: #26231c; --muted: #6f6a5e; --line: #e4ddcd;
+        --card: #fffdf8; --amber: #d98a2b; --p0: #c2410c; --p1: #2563eb; --p2: #6b7280;
+        --ok: #15803d; --warn: #b45309;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+        line-height: 1.7; font-size: 15px;
+      }
+      .wrap { max-width: 920px; margin: 0 auto; padding: 32px 20px 80px; }
+      header h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: .02em; }
+      header .sub { color: var(--muted); margin: 0 0 4px; }
+      header .meta { color: var(--muted); font-size: 13px; }
+      .verdict {
+        background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--amber);
+        border-radius: 10px; padding: 16px 18px; margin: 22px 0;
+      }
+      .verdict h2 { margin: 0 0 8px; font-size: 17px; }
+      .verdict p { margin: 6px 0; }
+      h2.section { font-size: 19px; margin: 34px 0 6px; padding-bottom: 6px; border-bottom: 2px solid var(--line); }
+      .lead { color: var(--muted); margin: 2px 0 14px; }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
+      .card h3 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .card p { margin: 6px 0; }
+      .card .why { color: var(--muted); font-size: 14px; }
+      .tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #fff; white-space: nowrap; }
+      .p0 { background: var(--p0); } .p1 { background: var(--p1); } .p2 { background: var(--p2); }
+      .eff { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); background: #fff; }
+      code { background: #f0ebdd; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+      .files { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
+      .pill-row { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0; }
+      .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; flex: 1 1 150px; min-width: 150px; }
+      .stat .n { font-size: 20px; font-weight: 700; }
+      .stat .l { color: var(--muted); font-size: 12.5px; }
+      .ok { color: var(--ok); font-weight: 700; } .warn { color: var(--warn); font-weight: 700; } .bad { color: var(--p0); font-weight: 700; }
+      ul.tight { margin: 6px 0; padding-left: 20px; } ul.tight li { margin: 3px 0; }
+      .scroll { overflow-x: auto; }
+      table { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 560px; }
+      th, td { border: 1px solid var(--line); padding: 7px 9px; text-align: left; vertical-align: top; }
+      th { background: #f3eede; }
+      .footnote { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>🪴 engawa 本番 readiness アセスメント</h1>
+        <p class="sub">目標：Gather から全面移行し、社内メインツールとして常時利用＋最大 23 人の全体会議に耐える</p>
+        <p class="meta">コードベース（main 最新）を調査した事実ベース。優先度 <span class="tag p0">P0</span> 必須 / <span class="tag p1">P1</span> 運用品質 / <span class="tag p2">P2</span> 改善。工数 S/M/L。</p>
+      </header>
+
+      <div class="verdict">
+        <h2>結論：サーバーと信頼性は 23 人でも持つ。詰まるのは「大人数 SFU の受信ストリーム爆発」</h2>
+        <p>シグナリング負荷（broadcast O(n)・近接計算 O(n²) を 33ms スロットル）、メモリ、再接続/復帰（15 秒 grace）は <span class="ok">23 人で問題なし</span>。</p>
+        <p>一方で、<b>同一 SFU グループの全員が互いの全ストリームを無条件に pull</b> する設計のため、23 人会議では 1 人あたり最大 <b>~44〜66 本</b>（他 22 人 × mic+cam(+screen)）を受信し、<span class="bad">CPU・帯域が破綻</span>します。これが 23 人 all-hands の唯一にして最大の障壁です。アクティブスピーカー/表示タイルだけに絞る仕組みが未実装。</p>
+        <p class="footnote">※ 直近の本番不調（5 人で P2P 切替・音切れ・カメラ自動オフ, #235）も根は同じ「大人数での受信/帯域過多」。540p 化（#236）で緩和しつつ、下記 P0 が本丸。</p>
+      </div>
+
+      <div class="pill-row">
+        <div class="stat"><div class="n ok">OK</div><div class="l">サーバー負荷・メモリ（23人）</div></div>
+        <div class="stat"><div class="n ok">OK</div><div class="l">瞬断〜十数秒の自動復帰</div></div>
+        <div class="stat"><div class="n bad">要対策</div><div class="l">大人数 SFU の受信本数</div></div>
+        <div class="stat"><div class="n warn">不足</div><div class="l">運用機能（司会・名簿・観測）</div></div>
+      </div>
+
+      <h2 class="section">P0 — 23 人 all-hands を成立させる必須対策</h2>
+      <p class="lead">「全員が全員を受信」をやめ、見えている/話している人だけに絞る。ここが通らないと大人数会議は不可。</p>
+
+      <div class="card">
+        <h3><span class="tag p0">P0</span> 表示中タイルだけ pull／非表示は受信停止 <span class="eff">工数 L</span></h3>
+        <p>画面に出ていない（focus-hidden・ページ外）ピアの映像は pull を止める。現状はレイヤー画質（f/h）を選ぶだけで<b>本数は減らない</b>。</p>
+        <p class="why">効果：23 人でも実受信を表示タイル数（例 5〜9）に限定 → 帯域・デコード CPU を 1/3〜1/5 に。</p>
+        <p class="files">関連：<code>rtc/sfu.ts setPeerTracks/pullTrack</code>、<code>ui/remote-media.ts cameraTileWidth</code>、<code>core/app.ts updateSfuLayers</code></p>
+      </div>
+
+      <div class="card">
+        <h3><span class="tag p0">P0</span> アクティブスピーカーに音声を絞る <span class="eff">工数 M</span></h3>
+        <p>23 人全員の音声を常時デコード/ミックスしている。発話中の上位数名＋自分の近傍のみ受信し、無音ピアは止める。</p>
+        <p class="why">効果：音声デコードの CPU スパイクを解消（音切れの主因のひとつ）。</p>
+        <p class="files">関連：<code>ui/remote-media.ts remoteAudios / updateSpeaking</code>、<code>rtc/sfu.ts</code></p>
+      </div>
+
+      <div class="card">
+        <h3><span class="tag p0">P0</span> 大人数レイアウト（ページング＋発表モード） <span class="eff">工数 M</span></h3>
+        <p>タイルの同時表示数に上限を設け、残りはページ送り／名簿に。全体会議向けに「発表者数名＋他は音声/サムネ」の発表モード。上の 2 つと連動して受信本数を決める UI。</p>
+        <p class="files">関連：<code>ui/remote-media.ts</code>（タイル上限・ページング）、<code>ui/panels.ts</code></p>
+      </div>
+
+      <div class="card">
+        <h3><span class="tag p0">P0</span> SFU グループサイズの上限／挙動確認 <span class="eff">工数 S</span></h3>
+        <p>会議室ゾーンに 23 人入ると 1 つの SFU グループ（サイズ上限なし）。上限や縮退挙動を明示し、超過時の方針（発表モード強制など）を決める。</p>
+        <p class="files">関連：<code>server/src/logic.ts computeProximityGroups / SFU_PROMOTE_AT</code></p>
+      </div>
+
+      <div class="card">
+        <h3><span class="tag p0">P0</span> 本番の SFU 安定性・容量の確認（#235） <span class="eff">工数 S</span></h3>
+        <p>「P2P に切り替えました」は SFU 失敗時のみ。本番で頻発＝SFU が不安定。Cloudflare Realtime の認証/容量/レート上限、フォールバックの粘り（1 回失敗で mesh に落とさない）を点検。</p>
+        <p class="files">関連：<code>server/src/sfu.ts isSfuEnabled</code>、<code>core/app.ts onSfuFailed</code>、<code>rtc/sfu-logic.ts</code></p>
+      </div>
+
+      <h2 class="section">P1 — 常時メインツール化に必要な運用品質</h2>
+      <p class="lead">毎日使う／全体会議を回すのに実務上ほぼ必須の機能群。</p>
+
+      <div class="card">
+        <h3><span class="tag p1">P1</span> 参加者名簿（ロスター） <span class="eff">工数 M</span></h3>
+        <p>全参加者を一覧（名前・マイク/カメラ・離席）。現状はタイルのみで、画面外の人が把握できない。23 人の点呼・状況把握に必須。</p>
+        <p class="footnote">※ 以前ロスターを撤去（#219）したが、大人数運用では「俯瞰一覧」として再導入価値が高い。</p>
+      </div>
+
+      <div class="card">
+        <h3><span class="tag p1">P1</span> 全体会議向けモデレーション <span class="eff">工数 M〜L</span></h3>
+        <ul class="tight">
+          <li>全員ミュート／特定参加者の強制ミュート</li>
+          <li>強制退出（kick）・入室ロック（遅参停止）</li>
+          <li>画面共有の同時数制限</li>
+          <li>ロール（発表者／聴講者）</li>
+        </ul>
+        <p class="why">※ サーバーがステートレス（不変条件 #2）なので、権限は一時メモリ＋再起動リセットの範囲で設計。</p>
+      </div>
+
+      <div class="card">
+        <h3><span class="tag p1">P1</span> 観測性（ログ／メトリクス） <span class="eff">工数 M</span></h3>
+        <p>SFU API 失敗率・再接続率・近接再計算のレイテンシ・メディアトークン残量などを計測。<code>/api/health</code> を接続数以外にも拡張。障害時に原因を切り分けられる状態にする。</p>
+      </div>
+
+      <div class="card">
+        <h3><span class="tag p1">P1</span> エラーのユーザー通知 <span class="eff">工数 S</span></h3>
+        <p>TURN 取得失敗・WebRTC 接続失敗・group-update 不達などを UI で明示（現状は暗黙失敗が多い）。SFU→mesh フォールバックのトーストは既にあり。</p>
+      </div>
+
+      <div class="card">
+        <h3><span class="tag p1">P1</span> 入室前デバイスチェック <span class="eff">工数 S〜M</span></h3>
+        <p>参加前にマイク/カメラの選択・プレビュー・権限確認。会議開始時の「音が出ない」事故を防ぐ。</p>
+      </div>
+
+      <div class="card">
+        <h3><span class="tag p1">P1</span> 実機負荷テスト <span class="eff">工数 M</span></h3>
+        <p>実際に 23 人（＝SFU）でCPU/帯域、Cloudflare TURN/SFU の API 回数・レイテンシ・課金を実測。P0 の効果検証もここで。デバッグコンソール（🐛）の <code>qualityLimitationReason</code>（cpu/bandwidth）を指標に。</p>
+      </div>
+
+      <h2 class="section">P2 — あると運用が快適</h2>
+      <div class="card">
+        <h3><span class="tag p2">P2</span> 運用の細かな機能 <span class="eff">工数 S 各</span></h3>
+        <ul class="tight">
+          <li>一定無操作で自動「離席」</li>
+          <li>録画インジケータ（誰が録画中か全体表示）</li>
+          <li>入退室チャイム／呼び出し通知の整理</li>
+          <li>録画は大人数では SFU 前提（全 mesh 録画は非現実的）</li>
+        </ul>
+      </div>
+
+      <h2 class="section">設計上の制約（計画に織り込む）</h2>
+      <div class="scroll">
+        <table>
+          <tr><th>制約</th><th>内容</th><th>23人運用での方針</th></tr>
+          <tr><td>単一インスタンス</td><td>クライアントはプロセス内メモリ管理。水平スケール不可（1 インスタンス必須）</td><td>1 社なら許容。再起動は 15 秒 grace 内で復帰。無停止更新は別途検討</td></tr>
+          <tr><td>Cloudflare 依存</td><td>TURN/SFU は Cloudflare Realtime。障害時は STUN フォールバック（＝mesh 化）</td><td>本番の認証/容量/レートを確認（#235）。SLA を把握</td></tr>
+          <tr><td>ブラウザのみ</td><td>デスクトップ/モバイル専用クライアントなし</td><td>対応ブラウザを社内標準化（Chrome 系推奨）</td></tr>
+          <tr><td>ステートレス（不変 #2）</td><td>グループ/ラッチ/権限は一時メモリ</td><td>権限・モデレーションもメモリ前提で設計（再起動でリセット可）</td></tr>
+        </table>
+      </div>
+
+      <h2 class="section">進め方の提案</h2>
+      <div class="card">
+        <p><b>フェーズ1（大人数を成立させる）</b>：P0 の受信絞り込み（表示タイル pull＋アクティブスピーカー音声）＋発表モード＋#235 の本番 SFU 確認。これで 23 人 all-hands が「動く」状態に。</p>
+        <p><b>フェーズ2（毎日使える品質）</b>：名簿・モデレーション・観測性・エラー通知・デバイスチェック。運用で回せる状態に。</p>
+        <p><b>フェーズ3（磨き込み）</b>：自動離席・録画表示・負荷テストで本番定着。</p>
+        <p class="footnote">各項目は GitHub Issue 化して順に着手できます。まずフェーズ1のどれから入るか決めましょう（おすすめ：#235 の本番 SFU 確認 → 表示タイルのみ pull）。</p>
+      </div>
+    </div>
+  </body>
+</html>

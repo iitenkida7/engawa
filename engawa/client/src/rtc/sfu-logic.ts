@@ -139,3 +139,31 @@ export function partitionMembers(
   const toOpen = [...desiredIds].filter((id) => !current.has(id));
   return { toClose, toOpen };
 }
+
+// Max remote cameras pulled at once in a big SFU group (#237). Pulling every
+// member's camera (23-person all-hands → ~22 video streams) melts CPU/downlink,
+// so only this many cameras are received — the active speakers — while everyone
+// else stays audio-only until they speak. 9 fills a 3×3 stage.
+export const SFU_MAX_CAM_PULLS = 9;
+
+// Pure: pick which peers' cameras to pull, capped at `cap`. Only peers that
+// actually publish a camera are eligible; within those, prefer the ones speaking
+// now, then the most recently spoken (recency gives stable, non-flappy
+// membership), then by userId for a deterministic tie-break. Returning <= cap
+// ids; the caller treats "all eligible" (<= cap) as no restriction.
+export function selectActiveCameras(
+  candidates: { userId: string; hasCam: boolean; speaking: boolean; lastSpokeMs: number }[],
+  cap: number = SFU_MAX_CAM_PULLS,
+): string[] {
+  const withCam = candidates.filter((c) => c.hasCam);
+  if (withCam.length <= cap) return withCam.map((c) => c.userId);
+  return [...withCam]
+    .sort(
+      (a, b) =>
+        Number(b.speaking) - Number(a.speaking) ||
+        b.lastSpokeMs - a.lastSpokeMs ||
+        (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0),
+    )
+    .slice(0, cap)
+    .map((c) => c.userId);
+}

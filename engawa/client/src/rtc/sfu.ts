@@ -153,6 +153,11 @@ export class SfuManager {
   // downlink, or the manual audio-only mode). Existing video pulls are dropped
   // on entry; on exit the App re-feeds the cached directories to re-pull.
   private videoPullPaused = false;
+  // Which peers' cameras may be pulled (#237). null = all (small groups); a set
+  // means a big group where only the active speakers' cameras are received. Mic
+  // and screen are never gated here. The App re-feeds directories after changing
+  // this so reconcile pulls newly-allowed cams and drops the rest.
+  private camAllowed: Set<string> | null = null;
 
   constructor(events: SfuEvents) {
     this.events = events;
@@ -226,7 +231,12 @@ export class SfuManager {
       this.peerSessions.set(userId, sessionId);
       // Audio-only receive: reconcile against the mic subset so video tracks
       // are treated as absent (existing ones drop, new ones aren't pulled).
-      const desired = this.videoPullPaused ? tracks.filter((t) => t.kind === 'mic') : tracks;
+      // In a big group (#237) a non-allowed peer is treated as camera-absent
+      // (mic + screen still flow), so only the active speakers' cameras pull.
+      let desired = tracks;
+      if (this.videoPullPaused) desired = tracks.filter((t) => t.kind === 'mic');
+      else if (this.camAllowed && !this.camAllowed.has(userId))
+        desired = tracks.filter((t) => t.kind !== 'cam');
       const { toPull, toDrop } = reconcilePeerTracks(userId, desired, this.remoteTracks.keys());
       for (const t of toPull) {
         await this.pullTrack(userId, sessionId, t.kind, t.trackName);
@@ -258,6 +268,13 @@ export class SfuManager {
         if (this.remoteTracks.get(key)!.kind !== 'mic') await this.dropRemote(key);
       }
     });
+  }
+
+  // Limit which peers' cameras are pulled in a big group (#237). Pass null to
+  // allow all (small groups). Only stores the set; the App re-feeds the cached
+  // directories so reconcile pulls the newly-allowed cameras and drops the rest.
+  setCamAllowed(userIds: string[] | null) {
+    this.camAllowed = userIds ? new Set(userIds) : null;
   }
 
   // Re-target every receiver's jitter buffer (issue #188); no-op when unchanged.
