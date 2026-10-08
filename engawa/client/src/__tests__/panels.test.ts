@@ -7,8 +7,9 @@ import {
   computePresentationLayout,
   computeSidebarLayout,
   type LayoutItem,
-  meetingFilmstripCapacity,
-  meetingFilmstripWidth,
+  MEETING_FILMSTRIP_TILE_H,
+  MEETING_FILMSTRIP_TILE_W,
+  meetingFilmstripColWidth,
   PANEL_BOTTOM_RESERVED,
   PANEL_GAP,
   PANEL_HEADER,
@@ -296,27 +297,47 @@ describe('computeMeetingPresentation', () => {
     expect(b.y + b.h).toBeGreaterThanOrEqual(MEET_BOTTOM - PANEL_GAP - 1);
   });
 
-  it('puts the main share on the right and the filmstrip on the left', () => {
-    // items[0] = featured share, rest = filmstrip cameras.
+  it('puts the main share on the right and a fixed-size filmstrip on the left', () => {
+    // items[0] = featured share, rest = filmstrip cameras (≤ MAX, so fixed size).
     const geos = computeMeetingPresentation([screen(), cam(), cam(), cam()], VW, VH);
     const main = meetBox(geos[0]);
     const strip = geos.slice(1).map(meetBox);
-    const stripW = meetingFilmstripWidth(VW);
-    // Filmstrip hugs the left edge; main sits to its right.
-    for (const s of strip) expect(s.x).toBeLessThanOrEqual(PANEL_GAP);
-    expect(main.x).toBeGreaterThanOrEqual(stripW - PANEL_GAP);
-    // Filmstrip tiles stack without overlapping.
+    const colW = meetingFilmstripColWidth();
+    // Filmstrip hugs the left gutter; main sits to its right.
+    for (const s of strip) expect(s.x).toBeLessThanOrEqual(colW);
+    expect(main.x).toBeGreaterThanOrEqual(colW - PANEL_GAP);
+    // Every filmstrip tile is the fixed preview size.
+    for (const s of strip) {
+      expect(s.w).toBe(MEETING_FILMSTRIP_TILE_W);
+      expect(s.h).toBe(MEETING_FILMSTRIP_TILE_H);
+    }
+    // Stacked without overlapping.
     for (let i = 0; i < strip.length; i++)
       for (let j = i + 1; j < strip.length; j++)
         expect(overlaps({ ...strip[i] }, { ...strip[j] })).toBe(false);
   });
-});
 
-describe('meetingFilmstripCapacity', () => {
-  it('fits more tiles in a taller column', () => {
-    expect(meetingFilmstripCapacity(1200)).toBeGreaterThan(meetingFilmstripCapacity(600));
+  it('vertically centers the filmstrip when it has room (fewer than MAX)', () => {
+    const geos = computeMeetingPresentation([screen(), cam(), cam()], VW, VH);
+    const strip = geos.slice(1).map(meetBox);
+    const first = strip[0];
+    const last = strip[strip.length - 1];
+    // Equal top gap and bottom gap → centered in the usable column.
+    const topGap = first.y;
+    const bottomGap = MEET_BOTTOM - (last.y + last.h);
+    expect(Math.abs(topGap - bottomGap)).toBeLessThanOrEqual(2);
+    expect(topGap).toBeGreaterThan(0);
   });
-  it('always keeps room for at least one tile', () => {
-    expect(meetingFilmstripCapacity(PANEL_BOTTOM_RESERVED)).toBe(1);
+
+  it('shrinks the filmstrip to fit when there are too many to keep fixed size', () => {
+    // A tall stack that cannot fit at the fixed tile height on a short viewport
+    // falls back to dividing the column, so nothing runs off-screen.
+    const items = [screen(), ...Array.from({ length: 12 }, () => cam())];
+    const geos = computeMeetingPresentation(items, 1000, 500);
+    const strip = geos.slice(1).map(meetBox);
+    for (const s of strip) {
+      expect(s.h).toBeLessThan(MEETING_FILMSTRIP_TILE_H);
+      expect(s.y + s.h).toBeLessThanOrEqual(500 - PANEL_BOTTOM_RESERVED + 1);
+    }
   });
 });

@@ -20,8 +20,8 @@ import {
   computeSidebarLayout,
   type LayoutItem,
   type LayoutMode,
-  meetingFilmstripCapacity,
-  meetingFilmstripWidth,
+  MEETING_FILMSTRIP_MAX_VISIBLE,
+  meetingFilmstripColWidth,
   PANEL_BOTTOM_RESERVED,
 } from '@/ui/panels';
 import type { PlayerState } from '@/world/player';
@@ -853,11 +853,10 @@ export class RemoteMediaView {
     // the visible (collapsed/expanded) set so a big meeting doesn't stack 20
     // thumbnails down the edge.
     const stripIdxs = panels.map((_, i) => i).filter((i) => i !== mainIdx);
-    const capacity = meetingFilmstripCapacity(vh);
-    const needToggle = stripIdxs.length > capacity;
+    const needToggle = stripIdxs.length > MEETING_FILMSTRIP_MAX_VISIBLE;
     const visibleCount = this.filmstripExpanded
       ? stripIdxs.length
-      : Math.min(capacity, stripIdxs.length);
+      : Math.min(MEETING_FILMSTRIP_MAX_VISIBLE, stripIdxs.length);
     const visible = stripIdxs.slice(0, visibleCount);
     for (const i of stripIdxs.slice(visibleCount)) panels[i].el.classList.add('meeting-hidden');
 
@@ -877,11 +876,11 @@ export class RemoteMediaView {
 
   // Parks the filmstrip ⬇️/⬆️ toggle at the bottom of the left column and sets
   // its glyph to match the collapsed/expanded state.
-  private positionFilmstripToggle(vw: number, vh: number) {
-    const stripW = Math.min(meetingFilmstripWidth(vw), Math.round(vw * 0.4));
+  private positionFilmstripToggle(_vw: number, vh: number) {
+    const colW = meetingFilmstripColWidth();
     const btn = this.filmstripToggleEl;
     btn.style.display = 'flex';
-    btn.style.left = `${Math.round(stripW / 2 - 18)}px`;
+    btn.style.left = `${Math.round(colW / 2 - 18)}px`;
     btn.style.top = `${vh - PANEL_BOTTOM_RESERVED - 44}px`;
     btn.textContent = this.filmstripExpanded ? '⌃' : '⌄';
     btn.title = this.filmstripExpanded ? t('media.filmstripLess') : t('media.filmstripMore');

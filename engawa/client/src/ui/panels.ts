@@ -150,19 +150,17 @@ export function computeSidebarLayout(items: LayoutItem[], vw: number, vh: number
 // Tight gap between meeting tiles so the grid reads as one surface, not cards.
 export const MEETING_GAP = 4;
 
-// Left filmstrip column width (presentation), clamped so it stays usable.
-export const MEETING_FILMSTRIP_MIN = 150;
-export const MEETING_FILMSTRIP_MAX = 280;
-export function meetingFilmstripWidth(vw: number): number {
-  return Math.round(Math.max(MEETING_FILMSTRIP_MIN, Math.min(MEETING_FILMSTRIP_MAX, vw * 0.17)));
-}
-
-// Target filmstrip tile height; how many stay visible when collapsed is however
-// many keep this height in the column. Drives the ⬇️ "show more" affordance.
-export const MEETING_FILMSTRIP_TILE_H = 132;
-export function meetingFilmstripCapacity(vh: number): number {
-  const colH = vh - PANEL_BOTTOM_RESERVED;
-  return Math.max(1, Math.floor(colH / MEETING_FILMSTRIP_TILE_H));
+// Filmstrip (presentation mode): FIXED-SIZE camera tiles — a touch smaller than a
+// hallway tile — stacked in the left column. At most MAX_VISIBLE show at once;
+// more than that reveals the ⬇️ "show more" toggle. When they fit they are
+// vertically centered beside the share; when there are too many (expanded) they
+// shrink to divide the column so everyone still fits without scrolling.
+export const MEETING_FILMSTRIP_MAX_VISIBLE = 5;
+export const MEETING_FILMSTRIP_TILE_W = 148;
+export const MEETING_FILMSTRIP_TILE_H = 108;
+// Column width = tile + a little side padding, so the strip reads as a gutter.
+export function meetingFilmstripColWidth(): number {
+  return MEETING_FILMSTRIP_TILE_W + MEETING_GAP * 4;
 }
 
 // Full-bleed horizontally; only the bottom toolbar strip is reserved so tiles
@@ -204,9 +202,11 @@ export function computeMeetingGallery(
 }
 
 // Pure: presentation — items[0] is the featured screenshare (fills the main area
-// on the right); every other item stacks in the LEFT filmstrip column. The
-// caller has already trimmed the filmstrip to the visible (collapsed/expanded)
-// set, so this just places what it is given.
+// on the right); every other item stacks in the LEFT filmstrip gutter. The
+// caller has already trimmed the filmstrip to the visible (collapsed ≤ MAX /
+// expanded) set, so this just places what it is given: fixed-size tiles centered
+// in the column when they fit, shrunk to divide the column when there are too
+// many.
 export function computeMeetingPresentation(
   items: LayoutItem[],
   vw: number,
@@ -220,11 +220,33 @@ export function computeMeetingPresentation(
     result[0] = fillCell(area.x, area.y, area.w, area.h);
     return result;
   }
-  const stripW = Math.min(meetingFilmstripWidth(vw), Math.round(area.w * 0.4));
-  result[0] = fillCell(area.x + stripW, area.y, area.w - stripW, area.h);
-  const cellH = area.h / (n - 1);
-  for (let k = 1; k < n; k++) {
-    result[k] = fillCell(area.x, area.y + (k - 1) * cellH, stripW, cellH);
+  const strip = n - 1;
+  const colW = meetingFilmstripColWidth();
+  // Main share fills everything to the right of the strip gutter.
+  result[0] = fillCell(area.x + colW, area.y, area.w - colW, area.h);
+
+  const tileW = MEETING_FILMSTRIP_TILE_W;
+  const tileH = MEETING_FILMSTRIP_TILE_H;
+  const fixedTotalH = strip * tileH + (strip - 1) * MEETING_GAP;
+  if (fixedTotalH <= area.h) {
+    // Fits: fixed-size tiles, vertically centered beside the share.
+    const x = area.x + Math.round((colW - tileW) / 2);
+    const startY = area.y + (area.h - fixedTotalH) / 2;
+    for (let k = 1; k < n; k++) {
+      result[k] = {
+        left: x,
+        top: Math.round(startY + (k - 1) * (tileH + MEETING_GAP)),
+        width: tileW,
+        height: tileH,
+      };
+    }
+  } else {
+    // Too many at fixed size (shouldn't happen under the MAX cap, but guards the
+    // expanded view on a short viewport): divide the column height so all fit.
+    const cellH = area.h / strip;
+    for (let k = 1; k < n; k++) {
+      result[k] = fillCell(area.x, area.y + (k - 1) * cellH, colW, cellH);
+    }
   }
   return result;
 }
