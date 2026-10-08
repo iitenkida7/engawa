@@ -819,6 +819,21 @@
       #filmstrip-toggle:hover {
         background: rgba(53, 58, 71, 0.95);
       }
+      #filmstrip-toggle svg {
+        display: block;
+        width: 24px;
+        height: 24px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2.2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: transform 0.15s ease;
+      }
+      /* Expanded = fold back up: same chevron, rotated 180°. */
+      #filmstrip-toggle.expanded svg {
+        transform: rotate(180deg);
+      }
 
       /* ===== Participant roster (top-left, collapsible) ===== */
       #status-menu {

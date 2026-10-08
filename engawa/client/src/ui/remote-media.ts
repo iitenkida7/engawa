@@ -51,6 +51,11 @@ type Screenshare = {
   cleanup: () => void;
 };
 
+// Chevron used by the filmstrip show-more button; rotated 180° (via the
+// `.expanded` class) for the fold-back direction, so up and down are the exact
+// same shape mirrored — not two differently-drawn text glyphs.
+const CHEVRON_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5" /></svg>';
+
 // Mic-with-strike glyph shown (red, via CSS) next to a name while that person is
 // muted. Matches the toolbar mic icon.
 const MIC_OFF_SVG =
@@ -175,6 +180,7 @@ export class RemoteMediaView {
     this.stageLayerEl = this.remoteVideosEl.parentElement as HTMLElement;
     this.appEl = document.getElementById('app') as HTMLElement;
     this.filmstripToggleEl = document.getElementById('filmstrip-toggle') as HTMLButtonElement;
+    this.filmstripToggleEl.innerHTML = CHEVRON_SVG;
     this.filmstripToggleEl.addEventListener('click', () => {
       this.filmstripExpanded = !this.filmstripExpanded;
       this.reflowLayout();
@@ -882,7 +888,7 @@ export class RemoteMediaView {
     // Centered on the flush-left strip column (CSS translateX(-50%)).
     btn.style.left = `${Math.round(meetingFilmstripColWidth() / 2)}px`;
     btn.style.top = `${vh - PANEL_BOTTOM_RESERVED - 46}px`;
-    btn.textContent = this.filmstripExpanded ? '⌃' : '⌄';
+    btn.classList.toggle('expanded', this.filmstripExpanded);
     btn.title = this.filmstripExpanded ? t('media.filmstripLess') : t('media.filmstripMore');
   }
 
