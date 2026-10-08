@@ -91,10 +91,33 @@ export function sfuPullRetryDelayMs(retry: number): number | null {
   return 1000 * 2 ** (retry - 1);
 }
 
-// Minimum spacing between whole-transport rebuild attempts (App.onSfuFailed):
-// the first failure rebuilds the SFU session in place; a second failure inside
-// this window means the SFU path really is unhealthy → degrade to mesh.
-export const SFU_REBUILD_MIN_INTERVAL_MS = 30_000;
+// Spacing floor between whole-transport rebuilds (App.onSfuFailed): a failure
+// arriving within this window of the last rebuild is treated as teardown noise
+// from the rebuild itself and ignored, so we don't loop at wire speed.
+export const SFU_REBUILD_MIN_INTERVAL_MS = 3_000;
+
+// SFU failure policy (#241). The old behavior fell back to mesh after just two
+// rapid failures, which is catastrophic for a big meeting (23-person mesh melts).
+// Instead we retry the SFU rebuild several times, and NEVER fall back to mesh for
+// a group too large for mesh — there, a flaky SFU that keeps retrying beats a
+// mesh that can't carry the headcount at all.
+export const SFU_MAX_REBUILD_ATTEMPTS = 4; // small-group rebuilds before mesh fallback
+export const SFU_HEALTHY_RESET_MS = 20_000; // healthy for this long → reset the streak
+export const SFU_MESH_FALLBACK_MAX = 4; // only groups this size (or smaller) fall back
+
+// Pure: decide what to do when the SFU transport fails. `attempts` is how many
+// rebuilds the current unhealthy streak has already done; a failure after a long
+// healthy gap starts a fresh streak. Small groups fall back to mesh once rebuilds
+// are exhausted; larger groups keep rebuilding (mesh is not an option for them).
+export function sfuFailureAction(opts: {
+  attempts: number;
+  sinceLastRebuildMs: number;
+  groupSize: number;
+}): 'rebuild' | 'fallback' {
+  const streak = opts.sinceLastRebuildMs > SFU_HEALTHY_RESET_MS ? 0 : opts.attempts;
+  const meshViable = opts.groupSize <= SFU_MESH_FALLBACK_MAX;
+  return meshViable && streak >= SFU_MAX_REBUILD_ATTEMPTS ? 'fallback' : 'rebuild';
+}
 
 // Whether an RTCPeerConnection state change should trigger the mesh fallback.
 // Only a hard 'failed' degrades the call, and never after we deliberately

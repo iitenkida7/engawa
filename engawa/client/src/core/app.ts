@@ -56,7 +56,12 @@ import {
 import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
 import { setPreferRedAudio } from '@/rtc/sdp';
 import { SfuManager } from '@/rtc/sfu';
-import { partitionMembers, SFU_REBUILD_MIN_INTERVAL_MS } from '@/rtc/sfu-logic';
+import {
+  partitionMembers,
+  SFU_HEALTHY_RESET_MS,
+  SFU_REBUILD_MIN_INTERVAL_MS,
+  sfuFailureAction,
+} from '@/rtc/sfu-logic';
 import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
@@ -158,6 +163,9 @@ export class App {
   // ms since page load, so a 0 start would misread any failure in the first
   // 30s as a repeat and degrade straight to mesh.
   private lastSfuRebuildAt = Number.NEGATIVE_INFINITY;
+  // How many rebuilds the current unhealthy streak has done (#241). Reset once the
+  // SFU has been healthy for a while, on a group change, and on session reset.
+  private sfuRebuildAttempts = 0;
 
   // Speaker-aware send policy. `lastLoudAtMs` is the last frame our mic was loud
   // (drives the post-speech hold). The computed camera encoding / screen bitrate
@@ -658,6 +666,7 @@ export class App {
     this.meshMembers.clear();
     this.sfuMembers.clear();
     this.clearPeerRecovery();
+    this.sfuRebuildAttempts = 0;
     this.rtc.closeAll();
     this.sfu.closeAll();
     this.knownSfuPeers.clear();
@@ -1536,6 +1545,8 @@ export class App {
       this.sfuMembers = new Set(members);
       this.meshMembers.clear();
       this.clearPeerRecovery();
+      // A fresh group is a clean slate for the SFU failure streak (#241).
+      this.sfuRebuildAttempts = 0;
       if (wasMesh) {
         // mesh → SFU: drop every mesh peer, then publish our live streams to the
         // SFU. Remote media comes back via sfu-peer-tracks → pull. (meshMembers
@@ -1598,16 +1609,32 @@ export class App {
       return;
     }
     const now = performance.now();
-    if (now - this.lastSfuRebuildAt > SFU_REBUILD_MIN_INTERVAL_MS) {
+    const since = now - this.lastSfuRebuildAt;
+    // Ignore teardown noise right after a rebuild (the just-closed transport can
+    // emit another 'failed') so we don't loop at wire speed.
+    if (since < SFU_REBUILD_MIN_INTERVAL_MS && this.sfuRebuildAttempts > 0) return;
+    // A failure after a long healthy gap starts a fresh streak.
+    if (since > SFU_HEALTHY_RESET_MS) this.sfuRebuildAttempts = 0;
+
+    const action = sfuFailureAction({
+      attempts: this.sfuRebuildAttempts,
+      sinceLastRebuildMs: since,
+      groupSize: this.sfuMembers.size,
+    });
+    if (action === 'rebuild') {
+      this.sfuRebuildAttempts += 1;
       this.lastSfuRebuildAt = now;
       logNet('sfu-rebuild');
-      console.warn('[sfu] transport failed; rebuilding the SFU session');
+      console.warn(
+        `[sfu] transport failed; rebuilding the SFU session (attempt ${this.sfuRebuildAttempts})`,
+      );
       this.sfu.closeAll();
       this.knownSfuPeers.clear();
       this.publishLocalToSfu();
       this.refeedSfuDirectories();
       return;
     }
+    this.sfuRebuildAttempts = 0;
     logNet('sfu-fallback-mesh');
     console.warn('[sfu] connection failed; falling back to mesh');
     this.toasts.info(t('app.sfuFallback'));

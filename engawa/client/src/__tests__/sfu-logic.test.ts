@@ -6,8 +6,11 @@ import {
   partitionMembers,
   reconcilePeerTracks,
   remoteKey,
+  SFU_HEALTHY_RESET_MS,
+  SFU_MAX_REBUILD_ATTEMPTS,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
+  sfuFailureAction,
   sfuPullRetryDelayMs,
   sfuSessionError,
   sfuTrackError,
@@ -241,5 +244,39 @@ describe('sfu rejected-pull retry schedule (issue #250)', () => {
     expect(sfuPullRetryDelayMs(3)).toBe(4000);
     expect(sfuPullRetryDelayMs(4)).toBeNull();
     expect(sfuPullRetryDelayMs(0)).toBeNull();
+  });
+});
+
+describe('sfuFailureAction (#241)', () => {
+  it('rebuilds on the first failures, then falls back only for a mesh-viable group', () => {
+    // small group (<= SFU_MESH_FALLBACK_MAX): rebuild until attempts exhausted
+    for (let a = 0; a < SFU_MAX_REBUILD_ATTEMPTS; a++) {
+      expect(sfuFailureAction({ attempts: a, sinceLastRebuildMs: 1000, groupSize: 3 })).toBe(
+        'rebuild',
+      );
+    }
+    expect(
+      sfuFailureAction({
+        attempts: SFU_MAX_REBUILD_ATTEMPTS,
+        sinceLastRebuildMs: 1000,
+        groupSize: 3,
+      }),
+    ).toBe('fallback');
+  });
+
+  it('never falls back to mesh for a large group — keeps rebuilding', () => {
+    expect(sfuFailureAction({ attempts: 99, sinceLastRebuildMs: 1000, groupSize: 20 })).toBe(
+      'rebuild',
+    );
+  });
+
+  it('a failure after a long healthy gap starts a fresh streak (rebuild)', () => {
+    expect(
+      sfuFailureAction({
+        attempts: 99,
+        sinceLastRebuildMs: SFU_HEALTHY_RESET_MS + 1,
+        groupSize: 3,
+      }),
+    ).toBe('rebuild');
   });
 });
