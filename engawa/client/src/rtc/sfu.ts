@@ -639,6 +639,7 @@ export class SfuManager {
         rid: l.rid,
         scaleResolutionDownBy: l.scaleResolutionDownBy,
         maxBitrate: l.maxBitrate,
+        maxFramerate: l.maxFramerate,
       }));
     }
     if (kind === 'screen') return [{ maxBitrate: SFU_SCREEN_MAX_BITRATE }];

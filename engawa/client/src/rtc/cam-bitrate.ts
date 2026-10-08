@@ -154,21 +154,40 @@ export function isHeldSpeaking(
 
 // One simulcast encoding of the camera ladder. `rid` is the layer id carried in
 // the SDP; `scaleResolutionDownBy` divides the captured resolution; `maxBitrate`
-// caps that layer.
+// and `maxFramerate` cap that layer.
 export type SimulcastLayer = {
   rid: string;
   scaleResolutionDownBy: number;
   maxBitrate: number;
+  maxFramerate: number;
 };
 
 // Camera simulcast ladder for SFU mode: f = full capture (540p), h = half
-// (270p). Two layers is the sweet spot — a third quarter layer is too small to
-// be useful. The full layer matches the mesh "speaking" ceiling, so SFU camera
-// quality never drops below what a small mesh group already gets (the issue #77
-// quality floor) no matter the headcount.
+// (270p), q = quarter (135p). The full layer matches the mesh "speaking"
+// ceiling, so SFU camera quality never drops below what a small mesh group
+// already gets (the issue #77 quality floor) no matter the headcount. The
+// smaller layers feed thumbnails, big galleries and unwatched tiles, where
+// 15fps (the mesh "quiet" rate) is plenty and halves decode cost (issue #269).
+export const SFU_CAM_QUARTER_BITRATE = 100_000;
 export const SFU_CAM_LAYERS: SimulcastLayer[] = [
-  { rid: 'f', scaleResolutionDownBy: 1, maxBitrate: CAM_BITRATE_SPEAKING },
-  { rid: 'h', scaleResolutionDownBy: 2, maxBitrate: CAM_BITRATE_QUIET },
+  {
+    rid: 'f',
+    scaleResolutionDownBy: 1,
+    maxBitrate: CAM_BITRATE_SPEAKING,
+    maxFramerate: CAM_FPS_SPEAKING,
+  },
+  {
+    rid: 'h',
+    scaleResolutionDownBy: 2,
+    maxBitrate: CAM_BITRATE_QUIET,
+    maxFramerate: CAM_FPS_QUIET,
+  },
+  {
+    rid: 'q',
+    scaleResolutionDownBy: 4,
+    maxBitrate: SFU_CAM_QUARTER_BITRATE,
+    maxFramerate: CAM_FPS_QUIET,
+  },
 ];
 
 // SFU screen share stays a single high-quality layer: screen content is text-
@@ -181,9 +200,11 @@ export const SFU_SCREEN_MAX_BITRATE = SCREEN_BITRATE_HIGH;
 
 // The full-quality rid; the SFU's default pull layer before a tile size is known.
 export const SFU_CAM_DEFAULT_RID = 'f';
-// The half-resolution rid, requested for small tiles. Both rids must exist in
-// SFU_CAM_LAYERS (asserted in the tests).
+// The half-resolution rid, requested for mid-size tiles (e.g. a big gallery).
 export const SFU_CAM_HALF_RID = 'h';
+// The quarter-resolution rid, for thumbnails and video nobody is watching. All
+// three rids must exist in SFU_CAM_LAYERS (asserted in the tests).
+export const SFU_CAM_QUARTER_RID = 'q';
 
 // Below this rendered tile width (CSS px) a receiver requests the half layer
 // instead of full, so small thumbnails don't waste downlink (issue #78: don't
@@ -192,24 +213,30 @@ export const SFU_CAM_HALF_RID = 'h';
 // of pulling ~19 full 540p streams, while 3-column layouts (≤ 9 people) keep the
 // full layer (issue #269).
 export const SIMULCAST_FULL_MIN_WIDTH = 400;
+// Below this width a tile is a thumbnail (e.g. the 148px meeting filmstrip) and
+// takes the 240-wide quarter layer (issue #269).
+export const SIMULCAST_HALF_MIN_WIDTH = 200;
 
 // Pure: the simulcast layer (rid) a receiver should request for a tile of the
 // given rendered width. Larger tiles / the screenshare-sized stage take the full
-// layer; small thumbnails take the half layer.
+// layer, mid-size tiles the half layer, thumbnails the quarter layer.
 export function computePreferredRid(tileWidthPx: number): string {
-  return tileWidthPx >= SIMULCAST_FULL_MIN_WIDTH ? SFU_CAM_DEFAULT_RID : SFU_CAM_HALF_RID;
+  if (tileWidthPx >= SIMULCAST_FULL_MIN_WIDTH) return SFU_CAM_DEFAULT_RID;
+  if (tileWidthPx >= SIMULCAST_HALF_MIN_WIDTH) return SFU_CAM_HALF_RID;
+  return SFU_CAM_QUARTER_RID;
 }
 
 // Pure: the layer an SFU receiver requests for one remote camera. Video nobody
 // is watching — a backgrounded tab, or a tile that isn't on screen (width 0) —
-// and a congested downlink (#188) take the half layer; otherwise the rendered
-// tile width decides (#78). Issue #269.
+// takes the quarter layer; a congested downlink (#188) caps it at half;
+// otherwise the rendered tile width decides (#78). Issue #269.
 export function computeSfuCamRid(
   tileWidthPx: number,
   opts: { pageHidden: boolean; congested: boolean },
 ): string {
-  if (opts.pageHidden || opts.congested) return SFU_CAM_HALF_RID;
-  return computePreferredRid(tileWidthPx);
+  if (opts.pageHidden) return SFU_CAM_QUARTER_RID;
+  const rid = computePreferredRid(tileWidthPx);
+  return opts.congested && rid === SFU_CAM_DEFAULT_RID ? SFU_CAM_HALF_RID : rid;
 }
 
 // Cloudflare Realtime simulcast pull policy for a remote camera (issue #269).
@@ -217,7 +244,7 @@ export function computeSfuCamRid(
 // receiver's downlink can't carry the preferred one (otherwise it keeps sending
 // it regardless), and ridNotAvailable falls back to the next layer if the
 // preferred one stops arriving. 'asciibetical' ranks rids alphabetically
-// ('a' best), which SFU_CAM_LAYERS follows ('f' full before 'h' half).
+// ('a' best), which SFU_CAM_LAYERS follows ('f' < 'h' < 'q').
 export function sfuCamSimulcast(preferredRid: string) {
   return {
     preferredRid,
