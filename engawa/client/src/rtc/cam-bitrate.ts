@@ -20,9 +20,11 @@
 export const CAM_THROTTLE_MIN_PEERS = 3;
 
 // Camera send-bitrate ceilings (bps). These mirror the encoder's *maximum*; the
-// real rate still adapts down to the available bandwidth.
-export const CAM_BITRATE_SPEAKING = 600_000;
-export const CAM_BITRATE_QUIET = 150_000;
+// real rate still adapts down to the available bandwidth. Raised for the 720p
+// capture (#233) so a speaker's picture isn't starved; the quiet ceiling stays
+// modest since that layer is also downscaled to half resolution.
+export const CAM_BITRATE_SPEAKING = 1_500_000;
+export const CAM_BITRATE_QUIET = 300_000;
 
 // Camera framerate / resolution-downscale ceilings. The quiet (throttled) state
 // halves the framerate and each spatial dimension; the capture itself stays at
@@ -158,11 +160,11 @@ export type SimulcastLayer = {
   maxBitrate: number;
 };
 
-// Camera simulcast ladder for SFU mode: f = full capture, h = half. The capture
-// is small (320x240, see media.ts), so two layers is the sweet spot — a third
-// quarter layer (~80x60) is too small to be useful. The full layer matches the
-// mesh "speaking" ceiling, so SFU camera quality never drops below what a small
-// mesh group already gets (the issue #77 quality floor) no matter the headcount.
+// Camera simulcast ladder for SFU mode: f = full capture (720p), h = half
+// (360p). Two layers is the sweet spot — a third quarter layer is too small to
+// be useful. The full layer matches the mesh "speaking" ceiling, so SFU camera
+// quality never drops below what a small mesh group already gets (the issue #77
+// quality floor) no matter the headcount.
 export const SFU_CAM_LAYERS: SimulcastLayer[] = [
   { rid: 'f', scaleResolutionDownBy: 1, maxBitrate: CAM_BITRATE_SPEAKING },
   { rid: 'h', scaleResolutionDownBy: 2, maxBitrate: CAM_BITRATE_QUIET },
