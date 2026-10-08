@@ -19,6 +19,7 @@ import type { PlayerState } from '@/world/player';
 import {
   deskFacesSouth,
   LOUNGE_RECT,
+  LOUNGE_TABLE_RECT,
   MAP_COLS,
   MAP_ROWS,
   MEETING_ROOM_RECTS,
@@ -814,11 +815,9 @@ export class CanvasRenderer {
     cx.lineWidth = 2;
     cx.stroke();
 
-    // Long, thin rectangular coffee table in the middle.
-    const tw = f.w * 0.46;
-    const th = f.h * 0.2;
-    const tx = cxp - tw / 2;
-    const ty = cyp - th / 2;
+    // Long, thin rectangular coffee table in the middle. Geometry is shared with
+    // collision (LOUNGE_TABLE_RECT) so the drawn table is exactly what blocks.
+    const { x: tx, y: ty, w: tw, h: th } = LOUNGE_TABLE_RECT;
 
     // Sofas tucked right up to the table on all four sides, facing in: 2-seaters
     // left/right, 4-seaters top/bottom. Offset = half the table + half the sofa

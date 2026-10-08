@@ -3,6 +3,7 @@ import {
   canOccupy,
   findWalkableSpawn,
   isSolid,
+  LOUNGE_TABLE_RECT,
   MAP_COLS,
   MAP_ROWS,
   OUTDOOR_MARGIN,
@@ -68,6 +69,13 @@ describe('canOccupy', () => {
     const { col, row } = findTile((t) => SOLID.has(t));
     const { x, y } = center(col, row);
     expect(canOccupy(x, y, 5)).toBe(false);
+  });
+
+  it('blocks the lounge coffee table even though its tiles are walkable (#225)', () => {
+    const tableCx = LOUNGE_TABLE_RECT.x + LOUNGE_TABLE_RECT.w / 2;
+    const tableCy = LOUNGE_TABLE_RECT.y + LOUNGE_TABLE_RECT.h / 2;
+    expect(isSolid(tableCx, tableCy)).toBe(true);
+    expect(canOccupy(tableCx, tableCy, 5)).toBe(false);
   });
 });
 
