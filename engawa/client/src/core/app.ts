@@ -83,7 +83,13 @@ import { InputManager } from '@/world/input';
 import { normalizeOutfit } from '@/world/outfit';
 import { findPath } from '@/world/pathfind';
 import { PlayerState } from '@/world/player';
-import { canOccupy, findWalkableSpawn, isMeetingZone, zoneAt } from '@/world/tilemap';
+import {
+  canOccupy,
+  findAdjacentSpawn,
+  findWalkableSpawn,
+  isMeetingZone,
+  zoneAt,
+} from '@/world/tilemap';
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
@@ -562,7 +568,11 @@ export class App {
     if (!this.me) return;
     const target = this.players.get(userId);
     if (!target || target.isSelf) return;
-    const goal = findWalkableSpawn(target.x, target.y, PLAYER_RADIUS);
+    // Stop *beside* them, not on their tile: tile collision ignores player
+    // occupancy, so targeting their exact position lands us overlapping (which
+    // read as "teleported onto them" on a knock-accept). One tile away still
+    // connects via proximity (#263 follow-up).
+    const goal = findAdjacentSpawn(target.x, target.y, this.me.x, this.me.y, PLAYER_RADIUS);
     const path = findPath({ x: this.me.x, y: this.me.y }, goal);
     if (path.length === 0) {
       this.movePath = null;

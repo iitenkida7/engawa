@@ -679,3 +679,41 @@ export function findWalkableSpawn(
   }
   return { x: px, y: py };
 }
+
+/**
+ * A walkable tile ADJACENT to (tx, ty) — the one of its 8 neighbours nearest to
+ * (fromX, fromY). Used to walk up *beside* someone (knock-accept / "go there")
+ * instead of onto their exact tile: tile collision ignores player occupancy, so
+ * targeting their position lands you overlapping them. Stopping one tile away
+ * (50px ≪ CONNECT_RADIUS 120px) still triggers normal proximity. Falls back to
+ * findWalkableSpawn when no neighbour is free (e.g. a one-seat booth).
+ */
+export function findAdjacentSpawn(
+  tx: number,
+  ty: number,
+  fromX: number,
+  fromY: number,
+  radius: number,
+): { x: number; y: number } {
+  const tc = Math.floor(tx / TILE_SIZE);
+  const tr = Math.floor(ty / TILE_SIZE);
+  let best: { x: number; y: number } | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const col = tc + dc;
+      const row = tr + dr;
+      if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) continue;
+      const cx = col * TILE_SIZE + TILE_SIZE / 2;
+      const cy = row * TILE_SIZE + TILE_SIZE / 2;
+      if (!canOccupy(cx, cy, radius)) continue;
+      const d = (cx - fromX) ** 2 + (cy - fromY) ** 2;
+      if (d < bestDist) {
+        bestDist = d;
+        best = { x: cx, y: cy };
+      }
+    }
+  }
+  return best ?? findWalkableSpawn(tx, ty, radius);
+}

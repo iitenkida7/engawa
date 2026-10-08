@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   canOccupy,
+  findAdjacentSpawn,
   findWalkableSpawn,
   isSolid,
   LOUNGE_TABLE_RECT,
@@ -94,6 +95,52 @@ describe('findWalkableSpawn', () => {
     // Snapped to a tile center.
     expect((spawn.x - TILE_SIZE / 2) % TILE_SIZE).toBe(0);
     expect((spawn.y - TILE_SIZE / 2) % TILE_SIZE).toBe(0);
+  });
+});
+
+describe('findAdjacentSpawn', () => {
+  // An open floor tile whose 8 neighbours are all occupiable (so direction tests
+  // aren't foiled by a wall on one side).
+  function openTileWithClearNeighbours(): { col: number; row: number } {
+    for (let r = 1; r < MAP_ROWS - 1; r++) {
+      for (let c = 1; c < MAP_COLS - 1; c++) {
+        const { x, y } = center(c, r);
+        if (!canOccupy(x, y, 5)) continue;
+        let clear = true;
+        for (let dr = -1; dr <= 1 && clear; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const n = center(c + dc, r + dr);
+            if (!canOccupy(n.x, n.y, 5)) {
+              clear = false;
+              break;
+            }
+          }
+        }
+        if (clear) return { col: c, row: r };
+      }
+    }
+    throw new Error('no open tile with clear neighbours');
+  }
+
+  it('stops on a neighbour tile, never on the target tile itself', () => {
+    const { col, row } = openTileWithClearNeighbours();
+    const { x, y } = center(col, row);
+    const spawn = findAdjacentSpawn(x, y, x + 500, y, 5);
+    expect(spawn).not.toEqual({ x, y });
+    expect(canOccupy(spawn.x, spawn.y, 5)).toBe(true);
+    // Exactly one tile away (Chebyshev distance 1).
+    const dCol = Math.round((spawn.x - x) / TILE_SIZE);
+    const dRow = Math.round((spawn.y - y) / TILE_SIZE);
+    expect(Math.max(Math.abs(dCol), Math.abs(dRow))).toBe(1);
+  });
+
+  it('picks the neighbour nearest the approacher', () => {
+    const { col, row } = openTileWithClearNeighbours();
+    const { x, y } = center(col, row);
+    // Approaching from the east → stop on the east neighbour.
+    expect(findAdjacentSpawn(x, y, x + 500, y, 5).x).toBeGreaterThan(x);
+    // Approaching from the west → stop on the west neighbour.
+    expect(findAdjacentSpawn(x, y, x - 500, y, 5).x).toBeLessThan(x);
   });
 });
 
