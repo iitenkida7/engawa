@@ -13,5 +13,10 @@
 | study-room.jpg | https://www.rawpixel.com/image/3301987 | Public Domain (CC0) |
 | lounge-chairs.jpg | https://www.rawpixel.com/image/3303376 | Public Domain (CC0) |
 | mountain-lake.jpg | https://www.rawpixel.com/image/3370232 | Public Domain (CC0) |
+| beach-sunrise.jpg | https://www.rawpixel.com/image/3286019 | Public Domain (CC0) |
+| grey-sofa-room.jpg | https://www.rawpixel.com/image/3304088 | Public Domain (CC0) |
+| desert-dunes.jpg | https://www.rawpixel.com/image/422008 | Public Domain (CC0) |
+| brick-desk.jpg | https://www.rawpixel.com/image/519912 | Public Domain (CC0) |
+| sand-ripples.jpg | https://www.rawpixel.com/image/6129102 | Public Domain (CC0) |
 
 > 新しい画像を追加したら、CC0/パブリックドメインであることを確認のうえ、この表に1行追記してください。
