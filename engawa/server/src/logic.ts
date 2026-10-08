@@ -5,9 +5,10 @@
 import type { GroupMethod, Outfit, PlayerStatus, SfuTrack, StreamKind } from './types';
 
 /** Map bounds used to clamp player positions. Must match the client (core/types.ts
- * MAP_WIDTH/HEIGHT) and world/tilemap.ts MAP_COLS/ROWS × TILE_SIZE (34×24 tiles). */
-export const MAP_WIDTH = 1700;
-export const MAP_HEIGHT = 1200;
+ * MAP_WIDTH/HEIGHT) and world/tilemap.ts MAP_COLS/ROWS × TILE_SIZE (a 34×25
+ * building plus a 6-tile grass margin on each side = 46×37 tiles). */
+export const MAP_WIDTH = 2300;
+export const MAP_HEIGHT = 1850;
 
 /**
  * Whether an access password is configured (a non-empty ACCESS_PASSWORD). When
@@ -257,9 +258,11 @@ export function clampPosition(
  * deterministic in tests.
  */
 export function generateSpawn(rand: () => number = Math.random): { x: number; y: number } {
+  // Open-office area, shifted by the 300px outdoor margin (#229) so spawns stay
+  // inside the building's center aisle, not out on the grass.
   return {
-    x: 800 + rand() * 400,
-    y: 400 + rand() * 600,
+    x: 1100 + rand() * 400,
+    y: 700 + rand() * 600,
   };
 }
 

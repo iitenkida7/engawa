@@ -22,12 +22,14 @@ import {
   MAP_COLS,
   MAP_ROWS,
   MEETING_ROOM_RECTS,
+  OUTDOOR_MARGIN,
   officeMap,
   POD_RUGS,
   ROOM_FURNITURE,
   type RoomFurniture,
   TILE_SIZE,
   Tile,
+  TREES,
   ZONES,
   zoneAt,
 } from '@/world/tilemap';
@@ -77,6 +79,18 @@ const PALETTE = {
   coffeeTable: '#a9774f',
   coffeeTableTop: '#c79b70',
   coffeeTableHi: '#dcbb95',
+  // Outdoor grounds (#229): grass lawn and trees around the building.
+  grass: '#dcebcd',
+  grassSeam: 'rgba(150,180,125,0.12)',
+  grassTuft: 'rgba(160,190,135,0.4)',
+  treeTrunk: '#8a6a43',
+  treeCanopy: '#6fa052',
+  treeCanopyHi: '#8bbd68',
+  treeCanopyShade: '#577f41',
+  // Second tree tint for variety: a distinctly darker, richer green.
+  treeCanopy2: '#3f7a3c',
+  treeCanopyHi2: '#57984e',
+  treeCanopyShade2: '#2d5c2b',
   // Faint tile grid drawn on every floor, and a soft shadow under furniture, for
   // a tidy "game floor" look with a little depth.
   floorGrid: 'rgba(90,75,50,0.07)',
@@ -549,8 +563,14 @@ export class CanvasRenderer {
       for (let c = 0; c < MAP_COLS; c++) {
         const tx = c * TILE_SIZE;
         const ty = r * TILE_SIZE;
-        if (officeMap[r][c] === Tile.WALL) {
+        const tile = officeMap[r][c];
+        if (tile === Tile.WALL) {
           this.drawWall(cx, tx, ty, c, r);
+          continue;
+        }
+        // Outdoor tiles (#229): grass base, with trees drawn on top in pass 2.
+        if (tile === Tile.GRASS || tile === Tile.TREE) {
+          this.drawGrassTile(cx, tx, ty, c, r);
           continue;
         }
         const roomKind = roomKindAt(c, r);
@@ -619,6 +639,12 @@ export class CanvasRenderer {
       // The wide all-hands room has corner plants, so nudge its cabinet one tile
       // right of the corner plant; small rooms keep it in the corner.
       this.drawCabinet(cx, rect, rect.w > 5 * TILE_SIZE ? TILE_SIZE : 0);
+    }
+
+    // Outdoor trees on the grounds (small 1×1 and big 2×2), drawn from the random
+    // layout over the grass. Sorted by foot Y so nearer trees overlap farther ones.
+    for (const tree of [...TREES].sort((a, b) => a.y - b.y)) {
+      this.drawTree(cx, tree.x, tree.y, tree.tiles, tree.variant);
     }
 
     // Soft map border — a thin warm frame, no heavy vignette (a clean office is
@@ -1005,6 +1031,63 @@ export class CanvasRenderer {
     cx.stroke();
   }
 
+  // Outdoor grass tile: a flat green base, a faint seam grid (matching the indoor
+  // floor), and a small deterministic tuft so the lawn isn't a flat slab (#229).
+  private drawGrassTile(
+    cx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    col: number,
+    row: number,
+  ) {
+    const S = TILE_SIZE;
+    cx.fillStyle = PALETTE.grass;
+    cx.fillRect(tx, ty, S, S);
+    cx.strokeStyle = PALETTE.grassSeam;
+    cx.lineWidth = 1;
+    cx.beginPath();
+    cx.moveTo(tx + S - 0.5, ty);
+    cx.lineTo(tx + S - 0.5, ty + S);
+    cx.moveTo(tx, ty + S - 0.5);
+    cx.lineTo(tx + S, ty + S - 0.5);
+    cx.stroke();
+    // One tuft per tile, placed by a cheap hash of (col,row) so it's stable.
+    const hx = ((col * 7 + row * 13) % 5) * 8 + 8;
+    const hy = ((col * 11 + row * 5) % 5) * 8 + 8;
+    cx.strokeStyle = PALETTE.grassTuft;
+    cx.lineWidth = 1.5;
+    cx.beginPath();
+    cx.moveTo(tx + hx, ty + hy);
+    cx.lineTo(tx + hx - 2, ty + hy - 5);
+    cx.moveTo(tx + hx, ty + hy);
+    cx.lineTo(tx + hx + 2, ty + hy - 5);
+    cx.stroke();
+  }
+
+  // A simple procedural tree on the grass: a short trunk and a layered round
+  // canopy. `tiles` is the footprint span (1 = small, 2 = a big 2×2 tree), so the
+  // whole thing scales up while staying planted on its footprint (#229).
+  private drawTree(cx: CanvasRenderingContext2D, tx: number, ty: number, tiles = 1, variant = 0) {
+    const S = TILE_SIZE * tiles;
+    const cxp = tx + S / 2;
+    const base = ty + S - 6;
+    const trunkW = 4 + tiles * 2;
+    const trunkH = 10 + tiles * 6;
+    const canopy = variant === 1 ? PALETTE.treeCanopy2 : PALETTE.treeCanopy;
+    const canopyHi = variant === 1 ? PALETTE.treeCanopyHi2 : PALETTE.treeCanopyHi;
+    const canopyShade = variant === 1 ? PALETTE.treeCanopyShade2 : PALETTE.treeCanopyShade;
+    this.softShadow(cx, cxp, base + 2, S * 0.34, 5 * tiles);
+    cx.fillStyle = PALETTE.treeTrunk;
+    cx.fillRect(cxp - trunkW / 2, base - trunkH + 2, trunkW, trunkH);
+    const cy = ty + S * 0.42;
+    cx.fillStyle = canopyShade;
+    this.circle(cx, cxp, cy + 3, S * 0.32);
+    cx.fillStyle = canopy;
+    this.circle(cx, cxp, cy, S * 0.3);
+    cx.fillStyle = canopyHi;
+    this.circle(cx, cxp - S * 0.1, cy - S * 0.1, S * 0.14);
+  }
+
   // Warm off-white wall: a light base with a soft top highlight, a subtle bottom
   // shadow, and a faint seam — a clean partition, not the old near-black block.
   // Outer side walls facing the open office (every other row) get a window.
@@ -1020,9 +1103,14 @@ export class CanvasRenderer {
     cx.lineWidth = 1;
     cx.strokeRect(tx + 0.5, ty + 0.5, S - 1, S - 1);
 
-    // Windows: left/right outer walls along the open-office rows, every other tile.
-    const onSideWall = col === 0 || col === MAP_COLS - 1;
-    if (onSideWall && row >= 7 && row <= 17 && row % 2 === 1) {
+    // Windows: the building's left/right outer walls. A vertical outer wall has
+    // grass on exactly one horizontal side (the grounds). Two windows above the
+    // side gate and two below it, at fixed building-local rows.
+    const leftGrass = officeMap[row]?.[col - 1] === Tile.GRASS;
+    const rightGrass = officeMap[row]?.[col + 1] === Tile.GRASS;
+    const onSideWall = leftGrass !== rightGrass;
+    const windowRow = [8, 10, 15, 17].includes(row - OUTDOOR_MARGIN);
+    if (onSideWall && windowRow) {
       const m = 9; // inset from the tile edge
       cx.fillStyle = PALETTE.windowFrame;
       this.roundRect(cx, tx + m - 2, ty + m - 2, S - (m - 2) * 2, S - (m - 2) * 2, 3);

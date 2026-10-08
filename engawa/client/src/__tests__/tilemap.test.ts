@@ -5,6 +5,7 @@ import {
   isSolid,
   MAP_COLS,
   MAP_ROWS,
+  OUTDOOR_MARGIN,
   officeMap,
   SOLID,
   TILE_SIZE,
@@ -57,9 +58,9 @@ describe('canOccupy', () => {
   });
 
   it('returns false when a corner overlaps a wall', () => {
-    // The outer border (row 0) is wall; a point just inside row 1 with a large
-    // radius will have its top corner cross into the wall.
-    const { x, y } = center(5, 1);
+    // The building's top outer wall is at row OUTDOOR_MARGIN; a point just inside
+    // it with a large radius has its top corner cross into the wall.
+    const { x, y } = center(OUTDOOR_MARGIN + 2, OUTDOOR_MARGIN + 1);
     expect(canOccupy(x, y, TILE_SIZE)).toBe(false);
   });
 
@@ -98,14 +99,14 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     { col: 19, row: 1 }, // 会議室1
     { col: 24, row: 1 }, // 会議室2
     { col: 29, row: 1 }, // 会議室3
-    { col: 1, row: 20 }, // 1on1ルーム1
-    { col: 5, row: 20 }, // 1on1ルーム2
-    { col: 9, row: 20 }, // 1on1ルーム3
-    { col: 13, row: 20 }, // 1on1ルーム4
-    { col: 17, row: 20 }, // 商談ブース1
-    { col: 21, row: 20 }, // 商談ブース2
-    { col: 25, row: 20 }, // 商談ブース3
-    { col: 29, row: 20 }, // 商談ブース4
+    { col: 1, row: 21 }, // 1on1ルーム1
+    { col: 5, row: 21 }, // 1on1ルーム2
+    { col: 9, row: 21 }, // 1on1ルーム3
+    { col: 13, row: 21 }, // 1on1ルーム4
+    { col: 17, row: 21 }, // 商談ブース1
+    { col: 21, row: 21 }, // 商談ブース2
+    { col: 25, row: 21 }, // 商談ブース3
+    { col: 29, row: 21 }, // 商談ブース4
   ];
 
   it('derives one zone per walled-off MEETING room, plus the lounge', () => {
@@ -128,8 +129,11 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
   });
 
   it('groups each room into a single distinct zone', () => {
+    // roomSamples are building-local coords; shift into the map (#229).
     const ids = roomSamples.map((s) => {
-      const z = zoneAt(s.col * TILE_SIZE + TILE_SIZE / 2, s.row * TILE_SIZE + TILE_SIZE / 2);
+      const cx = (s.col + OUTDOOR_MARGIN) * TILE_SIZE + TILE_SIZE / 2;
+      const cy = (s.row + OUTDOOR_MARGIN) * TILE_SIZE + TILE_SIZE / 2;
+      const z = zoneAt(cx, cy);
       expect(z).not.toBeNull();
       return z!.id;
     });
