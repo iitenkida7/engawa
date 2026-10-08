@@ -191,14 +191,14 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     { col: 19, row: 1 }, // 会議室1
     { col: 24, row: 1 }, // 会議室2
     { col: 29, row: 1 }, // 会議室3
-    { col: 1, row: 22 }, // 1on1ルーム1
-    { col: 5, row: 22 }, // 1on1ルーム2
-    { col: 9, row: 22 }, // 1on1ルーム3
-    { col: 13, row: 22 }, // 1on1ルーム4
-    { col: 17, row: 22 }, // 商談ブース1
-    { col: 21, row: 22 }, // 商談ブース2
-    { col: 25, row: 22 }, // 商談ブース3
-    { col: 29, row: 22 }, // 商談ブース4
+    { col: 1, row: 23 }, // 1on1ルーム1
+    { col: 5, row: 23 }, // 1on1ルーム2
+    { col: 9, row: 23 }, // 1on1ルーム3
+    { col: 13, row: 23 }, // 1on1ルーム4
+    { col: 17, row: 23 }, // 商談ブース1
+    { col: 21, row: 23 }, // 商談ブース2
+    { col: 25, row: 23 }, // 商談ブース3
+    { col: 29, row: 23 }, // 商談ブース4
   ];
 
   it('derives one zone per walled-off MEETING room, plus the lounge', () => {
