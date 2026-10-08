@@ -158,9 +158,12 @@ export const MEETING_GAP = 4;
 export const MEETING_FILMSTRIP_MAX_VISIBLE = 5;
 export const MEETING_FILMSTRIP_TILE_W = 148;
 export const MEETING_FILMSTRIP_TILE_H = 108;
-// Column width = tile + a little side padding, so the strip reads as a gutter.
+// Near-zero separation between the filmstrip and the share, so they read as one
+// surface (the tiles sit flush to the left edge; this is just the seam).
+export const MEETING_FILMSTRIP_SEP = 2;
+// The gutter the main share must avoid = the tile width (tiles are flush-left).
 export function meetingFilmstripColWidth(): number {
-  return MEETING_FILMSTRIP_TILE_W + MEETING_GAP * 4;
+  return MEETING_FILMSTRIP_TILE_W;
 }
 
 // Full-bleed horizontally; only the bottom toolbar strip is reserved so tiles
@@ -221,20 +224,20 @@ export function computeMeetingPresentation(
     return result;
   }
   const strip = n - 1;
-  const colW = meetingFilmstripColWidth();
-  // Main share fills everything to the right of the strip gutter.
-  result[0] = fillCell(area.x + colW, area.y, area.w - colW, area.h);
-
   const tileW = MEETING_FILMSTRIP_TILE_W;
   const tileH = MEETING_FILMSTRIP_TILE_H;
+  // Main share abuts the strip with only the thin seam between them, and runs
+  // full-bleed on the other three edges.
+  const mainX = area.x + tileW + MEETING_FILMSTRIP_SEP;
+  result[0] = { left: mainX, top: area.y, width: Math.max(1, area.w - mainX), height: area.h };
+
   const fixedTotalH = strip * tileH + (strip - 1) * MEETING_GAP;
   if (fixedTotalH <= area.h) {
-    // Fits: fixed-size tiles, vertically centered beside the share.
-    const x = area.x + Math.round((colW - tileW) / 2);
+    // Fits: fixed-size tiles, flush-left and vertically centered beside the share.
     const startY = area.y + (area.h - fixedTotalH) / 2;
     for (let k = 1; k < n; k++) {
       result[k] = {
-        left: x,
+        left: area.x,
         top: Math.round(startY + (k - 1) * (tileH + MEETING_GAP)),
         width: tileW,
         height: tileH,
@@ -245,7 +248,12 @@ export function computeMeetingPresentation(
     // expanded view on a short viewport): divide the column height so all fit.
     const cellH = area.h / strip;
     for (let k = 1; k < n; k++) {
-      result[k] = fillCell(area.x, area.y + (k - 1) * cellH, colW, cellH);
+      result[k] = {
+        left: area.x,
+        top: Math.round(area.y + (k - 1) * cellH),
+        width: tileW,
+        height: Math.max(1, Math.round(cellH - MEETING_GAP)),
+      };
     }
   }
   return result;

@@ -870,19 +870,20 @@ export class RemoteMediaView {
       applyPanelGeometry(panels[pi].el, geos[k]);
     });
 
-    if (needToggle) this.positionFilmstripToggle(vw, vh);
+    if (needToggle) this.positionFilmstripToggle(vh, stripIdxs.length - visibleCount);
     else this.hideFilmstripToggle();
   }
 
-  // Parks the filmstrip ⬇️/⬆️ toggle at the bottom of the left column and sets
-  // its glyph to match the collapsed/expanded state.
-  private positionFilmstripToggle(_vw: number, vh: number) {
-    const colW = meetingFilmstripColWidth();
+  // Parks the filmstrip show-more/less pill at the bottom of the left column
+  // (Gather-style): collapsed it shows the hidden count with a down chevron,
+  // expanded it shows an up chevron to fold back.
+  private positionFilmstripToggle(vh: number, hiddenCount: number) {
     const btn = this.filmstripToggleEl;
     btn.style.display = 'flex';
-    btn.style.left = `${Math.round(colW / 2 - 18)}px`;
-    btn.style.top = `${vh - PANEL_BOTTOM_RESERVED - 44}px`;
-    btn.textContent = this.filmstripExpanded ? '⌃' : '⌄';
+    // Centered on the flush-left strip column (CSS translateX(-50%)).
+    btn.style.left = `${Math.round(meetingFilmstripColWidth() / 2)}px`;
+    btn.style.top = `${vh - PANEL_BOTTOM_RESERVED - 42}px`;
+    btn.textContent = this.filmstripExpanded ? '⌃' : `+${hiddenCount}`;
     btn.title = this.filmstripExpanded ? t('media.filmstripLess') : t('media.filmstripMore');
   }
 
