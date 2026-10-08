@@ -86,6 +86,11 @@ export class RemoteMediaView {
   // (above the self preview) rather than being capped by #remote-videos' context.
   private stageLayerEl: HTMLElement;
   private remoteTiles = new Map<string, RemoteTile>();
+  // Big-group compact mode (#239): hide audio-only (no-camera) tiles so a large
+  // all-hands shows just the active-speaker cameras instead of a grid of empty
+  // placeholder boxes. Audio-only participants are still heard (and belong in the
+  // roster). Off by default → small groups keep showing everyone.
+  private compactTiles = false;
   // userIds in the current conversation group (excl. self); members without a cam
   // keep a placeholder tile so you can see who you're talking to.
   private conversationMembers = new Set<string>();
@@ -620,6 +625,14 @@ export class RemoteMediaView {
     if (tile) tile.container.classList.toggle('muted', muted);
   }
 
+  // Toggle big-group compact mode (#239): hide audio-only tiles so only the
+  // active-speaker cameras fill the grid. No-op when unchanged.
+  setCompactTiles(on: boolean) {
+    if (this.compactTiles === on) return;
+    this.compactTiles = on;
+    this.reflowLayout();
+  }
+
   // ============= Speaking detection =============
   // Swaps the local mic's speaking detector. Pass the live mic stream when the
   // mic turns on, or null when it turns off (which also clears the speaking
@@ -804,6 +817,11 @@ export class RemoteMediaView {
       });
     }
     for (const [userId, tile] of this.remoteTiles) {
+      // In compact mode, lay out only tiles with live video; keep audio-only
+      // tiles in the DOM (for mic/speaking state) but out of the grid (#239).
+      const show = !this.compactTiles || tile.hasCam;
+      tile.container.style.display = show ? '' : 'none';
+      if (!show) continue;
       panels.push({
         el: tile.container,
         item: { aspectLocked: true, aspect: CAM_ASPECT },

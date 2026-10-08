@@ -687,6 +687,7 @@ export class App {
     this.sfuDirectory.clear();
     this.inProximity.clear();
     this.currentMethod = 'mesh';
+    this.view.setCompactTiles(false);
     this.focusedId = null;
   }
 
@@ -1609,6 +1610,8 @@ export class App {
       this.sfuDirectory.clear();
       this.currentMethod = 'mesh';
       this.sfuMembers.clear();
+      // Mesh is always small enough to show everyone — leave compact mode (#239).
+      this.view.setCompactTiles(false);
       // Reconcile mesh peers against the group: close peers no longer in it,
       // open one to every member we are not yet connected to. createPeer bundles
       // our live streams automatically; initiator election keeps it to one offer.
@@ -1684,6 +1687,9 @@ export class App {
   private updateSfuPulls() {
     if (this.currentMethod !== 'sfu') return;
     const peers = [...this.sfuMembers].filter((id) => id !== this.myId);
+    // Big group → compact tile view: only the pulled (active-speaker) cameras are
+    // laid out, not a grid of audio-only placeholders (#239).
+    this.view.setCompactTiles(peers.length > SFU_MAX_CAM_PULLS);
     const speakingNow = (id: string) =>
       this.reportedSpeaking.get(id) ?? this.players.get(id)?.isSpeaking ?? false;
 
