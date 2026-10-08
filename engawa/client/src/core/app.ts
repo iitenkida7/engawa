@@ -59,9 +59,13 @@ import { SfuManager } from '@/rtc/sfu';
 import {
   localPublishRoute,
   partitionMembers,
+  SFU_MAX_CAM_PULLS,
+  SFU_MAX_MIC_PULLS,
   SFU_REBUILD_RESET_MS,
   SFU_RECONNECT_NOTICE_FROM,
   SFU_STALE_STREAM_GRACE_MS,
+  selectActiveCameras,
+  selectActiveMics,
   sfuRebuildDelayMs,
 } from '@/rtc/sfu-logic';
 import { computeJitterTargetMs } from '@/rtc/tune';
@@ -194,6 +198,14 @@ export class App {
 
   // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
   private lastLayerUpdate = 0;
+  // Big-group receive caps (#237/#238): each peer's last-spoke time, the last
+  // cam/mic allow-sets pushed to the SFU (to dedupe re-feeds), peers' reported
+  // speaking state, and the last speaking value we broadcast about ourselves.
+  private lastSpokeAtMs = new Map<string, number>();
+  private lastCamAllowedKey: string | null = null;
+  private lastMicAllowedKey: string | null = null;
+  private reportedSpeaking = new Map<string, boolean>();
+  private lastSentSpeaking = false;
 
   // Call-quality sampling (issue #182): every QUALITY_SAMPLE_INTERVAL_MS the
   // active transport's stats are folded into one QualitySample and appended to
@@ -630,6 +642,8 @@ export class App {
     this.meshMembers.delete(userId);
     this.sfuMembers.delete(userId);
     this.sfuDirectory.delete(userId);
+    this.reportedSpeaking.delete(userId);
+    this.lastSpokeAtMs.delete(userId);
     this.rtc.closePeer(userId);
     this.sfu.removePeer(userId);
     this.knownSfuPeers.delete(userId);
@@ -687,6 +701,11 @@ export class App {
     this.sfuDirectory.clear();
     this.inProximity.clear();
     this.currentMethod = 'mesh';
+    this.lastSpokeAtMs.clear();
+    this.reportedSpeaking.clear();
+    this.lastCamAllowedKey = null;
+    this.lastMicAllowedKey = null;
+    this.view.setCompactTiles(false);
     this.focusedId = null;
   }
 
@@ -1204,6 +1223,14 @@ export class App {
         this.reactionToasts.show(name, msg.emoji);
         break;
       }
+      case 'speaking': {
+        // A peer's active-speaker state (#238). Authoritative for the receive caps
+        // even when we're not pulling their mic; record last-spoke so a dropped
+        // peer re-pulls the moment they talk.
+        this.reportedSpeaking.set(msg.userId, msg.speaking);
+        if (msg.speaking) this.lastSpokeAtMs.set(msg.userId, performance.now());
+        break;
+      }
       case 'knock': {
         this.knocks.received(msg.from, msg.name);
         break;
@@ -1364,14 +1391,22 @@ export class App {
 
     // Speaking detection (local + remote tiles) is owned by the media view.
     this.view.updateSpeaking();
+    // Track when each remote peer last spoke, for the active-speaker receive caps
+    // (#237/#238). Mic is pulled for the allowed set; reported speaking (below)
+    // covers peers whose mic we're not pulling.
+    for (const [id, p] of this.players) {
+      if (id !== this.myId && p.isSpeaking) this.lastSpokeAtMs.set(id, now);
+    }
 
     // Speaker-aware send policy: in big proximity groups, lower our own camera
     // (and screen) ceilings while we are not the (recent) speaker.
     this.updateSendPolicy(now);
 
-    // SFU simulcast: re-pick each remote camera's layer by tile size (~1s cadence).
+    // SFU simulcast: re-pick each remote camera's layer by tile size, and (in a
+    // big group) which cameras/mics to pull at all by active speaker (~1s cadence).
     if (now - this.lastLayerUpdate > 1000) {
       this.lastLayerUpdate = now;
+      this.updateSfuPulls();
       this.updateSfuLayers();
       // Refresh the roster on the same slow cadence (no-op while it's closed).
       this.roster.render();
@@ -1422,12 +1457,19 @@ export class App {
   private updateSendPolicy(nowMs: number) {
     const me = this.me;
     if (!me) return;
+    if (me.isSpeaking) this.lastLoudAtMs = nowMs;
+    const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
+    // Broadcast our active-speaker state on change (#238) — in both transports —
+    // so peers pick whose audio/camera to receive in a big group. isHeldSpeaking's
+    // post-speech hold debounces this to a send every few seconds at most.
+    if (speaking !== this.lastSentSpeaking) {
+      this.lastSentSpeaking = speaking;
+      this.net.send({ type: 'speaking', speaking });
+    }
     // SFU sends a single upstream regardless of headcount, so it skips the mesh
     // peer-count throttle entirely — SfuManager publishes a fixed simulcast
     // ladder (the quality floor) and the SFU / receiver pick the layer instead.
     if (this.currentMethod === 'sfu') return;
-    if (me.isSpeaking) this.lastLoudAtMs = nowMs;
-    const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
     const peerCount = this.rtc.peerCount;
     // The peer-count/speaker ceilings, further shrunk by the network tier
     // (#185) — under congestion video yields so voice keeps its headroom.
@@ -1566,6 +1608,9 @@ export class App {
       this.sfuMembers = new Set(members);
       this.meshMembers.clear();
       this.clearPeerRecovery();
+      // Membership changed → recompute the receive allow-sets next tick (#237/#238).
+      this.lastCamAllowedKey = null;
+      this.lastMicAllowedKey = null;
       if (wasMesh) {
         // mesh → SFU: drop every mesh peer, then publish our live streams to the
         // SFU. Remote media comes back via sfu-peer-tracks → pull. (meshMembers
@@ -1600,6 +1645,8 @@ export class App {
       this.sfuDirectory.clear();
       this.currentMethod = 'mesh';
       this.sfuMembers.clear();
+      // Mesh is always small enough to show everyone — leave compact mode (#239).
+      this.view.setCompactTiles(false);
       // Reconcile mesh peers against the group: close peers no longer in it,
       // open one to every member we are not yet connected to. createPeer bundles
       // our live streams automatically; initiator election keeps it to one offer.
@@ -1706,6 +1753,51 @@ export class App {
     this.view.setReconnecting(false);
     this.staleSweepAt = null;
     this.sweepStaleSfuStreams();
+  }
+
+  // Cap how many remote cameras (#237) and mics (#238) we pull in a big SFU
+  // group: only the active speakers are received; everyone else is dropped (cam
+  // first, with a looser mic cap) until they speak. Groups within the caps are
+  // unrestricted. Activity comes from the relayed `speaking` signal, so a dropped
+  // peer re-pulls the moment they talk. Also switches the tiles to compact view
+  // (#239) so audio-only participants don't fill the grid with empty boxes.
+  private updateSfuPulls() {
+    if (this.currentMethod !== 'sfu') return;
+    const peers = [...this.sfuMembers].filter((id) => id !== this.myId);
+    this.view.setCompactTiles(peers.length > SFU_MAX_CAM_PULLS);
+    const speakingNow = (id: string) =>
+      this.reportedSpeaking.get(id) ?? this.players.get(id)?.isSpeaking ?? false;
+
+    const camAllowed =
+      peers.length <= SFU_MAX_CAM_PULLS
+        ? null
+        : selectActiveCameras(
+            peers.map((id) => ({
+              userId: id,
+              hasCam: (this.sfuDirectory.get(id)?.tracks ?? []).some((t) => t.kind === 'cam'),
+              speaking: speakingNow(id),
+              lastSpokeMs: this.lastSpokeAtMs.get(id) ?? 0,
+            })),
+          );
+    const micAllowed =
+      peers.length <= SFU_MAX_MIC_PULLS
+        ? null
+        : selectActiveMics(
+            peers.map((id) => ({
+              userId: id,
+              speaking: speakingNow(id),
+              lastSpokeMs: this.lastSpokeAtMs.get(id) ?? 0,
+            })),
+          );
+
+    const camKey = camAllowed ? [...camAllowed].sort().join(',') : '*';
+    const micKey = micAllowed ? [...micAllowed].sort().join(',') : '*';
+    if (camKey === this.lastCamAllowedKey && micKey === this.lastMicAllowedKey) return;
+    this.lastCamAllowedKey = camKey;
+    this.lastMicAllowedKey = micKey;
+    this.sfu.setCamAllowed(camAllowed);
+    this.sfu.setMicAllowed(micAllowed);
+    this.refeedSfuDirectories();
   }
 
   // Pick each SFU camera's simulcast layer by its rendered tile width (issue

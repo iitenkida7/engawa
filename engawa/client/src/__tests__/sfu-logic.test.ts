@@ -9,6 +9,10 @@ import {
   partitionMembers,
   reconcilePeerTracks,
   remoteKey,
+  SFU_MAX_CAM_PULLS,
+  SFU_MAX_MIC_PULLS,
+  selectActiveCameras,
+  selectActiveMics,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
   sfuPullRetryDelayMs,
@@ -296,5 +300,39 @@ describe('localPublishRoute (issue #258)', () => {
 
   it('never defers on mesh (a stale pending flag must not swallow publishes)', () => {
     expect(localPublishRoute('mesh', true)).toBe('mesh');
+  });
+});
+
+describe('selectActiveCameras / selectActiveMics (#237/#238)', () => {
+  const cam = (userId: string, hasCam: boolean, speaking: boolean, lastSpokeMs: number) => ({
+    userId,
+    hasCam,
+    speaking,
+    lastSpokeMs,
+  });
+  const mic = (userId: string, speaking: boolean, lastSpokeMs: number) => ({
+    userId,
+    speaking,
+    lastSpokeMs,
+  });
+
+  it('returns all camera-havers within the cap, and excludes no-camera peers', () => {
+    expect(
+      new Set(selectActiveCameras([cam('a', true, false, 0), cam('b', false, true, 9)], 9)),
+    ).toEqual(new Set(['a']));
+  });
+
+  it('caps cameras preferring speaker, then recency, then id', () => {
+    const got = selectActiveCameras(
+      [cam('old', true, false, 1), cam('new', true, false, 5), cam('talk', true, true, 0)],
+      2,
+    );
+    expect(got).toEqual(['talk', 'new']);
+  });
+
+  it('mic cap is looser than the camera cap and respects the same ordering', () => {
+    expect(SFU_MAX_MIC_PULLS).toBeGreaterThan(SFU_MAX_CAM_PULLS);
+    expect(selectActiveMics([mic('a', false, 0), mic('b', false, 0)], 9)).toHaveLength(2);
+    expect(selectActiveMics([mic('x', false, 1), mic('y', true, 0)], 1)).toEqual(['y']);
   });
 });

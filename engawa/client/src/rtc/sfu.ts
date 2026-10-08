@@ -165,6 +165,11 @@ export class SfuManager {
   // downlink, or the manual audio-only mode). Existing video pulls are dropped
   // on entry; on exit the App re-feeds the cached directories to re-pull.
   private videoPullPaused = false;
+  // Big-group receive caps (#237/#238). null = all allowed (groups within the
+  // caps); a set names the active speakers whose camera / mic we still pull.
+  // Mic and screen are never gated by camAllowed; screen is never gated by either.
+  private camAllowed: Set<string> | null = null;
+  private micAllowed: Set<string> | null = null;
 
   constructor(events: SfuEvents) {
     this.events = events;
@@ -266,9 +271,13 @@ export class SfuManager {
       this.peerSessions.set(userId, dir.sessionId);
       // Audio-only receive: reconcile against the mic subset so video tracks
       // are treated as absent (existing ones drop, new ones aren't pulled).
-      const desired = this.videoPullPaused
-        ? dir.tracks.filter((t) => t.kind === 'mic')
-        : dir.tracks;
+      // In a big group (#237/#238) a non-active-speaker's camera and/or mic are
+      // also treated as absent, so only the speakers' streams are pulled.
+      let desired = this.videoPullPaused ? dir.tracks.filter((t) => t.kind === 'mic') : dir.tracks;
+      if (!this.videoPullPaused && this.camAllowed && !this.camAllowed.has(userId))
+        desired = desired.filter((t) => t.kind !== 'cam');
+      if (this.micAllowed && !this.micAllowed.has(userId))
+        desired = desired.filter((t) => t.kind !== 'mic');
       const r = reconcilePeerTracks(userId, desired, this.remoteTracks.keys());
       for (const t of r.toPull) toPull.push({ userId, sessionId: dir.sessionId, ...t });
       toDrop.push(...r.toDrop);
@@ -315,6 +324,16 @@ export class SfuManager {
       }
       this.events.onPeerClosed(userId);
     });
+  }
+
+  // Limit which peers' cameras (#237) / mics (#238) are pulled in a big group.
+  // Pass null to allow all. Only stores the set; the App re-feeds the cached
+  // directories so the coalesced flush pulls the newly-allowed and drops the rest.
+  setCamAllowed(userIds: string[] | null) {
+    this.camAllowed = userIds ? new Set(userIds) : null;
+  }
+  setMicAllowed(userIds: string[] | null) {
+    this.micAllowed = userIds ? new Set(userIds) : null;
   }
 
   // Pause / resume video pulling (issue #188). Pausing drops every non-mic

@@ -72,6 +72,8 @@ export type ClientMessage =
   // SFU: announce/replace the tracks this client has published to its Cloudflare
   // session, so the server can relay them to the group as a track directory.
   | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] }
+  // Active-speaker signal (#238): self VAD, relayed so peers pick whose audio to pull.
+  | { type: 'speaking'; speaking: boolean }
   // App-level heartbeat (issue #183): the client pings on a fixed cadence and
   // treats a missing pong as a dead socket (browsers expose no protocol ping).
   | { type: 'ping' };
@@ -118,6 +120,8 @@ export type ServerMessage =
   // An emoji reaction from a workspace peer (from === self for our own echo),
   // shown floating above that user's avatar.
   | { type: 'reaction'; userId: string; emoji: string }
+  // A peer's active-speaker state (#238), relayed from their `speaking` report.
+  | { type: 'speaking'; userId: string; speaking: boolean }
   // SFU: the recipient's current proximity group and its transport. The client
   // talks to exactly these members (members includes self) via mesh or SFU.
   // Meeting-room groups are always 'sfu'; outdoor groups promote at 4 and latch.

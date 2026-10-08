@@ -197,3 +197,50 @@ export function partitionMembers(
   const toOpen = [...desiredIds].filter((id) => !current.has(id));
   return { toClose, toOpen };
 }
+
+// ─── Big-group receive caps (#237/#238) ─────────────────────────────────────
+// Pulling every peer's camera and mic in a 23-person all-hands melts CPU and
+// downlink. Cap how many of each we receive, choosing the active speakers;
+// everyone else is dropped until they speak (activity is known from the relayed
+// `speaking` signal, so a dropped peer re-pulls the moment they talk).
+export const SFU_MAX_CAM_PULLS = 9; // 3×3 stage of cameras
+export const SFU_MAX_MIC_PULLS = 16; // audio is cheap → a looser cap, no clipping in normal meetings
+
+// Pure: pick which peers' cameras to pull, capped at `cap`. Only peers that
+// publish a camera are eligible; prefer speaking-now, then most-recently-spoken
+// (recency gives stable, non-flappy membership), then userId. <= cap ids; the
+// caller treats "all eligible" (<= cap) as no restriction.
+export function selectActiveCameras(
+  candidates: { userId: string; hasCam: boolean; speaking: boolean; lastSpokeMs: number }[],
+  cap: number = SFU_MAX_CAM_PULLS,
+): string[] {
+  const withCam = candidates.filter((c) => c.hasCam);
+  if (withCam.length <= cap) return withCam.map((c) => c.userId);
+  return [...withCam]
+    .sort(compareBySpeaker)
+    .slice(0, cap)
+    .map((c) => c.userId);
+}
+
+// Pure: pick which peers' mics to pull, capped at `cap`. Same ordering as cameras.
+export function selectActiveMics(
+  candidates: { userId: string; speaking: boolean; lastSpokeMs: number }[],
+  cap: number = SFU_MAX_MIC_PULLS,
+): string[] {
+  if (candidates.length <= cap) return candidates.map((c) => c.userId);
+  return [...candidates]
+    .sort(compareBySpeaker)
+    .slice(0, cap)
+    .map((c) => c.userId);
+}
+
+function compareBySpeaker(
+  a: { userId: string; speaking: boolean; lastSpokeMs: number },
+  b: { userId: string; speaking: boolean; lastSpokeMs: number },
+): number {
+  return (
+    Number(b.speaking) - Number(a.speaking) ||
+    b.lastSpokeMs - a.lastSpokeMs ||
+    (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0)
+  );
+}
