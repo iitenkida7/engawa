@@ -321,7 +321,11 @@ export const PROXIMITY_DISCONNECT_RADIUS = 150;
 // 71px) connect — never a passer-by two tiles away (orthogonal 100px). Applied
 // when EITHER member is seated. Mirrors the client's SEAT_CONNECT_RADIUS.
 export const SEAT_CONNECT_RADIUS = 80;
-export const SEAT_DISCONNECT_RADIUS = 100;
+// Must stay BELOW two tiles orthogonally (100px) so a seat's bubble never
+// persists past the adjacent ring: a person straight up/down/left two tiles away
+// should drop, same as the diagonal already does (diagonal-2 ≈ 141px). Small
+// hysteresis over the 80px connect radius (diagonal-1 ≈ 71px stays connected).
+export const SEAT_DISCONNECT_RADIUS = 90;
 
 export type GroupMember = {
   userId: string;

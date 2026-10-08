@@ -253,6 +253,18 @@ describe('computeProximityGroups', () => {
     expect(groups[0].memberIds).toEqual(['a', 'b']);
   });
 
+  test('seated: hysteresis never keeps a straight two-tile neighbour connected', () => {
+    // Even already-grouped, a person exactly two tiles orthogonally away (100px)
+    // must drop — the seat bubble stays the adjacent ring, matching the diagonal.
+    const seat: GroupMember = { userId: 'a', x: 0, y: 0, zoneId: null, seated: true };
+    const twoAway: GroupMember = { userId: 'b', x: 100, y: 0, zoneId: null };
+    const groups = computeProximityGroups([seat, twoAway], {
+      sfuEnabled: true,
+      prevGroupMemberSets: [['a', 'b']], // they were connected last tick
+    });
+    expect(groups).toHaveLength(2);
+  });
+
   test('connectivity is transitive (A-B and B-C close, A-C far → one group)', () => {
     const groups = computeProximityGroups([m('a', 0, 0), m('b', 100, 0), m('c', 200, 0)], {
       sfuEnabled: true,
