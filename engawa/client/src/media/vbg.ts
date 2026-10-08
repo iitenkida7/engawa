@@ -383,6 +383,10 @@ export class VirtualBackground {
     this.pctx.save();
     this.pctx.globalCompositeOperation = 'destination-in';
     this.pctx.imageSmoothingEnabled = true;
+    // Feather the low-res (≈256px) segmentation mask as it's upscaled, so the
+    // person's edge is a soft gradient instead of the jagged stair-step the raw
+    // mask produces at 720p (#233). Scaled to the output so it's consistent.
+    if (CTX_FILTER_SUPPORTED) this.pctx.filter = `blur(${Math.max(2, Math.round(h / 180))}px)`;
     this.pctx.drawImage(this.maskCanvas, 0, 0, w, h);
     this.pctx.restore();
 
