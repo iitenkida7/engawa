@@ -14,10 +14,15 @@ import {
   CAM_ASPECT,
   computeFocusLayout,
   computeGridLayout,
+  computeMeetingGallery,
+  computeMeetingPresentation,
   computePresentationLayout,
   computeSidebarLayout,
   type LayoutItem,
   type LayoutMode,
+  meetingFilmstripCapacity,
+  meetingFilmstripWidth,
+  PANEL_BOTTOM_RESERVED,
 } from '@/ui/panels';
 import type { PlayerState } from '@/world/player';
 
@@ -131,6 +136,18 @@ export class RemoteMediaView {
   // stay up, frozen, under a "reconnecting" overlay until the re-pull lands.
   private reconnecting = false;
 
+  // Immersive meeting mode (issue #263): on only while the local user stands in a
+  // meeting-room zone (the App drives it via setMeetingMode). When on, the media
+  // windows fill the screen edge-to-edge over a black backdrop (Gather-style)
+  // instead of floating over the 2D map. Orthogonal to layoutMode — it overrides
+  // the arrangement while active and restores the floating layout when it clears.
+  private meetingMode = false;
+  // Whether the camera filmstrip (presentation mode) shows everyone or just the
+  // collapsed set. Toggled by the ⬇️ button; reset when meeting mode ends.
+  private filmstripExpanded = false;
+  private appEl: HTMLElement;
+  private filmstripToggleEl: HTMLButtonElement;
+
   // Replays remote media the autoplay policy refused on the next user gesture
   // (issue #201); the App shows / hides the "enable audio" prompt.
   private autoplay: AutoplayGate;
@@ -156,6 +173,12 @@ export class RemoteMediaView {
 
     this.remoteVideosEl = document.getElementById('remote-videos') as HTMLDivElement;
     this.stageLayerEl = this.remoteVideosEl.parentElement as HTMLElement;
+    this.appEl = document.getElementById('app') as HTMLElement;
+    this.filmstripToggleEl = document.getElementById('filmstrip-toggle') as HTMLButtonElement;
+    this.filmstripToggleEl.addEventListener('click', () => {
+      this.filmstripExpanded = !this.filmstripExpanded;
+      this.reflowLayout();
+    });
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
     this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
@@ -730,6 +753,17 @@ export class RemoteMediaView {
     this.reflowLayout();
   }
 
+  // Enters/leaves the immersive meeting layout (issue #263). The App calls this
+  // every frame with whether the local user is standing in a meeting-room zone;
+  // it no-ops when unchanged. Leaving resets the filmstrip to collapsed so the
+  // next meeting starts tidy.
+  setMeetingMode(on: boolean) {
+    if (this.meetingMode === on) return;
+    this.meetingMode = on;
+    if (!on) this.filmstripExpanded = false;
+    this.reflowLayout();
+  }
+
   // Sets the mode + notifies the toolbar highlight, WITHOUT re-flowing — used by
   // the screenshare auto-switch, whose caller re-flows once afterwards.
   private setLayoutModeSilently(mode: LayoutMode) {
@@ -749,6 +783,11 @@ export class RemoteMediaView {
     // Tell the toolbar how many windows there are (even when zero) so it can
     // show/hide the layout toggle as media comes and goes.
     this.onPanelsChange?.(panels.length);
+    // Black immersive backdrop only while actually in a meeting WITH something to
+    // show — never a blank black screen when alone with no media.
+    const meetingActive = this.meetingMode && panels.length > 0;
+    this.appEl.classList.toggle('meeting', meetingActive);
+    if (!meetingActive) this.hideFilmstripToggle();
     if (panels.length === 0) return;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -767,7 +806,12 @@ export class RemoteMediaView {
     }
 
     for (const p of panels) {
-      p.el.classList.remove('focus-hidden', 'focused');
+      p.el.classList.remove('focus-hidden', 'focused', 'meeting-hidden');
+    }
+    if (meetingActive) {
+      this.layoutMeeting(panels, vw, vh);
+      this.syncFocusButtons(panels, -1);
+      return;
     }
     const items = panels.map((p) => p.item);
     const geos =
@@ -780,6 +824,71 @@ export class RemoteMediaView {
       applyPanelGeometry(p.el, geos[i]);
     });
     this.syncFocusButtons(panels, -1);
+  }
+
+  // Lays out the immersive meeting view (issue #263). With a screenshare: the
+  // featured share fills the main area and the cameras ride a LEFT filmstrip,
+  // collapsed to however many keep a readable height (⬇️ reveals the rest). With
+  // no share: a full-bleed gallery grid of everyone.
+  private layoutMeeting(
+    panels: Array<{ el: HTMLElement; item: LayoutItem; key: string }>,
+    vw: number,
+    vh: number,
+  ) {
+    const mainIdx = panels.findIndex((p) => !p.item.aspectLocked);
+    if (mainIdx === -1) {
+      // Gallery: no screenshare to feature — every window fills a grid cell.
+      const geos = computeMeetingGallery(
+        panels.map((p) => p.item),
+        vw,
+        vh,
+      );
+      panels.forEach((p, i) => {
+        applyPanelGeometry(p.el, geos[i]);
+      });
+      this.hideFilmstripToggle();
+      return;
+    }
+    // Presentation: main share + left filmstrip of everything else, trimmed to
+    // the visible (collapsed/expanded) set so a big meeting doesn't stack 20
+    // thumbnails down the edge.
+    const stripIdxs = panels.map((_, i) => i).filter((i) => i !== mainIdx);
+    const capacity = meetingFilmstripCapacity(vh);
+    const needToggle = stripIdxs.length > capacity;
+    const visibleCount = this.filmstripExpanded
+      ? stripIdxs.length
+      : Math.min(capacity, stripIdxs.length);
+    const visible = stripIdxs.slice(0, visibleCount);
+    for (const i of stripIdxs.slice(visibleCount)) panels[i].el.classList.add('meeting-hidden');
+
+    const order = [mainIdx, ...visible];
+    const geos = computeMeetingPresentation(
+      order.map((i) => panels[i].item),
+      vw,
+      vh,
+    );
+    order.forEach((pi, k) => {
+      applyPanelGeometry(panels[pi].el, geos[k]);
+    });
+
+    if (needToggle) this.positionFilmstripToggle(vw, vh);
+    else this.hideFilmstripToggle();
+  }
+
+  // Parks the filmstrip ⬇️/⬆️ toggle at the bottom of the left column and sets
+  // its glyph to match the collapsed/expanded state.
+  private positionFilmstripToggle(vw: number, vh: number) {
+    const stripW = Math.min(meetingFilmstripWidth(vw), Math.round(vw * 0.4));
+    const btn = this.filmstripToggleEl;
+    btn.style.display = 'flex';
+    btn.style.left = `${Math.round(stripW / 2 - 18)}px`;
+    btn.style.top = `${vh - PANEL_BOTTOM_RESERVED - 44}px`;
+    btn.textContent = this.filmstripExpanded ? '⌃' : '⌄';
+    btn.title = this.filmstripExpanded ? t('media.filmstripLess') : t('media.filmstripMore');
+  }
+
+  private hideFilmstripToggle() {
+    this.filmstripToggleEl.style.display = 'none';
   }
 
   // Marks the maximized window's button as active — the toolbar's "this is on"

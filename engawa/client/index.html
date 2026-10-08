@@ -736,6 +736,83 @@
         object-fit: contain;
       }
 
+      /* ===== Immersive meeting mode (#263) =====
+         Entered only while standing in a meeting-room zone: a black full-screen
+         backdrop (above the 2D map, below the media tiles) and gap-free,
+         chrome-less tiles that fill the screen edge-to-edge (Gather-style). */
+      #meeting-backdrop {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        z-index: 4;
+        display: none;
+      }
+      #app.meeting #meeting-backdrop {
+        display: block;
+      }
+
+      /* In a meeting the panel is just the video: no card border/shadow, square
+         corners, name as a bottom overlay. */
+      #app.meeting .panel {
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        background: #000;
+      }
+      #app.meeting .panel.meeting-hidden {
+        display: none;
+      }
+      #app.meeting .panel-header {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        min-height: 0;
+        padding: 3px 10px;
+        border: none;
+        background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+        pointer-events: none;
+        z-index: 2;
+      }
+      /* Maximize affordance is noise in the immersive view — hide it. */
+      #app.meeting .panel-focus-btn {
+        display: none;
+      }
+      /* Tiles are sized explicitly by the meeting layout, so drop the fixed
+         camera aspect box and let the body fill the whole panel. */
+      #app.meeting .panel-body,
+      #app.meeting .remote-tile .panel-body,
+      #app.meeting #self-preview .panel-body {
+        flex: 1 1 auto;
+        height: 100%;
+        aspect-ratio: auto;
+      }
+      /* Ring the speaker from the inside (no border to tint in meeting mode). */
+      #app.meeting .remote-tile.speaking {
+        box-shadow: inset 0 0 0 3px rgba(80, 220, 120, 0.9);
+      }
+
+      /* Filmstrip show-more / show-less toggle, parked at the bottom of the left
+         camera column (position set in JS). */
+      #filmstrip-toggle {
+        position: fixed;
+        z-index: 7;
+        width: 36px;
+        height: 36px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        border: 1px solid #3a4050;
+        background: rgba(20, 22, 28, 0.9);
+        color: #e6e8ee;
+        font-size: 20px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      #filmstrip-toggle:hover {
+        background: rgba(40, 44, 54, 0.95);
+      }
+
       /* ===== Participant roster (top-left, collapsible) ===== */
       #status-menu {
         position: absolute;
@@ -1388,6 +1465,10 @@
   <body>
     <div id="app">
       <canvas id="canvas"></canvas>
+      <!-- Immersive meeting backdrop (#263): a full-screen black layer shown only
+           while #app has the `.meeting` class (set when in a meeting-room zone),
+           sitting above the 2D map but below the media tiles. -->
+      <div id="meeting-backdrop"></div>
       <!-- Self-status menu, opened from the toolbar's status button and anchored
            above it in JS. Top-level so it never clips. -->
       <div id="status-menu" class="device-menu hidden"></div>
@@ -1491,6 +1572,10 @@
         </div>
       </div>
       <div id="remote-videos"></div>
+      <!-- Filmstrip show-more/less toggle (#263): parked at the bottom of the
+           left camera column in meeting presentation mode; positioned/shown in
+           JS (RemoteMediaView.positionFilmstripToggle). -->
+      <button id="filmstrip-toggle" type="button" style="display: none"></button>
       <div id="self-preview" class="panel hidden">
         <div class="panel-header">
           <span class="header-left">

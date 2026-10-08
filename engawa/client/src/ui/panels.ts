@@ -140,6 +140,95 @@ export function computeSidebarLayout(items: LayoutItem[], vw: number, vh: number
   return items.map((item, i) => fitInCell(item, colX, area.y + i * cellH, w, cellH));
 }
 
+// ===== Immersive meeting layout (issue #263) =====
+// Used ONLY while standing in a meeting-room zone. Unlike grid/presentation
+// (floating panels over the 2D map), this is full-bleed and gap-free over a
+// black backdrop (Gather-style): every panel fills its cell edge-to-edge and
+// shows its name as a CSS overlay. Two shapes — gallery (no screenshare) and
+// presentation (screenshare main + a LEFT camera filmstrip).
+
+// Tight gap between meeting tiles so the grid reads as one surface, not cards.
+export const MEETING_GAP = 4;
+
+// Left filmstrip column width (presentation), clamped so it stays usable.
+export const MEETING_FILMSTRIP_MIN = 150;
+export const MEETING_FILMSTRIP_MAX = 280;
+export function meetingFilmstripWidth(vw: number): number {
+  return Math.round(Math.max(MEETING_FILMSTRIP_MIN, Math.min(MEETING_FILMSTRIP_MAX, vw * 0.17)));
+}
+
+// Target filmstrip tile height; how many stay visible when collapsed is however
+// many keep this height in the column. Drives the ⬇️ "show more" affordance.
+export const MEETING_FILMSTRIP_TILE_H = 132;
+export function meetingFilmstripCapacity(vh: number): number {
+  const colH = vh - PANEL_BOTTOM_RESERVED;
+  return Math.max(1, Math.floor(colH / MEETING_FILMSTRIP_TILE_H));
+}
+
+// Full-bleed horizontally; only the bottom toolbar strip is reserved so tiles
+// never hide under the controls.
+function meetingArea(vw: number, vh: number) {
+  return { x: 0, y: 0, w: vw, h: Math.max(1, vh - PANEL_BOTTOM_RESERVED) };
+}
+
+// A meeting tile fills its whole cell (video object-fit:cover), minus the tight
+// gap — no header reserve, since the name rides as an overlay.
+function fillCell(cx: number, cy: number, cw: number, ch: number): PanelGeometry {
+  const g = MEETING_GAP;
+  return {
+    left: Math.round(cx + g / 2),
+    top: Math.round(cy + g / 2),
+    width: Math.max(1, Math.round(cw - g)),
+    height: Math.max(1, Math.round(ch - g)),
+  };
+}
+
+// Pure: gallery — every window fills a cell in a near-square full-bleed grid.
+export function computeMeetingGallery(
+  items: LayoutItem[],
+  vw: number,
+  vh: number,
+): PanelGeometry[] {
+  const n = items.length;
+  if (n === 0) return [];
+  const area = meetingArea(vw, vh);
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  const cellW = area.w / cols;
+  const cellH = area.h / rows;
+  return items.map((_item, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    return fillCell(area.x + col * cellW, area.y + row * cellH, cellW, cellH);
+  });
+}
+
+// Pure: presentation — items[0] is the featured screenshare (fills the main area
+// on the right); every other item stacks in the LEFT filmstrip column. The
+// caller has already trimmed the filmstrip to the visible (collapsed/expanded)
+// set, so this just places what it is given.
+export function computeMeetingPresentation(
+  items: LayoutItem[],
+  vw: number,
+  vh: number,
+): PanelGeometry[] {
+  const n = items.length;
+  if (n === 0) return [];
+  const area = meetingArea(vw, vh);
+  const result = new Array<PanelGeometry>(n);
+  if (n === 1) {
+    result[0] = fillCell(area.x, area.y, area.w, area.h);
+    return result;
+  }
+  const stripW = Math.min(meetingFilmstripWidth(vw), Math.round(area.w * 0.4));
+  result[0] = fillCell(area.x + stripW, area.y, area.w - stripW, area.h);
+  const cellH = area.h / (n - 1);
+  for (let k = 1; k < n; k++) {
+    result[k] = fillCell(area.x, area.y + (k - 1) * cellH, stripW, cellH);
+  }
+  return result;
+}
+
 // Pure: presentation layout — the (first) screenshare fills a large main area on
 // the left (~70% width); every other window stacks in a right-hand filmstrip.
 // Falls back to a grid when there is no screenshare to feature.

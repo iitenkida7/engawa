@@ -2,9 +2,13 @@ import { describe, expect, it } from 'bun:test';
 import {
   computeFocusLayout,
   computeGridLayout,
+  computeMeetingGallery,
+  computeMeetingPresentation,
   computePresentationLayout,
   computeSidebarLayout,
   type LayoutItem,
+  meetingFilmstripCapacity,
+  meetingFilmstripWidth,
   PANEL_BOTTOM_RESERVED,
   PANEL_GAP,
   PANEL_HEADER,
@@ -243,5 +247,76 @@ describe('computeFocusLayout', () => {
     expect(g.left).toBeGreaterThanOrEqual(PANEL_MARGIN - 1);
     expect(g.left + g.width).toBeLessThanOrEqual(360 - PANEL_MARGIN + 1);
     expect(g.top + h).toBeLessThanOrEqual(640 - PANEL_BOTTOM_RESERVED + 1);
+  });
+});
+
+// ============= Immersive meeting layout (#263) =============
+// Meeting tiles fill their cell with an explicit height (no aspect lock / header
+// reserve), so the bounding box is just the geometry itself.
+function meetBox(g: { left: number; top: number; width: number; height: number | null }) {
+  return { x: g.left, y: g.top, w: g.width, h: g.height ?? 0 };
+}
+
+const MEET_BOTTOM = VH - PANEL_BOTTOM_RESERVED;
+
+describe('computeMeetingGallery', () => {
+  it('returns nothing for zero windows', () => {
+    expect(computeMeetingGallery([], VW, VH)).toEqual([]);
+  });
+
+  it('a single tile fills the whole full-bleed area (top-left at the origin)', () => {
+    const [g] = computeMeetingGallery([cam()], VW, VH);
+    const b = meetBox(g);
+    expect(b.x).toBeLessThanOrEqual(PANEL_GAP);
+    expect(b.y).toBeLessThanOrEqual(PANEL_GAP);
+    expect(b.x + b.w).toBeGreaterThanOrEqual(VW - PANEL_GAP - 1);
+    expect(b.y + b.h).toBeGreaterThanOrEqual(MEET_BOTTOM - PANEL_GAP - 1);
+  });
+
+  it('tiles stay within the full-bleed area and never overlap', () => {
+    const items = Array.from({ length: 7 }, () => cam());
+    const boxes = computeMeetingGallery(items, VW, VH).map(meetBox);
+    for (const b of boxes) {
+      expect(b.x).toBeGreaterThanOrEqual(-1);
+      expect(b.y).toBeGreaterThanOrEqual(-1);
+      expect(b.x + b.w).toBeLessThanOrEqual(VW + 1);
+      expect(b.y + b.h).toBeLessThanOrEqual(MEET_BOTTOM + 1);
+    }
+    for (let i = 0; i < boxes.length; i++)
+      for (let j = i + 1; j < boxes.length; j++)
+        expect(overlaps({ ...boxes[i] }, { ...boxes[j] })).toBe(false);
+  });
+});
+
+describe('computeMeetingPresentation', () => {
+  it('a lone screenshare fills the whole area', () => {
+    const [g] = computeMeetingPresentation([screen()], VW, VH);
+    const b = meetBox(g);
+    expect(b.x + b.w).toBeGreaterThanOrEqual(VW - PANEL_GAP - 1);
+    expect(b.y + b.h).toBeGreaterThanOrEqual(MEET_BOTTOM - PANEL_GAP - 1);
+  });
+
+  it('puts the main share on the right and the filmstrip on the left', () => {
+    // items[0] = featured share, rest = filmstrip cameras.
+    const geos = computeMeetingPresentation([screen(), cam(), cam(), cam()], VW, VH);
+    const main = meetBox(geos[0]);
+    const strip = geos.slice(1).map(meetBox);
+    const stripW = meetingFilmstripWidth(VW);
+    // Filmstrip hugs the left edge; main sits to its right.
+    for (const s of strip) expect(s.x).toBeLessThanOrEqual(PANEL_GAP);
+    expect(main.x).toBeGreaterThanOrEqual(stripW - PANEL_GAP);
+    // Filmstrip tiles stack without overlapping.
+    for (let i = 0; i < strip.length; i++)
+      for (let j = i + 1; j < strip.length; j++)
+        expect(overlaps({ ...strip[i] }, { ...strip[j] })).toBe(false);
+  });
+});
+
+describe('meetingFilmstripCapacity', () => {
+  it('fits more tiles in a taller column', () => {
+    expect(meetingFilmstripCapacity(1200)).toBeGreaterThan(meetingFilmstripCapacity(600));
+  });
+  it('always keeps room for at least one tile', () => {
+    expect(meetingFilmstripCapacity(PANEL_BOTTOM_RESERVED)).toBe(1);
   });
 });
