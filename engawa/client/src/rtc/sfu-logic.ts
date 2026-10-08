@@ -77,6 +77,20 @@ export function isRetryableSfuHttp(status: number | 'network'): boolean {
   return status === 401 || status === 408 || status === 429 || status >= 500;
 }
 
+// Retry schedule for a pull the SFU rejected (issue #250). A rejected pull
+// (top-level or per-track errorCode on tracks/new) usually means our cached
+// directory for that ONE peer is stale — they just rebuilt, or unpublished —
+// not that our transport is broken. Failing the whole transport on it made one
+// peer's race rebuild everyone (each rebuild changes our session id, racing the
+// others' pulls in turn) until the group fell back to mesh. Returns the delay
+// before retry N (1-based): 1s, 2s, 4s; null once retries are exhausted.
+export const SFU_PULL_MAX_RETRIES = 3;
+
+export function sfuPullRetryDelayMs(retry: number): number | null {
+  if (retry < 1 || retry > SFU_PULL_MAX_RETRIES) return null;
+  return 1000 * 2 ** (retry - 1);
+}
+
 // Minimum spacing between whole-transport rebuild attempts (App.onSfuFailed):
 // the first failure rebuilds the SFU session in place; a second failure inside
 // this window means the SFU path really is unhealthy → degrade to mesh.

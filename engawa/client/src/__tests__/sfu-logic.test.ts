@@ -8,6 +8,7 @@ import {
   remoteKey,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
+  sfuPullRetryDelayMs,
   sfuSessionError,
   sfuTrackError,
   shouldFallbackToMesh,
@@ -230,5 +231,15 @@ describe('sfu control-plane retry policy (issue #186)', () => {
     expect(isRetryableSfuHttp(400)).toBe(false);
     expect(isRetryableSfuHttp(403)).toBe(false);
     expect(isRetryableSfuHttp(404)).toBe(false);
+  });
+});
+
+describe('sfu rejected-pull retry schedule (issue #250)', () => {
+  it('backs off 1s, 2s, 4s, then gives up', () => {
+    expect(sfuPullRetryDelayMs(1)).toBe(1000);
+    expect(sfuPullRetryDelayMs(2)).toBe(2000);
+    expect(sfuPullRetryDelayMs(3)).toBe(4000);
+    expect(sfuPullRetryDelayMs(4)).toBeNull();
+    expect(sfuPullRetryDelayMs(0)).toBeNull();
   });
 });
