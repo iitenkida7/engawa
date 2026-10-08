@@ -4,6 +4,7 @@ import {
   chainOp,
   isRetryableSfuHttp,
   isSfuTransportFailed,
+  localPublishRoute,
   matchPullResults,
   partitionMembers,
   reconcilePeerTracks,
@@ -280,5 +281,20 @@ describe('sfu rejected-pull retry schedule (issue #250)', () => {
     expect(sfuPullRetryDelayMs(3)).toBe(4000);
     expect(sfuPullRetryDelayMs(4)).toBeNull();
     expect(sfuPullRetryDelayMs(0)).toBeNull();
+  });
+});
+
+describe('localPublishRoute (issue #258)', () => {
+  it('sends to the active transport', () => {
+    expect(localPublishRoute('mesh', false)).toBe('mesh');
+    expect(localPublishRoute('sfu', false)).toBe('sfu');
+  });
+
+  it('holds publishes back while an SFU rebuild is pending', () => {
+    expect(localPublishRoute('sfu', true)).toBe('defer');
+  });
+
+  it('never defers on mesh (a stale pending flag must not swallow publishes)', () => {
+    expect(localPublishRoute('mesh', true)).toBe('mesh');
   });
 });

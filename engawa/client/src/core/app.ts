@@ -57,6 +57,7 @@ import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
 import { setPreferRedAudio } from '@/rtc/sdp';
 import { SfuManager } from '@/rtc/sfu';
 import {
+  localPublishRoute,
   partitionMembers,
   SFU_REBUILD_RESET_MS,
   SFU_RECONNECT_NOTICE_FROM,
@@ -365,17 +366,22 @@ export class App {
     });
 
     // Routes the toolbar's publish/unpublish to whichever transport is active.
+    // Publishes are held back while an SFU rebuild is pending (#258, see
+    // localPublishRoute); an unpublish is safe either way (the closed op chain
+    // skips it, and the rebuild only publishes live streams).
     this.mediaSink = {
-      addLocalStream: (stream, kind) =>
-        (this.currentMethod === 'sfu' ? this.sfu : this.rtc).addLocalStream(stream, kind),
+      addLocalStream: (stream, kind) => {
+        const route = localPublishRoute(this.currentMethod, this.sfuRebuildAt != null);
+        if (route === 'mesh') this.rtc.addLocalStream(stream, kind);
+        else if (route === 'sfu') this.sfu.addLocalStream(stream, kind);
+      },
       removeLocalStream: (stream) =>
         (this.currentMethod === 'sfu' ? this.sfu : this.rtc).removeLocalStream(stream),
-      replaceLocalStream: (oldStream, newStream, kind) =>
-        (this.currentMethod === 'sfu' ? this.sfu : this.rtc).replaceLocalStream(
-          oldStream,
-          newStream,
-          kind,
-        ),
+      replaceLocalStream: (oldStream, newStream, kind) => {
+        const route = localPublishRoute(this.currentMethod, this.sfuRebuildAt != null);
+        if (route === 'mesh') this.rtc.replaceLocalStream(oldStream, newStream, kind);
+        else if (route === 'sfu') this.sfu.replaceLocalStream(oldStream, newStream, kind);
+      },
     };
 
     this.toolbar = new ToolbarController({
@@ -784,8 +790,11 @@ export class App {
   // re-pulling whatever the reconcile decides is missing. Used when the pulls
   // must be rebuilt outside a topology change (the server only re-relays
   // directories on those): the SFU transport rebuild (#186) and the video-pull
-  // resume (#188).
+  // resume (#188). A no-op while a rebuild is pending (#258): re-feeding would
+  // reopen the closed transport before its backoff deadline, and the rebuild
+  // re-feeds the cache itself (rebuildSfu runs after sfuRebuildAt is cleared).
   private refeedSfuDirectories() {
+    if (this.sfuRebuildAt != null) return;
     for (const [id, dir] of this.sfuDirectory) {
       if (id === this.myId || !this.sfuMembers.has(id)) continue;
       this.knownSfuPeers.add(id);

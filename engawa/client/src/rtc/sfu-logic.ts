@@ -1,4 +1,4 @@
-import type { SfuTrack, StreamKind } from '@/core/types';
+import type { GroupMethod, SfuTrack, StreamKind } from '@/core/types';
 
 // Pure decision helpers for the SFU transport (issue #129). SfuManager / App
 // own the browser-API state (RTCPeerConnection, fetch, Maps); the judgements
@@ -131,6 +131,19 @@ export const SFU_REBUILD_RESET_MS = 60_000;
 // How long after a rebuild connects the frozen pre-rebuild streams are kept
 // before any that were not replaced by a re-pull are swept away.
 export const SFU_STALE_STREAM_GRACE_MS = 15_000;
+
+// Where a local publish (toolbar mic/cam/screen on, device switch) goes (issue
+// #258). While an SFU rebuild is pending the transport must stay closed until
+// its deadline: forwarding the publish would reopen it early (new session,
+// pulls started) and defeat the backoff. 'defer' drops it — the rebuild
+// publishes whatever MediaManager holds by then, so nothing is lost.
+export function localPublishRoute(
+  method: GroupMethod,
+  sfuRebuildPending: boolean,
+): 'mesh' | 'sfu' | 'defer' {
+  if (method !== 'sfu') return 'mesh';
+  return sfuRebuildPending ? 'defer' : 'sfu';
+}
 
 // Whether an RTCPeerConnection state change means the SFU transport failed and
 // must be rebuilt. Only a hard 'failed' counts ('disconnected' often recovers).
