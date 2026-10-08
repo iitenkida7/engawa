@@ -206,6 +206,8 @@ const STR: Record<string, Record<Lang, string>> = {
   // -- layout ---------------------------------------------------------------
   'layout.grid': { ja: 'グリッド整列', en: 'Grid' },
   'layout.sidebar': { ja: 'サイドバー整列', en: 'Sidebar' },
+  'zoom.self': { ja: '自分にズーム', en: 'Zoom to me' },
+  'zoom.fit': { ja: '全体表示', en: 'Fit whole map' },
 
   // -- app-level toasts -----------------------------------------------------
   'app.cantConnect': {

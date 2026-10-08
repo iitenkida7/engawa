@@ -1313,7 +1313,7 @@
       <div id="avatar-menu" class="device-menu hidden"></div>
       <div id="toolbar" class="hidden">
         <div class="btn-group">
-          <button id="btn-mic" class="icon-toggle" data-i18n-title="toolbar.micTitle" title="マイク">
+          <button id="btn-mic" class="icon-toggle" data-i18n-tip="toolbar.micTitle" data-tip="マイク" aria-label="マイク">
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
               <rect x="9" y="3" width="6" height="11" rx="3" />
               <path d="M6 11a6 6 0 0 0 12 0" />
@@ -1326,7 +1326,7 @@
           <div id="mic-menu" class="device-menu hidden"></div>
         </div>
         <div class="btn-group">
-          <button id="btn-cam" class="icon-toggle" data-i18n-title="toolbar.camTitle" title="カメラ">
+          <button id="btn-cam" class="icon-toggle" data-i18n-tip="toolbar.camTitle" data-tip="カメラ" aria-label="カメラ">
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
               <rect x="3" y="7" width="12" height="10" rx="2" />
               <path d="M15 10l5-3v10l-5-3z" />
@@ -1337,7 +1337,7 @@
           <div id="cam-menu" class="device-menu hidden"></div>
         </div>
         <input id="bg-file" type="file" accept="image/*" class="hidden" />
-        <button id="btn-screen" class="icon-toggle" data-i18n-title="toolbar.screenTitle" title="画面共有">
+        <button id="btn-screen" class="icon-toggle" data-i18n-tip="toolbar.screenTitle" data-tip="画面共有" aria-label="画面共有">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
             <rect x="3" y="4" width="18" height="13" rx="2" />
             <path d="M12 14V8" />
@@ -1345,7 +1345,7 @@
             <line x1="8" y1="20" x2="16" y2="20" />
           </svg>
         </button>
-        <button id="btn-rec" class="icon-toggle" data-i18n-title="toolbar.recTitle" title="録画">
+        <button id="btn-rec" class="icon-toggle" data-i18n-tip="toolbar.recTitle" data-tip="録画" aria-label="録画">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
             <circle class="rec-dot" cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2" />
             <circle class="rec-dot" cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />
@@ -1361,6 +1361,24 @@
           <button id="btn-more" data-i18n-tip="toolbar.more" data-tip="その他" aria-label="その他">⋯</button>
           <div id="more-menu" class="device-menu hidden"></div>
         </div>
+        <button id="btn-zoom-self" class="icon-toggle" data-i18n-tip="zoom.self" data-tip="自分にズーム" aria-label="自分にズーム">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+            <line x1="12" y1="2" x2="12" y2="5" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+            <line x1="2" y1="12" x2="5" y2="12" />
+            <line x1="19" y1="12" x2="22" y2="12" />
+          </svg>
+        </button>
+        <button id="btn-zoom-fit" class="icon-toggle" data-i18n-tip="zoom.fit" data-tip="全体表示" aria-label="全体表示">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9V4h5" />
+            <path d="M20 9V4h-5" />
+            <path d="M4 15v5h5" />
+            <path d="M20 15v5h-5" />
+          </svg>
+        </button>
         <div class="btn-group layout-group">
           <button id="btn-layout-grid" data-mode="grid" data-i18n-tip="layout.grid" data-tip="グリッド整列" aria-label="グリッド整列">
             <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">

@@ -199,6 +199,10 @@ export class CanvasRenderer {
   // wheel / trackpad pinch (see setupZoom). The map cache is
   // viewport-independent, so zooming never invalidates it.
   private zoomLevel = ZOOM_DEFAULT;
+  // Target the zoom eases toward each frame, so the one-button zoom controls
+  // animate smoothly (#231) instead of snapping. Wheel/pinch set it in lockstep
+  // with zoomLevel so they stay instant.
+  private zoomTarget = ZOOM_DEFAULT;
 
   // Camera center (world px). While `following` (the default) it tracks self each
   // frame; dragging the map turns following off and pans camX/camY freely
@@ -206,6 +210,11 @@ export class CanvasRenderer {
   private camX = MAP_WIDTH / 2;
   private camY = MAP_HEIGHT / 2;
   private following = true;
+  // When set (by zoomToFit), the camera eases toward this point while not
+  // following; cleared on drag / recenter so the user stays in control.
+  private camTargetX = MAP_WIDTH / 2;
+  private camTargetY = MAP_HEIGHT / 2;
+  private camAnimating = false;
   private dragging = false;
   private dragLastX = 0;
   private dragLastY = 0;
@@ -237,6 +246,7 @@ export class CanvasRenderer {
     this.canvas.addEventListener('pointerdown', (e) => {
       this.dragging = true;
       this.following = false;
+      this.camAnimating = false;
       this.dragLastX = e.clientX;
       this.dragLastY = e.clientY;
       this.canvas.style.cursor = 'grabbing';
@@ -269,6 +279,27 @@ export class CanvasRenderer {
   // the local avatar moves, so acting re-centers the view after a pan.
   recenter() {
     this.following = true;
+    this.camAnimating = false;
+  }
+
+  // One-button "zoom to me": ease back to the 1:1 view centered on self (#231).
+  zoomToSelf() {
+    this.zoomTarget = ZOOM_DEFAULT;
+    this.following = true;
+    this.camAnimating = false;
+  }
+
+  // One-button "see everything": ease out to fit the whole map and glide the
+  // camera to its center (stops following until you move or zoom to self) (#231).
+  zoomToFit() {
+    const fit = Math.min(this.viewW / MAP_WIDTH, this.viewH / MAP_HEIGHT);
+    // Small margin so the grounds aren't flush to the edges. This can go below the
+    // wheel's ZOOM_MIN (the whole map must fit); a wheel tick snaps back into range.
+    this.zoomTarget = Math.max(0.2, fit * 0.95);
+    this.following = false;
+    this.camTargetX = MAP_WIDTH / 2;
+    this.camTargetY = MAP_HEIGHT / 2;
+    this.camAnimating = true;
   }
 
   resize() {
@@ -304,6 +335,10 @@ export class CanvasRenderer {
       (e) => {
         e.preventDefault();
         this.zoomLevel = zoomFromWheel(this.zoomLevel, e.deltaY, e.deltaMode, e.ctrlKey);
+        // Keep the eased target in lockstep so wheel/pinch stay instant and don't
+        // fight the one-button zoom animation (#231).
+        this.zoomTarget = this.zoomLevel;
+        this.camAnimating = false;
       },
       { passive: false },
     );
@@ -342,12 +377,31 @@ export class CanvasRenderer {
     const h = this.viewH;
     ctx.clearRect(0, 0, w, h);
 
+    // Ease the zoom toward its target each frame so the one-button controls
+    // animate like a pinch (#231). ~0.2/frame ≈ a ~200ms glide; snap when close.
+    if (Math.abs(this.zoomLevel - this.zoomTarget) > 0.0005) {
+      this.zoomLevel += (this.zoomTarget - this.zoomLevel) * 0.2;
+    } else {
+      this.zoomLevel = this.zoomTarget;
+    }
     // Camera: while following, track self (or the map center before join); while
     // panning, camX/camY are driven by the drag. Zoom is about the camera center.
     const zoom = this.zoomLevel;
     if (this.following) {
       this.camX = self ? self.x : MAP_WIDTH / 2;
       this.camY = self ? self.y : MAP_HEIGHT / 2;
+    } else if (this.camAnimating) {
+      // Glide the camera to the fit target, then stop animating.
+      this.camX += (this.camTargetX - this.camX) * 0.2;
+      this.camY += (this.camTargetY - this.camY) * 0.2;
+      if (
+        Math.abs(this.camX - this.camTargetX) < 0.5 &&
+        Math.abs(this.camY - this.camTargetY) < 0.5
+      ) {
+        this.camX = this.camTargetX;
+        this.camY = this.camTargetY;
+        this.camAnimating = false;
+      }
     }
     const centerX = this.camX;
     const centerY = this.camY;
