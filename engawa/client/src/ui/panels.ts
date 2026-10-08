@@ -140,6 +140,153 @@ export function computeSidebarLayout(items: LayoutItem[], vw: number, vh: number
   return items.map((item, i) => fitInCell(item, colX, area.y + i * cellH, w, cellH));
 }
 
+// ===== Immersive meeting layout (issue #263) =====
+// Used ONLY while standing in a meeting-room zone. Unlike grid/presentation
+// (floating panels over the 2D map), this is full-bleed and gap-free over a
+// black backdrop (Gather-style): every panel fills its cell edge-to-edge and
+// shows its name as a CSS overlay. Two shapes — gallery (no screenshare) and
+// presentation (screenshare main + a LEFT camera filmstrip).
+
+// Tight gap between meeting tiles so the grid reads as one surface, not cards.
+export const MEETING_GAP = 4;
+
+// Filmstrip (presentation mode): FIXED-SIZE camera tiles — a touch smaller than a
+// hallway tile — stacked in the left column. At most MAX_VISIBLE show at once;
+// more than that reveals the ⬇️ "show more" toggle. When they fit they are
+// vertically centered beside the share; when there are too many (expanded) they
+// shrink to divide the column so everyone still fits without scrolling.
+export const MEETING_FILMSTRIP_MAX_VISIBLE = 5;
+export const MEETING_FILMSTRIP_TILE_W = 148;
+export const MEETING_FILMSTRIP_TILE_H = 108;
+// Near-zero separation between the filmstrip and the share, so they read as one
+// surface (the tiles sit flush to the left edge; this is just the seam).
+export const MEETING_FILMSTRIP_SEP = 2;
+// The gutter the main share must avoid = the tile width (tiles are flush-left).
+export function meetingFilmstripColWidth(): number {
+  return MEETING_FILMSTRIP_TILE_W;
+}
+
+// Full-bleed horizontally; only the bottom toolbar strip is reserved so tiles
+// never hide under the controls.
+function meetingArea(vw: number, vh: number) {
+  return { x: 0, y: 0, w: vw, h: Math.max(1, vh - PANEL_BOTTOM_RESERVED) };
+}
+
+// A meeting tile fills its whole cell (video object-fit:cover), minus the tight
+// gap — no header reserve, since the name rides as an overlay.
+function fillCell(cx: number, cy: number, cw: number, ch: number): PanelGeometry {
+  const g = MEETING_GAP;
+  return {
+    left: Math.round(cx + g / 2),
+    top: Math.round(cy + g / 2),
+    width: Math.max(1, Math.round(cw - g)),
+    height: Math.max(1, Math.round(ch - g)),
+  };
+}
+
+// Pure: gallery — every window fills a cell in a near-square full-bleed grid.
+export function computeMeetingGallery(
+  items: LayoutItem[],
+  vw: number,
+  vh: number,
+): PanelGeometry[] {
+  const n = items.length;
+  if (n === 0) return [];
+  const area = meetingArea(vw, vh);
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  const cellW = area.w / cols;
+  const cellH = area.h / rows;
+  return items.map((_item, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    return fillCell(area.x + col * cellW, area.y + row * cellH, cellW, cellH);
+  });
+}
+
+// Pure: presentation — items[0] is the featured screenshare (fills the main area
+// on the right); every other item stacks in the LEFT filmstrip gutter. The
+// caller has already trimmed the filmstrip to the visible (collapsed ≤ MAX /
+// expanded) set, so this just places what it is given: fixed-size tiles centered
+// in the column when they fit, shrunk to divide the column when there are too
+// many.
+export function computeMeetingPresentation(
+  items: LayoutItem[],
+  vw: number,
+  vh: number,
+): PanelGeometry[] {
+  const n = items.length;
+  if (n === 0) return [];
+  const area = meetingArea(vw, vh);
+  const result = new Array<PanelGeometry>(n);
+  if (n === 1) {
+    result[0] = fillCell(area.x, area.y, area.w, area.h);
+    return result;
+  }
+  const strip = n - 1;
+  const tileW = MEETING_FILMSTRIP_TILE_W;
+  const tileH = MEETING_FILMSTRIP_TILE_H;
+  // Main share abuts the strip with only the thin seam between them, and runs
+  // full-bleed on the other three edges.
+  const mainX = area.x + tileW + MEETING_FILMSTRIP_SEP;
+  result[0] = { left: mainX, top: area.y, width: Math.max(1, area.w - mainX), height: area.h };
+
+  const fixedTotalH = strip * tileH + (strip - 1) * MEETING_GAP;
+  if (fixedTotalH <= area.h) {
+    // Fits: fixed-size tiles, flush-left and vertically centered beside the share.
+    const startY = area.y + (area.h - fixedTotalH) / 2;
+    for (let k = 1; k < n; k++) {
+      result[k] = {
+        left: area.x,
+        top: Math.round(startY + (k - 1) * (tileH + MEETING_GAP)),
+        width: tileW,
+        height: tileH,
+      };
+    }
+  } else {
+    // Too many at fixed size (shouldn't happen under the MAX cap, but guards the
+    // expanded view on a short viewport): divide the column height so all fit.
+    const cellH = area.h / strip;
+    for (let k = 1; k < n; k++) {
+      result[k] = {
+        left: area.x,
+        top: Math.round(area.y + (k - 1) * cellH),
+        width: tileW,
+        height: Math.max(1, Math.round(cellH - MEETING_GAP)),
+      };
+    }
+  }
+  return result;
+}
+
+// ===== Minimized meeting sidebar (#263) =====
+// When a meeting is minimized the tiles ride the right-hand column over the map.
+// Like the meeting filmstrip, at most MAX_VISIBLE show at a fixed size (sized so
+// ~FIT fit the column — the "6-person size" as the floor); a chevron reveals the
+// rest, and the expanded view falls back to the normal sidebar (divide-to-fit).
+export const MINIMIZED_SIDEBAR_MAX_VISIBLE = 5;
+export const MINIMIZED_SIDEBAR_FIT = 6;
+export function minimizedSidebarWidth(vw: number): number {
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(vw * 0.25)));
+}
+
+// Pure: fixed-size right column — each tile gets a cell sized so FIT of them fill
+// the column (so 5 sit at the "6-person" size), aspect-locked + centered like the
+// normal sidebar. The caller trims `items` to the visible set.
+export function computeMinimizedSidebar(
+  items: LayoutItem[],
+  vw: number,
+  vh: number,
+): PanelGeometry[] {
+  const n = items.length;
+  if (n === 0) return [];
+  const area = usableArea(vw, vh);
+  const w = Math.min(minimizedSidebarWidth(vw), area.w);
+  const colX = area.x + area.w - w;
+  const cellH = area.h / MINIMIZED_SIDEBAR_FIT;
+  return items.map((item, i) => fitInCell(item, colX, area.y + i * cellH, w, cellH));
+}
+
 // Pure: presentation layout — the (first) screenshare fills a large main area on
 // the left (~70% width); every other window stacks in a right-hand filmstrip.
 // Falls back to a grid when there is no screenshare to feature.

@@ -83,7 +83,7 @@ import { InputManager } from '@/world/input';
 import { normalizeOutfit } from '@/world/outfit';
 import { findPath } from '@/world/pathfind';
 import { PlayerState } from '@/world/player';
-import { canOccupy, findWalkableSpawn, zoneAt } from '@/world/tilemap';
+import { canOccupy, findWalkableSpawn, isMeetingZone, zoneAt } from '@/world/tilemap';
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
@@ -1361,6 +1361,13 @@ export class App {
         this.lastSent = now;
       }
     }
+
+    // Immersive meeting layout (#263): full-screen only while standing in a
+    // meeting-room zone; a hallway bump keeps the small floating tiles. No-ops
+    // when unchanged.
+    this.view.setMeetingMode(
+      this.myStatus !== 'away' && isMeetingZone(this.me ? zoneAt(this.me.x, this.me.y)?.id : null),
+    );
 
     // Speaking detection (local + remote tiles) is owned by the media view.
     this.view.updateSpeaking();

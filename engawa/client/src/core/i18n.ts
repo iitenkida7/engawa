@@ -199,6 +199,10 @@ const STR: Record<string, Record<Lang, string>> = {
   'media.focus': { ja: '拡大表示', en: 'Maximize' },
   'media.reconnecting': { ja: '再接続中…', en: 'Reconnecting…' },
   'media.unfocus': { ja: '拡大を解除（Esc）', en: 'Exit maximize (Esc)' },
+  'media.filmstripMore': { ja: '他の参加者も表示', en: 'Show more participants' },
+  'media.filmstripLess': { ja: '表示を減らす', en: 'Show fewer' },
+  'media.showMap': { ja: 'マップを表示', en: 'Show map' },
+  'media.backToMeeting': { ja: '会議表示', en: 'Meeting view' },
 
   // -- chat -----------------------------------------------------------------
   'chat.title': { ja: '💬 チャット', en: '💬 Chat' },

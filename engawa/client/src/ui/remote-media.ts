@@ -14,10 +14,18 @@ import {
   CAM_ASPECT,
   computeFocusLayout,
   computeGridLayout,
+  computeMeetingGallery,
+  computeMeetingPresentation,
+  computeMinimizedSidebar,
   computePresentationLayout,
   computeSidebarLayout,
   type LayoutItem,
   type LayoutMode,
+  MEETING_FILMSTRIP_MAX_VISIBLE,
+  MINIMIZED_SIDEBAR_MAX_VISIBLE,
+  meetingFilmstripColWidth,
+  minimizedSidebarWidth,
+  PANEL_BOTTOM_RESERVED,
 } from '@/ui/panels';
 import type { PlayerState } from '@/world/player';
 
@@ -45,6 +53,18 @@ type Screenshare = {
   // relying on the element being GC'd).
   cleanup: () => void;
 };
+
+// Chevron used by the filmstrip show-more button; rotated 180° (via the
+// `.expanded` class) for the fold-back direction, so up and down are the exact
+// same shape mirrored — not two differently-drawn text glyphs.
+const CHEVRON_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5" /></svg>';
+
+// Icons for the meeting minimize/restore toggle: a windowed-screen glyph for
+// "show the map" and outward corners for "back to the full-screen meeting".
+const MAP_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg>';
+const EXPAND_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" /></svg>';
 
 // Mic-with-strike glyph shown (red, via CSS) next to a name while that person is
 // muted. Matches the toolbar mic icon.
@@ -104,6 +124,9 @@ export class RemoteMediaView {
   private selfPreviewEl: HTMLDivElement;
   private selfPreviewLabelEl: HTMLSpanElement;
   private selfVideoEl: HTMLVideoElement;
+  private selfNoVideoEl: HTMLDivElement;
+  private selfNoVideoInitialsEl: HTMLSpanElement;
+  private selfNoVideoNameEl: HTMLSpanElement;
 
   // Speaking detection
   private localSpeakingDetector: SpeakingDetector | null = null;
@@ -131,6 +154,22 @@ export class RemoteMediaView {
   // stay up, frozen, under a "reconnecting" overlay until the re-pull lands.
   private reconnecting = false;
 
+  // Immersive meeting mode (issue #263): on only while the local user stands in a
+  // meeting-room zone (the App drives it via setMeetingMode). When on, the media
+  // windows fill the screen edge-to-edge over a black backdrop (Gather-style)
+  // instead of floating over the 2D map. Orthogonal to layoutMode — it overrides
+  // the arrangement while active and restores the floating layout when it clears.
+  private meetingMode = false;
+  // Whether the camera filmstrip (presentation mode) shows everyone or just the
+  // collapsed set. Toggled by the ⬇️ button; reset when meeting mode ends.
+  private filmstripExpanded = false;
+  // Minimized: in a meeting zone but temporarily dropped back to floating tiles
+  // so the map (and the way out of the room) is reachable. Reset on leaving.
+  private meetingMinimized = false;
+  private appEl: HTMLElement;
+  private filmstripToggleEl: HTMLButtonElement;
+  private meetingMinimizeEl: HTMLButtonElement;
+
   // Replays remote media the autoplay policy refused on the next user gesture
   // (issue #201); the App shows / hides the "enable audio" prompt.
   private autoplay: AutoplayGate;
@@ -156,9 +195,28 @@ export class RemoteMediaView {
 
     this.remoteVideosEl = document.getElementById('remote-videos') as HTMLDivElement;
     this.stageLayerEl = this.remoteVideosEl.parentElement as HTMLElement;
+    this.appEl = document.getElementById('app') as HTMLElement;
+    this.filmstripToggleEl = document.getElementById('filmstrip-toggle') as HTMLButtonElement;
+    this.filmstripToggleEl.innerHTML = CHEVRON_SVG;
+    this.filmstripToggleEl.addEventListener('click', () => {
+      this.filmstripExpanded = !this.filmstripExpanded;
+      this.reflowLayout();
+    });
+    this.meetingMinimizeEl = document.getElementById('meeting-minimize') as HTMLButtonElement;
+    this.meetingMinimizeEl.addEventListener('click', () => {
+      this.meetingMinimized = !this.meetingMinimized;
+      // Each view starts collapsed; don't carry the chevron state across.
+      this.filmstripExpanded = false;
+      this.reflowLayout();
+    });
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
     this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
+    this.selfNoVideoEl = document.getElementById('self-no-video') as HTMLDivElement;
+    this.selfNoVideoInitialsEl = document.getElementById(
+      'self-no-video-initials',
+    ) as HTMLSpanElement;
+    this.selfNoVideoNameEl = document.getElementById('self-no-video-name') as HTMLSpanElement;
 
     // The self preview is static markup, so its maximize button is added here;
     // dynamic panels get theirs at creation.
@@ -384,6 +442,9 @@ export class RemoteMediaView {
       this.remoteTiles.delete(id);
       changed = true;
     }
+    // Being in / out of a conversation flips whether your own camera-off tile
+    // shows (so you appear alongside the person you walked up to).
+    this.refreshSelfPreview();
     if (changed) this.reflowLayout();
   }
 
@@ -613,6 +674,10 @@ export class RemoteMediaView {
     this.selfPreviewEl.classList.toggle('muted', !this.media.micOn);
     const stream = this.media.camStream;
     const wasHidden = this.selfPreviewEl.classList.contains('hidden');
+    // Show your own tile whenever your camera is on OR you're in a call/meeting —
+    // so everyone (yourself included) is visible regardless of camera state
+    // (#263). Only hide it when you're genuinely alone with the camera off.
+    const show = stream != null || this.meetingMode || this.conversationMembers.size > 0;
     if (stream) {
       if (this.selfVideoEl.srcObject !== stream) {
         this.selfVideoEl.srcObject = stream;
@@ -620,15 +685,23 @@ export class RemoteMediaView {
           /* autoplay should already be allowed after the join click */
         });
       }
-      this.selfPreviewEl.classList.remove('hidden');
+      this.selfVideoEl.style.display = '';
+      this.selfNoVideoEl.style.display = 'none';
     } else {
       try {
         this.selfVideoEl.srcObject = null;
       } catch {
         /* noop */
       }
-      this.selfPreviewEl.classList.add('hidden');
+      // Camera off: render the initials placeholder (matching remote tiles).
+      const me = this.players.get(this.getMyId());
+      const name = me?.name || t('common.you');
+      this.selfNoVideoInitialsEl.textContent = me ? me.initials() : name.slice(0, 2).toUpperCase();
+      this.selfNoVideoNameEl.textContent = name;
+      this.selfVideoEl.style.display = 'none';
+      this.selfNoVideoEl.style.display = show ? '' : 'none';
     }
+    this.selfPreviewEl.classList.toggle('hidden', !show);
     // The self preview joins/leaves the auto-layout as it shows/hides, so
     // re-flow whenever its visibility flips (issue #175).
     if (wasHidden !== this.selfPreviewEl.classList.contains('hidden')) this.reflowLayout();
@@ -730,6 +803,22 @@ export class RemoteMediaView {
     this.reflowLayout();
   }
 
+  // Enters/leaves the immersive meeting layout (issue #263). The App calls this
+  // every frame with whether the local user is standing in a meeting-room zone;
+  // it no-ops when unchanged. Leaving resets the filmstrip to collapsed so the
+  // next meeting starts tidy.
+  setMeetingMode(on: boolean) {
+    if (this.meetingMode === on) return;
+    this.meetingMode = on;
+    if (!on) {
+      this.filmstripExpanded = false;
+      this.meetingMinimized = false;
+    }
+    // Entering/leaving a meeting flips whether your own camera-off tile shows.
+    this.refreshSelfPreview();
+    this.reflowLayout();
+  }
+
   // Sets the mode + notifies the toolbar highlight, WITHOUT re-flowing — used by
   // the screenshare auto-switch, whose caller re-flows once afterwards.
   private setLayoutModeSilently(mode: LayoutMode) {
@@ -749,6 +838,15 @@ export class RemoteMediaView {
     // Tell the toolbar how many windows there are (even when zero) so it can
     // show/hide the layout toggle as media comes and goes.
     this.onPanelsChange?.(panels.length);
+    // Black immersive backdrop only while actually in a meeting WITH something to
+    // show — never a blank black screen when alone with no media. Minimizing
+    // keeps you in the meeting (media-wise) but drops to floating tiles so the
+    // map is reachable; the minimize toggle shows whenever we're in a meeting.
+    const inMeeting = this.meetingMode && panels.length > 0;
+    const meetingActive = inMeeting && !this.meetingMinimized;
+    this.appEl.classList.toggle('meeting', meetingActive);
+    this.updateMeetingControls(inMeeting);
+    if (!meetingActive) this.hideFilmstripToggle();
     if (panels.length === 0) return;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -767,7 +865,28 @@ export class RemoteMediaView {
     }
 
     for (const p of panels) {
-      p.el.classList.remove('focus-hidden', 'focused');
+      p.el.classList.remove('focus-hidden', 'focused', 'meeting-hidden', 'layout-hidden');
+    }
+    if (meetingActive) {
+      this.layoutMeeting(panels, vw, vh);
+      this.syncFocusButtons(panels, -1);
+      return;
+    }
+    // Alone with just your own camera (no call, no meeting): keep it a small
+    // corner preview so the map stays usable, instead of blowing it up to fill
+    // the one-tile grid (which hid the map, trapping you watching yourself).
+    if (panels.length === 1 && panels[0].key === 'self') {
+      this.layoutSelfCorner(panels[0].el);
+      this.syncFocusButtons(panels, -1);
+      return;
+    }
+    // A minimized meeting shows the tiles in the right-hand sidebar column so the
+    // map stays fully visible (you can see where to walk), capped at a readable
+    // few with a chevron for the rest — regardless of the ordinary-call layout.
+    if (inMeeting && this.meetingMinimized) {
+      this.layoutMinimizedSidebar(panels, vw, vh);
+      this.syncFocusButtons(panels, -1);
+      return;
     }
     const items = panels.map((p) => p.item);
     const geos =
@@ -780,6 +899,123 @@ export class RemoteMediaView {
       applyPanelGeometry(p.el, geos[i]);
     });
     this.syncFocusButtons(panels, -1);
+  }
+
+  // Right-hand sidebar for a minimized meeting: fixed-size tiles (the 6-person
+  // size as the floor), at most MAX_VISIBLE shown with a chevron for the rest.
+  // Expanding falls back to the normal divide-to-fit sidebar so everyone fits.
+  private layoutMinimizedSidebar(
+    panels: Array<{ el: HTMLElement; item: LayoutItem; key: string }>,
+    vw: number,
+    vh: number,
+  ) {
+    const needToggle = panels.length > MINIMIZED_SIDEBAR_MAX_VISIBLE;
+    const visibleCount = this.filmstripExpanded
+      ? panels.length
+      : Math.min(MINIMIZED_SIDEBAR_MAX_VISIBLE, panels.length);
+    const visible = panels.slice(0, visibleCount);
+    for (const p of panels.slice(visibleCount)) p.el.classList.add('layout-hidden');
+    const items = visible.map((p) => p.item);
+    const geos = this.filmstripExpanded
+      ? computeSidebarLayout(items, vw, vh)
+      : computeMinimizedSidebar(items, vw, vh);
+    visible.forEach((p, i) => {
+      applyPanelGeometry(p.el, geos[i]);
+    });
+    if (needToggle) this.placeToggle(vw - minimizedSidebarWidth(vw) / 2, vh);
+    else this.hideFilmstripToggle();
+  }
+
+  // Lays out the immersive meeting view (issue #263). With a screenshare: the
+  // featured share fills the main area and the cameras ride a LEFT filmstrip,
+  // collapsed to however many keep a readable height (⬇️ reveals the rest). With
+  // no share: a full-bleed gallery grid of everyone.
+  private layoutMeeting(
+    panels: Array<{ el: HTMLElement; item: LayoutItem; key: string }>,
+    vw: number,
+    vh: number,
+  ) {
+    const mainIdx = panels.findIndex((p) => !p.item.aspectLocked);
+    if (mainIdx === -1) {
+      // Gallery: no screenshare to feature — every window fills a grid cell.
+      const geos = computeMeetingGallery(
+        panels.map((p) => p.item),
+        vw,
+        vh,
+      );
+      panels.forEach((p, i) => {
+        applyPanelGeometry(p.el, geos[i]);
+      });
+      this.hideFilmstripToggle();
+      return;
+    }
+    // Presentation: main share + left filmstrip of everything else, trimmed to
+    // the visible (collapsed/expanded) set so a big meeting doesn't stack 20
+    // thumbnails down the edge.
+    const stripIdxs = panels.map((_, i) => i).filter((i) => i !== mainIdx);
+    const needToggle = stripIdxs.length > MEETING_FILMSTRIP_MAX_VISIBLE;
+    const visibleCount = this.filmstripExpanded
+      ? stripIdxs.length
+      : Math.min(MEETING_FILMSTRIP_MAX_VISIBLE, stripIdxs.length);
+    const visible = stripIdxs.slice(0, visibleCount);
+    for (const i of stripIdxs.slice(visibleCount)) panels[i].el.classList.add('meeting-hidden');
+
+    const order = [mainIdx, ...visible];
+    const geos = computeMeetingPresentation(
+      order.map((i) => panels[i].item),
+      vw,
+      vh,
+    );
+    order.forEach((pi, k) => {
+      applyPanelGeometry(panels[pi].el, geos[k]);
+    });
+
+    if (needToggle) this.placeToggle(meetingFilmstripColWidth() / 2, vh);
+    else this.hideFilmstripToggle();
+  }
+
+  // Parks the show-more/less chevron, centered on `centerX` at the bottom of the
+  // column (CSS translateX(-50%)): a large down chevron to reveal the rest, an up
+  // chevron to fold back. Shared by the meeting filmstrip and the minimized
+  // sidebar (which pass the left-column / right-column center respectively).
+  private placeToggle(centerX: number, vh: number) {
+    const btn = this.filmstripToggleEl;
+    btn.style.display = 'flex';
+    btn.style.left = `${Math.round(centerX)}px`;
+    btn.style.top = `${vh - PANEL_BOTTOM_RESERVED - 46}px`;
+    btn.classList.toggle('expanded', this.filmstripExpanded);
+    btn.title = this.filmstripExpanded ? t('media.filmstripLess') : t('media.filmstripMore');
+  }
+
+  private hideFilmstripToggle() {
+    this.filmstripToggleEl.style.display = 'none';
+  }
+
+  // Shows the top-left minimize/restore toggle whenever we're in a meeting, and
+  // labels it for the current state: "show map" (drop to floating tiles) while
+  // immersive, "meeting view" (go back full-screen) while minimized.
+  private updateMeetingControls(inMeeting: boolean) {
+    const btn = this.meetingMinimizeEl;
+    if (!inMeeting) {
+      btn.style.display = 'none';
+      return;
+    }
+    const icon = this.meetingMinimized ? EXPAND_ICON : MAP_ICON;
+    const label = this.meetingMinimized ? t('media.backToMeeting') : t('media.showMap');
+    btn.innerHTML = `${icon}<span>${label}</span>`;
+    btn.title = label;
+    btn.style.display = 'flex';
+  }
+
+  // Drops the self preview back to its small bottom-right CSS default by clearing
+  // the inline geometry the auto-layout writes (used when it's the only window).
+  private layoutSelfCorner(el: HTMLElement) {
+    el.style.left = 'auto';
+    el.style.top = 'auto';
+    el.style.right = '';
+    el.style.bottom = '';
+    el.style.width = '';
+    el.style.height = '';
   }
 
   // Marks the maximized window's button as active — the toolbar's "this is on"

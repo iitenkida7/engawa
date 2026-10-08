@@ -15,9 +15,11 @@ function mountDom() {
   document.body.innerHTML = `
     <div id="app">
       <div id="remote-videos"></div>
+      <button id="filmstrip-toggle" type="button" style="display: none"></button>
+      <button id="meeting-minimize" type="button" style="display: none"></button>
       <div id="self-preview" class="panel hidden">
         <div class="panel-header"><span class="label" id="self-preview-label"></span></div>
-        <div class="panel-body"><video id="self-video"></video></div>
+        <div class="panel-body"><video id="self-video"></video><div class="no-video" id="self-no-video"><span class="no-video-initials" id="self-no-video-initials"></span><span class="no-video-name" id="self-no-video-name"></span></div></div>
       </div>
     </div>`;
 }
@@ -106,5 +108,114 @@ describe('RemoteMediaView.hasMediaWindows', () => {
     expect(view.hasMediaWindows()).toBe(true);
     view.removeScreenshare('c');
     expect(view.hasMediaWindows()).toBe(false);
+  });
+});
+
+// Your own tile must show (camera on or off) whenever you're in a call or a
+// meeting, so everyone — yourself included — is visible regardless of camera
+// state (#263). Only when genuinely alone with the camera off does it hide.
+describe('self tile visibility while the camera is off', () => {
+  let view: RemoteMediaView;
+  const selfHidden = () => document.getElementById('self-preview')!.classList.contains('hidden');
+  const placeholderShown = () =>
+    (document.getElementById('self-no-video') as HTMLElement).style.display !== 'none';
+
+  beforeEach(() => {
+    view = setup();
+  });
+
+  it('is hidden when alone with the camera off', () => {
+    expect(selfHidden()).toBe(true);
+  });
+
+  it('shows a camera-off placeholder once in a meeting zone', () => {
+    view.setMeetingMode(true);
+    expect(selfHidden()).toBe(false);
+    expect(placeholderShown()).toBe(true);
+    view.setMeetingMode(false);
+    expect(selfHidden()).toBe(true);
+  });
+
+  it('shows yourself alongside someone you walk up to (and hides again when they leave)', () => {
+    players.set('a', player('a', 'A'));
+    view.setConversationMembers(['a']);
+    expect(selfHidden()).toBe(false);
+    expect(placeholderShown()).toBe(true);
+    view.setConversationMembers([]);
+    expect(selfHidden()).toBe(true);
+  });
+
+  it('keeps a solo camera-on preview small in the corner, not filling the grid', () => {
+    media.camStream = new MediaStream();
+    view.refreshSelfPreview();
+    const self = document.getElementById('self-preview') as HTMLElement;
+    expect(selfHidden()).toBe(false);
+    // No inline geometry from the auto-layout → it falls back to the small
+    // bottom-right CSS default instead of being blown up to fill the viewport.
+    expect(self.style.width).toBe('');
+    expect(self.style.left).toBe('auto');
+  });
+});
+
+// The immersive view is all black, so it must offer a way back to the map; the
+// top-left minimize toggle drops to floating tiles (map reachable) while staying
+// in the meeting, and resets on leaving the room.
+describe('meeting minimize / restore', () => {
+  let view: RemoteMediaView;
+  const immersive = () => document.getElementById('app')!.classList.contains('meeting');
+  const minimizeBtn = () => document.getElementById('meeting-minimize') as HTMLElement;
+  const btnShown = () => minimizeBtn().style.display !== 'none';
+
+  beforeEach(() => {
+    view = setup();
+    view.setMeetingMode(true);
+  });
+
+  it('shows the minimize toggle and goes immersive on entering a meeting', () => {
+    expect(immersive()).toBe(true);
+    expect(btnShown()).toBe(true);
+  });
+
+  it('minimizing drops to floating tiles but keeps the toggle to go back', () => {
+    minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(immersive()).toBe(false);
+    expect(btnShown()).toBe(true);
+    // Back to immersive.
+    minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(immersive()).toBe(true);
+  });
+
+  it('lays the tiles out in the right-hand sidebar when minimized', () => {
+    addCam(view, 'a');
+    minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const tile = document.querySelector<HTMLElement>('.panel[data-focus-key="cam:a"]')!;
+    // Pinned to the right column (its left edge is past the viewport midpoint),
+    // so the map stays visible on the left.
+    expect(Number.parseFloat(tile.style.left)).toBeGreaterThan(window.innerWidth / 2);
+  });
+
+  it('caps the minimized sidebar at 5 tiles with a chevron, expandable to all', () => {
+    for (const id of ['a', 'b', 'c', 'd', 'e', 'f']) addCam(view, id);
+    minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const laidOut = () =>
+      [...document.querySelectorAll<HTMLElement>('.panel')].filter(
+        (p) => !p.classList.contains('layout-hidden') && !p.classList.contains('hidden'),
+      ).length;
+    const chevron = document.getElementById('filmstrip-toggle') as HTMLElement;
+    // 7 windows (6 cams + self) → only 5 shown, chevron offers the rest.
+    expect(laidOut()).toBe(5);
+    expect(chevron.style.display).not.toBe('none');
+    // Expanding shows everyone.
+    chevron.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(laidOut()).toBe(7);
+  });
+
+  it('resets minimize state and hides the toggle when leaving the room', () => {
+    minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    view.setMeetingMode(false);
+    expect(btnShown()).toBe(false);
+    // Re-entering starts immersive again, not stuck minimized.
+    view.setMeetingMode(true);
+    expect(immersive()).toBe(true);
   });
 });
