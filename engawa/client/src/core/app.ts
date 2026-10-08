@@ -71,6 +71,7 @@ import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
 import { ReactionToasts } from '@/ui/reaction-toast';
 import { RemoteMediaView } from '@/ui/remote-media';
+import { RosterPanel } from '@/ui/roster';
 import { SoundManager } from '@/ui/sounds';
 import { StatusMenu } from '@/ui/status-menu';
 import { type MediaSink, ToolbarController } from '@/ui/toolbar';
@@ -104,6 +105,7 @@ export class App {
   private debug: DebugConsole;
   private toasts = new Toasts();
   private reactionToasts = new ReactionToasts();
+  private roster = new RosterPanel({ getPlayers: () => this.players });
   private sounds = new SoundManager();
   private knocks: KnockController;
   private editor: AvatarEditor;
@@ -1362,6 +1364,8 @@ export class App {
     if (now - this.lastLayerUpdate > 1000) {
       this.lastLayerUpdate = now;
       this.updateSfuLayers();
+      // Refresh the roster on the same slow cadence (no-op while it's closed).
+      this.roster.render();
     }
 
     // Call-quality sampling for the connection log (issue #182). Runs from the

@@ -794,6 +794,72 @@
         line-height: 1;
       }
 
+      /* ===== Participant roster (#242) ===== */
+      #roster {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        width: 240px;
+        max-height: calc(100% - 120px);
+        display: flex;
+        flex-direction: column;
+        background: rgba(28, 32, 40, 0.96);
+        border: 1px solid #3a4050;
+        border-radius: 10px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        z-index: 1100;
+        overflow: hidden;
+        color: #e6e8ee;
+      }
+      #roster.hidden {
+        display: none;
+      }
+      .roster-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        border-bottom: 1px solid #3a4050;
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .roster-close {
+        background: none;
+        border: none;
+        color: #9da3b0;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 2px 4px;
+      }
+      .roster-close:hover {
+        color: #e6e8ee;
+      }
+      #roster-list {
+        overflow-y: auto;
+        padding: 4px 0;
+      }
+      .roster-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        font-size: 13px;
+      }
+      .roster-row.speaking {
+        background: rgba(80, 220, 120, 0.14);
+      }
+      .roster-row .roster-name {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .roster-row .roster-icons {
+        color: #9da3b0;
+        font-size: 12px;
+        letter-spacing: 2px;
+      }
+
       /* ===== Toasts (top-center stack) for knock requests/replies ===== */
       #toasts {
         position: fixed;
@@ -1327,6 +1393,15 @@
       <div id="status-menu" class="device-menu hidden"></div>
       <!-- Action menu shown when you click another avatar: go to them / call. -->
       <div id="avatar-menu" class="device-menu hidden"></div>
+      <!-- Participant roster (#242): a toggleable list of everyone in the space,
+           so audio-only members hidden from the tile grid are still visible. -->
+      <div id="roster" class="hidden">
+        <div class="roster-head">
+          <span id="roster-title">参加者</span>
+          <button id="roster-close" class="roster-close" aria-label="閉じる">✕</button>
+        </div>
+        <div id="roster-list"></div>
+      </div>
       <div id="toolbar" class="hidden">
         <div class="btn-group">
           <button id="btn-mic" class="icon-toggle" data-i18n-tip="toolbar.micTitle" data-tip="マイク" aria-label="マイク">
@@ -1369,6 +1444,7 @@
           </svg>
         </button>
         <button id="btn-status" data-i18n-tip="roster.status" data-tip="ステータス" aria-label="ステータス">🟢</button>
+        <button id="btn-roster" data-i18n-tip="roster.title" data-tip="参加者" aria-label="参加者">👥</button>
         <div class="btn-group">
           <button id="btn-reaction" data-i18n-tip="toolbar.reactions" data-tip="リアクション" aria-label="リアクション">😀</button>
           <div id="reaction-menu" class="device-menu hidden"></div>
