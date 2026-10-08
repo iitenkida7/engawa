@@ -870,20 +870,19 @@ export class RemoteMediaView {
       applyPanelGeometry(panels[pi].el, geos[k]);
     });
 
-    if (needToggle) this.positionFilmstripToggle(vh, stripIdxs.length - visibleCount);
+    if (needToggle) this.positionFilmstripToggle(vh);
     else this.hideFilmstripToggle();
   }
 
-  // Parks the filmstrip show-more/less pill at the bottom of the left column
-  // (Gather-style): collapsed it shows the hidden count with a down chevron,
-  // expanded it shows an up chevron to fold back.
-  private positionFilmstripToggle(vh: number, hiddenCount: number) {
+  // Parks the filmstrip show-more/less button at the bottom of the left column:
+  // a large down chevron to reveal the rest, an up chevron to fold back.
+  private positionFilmstripToggle(vh: number) {
     const btn = this.filmstripToggleEl;
     btn.style.display = 'flex';
     // Centered on the flush-left strip column (CSS translateX(-50%)).
     btn.style.left = `${Math.round(meetingFilmstripColWidth() / 2)}px`;
-    btn.style.top = `${vh - PANEL_BOTTOM_RESERVED - 42}px`;
-    btn.textContent = this.filmstripExpanded ? '⌃' : `+${hiddenCount}`;
+    btn.style.top = `${vh - PANEL_BOTTOM_RESERVED - 46}px`;
+    btn.textContent = this.filmstripExpanded ? '⌃' : '⌄';
     btn.title = this.filmstripExpanded ? t('media.filmstripLess') : t('media.filmstripMore');
   }
 

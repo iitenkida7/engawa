@@ -794,6 +794,7 @@
 
       /* Filmstrip show-more / show-less toggle, parked at the bottom of the left
          camera column (position set in JS). */
+      /* Same chrome as the bottom toolbar buttons, just a large chevron glyph. */
       #filmstrip-toggle {
         position: fixed;
         z-index: 7;
@@ -801,25 +802,22 @@
         display: none;
         align-items: center;
         justify-content: center;
-        min-width: 44px;
-        height: 30px;
-        padding: 0 12px;
-        border: none;
-        border-radius: 999px;
-        background: rgba(0, 0, 0, 0.62);
-        color: #fff;
-        font-size: 14px;
-        font-weight: 700;
+        width: 44px;
+        height: 36px;
+        padding: 0;
+        border: 1px solid #3a4050;
+        border-radius: 8px;
+        background: rgba(42, 47, 58, 0.92);
+        color: #e6e8ee;
+        font-size: 24px;
         line-height: 1;
-        letter-spacing: 0.02em;
         cursor: pointer;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
         transition: background 0.12s ease;
       }
       #filmstrip-toggle:hover {
-        background: rgba(0, 0, 0, 0.8);
+        background: rgba(53, 58, 71, 0.95);
       }
 
       /* ===== Participant roster (top-left, collapsible) ===== */
