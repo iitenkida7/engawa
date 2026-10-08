@@ -259,6 +259,34 @@ export function computeMeetingPresentation(
   return result;
 }
 
+// ===== Minimized meeting sidebar (#263) =====
+// When a meeting is minimized the tiles ride the right-hand column over the map.
+// Like the meeting filmstrip, at most MAX_VISIBLE show at a fixed size (sized so
+// ~FIT fit the column — the "6-person size" as the floor); a chevron reveals the
+// rest, and the expanded view falls back to the normal sidebar (divide-to-fit).
+export const MINIMIZED_SIDEBAR_MAX_VISIBLE = 5;
+export const MINIMIZED_SIDEBAR_FIT = 6;
+export function minimizedSidebarWidth(vw: number): number {
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(vw * 0.25)));
+}
+
+// Pure: fixed-size right column — each tile gets a cell sized so FIT of them fill
+// the column (so 5 sit at the "6-person" size), aspect-locked + centered like the
+// normal sidebar. The caller trims `items` to the visible set.
+export function computeMinimizedSidebar(
+  items: LayoutItem[],
+  vw: number,
+  vh: number,
+): PanelGeometry[] {
+  const n = items.length;
+  if (n === 0) return [];
+  const area = usableArea(vw, vh);
+  const w = Math.min(minimizedSidebarWidth(vw), area.w);
+  const colX = area.x + area.w - w;
+  const cellH = area.h / MINIMIZED_SIDEBAR_FIT;
+  return items.map((item, i) => fitInCell(item, colX, area.y + i * cellH, w, cellH));
+}
+
 // Pure: presentation layout — the (first) screenshare fills a large main area on
 // the left (~70% width); every other window stacks in a right-hand filmstrip.
 // Falls back to a grid when there is no screenshare to feature.

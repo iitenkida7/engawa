@@ -16,12 +16,15 @@ import {
   computeGridLayout,
   computeMeetingGallery,
   computeMeetingPresentation,
+  computeMinimizedSidebar,
   computePresentationLayout,
   computeSidebarLayout,
   type LayoutItem,
   type LayoutMode,
   MEETING_FILMSTRIP_MAX_VISIBLE,
+  MINIMIZED_SIDEBAR_MAX_VISIBLE,
   meetingFilmstripColWidth,
+  minimizedSidebarWidth,
   PANEL_BOTTOM_RESERVED,
 } from '@/ui/panels';
 import type { PlayerState } from '@/world/player';
@@ -202,6 +205,8 @@ export class RemoteMediaView {
     this.meetingMinimizeEl = document.getElementById('meeting-minimize') as HTMLButtonElement;
     this.meetingMinimizeEl.addEventListener('click', () => {
       this.meetingMinimized = !this.meetingMinimized;
+      // Each view starts collapsed; don't carry the chevron state across.
+      this.filmstripExpanded = false;
       this.reflowLayout();
     });
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
@@ -860,7 +865,7 @@ export class RemoteMediaView {
     }
 
     for (const p of panels) {
-      p.el.classList.remove('focus-hidden', 'focused', 'meeting-hidden');
+      p.el.classList.remove('focus-hidden', 'focused', 'meeting-hidden', 'layout-hidden');
     }
     if (meetingActive) {
       this.layoutMeeting(panels, vw, vh);
@@ -875,22 +880,50 @@ export class RemoteMediaView {
       this.syncFocusButtons(panels, -1);
       return;
     }
-    const items = panels.map((p) => p.item);
     // A minimized meeting shows the tiles in the right-hand sidebar column so the
-    // map stays fully visible (you can see where to walk) — regardless of the
-    // layout mode picked for ordinary calls.
+    // map stays fully visible (you can see where to walk), capped at a readable
+    // few with a chevron for the rest — regardless of the ordinary-call layout.
+    if (inMeeting && this.meetingMinimized) {
+      this.layoutMinimizedSidebar(panels, vw, vh);
+      this.syncFocusButtons(panels, -1);
+      return;
+    }
+    const items = panels.map((p) => p.item);
     const geos =
-      inMeeting && this.meetingMinimized
-        ? computeSidebarLayout(items, vw, vh)
-        : this.layoutMode === 'presentation'
-          ? computePresentationLayout(items, vw, vh)
-          : this.layoutMode === 'sidebar'
-            ? computeSidebarLayout(items, vw, vh)
-            : computeGridLayout(items, vw, vh);
+      this.layoutMode === 'presentation'
+        ? computePresentationLayout(items, vw, vh)
+        : this.layoutMode === 'sidebar'
+          ? computeSidebarLayout(items, vw, vh)
+          : computeGridLayout(items, vw, vh);
     panels.forEach((p, i) => {
       applyPanelGeometry(p.el, geos[i]);
     });
     this.syncFocusButtons(panels, -1);
+  }
+
+  // Right-hand sidebar for a minimized meeting: fixed-size tiles (the 6-person
+  // size as the floor), at most MAX_VISIBLE shown with a chevron for the rest.
+  // Expanding falls back to the normal divide-to-fit sidebar so everyone fits.
+  private layoutMinimizedSidebar(
+    panels: Array<{ el: HTMLElement; item: LayoutItem; key: string }>,
+    vw: number,
+    vh: number,
+  ) {
+    const needToggle = panels.length > MINIMIZED_SIDEBAR_MAX_VISIBLE;
+    const visibleCount = this.filmstripExpanded
+      ? panels.length
+      : Math.min(MINIMIZED_SIDEBAR_MAX_VISIBLE, panels.length);
+    const visible = panels.slice(0, visibleCount);
+    for (const p of panels.slice(visibleCount)) p.el.classList.add('layout-hidden');
+    const items = visible.map((p) => p.item);
+    const geos = this.filmstripExpanded
+      ? computeSidebarLayout(items, vw, vh)
+      : computeMinimizedSidebar(items, vw, vh);
+    visible.forEach((p, i) => {
+      applyPanelGeometry(p.el, geos[i]);
+    });
+    if (needToggle) this.placeToggle(vw - minimizedSidebarWidth(vw) / 2, vh);
+    else this.hideFilmstripToggle();
   }
 
   // Lays out the immersive meeting view (issue #263). With a screenshare: the
@@ -937,17 +970,18 @@ export class RemoteMediaView {
       applyPanelGeometry(panels[pi].el, geos[k]);
     });
 
-    if (needToggle) this.positionFilmstripToggle(vh);
+    if (needToggle) this.placeToggle(meetingFilmstripColWidth() / 2, vh);
     else this.hideFilmstripToggle();
   }
 
-  // Parks the filmstrip show-more/less button at the bottom of the left column:
-  // a large down chevron to reveal the rest, an up chevron to fold back.
-  private positionFilmstripToggle(vh: number) {
+  // Parks the show-more/less chevron, centered on `centerX` at the bottom of the
+  // column (CSS translateX(-50%)): a large down chevron to reveal the rest, an up
+  // chevron to fold back. Shared by the meeting filmstrip and the minimized
+  // sidebar (which pass the left-column / right-column center respectively).
+  private placeToggle(centerX: number, vh: number) {
     const btn = this.filmstripToggleEl;
     btn.style.display = 'flex';
-    // Centered on the flush-left strip column (CSS translateX(-50%)).
-    btn.style.left = `${Math.round(meetingFilmstripColWidth() / 2)}px`;
+    btn.style.left = `${Math.round(centerX)}px`;
     btn.style.top = `${vh - PANEL_BOTTOM_RESERVED - 46}px`;
     btn.classList.toggle('expanded', this.filmstripExpanded);
     btn.title = this.filmstripExpanded ? t('media.filmstripLess') : t('media.filmstripMore');

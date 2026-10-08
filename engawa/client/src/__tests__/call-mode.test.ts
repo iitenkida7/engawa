@@ -194,6 +194,22 @@ describe('meeting minimize / restore', () => {
     expect(Number.parseFloat(tile.style.left)).toBeGreaterThan(window.innerWidth / 2);
   });
 
+  it('caps the minimized sidebar at 5 tiles with a chevron, expandable to all', () => {
+    for (const id of ['a', 'b', 'c', 'd', 'e', 'f']) addCam(view, id);
+    minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const laidOut = () =>
+      [...document.querySelectorAll<HTMLElement>('.panel')].filter(
+        (p) => !p.classList.contains('layout-hidden') && !p.classList.contains('hidden'),
+      ).length;
+    const chevron = document.getElementById('filmstrip-toggle') as HTMLElement;
+    // 7 windows (6 cams + self) → only 5 shown, chevron offers the rest.
+    expect(laidOut()).toBe(5);
+    expect(chevron.style.display).not.toBe('none');
+    // Expanding shows everyone.
+    chevron.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(laidOut()).toBe(7);
+  });
+
   it('resets minimize state and hides the toggle when leaving the room', () => {
     minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
     view.setMeetingMode(false);
