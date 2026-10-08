@@ -11,6 +11,7 @@ import {
   computePreferredRid,
   computeScreenEncoding,
   computeScreenScale,
+  computeSfuCamRid,
   isHeldSpeaking,
   SCREEN_BITRATE_HIGH,
   SCREEN_BITRATE_THROTTLED,
@@ -24,6 +25,7 @@ import {
   SFU_CAM_LAYERS,
   SIMULCAST_FULL_MIN_WIDTH,
   SPEAKER_HOLD_MS,
+  sfuCamSimulcast,
 } from '@/rtc/cam-bitrate';
 
 describe('computeCamEncoding', () => {
@@ -183,6 +185,44 @@ describe('computePreferredRid (SFU simulcast layer selection)', () => {
     expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH - 1)).toBe('h');
     expect(computePreferredRid(120)).toBe('h');
     expect(computePreferredRid(0)).toBe('h');
+  });
+});
+
+describe('computeSfuCamRid (issue #269)', () => {
+  const visible = { pageHidden: false, congested: false };
+
+  it('follows the tile width while the tab is visible and the downlink is fine', () => {
+    expect(computeSfuCamRid(640, visible)).toBe('f');
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH - 1, visible)).toBe('h');
+  });
+
+  it('drops an off-screen (zero-width) tile to the half layer', () => {
+    expect(computeSfuCamRid(0, visible)).toBe('h');
+  });
+
+  it('drops every camera to the half layer in a hidden tab', () => {
+    expect(computeSfuCamRid(640, { pageHidden: true, congested: false })).toBe('h');
+  });
+
+  it('drops every camera to the half layer on a congested downlink', () => {
+    expect(computeSfuCamRid(640, { pageHidden: false, congested: true })).toBe('h');
+  });
+});
+
+describe('sfuCamSimulcast (issue #269)', () => {
+  it('lets the SFU step down by rid order and keeps the preferred rid', () => {
+    expect(sfuCamSimulcast('h')).toEqual({
+      preferredRid: 'h',
+      priorityOrdering: 'asciibetical',
+      ridNotAvailable: 'asciibetical',
+    });
+  });
+
+  it('orders the ladder rids asciibetically from best to worst quality', () => {
+    // Cloudflare's asciibetical policy treats the alphabetically-first rid as
+    // the most desirable, so the ladder (best first) must already be sorted.
+    const rids = SFU_CAM_LAYERS.map((l) => l.rid);
+    expect([...rids].sort()).toEqual(rids);
   });
 });
 

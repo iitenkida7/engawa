@@ -39,10 +39,9 @@ import { MediaManager } from '@/media/media';
 import { RecorderManager } from '@/media/recorder';
 import {
   computeCamEncoding,
-  computePreferredRid,
   computeScreenEncoding,
+  computeSfuCamRid,
   isHeldSpeaking,
-  SFU_CAM_HALF_RID,
 } from '@/rtc/cam-bitrate';
 import {
   applyNetTierToCam,
@@ -265,6 +264,9 @@ export class App {
     if (!document.hidden && !this.authFailed && !this.net.isConnected()) {
       this.manualReconnect();
     }
+    // Drop / restore the SFU camera layers right away rather than on the next
+    // ~1s layer tick (issue #269).
+    this.updateSfuLayers();
   };
   // The OS reported connectivity is back: reconnect a dropped socket right away
   // (the backoff may still be waiting out a long delay), or probe a socket that
@@ -1739,9 +1741,12 @@ export class App {
       if (userId === this.myId) continue;
       const width = this.view.cameraTileWidth(userId);
       if (width == null) continue;
-      // A congested downlink (tier ≥2, #188) forces the half layer regardless
-      // of tile size; otherwise the tile's rendered width picks it (#78).
-      const rid = this.netTierState.tier >= 2 ? SFU_CAM_HALF_RID : computePreferredRid(width);
+      // A hidden tab, an off-screen tile, or a congested downlink (tier ≥2,
+      // #188) takes the half layer; otherwise the tile width picks it (#78).
+      const rid = computeSfuCamRid(width, {
+        pageHidden: document.hidden,
+        congested: this.netTierState.tier >= 2,
+      });
       this.sfu.setPreferredLayer(userId, 'cam', rid);
     }
   }

@@ -197,3 +197,29 @@ export const SIMULCAST_FULL_MIN_WIDTH = 240;
 export function computePreferredRid(tileWidthPx: number): string {
   return tileWidthPx >= SIMULCAST_FULL_MIN_WIDTH ? SFU_CAM_DEFAULT_RID : SFU_CAM_HALF_RID;
 }
+
+// Pure: the layer an SFU receiver requests for one remote camera. Video nobody
+// is watching — a backgrounded tab, or a tile that isn't on screen (width 0) —
+// and a congested downlink (#188) take the half layer; otherwise the rendered
+// tile width decides (#78). Issue #269.
+export function computeSfuCamRid(
+  tileWidthPx: number,
+  opts: { pageHidden: boolean; congested: boolean },
+): string {
+  if (opts.pageHidden || opts.congested) return SFU_CAM_HALF_RID;
+  return computePreferredRid(tileWidthPx);
+}
+
+// Cloudflare Realtime simulcast pull policy for a remote camera (issue #269).
+// With priorityOrdering the SFU steps down to a lower layer on its own when the
+// receiver's downlink can't carry the preferred one (otherwise it keeps sending
+// it regardless), and ridNotAvailable falls back to the next layer if the
+// preferred one stops arriving. 'asciibetical' ranks rids alphabetically
+// ('a' best), which SFU_CAM_LAYERS follows ('f' full before 'h' half).
+export function sfuCamSimulcast(preferredRid: string) {
+  return {
+    preferredRid,
+    priorityOrdering: 'asciibetical',
+    ridNotAvailable: 'asciibetical',
+  } as const;
+}
