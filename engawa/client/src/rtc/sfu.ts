@@ -158,6 +158,9 @@ export class SfuManager {
   // and screen are never gated here. The App re-feeds directories after changing
   // this so reconcile pulls newly-allowed cams and drops the rest.
   private camAllowed: Set<string> | null = null;
+  // Which peers' mics may be pulled (#238). null = all (groups within the cap);
+  // a set means a big group where only the active speakers' audio is received.
+  private micAllowed: Set<string> | null = null;
 
   constructor(events: SfuEvents) {
     this.events = events;
@@ -237,6 +240,10 @@ export class SfuManager {
       if (this.videoPullPaused) desired = tracks.filter((t) => t.kind === 'mic');
       else if (this.camAllowed && !this.camAllowed.has(userId))
         desired = tracks.filter((t) => t.kind !== 'cam');
+      // Big group: a non-active-speaker's mic isn't pulled (#238). Applied after
+      // the cam gate so both can drop for the same peer.
+      if (this.micAllowed && !this.micAllowed.has(userId))
+        desired = desired.filter((t) => t.kind !== 'mic');
       const { toPull, toDrop } = reconcilePeerTracks(userId, desired, this.remoteTracks.keys());
       for (const t of toPull) {
         await this.pullTrack(userId, sessionId, t.kind, t.trackName);
@@ -275,6 +282,12 @@ export class SfuManager {
   // directories so reconcile pulls the newly-allowed cameras and drops the rest.
   setCamAllowed(userIds: string[] | null) {
     this.camAllowed = userIds ? new Set(userIds) : null;
+  }
+
+  // Limit which peers' mics are pulled in a big group (#238). Pass null to allow
+  // all. Like setCamAllowed, the App re-feeds directories so reconcile applies it.
+  setMicAllowed(userIds: string[] | null) {
+    this.micAllowed = userIds ? new Set(userIds) : null;
   }
 
   // Re-target every receiver's jitter buffer (issue #188); no-op when unchanged.

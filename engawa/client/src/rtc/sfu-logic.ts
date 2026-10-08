@@ -167,3 +167,29 @@ export function selectActiveCameras(
     .slice(0, cap)
     .map((c) => c.userId);
 }
+
+// Max remote mics pulled at once in a big SFU group (#238). Audio is far cheaper
+// than video, so this cap is more generous than the camera one — normal meetings
+// (<= cap) receive everyone with no clipping; only very large groups drop the
+// least-recently-active speakers' audio. Activity is known from the relayed
+// `speaking` signal, so a dropped peer is still re-pulled the moment they talk.
+export const SFU_MAX_MIC_PULLS = 16;
+
+// Pure: pick which peers' mics to pull, capped at `cap`. Prefer peers reported
+// speaking now, then most recently spoken, then by userId. Returns <= cap ids;
+// the caller treats "all" (<= cap) as no restriction.
+export function selectActiveMics(
+  candidates: { userId: string; speaking: boolean; lastSpokeMs: number }[],
+  cap: number = SFU_MAX_MIC_PULLS,
+): string[] {
+  if (candidates.length <= cap) return candidates.map((c) => c.userId);
+  return [...candidates]
+    .sort(
+      (a, b) =>
+        Number(b.speaking) - Number(a.speaking) ||
+        b.lastSpokeMs - a.lastSpokeMs ||
+        (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0),
+    )
+    .slice(0, cap)
+    .map((c) => c.userId);
+}

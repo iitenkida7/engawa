@@ -7,7 +7,9 @@ import {
   reconcilePeerTracks,
   remoteKey,
   SFU_MAX_CAM_PULLS,
+  SFU_MAX_MIC_PULLS,
   selectActiveCameras,
+  selectActiveMics,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
   sfuSessionError,
@@ -275,5 +277,29 @@ describe('selectActiveCameras (#237)', () => {
       c(`u${i}`, true, false, i),
     );
     expect(selectActiveCameras(many)).toHaveLength(SFU_MAX_CAM_PULLS);
+  });
+});
+
+describe('selectActiveMics (#238)', () => {
+  const c = (userId: string, speaking: boolean, lastSpokeMs: number) => ({
+    userId,
+    speaking,
+    lastSpokeMs,
+  });
+
+  it('returns everyone when within the cap', () => {
+    const got = selectActiveMics([c('a', false, 0), c('b', false, 0)], 16);
+    expect(new Set(got)).toEqual(new Set(['a', 'b']));
+  });
+
+  it('caps the count, preferring speakers then recency', () => {
+    const cands = [c('old', false, 1), c('new', false, 9), c('talking', true, 0)];
+    const got = selectActiveMics(cands, 2);
+    expect(got).toEqual(['talking', 'new']);
+  });
+
+  it('defaults the cap to SFU_MAX_MIC_PULLS (> the camera cap)', () => {
+    const many = Array.from({ length: SFU_MAX_MIC_PULLS + 2 }, (_, i) => c(`u${i}`, false, i));
+    expect(selectActiveMics(many)).toHaveLength(SFU_MAX_MIC_PULLS);
   });
 });

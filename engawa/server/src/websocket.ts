@@ -538,6 +538,19 @@ export function createWebSocketHandler(
           break;
         }
 
+        case 'speaking': {
+          if (!ws.data.joined) return;
+          // Relay the sender's VAD state to the workspace (except themselves) so
+          // peers can pick whose audio to receive in a big group (#238).
+          broadcast(
+            clients,
+            ws.data.workspace,
+            { type: 'speaking', userId: ws.data.userId, speaking: normalizeBool(msg.speaking) },
+            ws.data.userId,
+          );
+          break;
+        }
+
         case 'knock': {
           if (!ws.data.joined) return;
           const target = clients.get(msg.to);

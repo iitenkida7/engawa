@@ -59,8 +59,10 @@ import { SfuManager } from '@/rtc/sfu';
 import {
   partitionMembers,
   SFU_MAX_CAM_PULLS,
+  SFU_MAX_MIC_PULLS,
   SFU_REBUILD_MIN_INTERVAL_MS,
   selectActiveCameras,
+  selectActiveMics,
 } from '@/rtc/sfu-logic';
 import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
@@ -187,6 +189,12 @@ export class App {
   // set pushed to the SFU — both drive the active-speaker camera cap (#237).
   private lastSpokeAtMs = new Map<string, number>();
   private lastCamAllowedKey: string | null = null;
+  private lastMicAllowedKey: string | null = null;
+  // Peers' reported active-speaker state (#238), from the relayed `speaking`
+  // signal — authoritative even for peers whose mic we're not pulling. Plus the
+  // last speaking value we broadcast about ourselves (sent only on change).
+  private reportedSpeaking = new Map<string, boolean>();
+  private lastSentSpeaking = false;
 
   // Call-quality sampling (issue #182): every QUALITY_SAMPLE_INTERVAL_MS the
   // active transport's stats are folded into one QualitySample and appended to
@@ -617,6 +625,8 @@ export class App {
     this.meshMembers.delete(userId);
     this.sfuMembers.delete(userId);
     this.sfuDirectory.delete(userId);
+    this.reportedSpeaking.delete(userId);
+    this.lastSpokeAtMs.delete(userId);
     this.rtc.closePeer(userId);
     this.sfu.removePeer(userId);
     this.knownSfuPeers.delete(userId);
@@ -667,7 +677,9 @@ export class App {
     this.meshMembers.clear();
     this.sfuMembers.clear();
     this.lastSpokeAtMs.clear();
+    this.reportedSpeaking.clear();
     this.lastCamAllowedKey = null;
+    this.lastMicAllowedKey = null;
     this.clearPeerRecovery();
     this.rtc.closeAll();
     this.sfu.closeAll();
@@ -1181,6 +1193,14 @@ export class App {
         this.reactionToasts.show(name, msg.emoji);
         break;
       }
+      case 'speaking': {
+        // A peer's active-speaker state (#238). Authoritative for the audio/camera
+        // pull caps even when we're not pulling their mic; record last-spoke so a
+        // dropped peer re-pulls the moment they talk.
+        this.reportedSpeaking.set(msg.userId, msg.speaking);
+        if (msg.speaking) this.lastSpokeAtMs.set(msg.userId, performance.now());
+        break;
+      }
       case 'knock': {
         this.knocks.received(msg.from, msg.name);
         break;
@@ -1363,7 +1383,7 @@ export class App {
     // big group) which cameras to pull at all by active speaker (~1s cadence).
     if (now - this.lastLayerUpdate > 1000) {
       this.lastLayerUpdate = now;
-      this.updateCameraPulls();
+      this.updateSfuPulls();
       this.updateSfuLayers();
     }
 
@@ -1412,12 +1432,19 @@ export class App {
   private updateSendPolicy(nowMs: number) {
     const me = this.me;
     if (!me) return;
+    if (me.isSpeaking) this.lastLoudAtMs = nowMs;
+    const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
+    // Broadcast our active-speaker state on change (#238) — in both transports —
+    // so peers can pick whose audio/camera to receive in a big group. The hold in
+    // isHeldSpeaking debounces this to a send only every few seconds at most.
+    if (speaking !== this.lastSentSpeaking) {
+      this.lastSentSpeaking = speaking;
+      this.net.send({ type: 'speaking', speaking });
+    }
     // SFU sends a single upstream regardless of headcount, so it skips the mesh
     // peer-count throttle entirely — SfuManager publishes a fixed simulcast
     // ladder (the quality floor) and the SFU / receiver pick the layer instead.
     if (this.currentMethod === 'sfu') return;
-    if (me.isSpeaking) this.lastLoudAtMs = nowMs;
-    const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
     const peerCount = this.rtc.peerCount;
     // The peer-count/speaker ceilings, further shrunk by the network tier
     // (#185) — under congestion video yields so voice keeps its headroom.
@@ -1555,8 +1582,9 @@ export class App {
       this.sfuMembers = new Set(members);
       this.meshMembers.clear();
       this.clearPeerRecovery();
-      // Membership changed → recompute the camera-pull allow-set next tick (#237).
+      // Membership changed → recompute the pull allow-sets next tick (#237/#238).
       this.lastCamAllowedKey = null;
+      this.lastMicAllowedKey = null;
       if (wasMesh) {
         // mesh → SFU: drop every mesh peer, then publish our live streams to the
         // SFU. Remote media comes back via sfu-peer-tracks → pull. (meshMembers
@@ -1647,31 +1675,48 @@ export class App {
   // #78): small thumbnails take the half layer to save downlink, the stage-sized
   // view takes full. setPreferredLayer no-ops when the rid is unchanged, so this
   // is cheap to call on a slow cadence from the loop.
-  // Cap how many remote cameras we pull in a big SFU group (#237): only the
-  // active speakers' cameras are received; everyone else stays audio-only until
-  // they speak. Small groups (≤ cap) are unrestricted, preserving prior behavior.
-  private updateCameraPulls() {
+  // Cap how many remote cameras (#237) and mics (#238) we pull in a big SFU
+  // group: only the active speakers are received; everyone else is dropped (cam
+  // first, with a more generous mic cap) until they speak. Groups within the caps
+  // are unrestricted, preserving prior behavior. Mic is capped more loosely since
+  // audio is cheap; activity comes from the relayed `speaking` signal so a dropped
+  // peer is re-pulled the moment they talk.
+  private updateSfuPulls() {
     if (this.currentMethod !== 'sfu') return;
     const peers = [...this.sfuMembers].filter((id) => id !== this.myId);
-    let allowed: string[] | null;
-    if (peers.length <= SFU_MAX_CAM_PULLS) {
-      allowed = null;
-    } else {
-      allowed = selectActiveCameras(
-        peers.map((id) => ({
-          userId: id,
-          hasCam: (this.sfuDirectory.get(id)?.tracks ?? []).some((t) => t.kind === 'cam'),
-          speaking: this.players.get(id)?.isSpeaking ?? false,
-          lastSpokeMs: this.lastSpokeAtMs.get(id) ?? 0,
-        })),
-      );
-    }
-    // Only act when the allow-set actually changes, so we don't re-feed the SFU
-    // directories every tick.
-    const key = allowed ? [...allowed].sort().join(',') : '*';
-    if (key === this.lastCamAllowedKey) return;
-    this.lastCamAllowedKey = key;
-    this.sfu.setCamAllowed(allowed);
+    const speakingNow = (id: string) =>
+      this.reportedSpeaking.get(id) ?? this.players.get(id)?.isSpeaking ?? false;
+
+    const camAllowed =
+      peers.length <= SFU_MAX_CAM_PULLS
+        ? null
+        : selectActiveCameras(
+            peers.map((id) => ({
+              userId: id,
+              hasCam: (this.sfuDirectory.get(id)?.tracks ?? []).some((t) => t.kind === 'cam'),
+              speaking: speakingNow(id),
+              lastSpokeMs: this.lastSpokeAtMs.get(id) ?? 0,
+            })),
+          );
+    const micAllowed =
+      peers.length <= SFU_MAX_MIC_PULLS
+        ? null
+        : selectActiveMics(
+            peers.map((id) => ({
+              userId: id,
+              speaking: speakingNow(id),
+              lastSpokeMs: this.lastSpokeAtMs.get(id) ?? 0,
+            })),
+          );
+
+    // Only re-feed the directories when an allow-set actually changes.
+    const camKey = camAllowed ? [...camAllowed].sort().join(',') : '*';
+    const micKey = micAllowed ? [...micAllowed].sort().join(',') : '*';
+    if (camKey === this.lastCamAllowedKey && micKey === this.lastMicAllowedKey) return;
+    this.lastCamAllowedKey = camKey;
+    this.lastMicAllowedKey = micKey;
+    this.sfu.setCamAllowed(camAllowed);
+    this.sfu.setMicAllowed(micAllowed);
     this.refeedSfuDirectories();
   }
 
