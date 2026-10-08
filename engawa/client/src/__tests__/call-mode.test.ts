@@ -16,6 +16,7 @@ function mountDom() {
     <div id="app">
       <div id="remote-videos"></div>
       <button id="filmstrip-toggle" type="button" style="display: none"></button>
+      <button id="meeting-minimize" type="button" style="display: none"></button>
       <div id="self-preview" class="panel hidden">
         <div class="panel-header"><span class="label" id="self-preview-label"></span></div>
         <div class="panel-body"><video id="self-video"></video><div class="no-video" id="self-no-video"><span class="no-video-initials" id="self-no-video-initials"></span><span class="no-video-name" id="self-no-video-name"></span></div></div>
@@ -153,5 +154,43 @@ describe('self tile visibility while the camera is off', () => {
     // bottom-right CSS default instead of being blown up to fill the viewport.
     expect(self.style.width).toBe('');
     expect(self.style.left).toBe('auto');
+  });
+});
+
+// The immersive view is all black, so it must offer a way back to the map; the
+// top-left minimize toggle drops to floating tiles (map reachable) while staying
+// in the meeting, and resets on leaving the room.
+describe('meeting minimize / restore', () => {
+  let view: RemoteMediaView;
+  const immersive = () => document.getElementById('app')!.classList.contains('meeting');
+  const minimizeBtn = () => document.getElementById('meeting-minimize') as HTMLElement;
+  const btnShown = () => minimizeBtn().style.display !== 'none';
+
+  beforeEach(() => {
+    view = setup();
+    view.setMeetingMode(true);
+  });
+
+  it('shows the minimize toggle and goes immersive on entering a meeting', () => {
+    expect(immersive()).toBe(true);
+    expect(btnShown()).toBe(true);
+  });
+
+  it('minimizing drops to floating tiles but keeps the toggle to go back', () => {
+    minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(immersive()).toBe(false);
+    expect(btnShown()).toBe(true);
+    // Back to immersive.
+    minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(immersive()).toBe(true);
+  });
+
+  it('resets minimize state and hides the toggle when leaving the room', () => {
+    minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    view.setMeetingMode(false);
+    expect(btnShown()).toBe(false);
+    // Re-entering starts immersive again, not stuck minimized.
+    view.setMeetingMode(true);
+    expect(immersive()).toBe(true);
   });
 });

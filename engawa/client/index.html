@@ -835,6 +835,42 @@
         transform: rotate(180deg);
       }
 
+      /* Minimize/restore the immersive meeting — top-left, toolbar chrome. */
+      #meeting-minimize {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 8;
+        display: none;
+        align-items: center;
+        gap: 6px;
+        height: 36px;
+        padding: 0 14px;
+        border: 1px solid #3a4050;
+        border-radius: 8px;
+        background: rgba(42, 47, 58, 0.92);
+        color: #e6e8ee;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        transition: background 0.12s ease;
+      }
+      #meeting-minimize:hover {
+        background: rgba(53, 58, 71, 0.95);
+      }
+      #meeting-minimize svg {
+        display: block;
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
       /* ===== Participant roster (top-left, collapsible) ===== */
       #status-menu {
         position: absolute;
@@ -1598,6 +1634,10 @@
            left camera column in meeting presentation mode; positioned/shown in
            JS (RemoteMediaView.positionFilmstripToggle). -->
       <button id="filmstrip-toggle" type="button" style="display: none"></button>
+      <!-- Immersive meeting minimize/restore (#263): top-left toggle to drop the
+           full-screen meeting back to floating tiles so the map (and the way
+           out of the room) is reachable. Shown/labelled in JS. -->
+      <button id="meeting-minimize" type="button" style="display: none"></button>
       <div id="self-preview" class="panel hidden">
         <div class="panel-header">
           <span class="header-left">

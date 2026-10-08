@@ -56,6 +56,13 @@ type Screenshare = {
 // same shape mirrored — not two differently-drawn text glyphs.
 const CHEVRON_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5" /></svg>';
 
+// Icons for the meeting minimize/restore toggle: a windowed-screen glyph for
+// "show the map" and outward corners for "back to the full-screen meeting".
+const MAP_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg>';
+const EXPAND_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" /></svg>';
+
 // Mic-with-strike glyph shown (red, via CSS) next to a name while that person is
 // muted. Matches the toolbar mic icon.
 const MIC_OFF_SVG =
@@ -153,8 +160,12 @@ export class RemoteMediaView {
   // Whether the camera filmstrip (presentation mode) shows everyone or just the
   // collapsed set. Toggled by the ⬇️ button; reset when meeting mode ends.
   private filmstripExpanded = false;
+  // Minimized: in a meeting zone but temporarily dropped back to floating tiles
+  // so the map (and the way out of the room) is reachable. Reset on leaving.
+  private meetingMinimized = false;
   private appEl: HTMLElement;
   private filmstripToggleEl: HTMLButtonElement;
+  private meetingMinimizeEl: HTMLButtonElement;
 
   // Replays remote media the autoplay policy refused on the next user gesture
   // (issue #201); the App shows / hides the "enable audio" prompt.
@@ -186,6 +197,11 @@ export class RemoteMediaView {
     this.filmstripToggleEl.innerHTML = CHEVRON_SVG;
     this.filmstripToggleEl.addEventListener('click', () => {
       this.filmstripExpanded = !this.filmstripExpanded;
+      this.reflowLayout();
+    });
+    this.meetingMinimizeEl = document.getElementById('meeting-minimize') as HTMLButtonElement;
+    this.meetingMinimizeEl.addEventListener('click', () => {
+      this.meetingMinimized = !this.meetingMinimized;
       this.reflowLayout();
     });
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
@@ -789,7 +805,10 @@ export class RemoteMediaView {
   setMeetingMode(on: boolean) {
     if (this.meetingMode === on) return;
     this.meetingMode = on;
-    if (!on) this.filmstripExpanded = false;
+    if (!on) {
+      this.filmstripExpanded = false;
+      this.meetingMinimized = false;
+    }
     // Entering/leaving a meeting flips whether your own camera-off tile shows.
     this.refreshSelfPreview();
     this.reflowLayout();
@@ -815,9 +834,13 @@ export class RemoteMediaView {
     // show/hide the layout toggle as media comes and goes.
     this.onPanelsChange?.(panels.length);
     // Black immersive backdrop only while actually in a meeting WITH something to
-    // show — never a blank black screen when alone with no media.
-    const meetingActive = this.meetingMode && panels.length > 0;
+    // show — never a blank black screen when alone with no media. Minimizing
+    // keeps you in the meeting (media-wise) but drops to floating tiles so the
+    // map is reachable; the minimize toggle shows whenever we're in a meeting.
+    const inMeeting = this.meetingMode && panels.length > 0;
+    const meetingActive = inMeeting && !this.meetingMinimized;
     this.appEl.classList.toggle('meeting', meetingActive);
+    this.updateMeetingControls(inMeeting);
     if (!meetingActive) this.hideFilmstripToggle();
     if (panels.length === 0) return;
     const vw = window.innerWidth;
@@ -927,6 +950,22 @@ export class RemoteMediaView {
 
   private hideFilmstripToggle() {
     this.filmstripToggleEl.style.display = 'none';
+  }
+
+  // Shows the top-left minimize/restore toggle whenever we're in a meeting, and
+  // labels it for the current state: "show map" (drop to floating tiles) while
+  // immersive, "meeting view" (go back full-screen) while minimized.
+  private updateMeetingControls(inMeeting: boolean) {
+    const btn = this.meetingMinimizeEl;
+    if (!inMeeting) {
+      btn.style.display = 'none';
+      return;
+    }
+    const icon = this.meetingMinimized ? EXPAND_ICON : MAP_ICON;
+    const label = this.meetingMinimized ? t('media.backToMeeting') : t('media.showMap');
+    btn.innerHTML = `${icon}<span>${label}</span>`;
+    btn.title = label;
+    btn.style.display = 'flex';
   }
 
   // Drops the self preview back to its small bottom-right CSS default by clearing
