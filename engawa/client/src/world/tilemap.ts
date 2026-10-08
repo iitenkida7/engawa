@@ -7,7 +7,10 @@ export const TILE_SIZE = 50;
 // shifted into the map by OUTDOOR_MARGIN when the grid and the exported pixel
 // rects are built — so nothing below needs to know about the margin.
 const BUILDING_COLS = 34;
-const BUILDING_ROWS = 25;
+// 26 rows: a 1-tile horizontal corridor (building-local row 13) separates the
+// two open-desk bands so the seat rugs don't meet (everything below row 13 sits
+// one row lower than the 25-row layout).
+const BUILDING_ROWS = 26;
 // Grass margin (tiles) on each side of the building. Exported so tests/callers
 // can convert building-local coords to map coords.
 export const OUTDOOR_MARGIN = 6;
@@ -181,71 +184,71 @@ const ROOMS: RoomDef[] = [
     id: '1on1-1',
     name: t('zone.1on1-1'),
     c: 1,
-    r: 21,
+    r: 22,
     w: 3,
     h: 3,
-    doors: [[2, 20]],
-    desks: [[2, 22]],
+    doors: [[2, 21]],
+    desks: [[2, 23]],
   },
   {
     id: '1on1-2',
     name: t('zone.1on1-2'),
     c: 5,
-    r: 21,
+    r: 22,
     w: 3,
     h: 3,
-    doors: [[6, 20]],
-    desks: [[6, 22]],
+    doors: [[6, 21]],
+    desks: [[6, 23]],
   },
   {
     id: '1on1-3',
     name: t('zone.1on1-3'),
     c: 9,
-    r: 21,
+    r: 22,
     w: 3,
     h: 3,
-    doors: [[10, 20]],
-    desks: [[10, 22]],
+    doors: [[10, 21]],
+    desks: [[10, 23]],
   },
   {
     id: '1on1-4',
     name: t('zone.1on1-4'),
     c: 13,
-    r: 21,
+    r: 22,
     w: 3,
     h: 3,
-    doors: [[14, 20]],
-    desks: [[14, 22]],
+    doors: [[14, 21]],
+    desks: [[14, 23]],
   },
   {
     id: 'booth-1',
     name: t('zone.booth-1'),
     c: 17,
-    r: 21,
+    r: 22,
     w: 3,
     h: 3,
-    doors: [[18, 20]],
-    desks: [[18, 22]],
+    doors: [[18, 21]],
+    desks: [[18, 23]],
   },
   {
     id: 'booth-2',
     name: t('zone.booth-2'),
     c: 21,
-    r: 21,
+    r: 22,
     w: 3,
     h: 3,
-    doors: [[22, 20]],
-    desks: [[22, 22]],
+    doors: [[22, 21]],
+    desks: [[22, 23]],
   },
   {
     id: 'booth-3',
     name: t('zone.booth-3'),
     c: 25,
-    r: 21,
+    r: 22,
     w: 3,
     h: 3,
-    doors: [[26, 20]],
-    desks: [[26, 22]],
+    doors: [[26, 21]],
+    desks: [[26, 23]],
   },
   {
     // One tile wider than the other booths so its right wall meets the outer wall
@@ -253,11 +256,11 @@ const ROOMS: RoomDef[] = [
     id: 'booth-4',
     name: t('zone.booth-4'),
     c: 29,
-    r: 21,
+    r: 22,
     w: 4,
     h: 3,
-    doors: [[30, 20]],
-    desks: [[30, 22]],
+    doors: [[30, 21]],
+    desks: [[30, 23]],
   },
 ];
 
@@ -326,8 +329,8 @@ const OPEN_DESK_UNITS: DeskUnit[] = [
     { col, row: 10, facing: 'north' },
   ]),
   ...BOTTOM_ISLAND_COLS.flatMap((col): DeskUnit[] => [
-    { col, row: 15, facing: 'south' },
-    { col, row: 16, facing: 'north' },
+    { col, row: 16, facing: 'south' },
+    { col, row: 17, facing: 'north' },
   ]),
 ];
 
@@ -386,18 +389,18 @@ export function isDeskSeat(px: number, py: number): boolean {
 // chat. Walkable rug (LOUNGE tiles aren't SOLID); the renderer draws sofas + a
 // coffee table on top. Placed clear of the desk pods and the booth doors below.
 // (Design is a placeholder — easy to restyle later.)
-export const LOUNGE = { c: 24, r: 13, w: 7, h: 5 } as const;
+export const LOUNGE = { c: 24, r: 14, w: 7, h: 5 } as const;
 
 // Greenery dotted around the open floor — along the side walls and in the aisles
 // between the pod rugs. Kept off the island rugs, the central spawn path, the
 // lounge, and the room doorways so nothing blocks movement.
 const OPEN_PLANTS: [number, number][] = [
   [1, 6],
-  [1, 19],
+  [1, 20],
   [32, 6],
-  [32, 19],
+  [32, 20],
   [8, 12],
-  [25, 12],
+  [26, 12],
   // All-hands room corners (interior cols 6-17, rows 1-4) — a little greenery.
   [6, 1],
   [17, 1],
