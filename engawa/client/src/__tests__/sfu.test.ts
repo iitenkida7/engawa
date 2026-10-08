@@ -88,24 +88,32 @@ function jsonRes(body: unknown) {
 }
 
 let fetchMock: ReturnType<typeof mock>;
+let nextMid = 0;
+
+// The `tracks` array of a control-plane request body (tracks/new etc.).
+function requestedTracks(init?: RequestInit): { sessionId?: string; trackName: string }[] {
+  if (typeof init?.body !== 'string') return [];
+  return (JSON.parse(init.body) as { tracks?: { trackName: string }[] }).tracks ?? [];
+}
 let originalFetch: typeof globalThis.fetch;
 let originalRTC: typeof globalThis.RTCPeerConnection;
 
 beforeEach(() => {
-  fetchMock = mock(async (url: string) => {
+  fetchMock = mock(async (url: string, init?: RequestInit) => {
     const u = String(url);
     if (u.includes('/api/turn-credentials')) return jsonRes([]);
     if (u.includes('/sessions/new')) return jsonRes({ sessionId: 'sess-1' });
     if (u.includes('/tracks/new')) {
-      // Cloudflare always returns the assigned mid per track; pullTrack now
-      // requires it (a missing mid / per-track errorCode rejects the pull).
+      // Cloudflare returns the assigned mid per requested track; a pull requires
+      // it (a missing mid / per-track errorCode rejects the pull).
       return jsonRes({
         sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
-        tracks: [{ mid: '0' }],
+        tracks: requestedTracks(init).map(() => ({ mid: String(nextMid++) })),
       });
     }
     return jsonRes({});
   });
+  nextMid = 0;
   createdPcs.length = 0;
   originalFetch = globalThis.fetch;
   originalRTC = globalThis.RTCPeerConnection;
@@ -134,6 +142,7 @@ function makeEvents() {
       onPeerClosed: mock(),
       onPublished,
       onFailed: mock(),
+      onConnected: mock(),
     },
     waitPublish: () => new Promise<void>((res) => (resolvePublish = res)),
   };
@@ -715,5 +724,111 @@ describe('SfuManager rejected pull is isolated to that peer (issue #250)', () =>
 
     expect(pulls()).toBe(4); // first try + 3 retries
     expect(events.onFailed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SfuManager batched, mic-first pulls (issue #254)', () => {
+  const flush = async () => {
+    for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+  };
+  const pullBodies = () =>
+    fetchMock.mock.calls
+      .filter((c) => String(c[0]).includes('/tracks/new'))
+      .map((c) => requestedTracks(c[1] as RequestInit));
+
+  it('pulls every peer in two requests: all mics first, then all video', async () => {
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+    const both = [
+      { kind: 'cam' as const, trackName: 'cam' },
+      { kind: 'mic' as const, trackName: 'mic' },
+    ];
+    sfu.setPeerTracks('peer-1', 'sess-A', both);
+    sfu.setPeerTracks('peer-2', 'sess-B', both);
+    await flush();
+
+    const bodies = pullBodies();
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toEqual([
+      { location: 'remote', sessionId: 'sess-A', trackName: 'mic' },
+      { location: 'remote', sessionId: 'sess-B', trackName: 'mic' },
+    ] as never);
+    expect(bodies[1].map((t) => t.trackName)).toEqual(['cam', 'cam']);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('a per-track rejection in a batch keeps the other peers pulled', async () => {
+    let calls = 0;
+    fetchMock = mock(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/api/turn-credentials')) return jsonRes([]);
+      if (u.includes('/sessions/new')) return jsonRes({ sessionId: 'sess-1' });
+      if (u.includes('/tracks/new')) {
+        calls++;
+        return jsonRes({
+          sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
+          tracks: requestedTracks(init).map((t) =>
+            t.sessionId === 'stale' ? { errorCode: 'not_found' } : { mid: String(calls) },
+          ),
+        });
+      }
+      return jsonRes({});
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'stale', [{ kind: 'mic', trackName: 'mic' }]);
+    sfu.setPeerTracks('peer-2', 'fresh', [{ kind: 'mic', trackName: 'mic' }]);
+    await flush();
+
+    // One batched request; only peer-1 waits for a retry (peer-2 isn't re-pulled).
+    expect(calls).toBe(1);
+    expect(events.onFailed).not.toHaveBeenCalled();
+    sfu.closeAll(); // cancel the pending retry
+  });
+
+  it('a request-level rejection splits the batch so one bad track cannot block the rest', async () => {
+    fetchMock = mock(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/api/turn-credentials')) return jsonRes([]);
+      if (u.includes('/sessions/new')) return jsonRes({ sessionId: 'sess-1' });
+      if (u.includes('/tracks/new')) {
+        const tracks = requestedTracks(init);
+        if (tracks.some((t) => t.sessionId === 'stale')) {
+          return jsonRes({ errorCode: 'bad_request', errorDescription: 'no such session' });
+        }
+        return jsonRes({
+          sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
+          tracks: tracks.map(() => ({ mid: String(nextMid++) })),
+        });
+      }
+      return jsonRes({});
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'stale', [{ kind: 'mic', trackName: 'mic' }]);
+    sfu.setPeerTracks('peer-2', 'fresh', [{ kind: 'mic', trackName: 'mic' }]);
+    await flush();
+
+    // Batch (2) refused → each alone: stale refused, fresh pulled.
+    expect(pullBodies().map((b) => b.length)).toEqual([2, 1, 1]);
+    expect(events.onFailed).not.toHaveBeenCalled();
+    sfu.closeAll();
+  });
+});
+
+describe('SfuManager closeAll keepTiles (issue #254)', () => {
+  it('suppresses the closure events so a rebuild keeps the tiles up', async () => {
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+    sfu.setPeerTracks('peer-1', 'their-sess', [{ kind: 'cam', trackName: 'cam' }]);
+    await settle();
+
+    sfu.closeAll({ keepTiles: true });
+    expect(events.onPeerClosed).not.toHaveBeenCalled();
+    expect(events.onRemoteStreamRemoved).not.toHaveBeenCalled();
   });
 });

@@ -3,15 +3,17 @@ import type { SfuTrack } from '@/core/types';
 import {
   chainOp,
   isRetryableSfuHttp,
+  isSfuTransportFailed,
+  matchPullResults,
   partitionMembers,
   reconcilePeerTracks,
   remoteKey,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
   sfuPullRetryDelayMs,
+  sfuRebuildDelayMs,
   sfuSessionError,
   sfuTrackError,
-  shouldFallbackToMesh,
 } from '@/rtc/sfu-logic';
 
 describe('remoteKey', () => {
@@ -69,15 +71,52 @@ describe('sfuSessionError', () => {
   });
 });
 
-describe('shouldFallbackToMesh', () => {
-  it('falls back only on a failed connection', () => {
-    expect(shouldFallbackToMesh('failed', false)).toBe(true);
-    expect(shouldFallbackToMesh('disconnected', false)).toBe(false);
-    expect(shouldFallbackToMesh('connected', false)).toBe(false);
+describe('isSfuTransportFailed', () => {
+  it('rebuilds only on a hard failed connection', () => {
+    expect(isSfuTransportFailed('failed')).toBe(true);
+    expect(isSfuTransportFailed('disconnected')).toBe(false);
+    expect(isSfuTransportFailed('connected')).toBe(false);
+  });
+});
+
+describe('matchPullResults (issue #254)', () => {
+  const req = [
+    { sessionId: 'a', trackName: 'mic' },
+    { sessionId: 'b', trackName: 'mic' },
+  ];
+
+  it('matches echoed results by (sessionId, trackName), regardless of order', () => {
+    const res = matchPullResults(req, [
+      { sessionId: 'b', trackName: 'mic', mid: '2' },
+      { sessionId: 'a', trackName: 'mic', mid: '1' },
+    ]);
+    expect(res).toEqual([{ mid: '1' }, { mid: '2' }]);
   });
 
-  it('never falls back after we deliberately closed the transport', () => {
-    expect(shouldFallbackToMesh('failed', true)).toBe(false);
+  it('falls back to request order when the SFU does not echo the names', () => {
+    expect(matchPullResults(req, [{ mid: '1' }, { errorCode: 'not_found' }])).toEqual([
+      { mid: '1' },
+      { error: 'not_found' },
+    ]);
+  });
+
+  it('reports a missing result as an error', () => {
+    expect(matchPullResults(req, [{ mid: '1' }])).toEqual([
+      { mid: '1' },
+      { error: 'no track in response' },
+    ]);
+    expect(matchPullResults(req, undefined)[0]).toEqual({ error: 'no track in response' });
+  });
+});
+
+describe('sfuRebuildDelayMs (issue #254)', () => {
+  it('rebuilds at once, then backs off to a 30s cap', () => {
+    expect(sfuRebuildDelayMs(1)).toBe(0);
+    expect(sfuRebuildDelayMs(2)).toBe(2000);
+    expect(sfuRebuildDelayMs(3)).toBe(5000);
+    expect(sfuRebuildDelayMs(6)).toBe(30000);
+    expect(sfuRebuildDelayMs(50)).toBe(30000);
+    expect(sfuRebuildDelayMs(0)).toBe(0);
   });
 });
 

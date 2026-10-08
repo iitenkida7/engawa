@@ -56,7 +56,13 @@ import {
 import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
 import { setPreferRedAudio } from '@/rtc/sdp';
 import { SfuManager } from '@/rtc/sfu';
-import { partitionMembers, SFU_REBUILD_MIN_INTERVAL_MS } from '@/rtc/sfu-logic';
+import {
+  partitionMembers,
+  SFU_REBUILD_RESET_MS,
+  SFU_RECONNECT_NOTICE_FROM,
+  SFU_STALE_STREAM_GRACE_MS,
+  sfuRebuildDelayMs,
+} from '@/rtc/sfu-logic';
 import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
@@ -153,11 +159,18 @@ export class App {
   // relays directories on group changes / publishes, so a transport rebuild
   // re-feeds them from this cache instead of waiting for a topology change.
   private sfuDirectory = new Map<string, { sessionId: string; tracks: SfuTrack[] }>();
-  // When the last SFU transport rebuild ran (see onSfuFailed). Starts at -∞ so
-  // the FIRST failure always gets its in-place rebuild — performance.now() is
-  // ms since page load, so a 0 start would misread any failure in the first
-  // 30s as a repeat and degrade straight to mesh.
-  private lastSfuRebuildAt = Number.NEGATIVE_INFINITY;
+  // SFU transport recovery (issue #254; see onSfuFailed). `sfuFailures` counts
+  // consecutive rebuilds for the backoff; `sfuRebuildAt` is the deadline of the
+  // pending one (null = none pending), pumped by tickNetwork like the WS retry.
+  // `sfuConnectedAt` is when the transport last reached 'connected'.
+  private sfuFailures = 0;
+  private sfuRebuildAt: number | null = null;
+  private sfuConnectedAt = Number.NEGATIVE_INFINITY;
+  private dismissSfuToast: (() => void) | null = null;
+  // Remote streams frozen in place by a rebuild (closeAll keepTiles), swept at
+  // `staleSweepAt` unless a re-pull replaced them first (detach is then a no-op).
+  private staleSfuStreams: { userId: string; streamId: string }[] = [];
+  private staleSweepAt: number | null = null;
 
   // Speaker-aware send policy. `lastLoudAtMs` is the last frame our mic was loud
   // (drives the post-speech hold). The computed camera encoding / screen bitrate
@@ -341,13 +354,14 @@ export class App {
 
     // SFU transport. Shares the same remote-media event surface as the mesh, so
     // tiles / recording need no changes. onPublished announces our published
-    // track directory to the server for relay; onFailed degrades to mesh.
+    // track directory to the server for relay; onFailed rebuilds the transport.
     this.sfu = new SfuManager({
       onRemoteStream: (userId, stream, kind) => this.view.attachRemoteStream(userId, stream, kind),
       onRemoteStreamRemoved: (userId, streamId) => this.view.detachRemoteStream(userId, streamId),
       onPeerClosed: (userId) => this.view.removePeer(userId),
       onPublished: (sessionId, tracks) => this.net.send({ type: 'sfu-publish', sessionId, tracks }),
       onFailed: () => this.onSfuFailed(),
+      onConnected: () => this.onSfuConnected(),
     });
 
     // Routes the toolbar's publish/unpublish to whichever transport is active.
@@ -660,6 +674,7 @@ export class App {
     this.clearPeerRecovery();
     this.rtc.closeAll();
     this.sfu.closeAll();
+    this.endSfuRecovery();
     this.knownSfuPeers.clear();
     this.sfuDirectory.clear();
     this.inProximity.clear();
@@ -916,6 +931,14 @@ export class App {
     if (this.reconnectAt != null && now >= this.reconnectAt) {
       this.reconnectAt = null;
       this.net.connect();
+    }
+    if (this.sfuRebuildAt != null && now >= this.sfuRebuildAt) {
+      this.sfuRebuildAt = null;
+      this.rebuildSfu();
+    }
+    if (this.staleSweepAt != null && now >= this.staleSweepAt) {
+      this.staleSweepAt = null;
+      this.sweepStaleSfuStreams();
     }
     this.tickPeerRecovery(now);
   }
@@ -1183,11 +1206,10 @@ export class App {
         // re-feeds it (issue #186), and the server only re-sends on changes.
         this.sfuDirectory.set(msg.userId, { sessionId: msg.sessionId, tracks: msg.tracks });
         // Ignore unless we're actually on SFU. setPeerTracks calls reopen(), which
-        // would resurrect a ghost SFU PeerConnection while we run mesh — the server
-        // keeps relaying these after a unilateral mesh fallback because it still
-        // believes the group is SFU-latched (invariant #2, it can't know we fell
-        // back).
+        // would resurrect a ghost SFU PeerConnection while we run mesh.
         if (this.currentMethod !== 'sfu') break;
+        // A rebuild is pending: its re-feed pulls from the cache updated above.
+        if (this.sfuRebuildAt != null) break;
         this.knownSfuPeers.add(msg.userId);
         this.sfu.setPeerTracks(msg.userId, msg.sessionId, msg.tracks);
         break;
@@ -1209,13 +1231,7 @@ export class App {
     // the joiner in meshMembers by the time the offer arrives. If that invariant
     // ever broke, the offer would be dropped here (simple-peer does not resend)
     // and the pair would fail to connect.
-    //
-    // sfuMembers is included so the SFU→mesh fallback works from the healthy side:
-    // when a peer's SFU connection fails it meshes directly to us, but we are still
-    // on SFU (meshMembers empty). Accepting their offer because they're in our
-    // sfuMembers lets the call survive. During normal SFU operation members never
-    // send mesh signals, so this only ever admits a genuine fallback offer.
-    if (!this.rtc.hasPeer(from) && !this.meshMembers.has(from) && !this.sfuMembers.has(from)) {
+    if (!this.rtc.hasPeer(from) && !this.meshMembers.has(from)) {
       return;
     }
     // If we have no peer for this user, create as non-initiator. Arm the same
@@ -1518,6 +1534,7 @@ export class App {
     this.toolbar.disableAllMedia();
     this.rtc.closeAll();
     this.sfu.closeAll();
+    this.endSfuRecovery();
     this.meshMembers.clear();
     this.sfuMembers.clear();
     this.inProximity.clear();
@@ -1550,12 +1567,22 @@ export class App {
         this.knownSfuPeers.delete(id);
         this.sfuDirectory.delete(id);
       }
+      // Frozen tiles (pending rebuild) of members who left: their removePeer above
+      // can't reach the UI — knownSfuPeers was cleared and the chain is closed.
+      for (const { userId } of this.staleSfuStreams) {
+        if (!this.sfuMembers.has(userId)) {
+          this.view.removePeer(userId);
+          this.sfuDirectory.delete(userId);
+        }
+      }
+      this.staleSfuStreams = this.staleSfuStreams.filter((s) => this.sfuMembers.has(s.userId));
     } else {
       // Always tear the SFU transport down when running mesh — even mesh→mesh — so
       // a ghost PC that a stray sfu-peer-tracks might have resurrected can't linger
       // pulling media next to the mesh path. closeAll is idempotent and cheap, and
       // group-updates only arrive on real topology changes (not every move).
       this.sfu.closeAll();
+      this.endSfuRecovery();
       this.knownSfuPeers.clear();
       this.sfuDirectory.clear();
       this.currentMethod = 'mesh';
@@ -1583,13 +1610,13 @@ export class App {
   }
 
   // The SFU transport failed (hard connection failure, or a control op that
-  // exhausted its retries). First failure: rebuild the SFU session in place —
-  // fresh PC, fresh Cloudflare session, re-publish our tracks, re-pull peers
-  // from the cached directories — because a rebuild keeps the group on the
-  // scalable path (issue #186; Cloudflare's renegotiate flow offers no
-  // client-driven ICE restart, so a rebuild is the recovery primitive). A
-  // second failure within SFU_REBUILD_MIN_INTERVAL_MS means the SFU path
-  // really is unhealthy: degrade to mesh so the call survives.
+  // exhausted its retries). Rebuild the session in place — fresh PC, fresh
+  // Cloudflare session, re-publish our tracks, re-pull peers from the cached
+  // directories (issue #186; Cloudflare offers no client-driven ICE restart).
+  // It never degrades to mesh (issue #254): mesh is sized for ≤3 people, and
+  // the fallback was one-sided (the server and the other members stayed on
+  // SFU). Instead rebuilds repeat with backoff for as long as the group is SFU.
+  // The tiles stay up, frozen under a "reconnecting" overlay, meanwhile.
   private onSfuFailed() {
     if (this.currentMethod !== 'sfu') {
       // Not on SFU, but a resurrected/ghost SFU transport may have failed. Ensure
@@ -1597,29 +1624,75 @@ export class App {
       this.sfu.closeAll();
       return;
     }
+    if (this.sfuRebuildAt != null) return; // a rebuild is already pending
     const now = performance.now();
-    if (now - this.lastSfuRebuildAt > SFU_REBUILD_MIN_INTERVAL_MS) {
-      this.lastSfuRebuildAt = now;
-      logNet('sfu-rebuild');
-      console.warn('[sfu] transport failed; rebuilding the SFU session');
-      this.sfu.closeAll();
-      this.knownSfuPeers.clear();
-      this.publishLocalToSfu();
-      this.refeedSfuDirectories();
-      return;
+    // A failure long after the last good connection is a new outage. One with
+    // no connection since the last rebuild (-∞) continues the current backoff.
+    if (now - this.sfuConnectedAt > SFU_REBUILD_RESET_MS && this.sfuConnectedAt > -Infinity) {
+      this.sfuFailures = 0;
     }
-    logNet('sfu-fallback-mesh');
-    console.warn('[sfu] connection failed; falling back to mesh');
-    this.toasts.info(t('app.sfuFallback'));
-    // Reuse the mesh reconciliation (it tears the SFU transport down and opens a
-    // peer to every former SFU member). Snapshot members first — it clears the set.
-    //
-    // Caveat: the server still considers this group SFU-latched, so if another
-    // member later joins it will send method='sfu' again and we re-attempt SFU
-    // (and may fail again). There is intentionally no "I fell back" message to the
-    // server — signaling stays stateless (invariant #2) — so we accept this rare
-    // re-try churn rather than add a control path for it.
-    this.applyGroupMethod('mesh', [...this.sfuMembers]);
+    this.sfuConnectedAt = Number.NEGATIVE_INFINITY;
+    this.sfuFailures++;
+    const delay = sfuRebuildDelayMs(this.sfuFailures);
+    logNet('sfu-rebuild', { attempt: this.sfuFailures, delayMs: delay });
+    console.warn(`[sfu] transport failed; rebuilding in ${delay}ms`);
+    this.staleSfuStreams.push(...this.sfu.closeAll({ keepTiles: true }));
+    this.staleSweepAt = null;
+    this.knownSfuPeers.clear();
+    this.view.setReconnecting(true);
+    if (this.sfuFailures >= SFU_RECONNECT_NOTICE_FROM && !this.dismissSfuToast) {
+      this.dismissSfuToast = this.toasts.action(t('app.sfuReconnecting'), [], 0);
+    }
+    this.sfuRebuildAt = now + delay;
+  }
+
+  private rebuildSfu() {
+    if (this.currentMethod !== 'sfu') return;
+    this.publishLocalToSfu();
+    this.refeedSfuDirectories();
+    // Nothing to publish or pull means no PC gets built (and no 'connected'
+    // will come): the rebuild is trivially done.
+    if (!this.sfu.active && !this.hasSfuWork()) this.onSfuConnected();
+  }
+
+  private hasSfuWork(): boolean {
+    if (this.media.micStream || this.media.camStream || this.media.screenStream) return true;
+    for (const [id, dir] of this.sfuDirectory) {
+      if (this.sfuMembers.has(id) && dir.tracks.length > 0) return true;
+    }
+    return false;
+  }
+
+  // The (re)built SFU transport connected: clear the reconnecting UI and give
+  // re-pulls a grace period to replace the frozen streams before sweeping.
+  private onSfuConnected() {
+    this.sfuConnectedAt = performance.now();
+    this.dismissSfuToast?.();
+    this.dismissSfuToast = null;
+    this.view.setReconnecting(false);
+    if (this.staleSfuStreams.length > 0) {
+      this.staleSweepAt = performance.now() + SFU_STALE_STREAM_GRACE_MS;
+    }
+  }
+
+  // Detach the frozen streams no re-pull replaced (a no-op for replaced ones,
+  // since detachRemoteStream matches the stream id).
+  private sweepStaleSfuStreams() {
+    const stale = this.staleSfuStreams;
+    this.staleSfuStreams = [];
+    for (const { userId, streamId } of stale) this.view.detachRemoteStream(userId, streamId);
+  }
+
+  // Leaving SFU (group change, away, session reset): drop all recovery state.
+  private endSfuRecovery() {
+    this.sfuRebuildAt = null;
+    this.sfuFailures = 0;
+    this.sfuConnectedAt = Number.NEGATIVE_INFINITY;
+    this.dismissSfuToast?.();
+    this.dismissSfuToast = null;
+    this.view.setReconnecting(false);
+    this.staleSweepAt = null;
+    this.sweepStaleSfuStreams();
   }
 
   // Pick each SFU camera's simulcast layer by its rendered tile width (issue
