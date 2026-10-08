@@ -20,6 +20,7 @@ import {
   SFU_API_TIMEOUT_MS,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
+  sfuPullRetryDelayMs,
   sfuSessionError,
   sfuTrackError,
   shouldFallbackToMesh,
@@ -107,6 +108,11 @@ class StaleSfuOpError extends Error {
   }
 }
 
+// Thrown by pullTrack when the SFU answered but rejected the pull (top-level or
+// per-track errorCode). The PC is untouched at that point, so it is a fault of
+// that one peer's directory entry, not of our transport (issue #250).
+class SfuPullRejectedError extends Error {}
+
 export class SfuManager {
   private events: SfuEvents;
 
@@ -138,6 +144,9 @@ export class SfuManager {
   // from the old session is dead, so they are dropped and re-pulled even though
   // the (userId, kind) keys look unchanged.
   private peerSessions = new Map<string, string>();
+  // Bumped on every directory a peer announces (and dropped when they leave), so
+  // a scheduled pull retry can tell its directory has been superseded (#250).
+  private peerDirSeq = new Map<string, number>();
 
   // Serializes every renegotiation against the single PC.
   private opChain: Promise<void> = Promise.resolve();
@@ -216,6 +225,19 @@ export class SfuManager {
   // those tracks are dead after their transport rebuild (issue #186).
   setPeerTracks(userId: string, sessionId: string, tracks: SfuTrack[]) {
     this.reopen();
+    const seq = (this.peerDirSeq.get(userId) ?? 0) + 1;
+    this.peerDirSeq.set(userId, seq);
+    this.reconcilePeer(userId, sessionId, tracks, seq, 0);
+  }
+
+  private reconcilePeer(
+    userId: string,
+    sessionId: string,
+    tracks: SfuTrack[],
+    seq: number,
+    retry: number,
+  ) {
+    const gen = this.generation;
     this.enqueue(async () => {
       const prevSession = this.peerSessions.get(userId);
       if (prevSession !== undefined && prevSession !== sessionId) {
@@ -228,15 +250,35 @@ export class SfuManager {
       // are treated as absent (existing ones drop, new ones aren't pulled).
       const desired = this.videoPullPaused ? tracks.filter((t) => t.kind === 'mic') : tracks;
       const { toPull, toDrop } = reconcilePeerTracks(userId, desired, this.remoteTracks.keys());
+      let rejected: SfuPullRejectedError | null = null;
       for (const t of toPull) {
-        await this.pullTrack(userId, sessionId, t.kind, t.trackName);
+        try {
+          await this.pullTrack(userId, sessionId, t.kind, t.trackName);
+        } catch (err) {
+          // A rejected pull is this peer's problem (stale directory), not our
+          // transport's: skip it and retry below rather than rebuild (#250).
+          if (!(err instanceof SfuPullRejectedError)) throw err;
+          logNet('sfu-pull-rejected', { err: err.message, retry });
+          rejected = err;
+        }
       }
       for (const key of toDrop) await this.dropRemote(key);
+      if (!rejected) return;
+      const delay = sfuPullRetryDelayMs(retry + 1);
+      // Still rejected against an unchanged directory after every retry: the
+      // fault may be our own session after all, so take the normal failure path.
+      if (delay === null) throw rejected;
+      setTimeout(() => {
+        if (this.closed || gen !== this.generation) return;
+        if (this.peerDirSeq.get(userId) !== seq) return; // superseded or left
+        this.reconcilePeer(userId, sessionId, tracks, seq, retry + 1);
+      }, delay);
     });
   }
 
   // A peer left the group entirely: drop all of their pulled tracks.
   removePeer(userId: string) {
+    this.peerDirSeq.delete(userId);
     this.enqueue(async () => {
       this.peerSessions.delete(userId);
       for (const key of [...this.remoteTracks.keys()]) {
@@ -650,13 +692,13 @@ export class SfuManager {
       tracks: [{ location: 'remote', sessionId: theirSessionId, trackName }],
     });
     const pullErr = sfuErrorMessage(resp);
-    if (pullErr) throw new Error(`sfu pull: ${pullErr}`);
+    if (pullErr) throw new SfuPullRejectedError(`sfu pull: ${pullErr}`);
     // A per-track failure (200 top-level, error inside resp.tracks[], no mid) must
     // also throw — otherwise we'd store an unroutable entry that gives no media and
     // blocks every future re-pull. Throwing before remoteTracks.set leaves the key
     // un-recorded so a later directory update can retry.
     const trackErr = sfuTrackError(resp);
-    if (trackErr) throw new Error(`sfu pull ${trackName}: ${trackErr}`);
+    if (trackErr) throw new SfuPullRejectedError(`sfu pull ${trackName}: ${trackErr}`);
 
     // Cloudflare returns, in resp.tracks, the mid it assigned this remote track
     // in the offer SDP it just sent us — the same mid the browser exposes on the

@@ -98,7 +98,7 @@ beforeEach(() => {
     if (u.includes('/sessions/new')) return jsonRes({ sessionId: 'sess-1' });
     if (u.includes('/tracks/new')) {
       // Cloudflare always returns the assigned mid per track; pullTrack now
-      // requires it (a missing mid / per-track errorCode is a hard failure).
+      // requires it (a missing mid / per-track errorCode rejects the pull).
       return jsonRes({
         sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
         tracks: [{ mid: '0' }],
@@ -618,5 +618,102 @@ describe('SfuManager control-plane timeout (issue #194)', () => {
     } finally {
       timeoutSpy.mockRestore();
     }
+  });
+});
+
+describe('SfuManager rejected pull is isolated to that peer (issue #250)', () => {
+  // Fire scheduled retries immediately so the backoff doesn't slow the test.
+  let timeoutSpy: ReturnType<typeof spyOn>;
+  let delays: number[];
+  beforeEach(() => {
+    delays = [];
+    timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      if (ms) delays.push(ms);
+      queueMicrotask(fn);
+      return 0;
+    }) as unknown as typeof setTimeout);
+  });
+  afterEach(() => timeoutSpy.mockRestore());
+
+  const flush = async () => {
+    for (let i = 0; i < 50; i++) await new Promise<void>((r) => queueMicrotask(r));
+  };
+
+  // tracks/new answers with a per-track error for the first `rejects` pulls.
+  function rejectPulls(rejects: number) {
+    let pulls = 0;
+    fetchMock = mock(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/api/turn-credentials')) return jsonRes([]);
+      if (u.includes('/sessions/new')) return jsonRes({ sessionId: 'sess-1' });
+      if (u.includes('/tracks/new')) {
+        pulls++;
+        if (pulls <= rejects) return jsonRes({ tracks: [{ errorCode: 'not_found' }] });
+        return jsonRes({
+          sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
+          tracks: [{ mid: '0' }],
+        });
+      }
+      return jsonRes({});
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    return () => pulls;
+  }
+
+  it('retries a rejected pull with backoff instead of failing the transport', async () => {
+    const pulls = rejectPulls(2);
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'their-sess', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+
+    expect(pulls()).toBe(3);
+    expect(delays).toEqual([1000, 2000]);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('drops the retry once a newer directory for the peer arrives', async () => {
+    const pulls = rejectPulls(1);
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    // Hold the retry so a fresh directory can land first.
+    const pending: (() => void)[] = [];
+    timeoutSpy.mockImplementation(((fn: () => void, ms?: number) => {
+      if (ms) pending.push(fn);
+      else queueMicrotask(fn);
+      return 0;
+    }) as unknown as typeof setTimeout);
+
+    sfu.setPeerTracks('peer-1', 'old-sess', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+    expect(pending).toHaveLength(1);
+
+    // The peer rebuilt: its new directory pulls from the new session.
+    sfu.setPeerTracks('peer-1', 'new-sess', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+    expect(pulls()).toBe(2);
+
+    // The stale retry fires but must not pull the old session again.
+    pending[0]!();
+    await flush();
+    expect(pulls()).toBe(2);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the failure path once retries are exhausted', async () => {
+    const pulls = rejectPulls(Number.POSITIVE_INFINITY);
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'their-sess', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+
+    expect(pulls()).toBe(4); // first try + 3 retries
+    expect(events.onFailed).toHaveBeenCalledTimes(1);
   });
 });
