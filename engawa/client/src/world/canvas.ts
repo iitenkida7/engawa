@@ -6,6 +6,7 @@ import {
   MAP_WIDTH,
   PLAYER_RADIUS,
   REACTION_LIFETIME_MS,
+  SEAT_CONNECT_RADIUS,
   ZOOM_DEFAULT,
   ZOOM_MAX,
   ZOOM_MIN,
@@ -18,11 +19,13 @@ import { floorKindAt, propFor, type RoomKind, roomKindAt } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import {
   deskFacesSouth,
+  isDeskSeat,
   LOUNGE_RECT,
   LOUNGE_TABLE_RECT,
   MAP_COLS,
   MAP_ROWS,
   MEETING_ROOM_RECTS,
+  OPEN_DESK_CHAIRS,
   OUTDOOR_MARGIN,
   officeMap,
   POD_RUGS,
@@ -448,8 +451,10 @@ export class CanvasRenderer {
     // meaningless otherwise), and hidden inside a meeting room, where the call is
     // governed by room membership (everyone in / nobody out), not radius.
     if (self && !selfZone && mediaActive) {
+      // A desk seat is private: the reach shrinks to just the adjacent tiles.
+      const reach = isDeskSeat(self.x, self.y) ? SEAT_CONNECT_RADIUS : CONNECT_RADIUS;
       ctx.beginPath();
-      ctx.arc(self.x, self.y, CONNECT_RADIUS, 0, Math.PI * 2);
+      ctx.arc(self.x, self.y, reach, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(79,140,255,0.08)';
       ctx.fill();
       ctx.strokeStyle = 'rgba(79,140,255,0.25)';
@@ -698,15 +703,12 @@ export class CanvasRenderer {
       }
     }
 
-    // A chair in front of each open-office desk. Drawn in its own pass AFTER all
-    // floors, because the seat sits just below the desk (extending into the next
-    // tile) and would otherwise be painted over by that row's floor.
-    for (let r = 0; r < MAP_ROWS; r++) {
-      for (let c = 0; c < MAP_COLS; c++) {
-        if (officeMap[r][c] === Tile.DESK && floorKindAt(c, r) === 'wood') {
-          this.drawDeskChair(cx, c * TILE_SIZE, r * TILE_SIZE, deskFacesSouth(c, r));
-        }
-      }
+    // One chair in front of each open-office desk island (centred on the 3-wide
+    // desk). Drawn in its own pass AFTER all floors, because the seat sits just
+    // in front of the desk (extending into the next tile) and would otherwise be
+    // painted over by that row's floor.
+    for (const ch of OPEN_DESK_CHAIRS) {
+      this.drawDeskChair(cx, ch.col * TILE_SIZE, ch.row * TILE_SIZE, ch.facesSouth);
     }
 
     // Meeting-room furniture: proper tables with chairs (and an exec desk for the

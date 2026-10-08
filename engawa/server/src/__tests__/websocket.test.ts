@@ -41,6 +41,7 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       x: data.x ?? 0,
       y: data.y ?? 0,
       zoneId: data.zoneId ?? null,
+      seated: data.seated ?? false,
       outfit: data.outfit ?? O(),
       sfuSessionId: data.sfuSessionId ?? null,
       sfuTracks: data.sfuTracks ?? [],

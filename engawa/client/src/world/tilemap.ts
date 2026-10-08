@@ -306,57 +306,79 @@ export const MEETING_ROOM_RECTS = ROOMS.filter(
   h: room.h * TILE_SIZE,
 }));
 
-// 26 open-office seats grouped into team "islands" (pods) instead of uniform
-// benches. Within a pod the two desk-rows are adjacent and face each other: the
-// upper row faces south (monitor flipped down, chair above), the lower faces
-// north, so people sit across the island. Wide aisles run between the pods.
-//   Top pod-row (desks on rows 9/10):   four 4-seat islands.
-//   Bottom pod-row (desks on rows 15/16): two 4-seat islands + one 6-seat island.
-const OPEN_DESKS: [number, number][] = [
-  // ── Top row: four 4-seat pods (upper desk row 9 faces south, row 10 north) ──
-  [4, 9],
-  [5, 9],
-  [4, 10],
-  [5, 10],
-  [11, 9],
-  [12, 9],
-  [11, 10],
-  [12, 10],
-  [19, 9],
-  [20, 9],
-  [19, 10],
-  [20, 10],
-  [27, 9],
-  [28, 9],
-  [27, 10],
-  [28, 10],
-  // ── Bottom row: two 4-seat pods ──
-  [5, 15],
-  [6, 15],
-  [5, 16],
-  [6, 16],
-  [11, 15],
-  [12, 15],
-  [11, 16],
-  [12, 16],
-  // ── Bottom row: one 6-seat pod (3 wide × 2 rows) ──
-  [18, 15],
-  [19, 15],
-  [20, 15],
-  [18, 16],
-  [19, 16],
-  [20, 16],
+// Open-office desks as individual, isolated workstations (#263 follow-up): each
+// is a 3-tile-wide desk with ONE chair centred in front, so no two chairs land
+// in each other's adjacency ring — a desk seat is a private one-person spot
+// until someone steps into the tiles around it (the server shrinks a seated
+// person's proximity bubble; see SEAT_CONNECT_RADIUS). Two bands of face-to-face
+// islands with wide aisles; the bottom band stays left of the lounge.
+type DeskUnit = { col: number; row: number; facing: 'south' | 'north' };
+
+// Island centre columns per band. Within an island the two desk rows face each
+// other (upper row south → chair above, lower row north → chair below). Centres
+// are ≥4 tiles apart so a chair never lands in a neighbour's adjacent ring.
+const TOP_ISLAND_COLS = [2, 6, 10, 14, 20, 24, 28];
+const BOTTOM_ISLAND_COLS = [2, 6, 10, 14]; // left of the lounge (cols 24-30)
+
+const OPEN_DESK_UNITS: DeskUnit[] = [
+  ...TOP_ISLAND_COLS.flatMap((col): DeskUnit[] => [
+    { col, row: 9, facing: 'south' },
+    { col, row: 10, facing: 'north' },
+  ]),
+  ...BOTTOM_ISLAND_COLS.flatMap((col): DeskUnit[] => [
+    { col, row: 15, facing: 'south' },
+    { col, row: 16, facing: 'north' },
+  ]),
 ];
 
-// The upper desk-row of each pod faces SOUTH (chair above the desk, monitor
-// flipped to the bottom) so a pod's two rows sit face-to-face — two people
-// looking at each other across the island. These are the open-office desks on
-// rows 9 and 15 (the lower rows, 10 and 16, keep the default north facing).
-const SOUTH_FACING_DESK_ROWS = new Set<number>([9 + OUTDOOR_MARGIN, 15 + OUTDOOR_MARGIN]);
+// The chair tile sits one row in front of the desk's centre (south → above,
+// north → below), building-local.
+function seatOf(u: DeskUnit): [number, number] {
+  return [u.col, u.row + (u.facing === 'south' ? -1 : 1)];
+}
 
-/** True when the open-office desk at (col,row) is drawn facing south (flipped). */
+// The three desk tiles of every unit (building-local) — stamped SOLID.
+const OPEN_DESKS: [number, number][] = OPEN_DESK_UNITS.flatMap((u) => [
+  [u.col - 1, u.row],
+  [u.col, u.row],
+  [u.col + 1, u.row],
+]);
+
+// Desk tiles drawn facing south (map coords), for the renderer's monitor flip.
+const SOUTH_DESK_TILES = new Set<string>(
+  OPEN_DESK_UNITS.filter((u) => u.facing === 'south').flatMap((u) =>
+    [u.col - 1, u.col, u.col + 1].map((c) => `${c + OUTDOOR_MARGIN},${u.row + OUTDOOR_MARGIN}`),
+  ),
+);
+
+/** True when the open-office desk at (map col,row) is drawn facing south. */
 export function deskFacesSouth(col: number, row: number): boolean {
-  return SOUTH_FACING_DESK_ROWS.has(row) && officeMap[row]?.[col] === Tile.DESK;
+  return SOUTH_DESK_TILES.has(`${col},${row}`);
+}
+
+// Chairs for the renderer (map coords): the desk centre tile + facing; the chair
+// is drawn one tile in front of it.
+export const OPEN_DESK_CHAIRS: { col: number; row: number; facesSouth: boolean }[] =
+  OPEN_DESK_UNITS.map((u) => ({
+    col: u.col + OUTDOOR_MARGIN,
+    row: u.row + OUTDOOR_MARGIN,
+    facesSouth: u.facing === 'south',
+  }));
+
+// Seat tiles (map coords) — where a person actually sits. Standing here marks you
+// "seated", which privatises your proximity bubble (server-side).
+const SEAT_TILES = new Set<string>(
+  OPEN_DESK_UNITS.map((u) => {
+    const [sc, sr] = seatOf(u);
+    return `${sc + OUTDOOR_MARGIN},${sr + OUTDOOR_MARGIN}`;
+  }),
+);
+
+/** True when (px,py) is on an open-office desk seat (a private one-person spot). */
+export function isDeskSeat(px: number, py: number): boolean {
+  const col = Math.floor(px / TILE_SIZE);
+  const row = Math.floor(py / TILE_SIZE);
+  return SEAT_TILES.has(`${col},${row}`);
 }
 
 // A casual lounge in the open bottom-right corner: an OPEN social spot (not a
@@ -550,26 +572,19 @@ export const LOUNGE_TABLE_RECT = {
 // kinds. Pixel rects so props that don't fill a whole tile still block.
 const SOLID_RECTS: { x: number; y: number; w: number; h: number }[] = [LOUNGE_TABLE_RECT];
 
-// Team-island (pod) footprints as [colStart, colEnd, rowStart, rowEnd], mirroring
-// OPEN_DESKS. The renderer draws a soft accent rug under each so the desk clusters
-// read as team neighbourhoods (Gather-like).
-const PODS: [number, number, number, number][] = [
-  [4, 5, 9, 10],
-  [11, 12, 9, 10],
-  [19, 20, 9, 10],
-  [27, 28, 9, 10],
-  [5, 6, 15, 16],
-  [11, 12, 15, 16],
-  [18, 20, 15, 16],
+// One accent rug under each island (a centre column + its face-to-face desk
+// rows): 3 tiles wide (the desk block) × 4 tiles tall (chair-desk-desk-chair),
+// so each private workstation reads as its own little spot. Centres are ≥4 apart
+// so the 3-wide rugs never touch.
+const ISLANDS: { col: number; rowTop: number }[] = [
+  ...TOP_ISLAND_COLS.map((col) => ({ col, rowTop: 9 })),
+  ...BOTTOM_ISLAND_COLS.map((col) => ({ col, rowTop: 15 })),
 ];
-
-// Pixel rects for the pod rugs: the desk block plus a full one-tile border all
-// around (so a 2×2 desk pod sits on a 4×4 rug).
-export const POD_RUGS = PODS.map(([cs, ce, rs, re]) => ({
-  x: (cs - 1) * TILE_SIZE + OFF_X,
-  y: (rs - 1) * TILE_SIZE + OFF_Y,
-  w: (ce - cs + 3) * TILE_SIZE,
-  h: (re - rs + 3) * TILE_SIZE,
+export const POD_RUGS = ISLANDS.map(({ col, rowTop }) => ({
+  x: (col - 1) * TILE_SIZE + OFF_X,
+  y: (rowTop - 1) * TILE_SIZE + OFF_Y, // top chair row
+  w: 3 * TILE_SIZE,
+  h: 4 * TILE_SIZE, // chair, desk, desk, chair
 }));
 
 /**

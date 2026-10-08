@@ -51,7 +51,16 @@ export type ClientMessage =
     }
   // Avatar appearance changed; relayed to the workspace (sanitized, never stored).
   | { type: 'outfit-update'; outfit: Outfit }
-  | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
+  | {
+      type: 'move';
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      zoneId?: string | null;
+      // On an open-office desk seat: shrinks this member's proximity bubble.
+      seated?: boolean;
+    }
   | {
       type: 'status';
       status: PlayerStatus;
@@ -135,6 +144,9 @@ export type WsData = {
   // Last reported meeting-room zone id (null = open floor). Reported by the
   // client on every `move`; drives server-side proximity grouping.
   zoneId: string | null;
+  // Whether the client is on an open-office desk seat (a private one-person
+  // spot). Reported on every `move`; shrinks this member's proximity bubble.
+  seated: boolean;
   // Modular avatar configuration (#141). Sanitized on join / outfit-update and
   // relayed to peers; transient, reset on restart (invariant #2).
   outfit: Outfit;

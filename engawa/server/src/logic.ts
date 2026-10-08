@@ -316,12 +316,21 @@ export const PROXIMITY_CONNECT_RADIUS = 120;
 // (a latecomer connects to every member, not just nearby ones).
 export const PROXIMITY_DISCONNECT_RADIUS = 150;
 
+// Proximity radii while seated at an open-office desk (#263 follow-up): a desk
+// seat is a private one-person spot, so only the 8 adjacent tiles (diagonal ≈
+// 71px) connect — never a passer-by two tiles away (orthogonal 100px). Applied
+// when EITHER member is seated. Mirrors the client's SEAT_CONNECT_RADIUS.
+export const SEAT_CONNECT_RADIUS = 80;
+export const SEAT_DISCONNECT_RADIUS = 100;
+
 export type GroupMember = {
   userId: string;
   x: number;
   y: number;
   // Meeting-room zone id, or null when standing on the open floor.
   zoneId: string | null;
+  // On an open-office desk seat: privatises this member's proximity bubble.
+  seated?: boolean;
 };
 
 export type ProximityGroup = {
@@ -393,8 +402,13 @@ export function computeProximityGroups(
       return a.zoneId !== null && a.zoneId === b.zoneId;
     }
     const d = Math.hypot(b.x - a.x, b.y - a.y);
-    if (d <= connectRadius) return true;
-    return d <= disconnectRadius && wereTogether(a.userId, b.userId);
+    // A desk seat is private: when either is seated, only an adjacent tile
+    // connects (never a passer-by two tiles away).
+    const seated = a.seated || b.seated;
+    const cR = seated ? SEAT_CONNECT_RADIUS : connectRadius;
+    const dR = seated ? SEAT_DISCONNECT_RADIUS : disconnectRadius;
+    if (d <= cR) return true;
+    return d <= dR && wereTogether(a.userId, b.userId);
   };
 
   // Union-find over the proximity graph.

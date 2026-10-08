@@ -87,6 +87,7 @@ import {
   canOccupy,
   findAdjacentSpawn,
   findWalkableSpawn,
+  isDeskSeat,
   isMeetingZone,
   zoneAt,
 } from '@/world/tilemap';
@@ -1107,6 +1108,7 @@ export class App {
               vx: 0,
               vy: 0,
               zoneId: zoneAt(this.me.x, this.me.y)?.id ?? null,
+              seated: isDeskSeat(this.me.x, this.me.y),
             });
             this.lastSentX = this.me.x;
             this.lastSentY = this.me.y;
@@ -1363,6 +1365,8 @@ export class App {
           vy: selfVy,
           // Report our meeting-room zone so the server can group us (SFU vs mesh).
           zoneId: zoneAt(this.me.x, this.me.y)?.id ?? null,
+          // A desk seat privatises our proximity bubble (#263 follow-up).
+          seated: isDeskSeat(this.me.x, this.me.y),
         });
         this.lastSentX = this.me.x;
         this.lastSentY = this.me.y;

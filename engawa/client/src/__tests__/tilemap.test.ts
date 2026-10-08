@@ -3,10 +3,12 @@ import {
   canOccupy,
   findAdjacentSpawn,
   findWalkableSpawn,
+  isDeskSeat,
   isSolid,
   LOUNGE_TABLE_RECT,
   MAP_COLS,
   MAP_ROWS,
+  OPEN_DESK_CHAIRS,
   OUTDOOR_MARGIN,
   officeMap,
   SOLID,
@@ -141,6 +143,41 @@ describe('findAdjacentSpawn', () => {
     expect(findAdjacentSpawn(x, y, x + 500, y, 5).x).toBeGreaterThan(x);
     // Approaching from the west → stop on the west neighbour.
     expect(findAdjacentSpawn(x, y, x - 500, y, 5).x).toBeLessThan(x);
+  });
+});
+
+describe('isDeskSeat (private one-person desk seats)', () => {
+  // The seat tile sits one row in front of the desk centre (south → above).
+  const seats = OPEN_DESK_CHAIRS.map((ch) => ({
+    col: ch.col,
+    row: ch.row + (ch.facesSouth ? -1 : 1),
+  }));
+
+  it('is true on every desk seat tile and walkable there', () => {
+    for (const s of seats) {
+      const { x, y } = center(s.col, s.row);
+      expect(isDeskSeat(x, y)).toBe(true);
+      expect(canOccupy(x, y, 5)).toBe(true); // you can actually sit there
+    }
+  });
+
+  it('is false on the desk tile itself and on open aisle floor', () => {
+    const desk = center(OPEN_DESK_CHAIRS[0].col, OPEN_DESK_CHAIRS[0].row);
+    expect(isDeskSeat(desk.x, desk.y)).toBe(false);
+    // A spot far from any desk (map origin grass) is not a seat.
+    expect(isDeskSeat(TILE_SIZE / 2, TILE_SIZE / 2)).toBe(false);
+  });
+
+  it('spaces seats so none sit in another seat’s adjacency ring (privacy)', () => {
+    for (let i = 0; i < seats.length; i++) {
+      for (let j = i + 1; j < seats.length; j++) {
+        const cheby = Math.max(
+          Math.abs(seats[i].col - seats[j].col),
+          Math.abs(seats[i].row - seats[j].row),
+        );
+        expect(cheby).toBeGreaterThanOrEqual(2);
+      }
+    }
   });
 });
 
