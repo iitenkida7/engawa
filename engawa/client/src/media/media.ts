@@ -233,11 +233,12 @@ export class MediaManager {
     this.camPending = (async () => {
       const raw = await this.getUserMediaFor('cam', (deviceId) => ({
         video: {
-          // Capture at 720p so the camera (and virtual background) stay crisp
-          // when a tile is enlarged; send bitrate is still bounded by the
-          // cam-bitrate throttle / SFU simulcast ladder (#233).
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          // Capture at 540p: a clear step up from the old 320x240 (crisp enough
+          // when a tile is enlarged) without the CPU/bandwidth cost of full 720p,
+          // which overwhelmed 5-person mesh calls (#235). Send bitrate is further
+          // bounded by the cam-bitrate throttle / SFU simulcast ladder.
+          width: { ideal: 960 },
+          height: { ideal: 540 },
           // Higher fps target keeps per-frame interval short → less wait.
           frameRate: { ideal: 30, max: 30 },
           ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
