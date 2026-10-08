@@ -349,6 +349,10 @@ export type QualitySample = {
   sendKbps: number; // total uplink actually in flight
   recvKbps: number; // total downlink actually in flight
   availableOutgoingKbps?: number; // min across conns (uplink bottleneck estimate)
+  // Any send stream reports the encoder is CPU-bound (qualityLimitationReason
+  // === 'cpu'): a proxy for the whole machine being overloaded (e.g. decoding
+  // many camera tiles in a big call), used to shed receive load (#261).
+  cpuLimited?: boolean;
 };
 
 // Pure: fold per-connection rates into one QualitySample. Connections with no
@@ -366,6 +370,7 @@ export function summarizeConnQuality(conns: RtcConn[]): QualitySample {
       if (s.dir === 'send') {
         q.sendKbps += s.kbps;
         q.sendLossPct = maxOf(q.sendLossPct, s.packetLossPct);
+        if (s.qualityLimitationReason === 'cpu') q.cpuLimited = true;
       } else {
         q.recvKbps += s.kbps;
         q.recvLossPct = maxOf(q.recvLossPct, s.packetLossPct);
