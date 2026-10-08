@@ -185,6 +185,15 @@ describe('meeting minimize / restore', () => {
     expect(immersive()).toBe(true);
   });
 
+  it('lays the tiles out in the right-hand sidebar when minimized', () => {
+    addCam(view, 'a');
+    minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const tile = document.querySelector<HTMLElement>('.panel[data-focus-key="cam:a"]')!;
+    // Pinned to the right column (its left edge is past the viewport midpoint),
+    // so the map stays visible on the left.
+    expect(Number.parseFloat(tile.style.left)).toBeGreaterThan(window.innerWidth / 2);
+  });
+
   it('resets minimize state and hides the toggle when leaving the room', () => {
     minimizeBtn().dispatchEvent(new MouseEvent('click', { bubbles: true }));
     view.setMeetingMode(false);

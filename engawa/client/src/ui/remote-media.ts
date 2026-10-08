@@ -876,12 +876,17 @@ export class RemoteMediaView {
       return;
     }
     const items = panels.map((p) => p.item);
+    // A minimized meeting shows the tiles in the right-hand sidebar column so the
+    // map stays fully visible (you can see where to walk) — regardless of the
+    // layout mode picked for ordinary calls.
     const geos =
-      this.layoutMode === 'presentation'
-        ? computePresentationLayout(items, vw, vh)
-        : this.layoutMode === 'sidebar'
-          ? computeSidebarLayout(items, vw, vh)
-          : computeGridLayout(items, vw, vh);
+      inMeeting && this.meetingMinimized
+        ? computeSidebarLayout(items, vw, vh)
+        : this.layoutMode === 'presentation'
+          ? computePresentationLayout(items, vw, vh)
+          : this.layoutMode === 'sidebar'
+            ? computeSidebarLayout(items, vw, vh)
+            : computeGridLayout(items, vw, vh);
     panels.forEach((p, i) => {
       applyPanelGeometry(p.el, geos[i]);
     });
