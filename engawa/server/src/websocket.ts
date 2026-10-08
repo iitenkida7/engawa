@@ -101,7 +101,13 @@ function broadcastGroups(
     if (!c.data.joined || c.data.workspace !== workspace) continue;
     // Away clients are hidden from grouping (#220): no one connects to them.
     if (c.data.away) continue;
-    members.push({ userId: c.data.userId, x: c.data.x, y: c.data.y, zoneId: c.data.zoneId });
+    members.push({
+      userId: c.data.userId,
+      x: c.data.x,
+      y: c.data.y,
+      zoneId: c.data.zoneId,
+      seated: c.data.seated,
+    });
     wsClients.push(c);
   }
 
@@ -299,6 +305,7 @@ export function createWebSocketHandler(
             ws.data.x = prev.data.x;
             ws.data.y = prev.data.y;
             ws.data.zoneId = prev.data.zoneId;
+            ws.data.seated = prev.data.seated;
             ws.data.outfit = sanitizeOutfit(msg.outfit);
             // groupKey stays null (not prev's): the topology may match, but the
             // client missed everything relayed during the outage (group-updates,
@@ -461,6 +468,7 @@ export function createWebSocketHandler(
           ws.data.x = x;
           ws.data.y = y;
           ws.data.zoneId = msg.zoneId ?? null;
+          ws.data.seated = msg.seated ?? false;
           // Away clients are invisible (#220): keep their position current for
           // when they return, but don't relay movement or regroup around them.
           if (ws.data.away) break;

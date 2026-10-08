@@ -57,6 +57,7 @@ const server = Bun.serve({
           x: 0,
           y: 0,
           zoneId: null,
+          seated: false,
           outfit: {
             sex: 0,
             skin: 0,

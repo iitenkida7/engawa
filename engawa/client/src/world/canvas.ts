@@ -6,6 +6,7 @@ import {
   MAP_WIDTH,
   PLAYER_RADIUS,
   REACTION_LIFETIME_MS,
+  SEAT_CONNECT_RADIUS,
   ZOOM_DEFAULT,
   ZOOM_MAX,
   ZOOM_MIN,
@@ -18,12 +19,13 @@ import { floorKindAt, propFor, type RoomKind, roomKindAt } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import {
   deskFacesSouth,
+  isDeskSeat,
   LOUNGE_RECT,
   LOUNGE_TABLE_RECT,
   MAP_COLS,
   MAP_ROWS,
   MEETING_ROOM_RECTS,
-  OUTDOOR_MARGIN,
+  OPEN_DESK_CHAIRS,
   officeMap,
   POD_RUGS,
   ROOM_FURNITURE,
@@ -101,12 +103,9 @@ const PALETTE = {
   floorStripeV: 'rgba(230,155,190,0.16)',
   brickMortar: 'rgba(150,120,80,0.22)',
   shadow: 'rgba(40,35,25,0.14)',
-  // Team-island rug (accent under desk pods) and window glass on outer walls.
+  // Team-island rug (accent under desk pods).
   podRug: '#ece1c8',
   podRugEdge: 'rgba(150,130,95,0.45)',
-  windowFrame: '#b9ad92',
-  windowGlass: '#cfe3ec',
-  windowGlint: 'rgba(255,255,255,0.55)',
   // Meeting-room props: a wall whiteboard and a filing cabinet.
   boardFrame: '#9aa2ad',
   boardFace: '#fbfdff',
@@ -448,8 +447,10 @@ export class CanvasRenderer {
     // meaningless otherwise), and hidden inside a meeting room, where the call is
     // governed by room membership (everyone in / nobody out), not radius.
     if (self && !selfZone && mediaActive) {
+      // A desk seat is private: the reach shrinks to just the adjacent tiles.
+      const reach = isDeskSeat(self.x, self.y) ? SEAT_CONNECT_RADIUS : CONNECT_RADIUS;
       ctx.beginPath();
-      ctx.arc(self.x, self.y, CONNECT_RADIUS, 0, Math.PI * 2);
+      ctx.arc(self.x, self.y, reach, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(79,140,255,0.08)';
       ctx.fill();
       ctx.strokeStyle = 'rgba(79,140,255,0.25)';
@@ -698,15 +699,12 @@ export class CanvasRenderer {
       }
     }
 
-    // A chair in front of each open-office desk. Drawn in its own pass AFTER all
-    // floors, because the seat sits just below the desk (extending into the next
-    // tile) and would otherwise be painted over by that row's floor.
-    for (let r = 0; r < MAP_ROWS; r++) {
-      for (let c = 0; c < MAP_COLS; c++) {
-        if (officeMap[r][c] === Tile.DESK && floorKindAt(c, r) === 'wood') {
-          this.drawDeskChair(cx, c * TILE_SIZE, r * TILE_SIZE, deskFacesSouth(c, r));
-        }
-      }
+    // One chair in front of each open-office desk island (centred on the 3-wide
+    // desk). Drawn in its own pass AFTER all floors, because the seat sits just
+    // in front of the desk (extending into the next tile) and would otherwise be
+    // painted over by that row's floor.
+    for (const ch of OPEN_DESK_CHAIRS) {
+      this.drawDeskChair(cx, ch.col * TILE_SIZE, ch.row * TILE_SIZE, ch.facesSouth);
     }
 
     // Meeting-room furniture: proper tables with chairs (and an exec desk for the
@@ -1171,8 +1169,13 @@ export class CanvasRenderer {
 
   // Warm off-white wall: a light base with a soft top highlight, a subtle bottom
   // shadow, and a faint seam — a clean partition, not the old near-black block.
-  // Outer side walls facing the open office (every other row) get a window.
-  private drawWall(cx: CanvasRenderingContext2D, tx: number, ty: number, col: number, row: number) {
+  private drawWall(
+    cx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    _col: number,
+    _row: number,
+  ) {
     const S = TILE_SIZE;
     cx.fillStyle = PALETTE.wall;
     cx.fillRect(tx, ty, S, S);
@@ -1183,29 +1186,6 @@ export class CanvasRenderer {
     cx.strokeStyle = PALETTE.wallSeam;
     cx.lineWidth = 1;
     cx.strokeRect(tx + 0.5, ty + 0.5, S - 1, S - 1);
-
-    // Windows: the building's left/right outer walls. A vertical outer wall has
-    // grass on exactly one horizontal side (the grounds). Two windows above the
-    // side gate and two below it, at fixed building-local rows.
-    const leftGrass = officeMap[row]?.[col - 1] === Tile.GRASS;
-    const rightGrass = officeMap[row]?.[col + 1] === Tile.GRASS;
-    const onSideWall = leftGrass !== rightGrass;
-    const windowRow = [8, 10, 15, 17].includes(row - OUTDOOR_MARGIN);
-    if (onSideWall && windowRow) {
-      const m = 9; // inset from the tile edge
-      cx.fillStyle = PALETTE.windowFrame;
-      this.roundRect(cx, tx + m - 2, ty + m - 2, S - (m - 2) * 2, S - (m - 2) * 2, 3);
-      cx.fill();
-      cx.fillStyle = PALETTE.windowGlass;
-      this.roundRect(cx, tx + m, ty + m, S - m * 2, S - m * 2, 2);
-      cx.fill();
-      cx.strokeStyle = PALETTE.windowGlint;
-      cx.lineWidth = 2;
-      cx.beginPath();
-      cx.moveTo(tx + m + 3, ty + S - m - 4);
-      cx.lineTo(tx + S - m - 4, ty + m + 3);
-      cx.stroke();
-    }
   }
 
   // Open-office workstation: a rounded off-white desk top on the floor, a dark

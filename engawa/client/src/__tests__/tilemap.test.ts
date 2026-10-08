@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'bun:test';
 import {
   canOccupy,
+  findAdjacentSpawn,
   findWalkableSpawn,
+  isDeskSeat,
   isSolid,
   LOUNGE_TABLE_RECT,
   MAP_COLS,
   MAP_ROWS,
+  OPEN_DESK_CHAIRS,
   OUTDOOR_MARGIN,
   officeMap,
   SOLID,
@@ -97,6 +100,87 @@ describe('findWalkableSpawn', () => {
   });
 });
 
+describe('findAdjacentSpawn', () => {
+  // An open floor tile whose 8 neighbours are all occupiable (so direction tests
+  // aren't foiled by a wall on one side).
+  function openTileWithClearNeighbours(): { col: number; row: number } {
+    for (let r = 1; r < MAP_ROWS - 1; r++) {
+      for (let c = 1; c < MAP_COLS - 1; c++) {
+        const { x, y } = center(c, r);
+        if (!canOccupy(x, y, 5)) continue;
+        let clear = true;
+        for (let dr = -1; dr <= 1 && clear; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const n = center(c + dc, r + dr);
+            if (!canOccupy(n.x, n.y, 5)) {
+              clear = false;
+              break;
+            }
+          }
+        }
+        if (clear) return { col: c, row: r };
+      }
+    }
+    throw new Error('no open tile with clear neighbours');
+  }
+
+  it('stops on a neighbour tile, never on the target tile itself', () => {
+    const { col, row } = openTileWithClearNeighbours();
+    const { x, y } = center(col, row);
+    const spawn = findAdjacentSpawn(x, y, x + 500, y, 5);
+    expect(spawn).not.toEqual({ x, y });
+    expect(canOccupy(spawn.x, spawn.y, 5)).toBe(true);
+    // Exactly one tile away (Chebyshev distance 1).
+    const dCol = Math.round((spawn.x - x) / TILE_SIZE);
+    const dRow = Math.round((spawn.y - y) / TILE_SIZE);
+    expect(Math.max(Math.abs(dCol), Math.abs(dRow))).toBe(1);
+  });
+
+  it('picks the neighbour nearest the approacher', () => {
+    const { col, row } = openTileWithClearNeighbours();
+    const { x, y } = center(col, row);
+    // Approaching from the east → stop on the east neighbour.
+    expect(findAdjacentSpawn(x, y, x + 500, y, 5).x).toBeGreaterThan(x);
+    // Approaching from the west → stop on the west neighbour.
+    expect(findAdjacentSpawn(x, y, x - 500, y, 5).x).toBeLessThan(x);
+  });
+});
+
+describe('isDeskSeat (private one-person desk seats)', () => {
+  // The seat tile sits one row in front of the desk centre (south → above).
+  const seats = OPEN_DESK_CHAIRS.map((ch) => ({
+    col: ch.col,
+    row: ch.row + (ch.facesSouth ? -1 : 1),
+  }));
+
+  it('is true on every desk seat tile and walkable there', () => {
+    for (const s of seats) {
+      const { x, y } = center(s.col, s.row);
+      expect(isDeskSeat(x, y)).toBe(true);
+      expect(canOccupy(x, y, 5)).toBe(true); // you can actually sit there
+    }
+  });
+
+  it('is false on the desk tile itself and on open aisle floor', () => {
+    const desk = center(OPEN_DESK_CHAIRS[0].col, OPEN_DESK_CHAIRS[0].row);
+    expect(isDeskSeat(desk.x, desk.y)).toBe(false);
+    // A spot far from any desk (map origin grass) is not a seat.
+    expect(isDeskSeat(TILE_SIZE / 2, TILE_SIZE / 2)).toBe(false);
+  });
+
+  it('spaces seats so none sit in another seat’s adjacency ring (privacy)', () => {
+    for (let i = 0; i < seats.length; i++) {
+      for (let j = i + 1; j < seats.length; j++) {
+        const cheby = Math.max(
+          Math.abs(seats[i].col - seats[j].col),
+          Math.abs(seats[i].row - seats[j].row),
+        );
+        expect(cheby).toBeGreaterThanOrEqual(2);
+      }
+    }
+  });
+});
+
 describe('ZONES / zoneAt (meeting-room zones)', () => {
   // One interior MEETING tile per walled-off room: the top strip (president's
   // office + all-hands + three meeting rooms) and the bottom strip (four 1-on-1
@@ -107,14 +191,14 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     { col: 19, row: 1 }, // 会議室1
     { col: 24, row: 1 }, // 会議室2
     { col: 29, row: 1 }, // 会議室3
-    { col: 1, row: 21 }, // 1on1ルーム1
-    { col: 5, row: 21 }, // 1on1ルーム2
-    { col: 9, row: 21 }, // 1on1ルーム3
-    { col: 13, row: 21 }, // 1on1ルーム4
-    { col: 17, row: 21 }, // 商談ブース1
-    { col: 21, row: 21 }, // 商談ブース2
-    { col: 25, row: 21 }, // 商談ブース3
-    { col: 29, row: 21 }, // 商談ブース4
+    { col: 1, row: 23 }, // 1on1ルーム1
+    { col: 5, row: 23 }, // 1on1ルーム2
+    { col: 9, row: 23 }, // 1on1ルーム3
+    { col: 13, row: 23 }, // 1on1ルーム4
+    { col: 17, row: 23 }, // 商談ブース1
+    { col: 21, row: 23 }, // 商談ブース2
+    { col: 25, row: 23 }, // 商談ブース3
+    { col: 29, row: 23 }, // 商談ブース4
   ];
 
   it('derives one zone per walled-off MEETING room, plus the lounge', () => {

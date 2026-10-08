@@ -35,8 +35,8 @@ describe('floorKindAt', () => {
 describe('roomKindAt', () => {
   it('classifies rooms for floor colour-coding, null in the open office', () => {
     expect(roomKindAt(3 + M, 2 + M)).toBe('exec'); // president's office
-    expect(roomKindAt(1 + M, 21 + M)).toBe('oneonone'); // 1on1-1
-    expect(roomKindAt(17 + M, 21 + M)).toBe('booth'); // booth-1
+    expect(roomKindAt(1 + M, 23 + M)).toBe('oneonone'); // 1on1-1
+    expect(roomKindAt(17 + M, 23 + M)).toBe('booth'); // booth-1
     expect(roomKindAt(20 + M, 11 + M)).toBeNull(); // open office
     const lc = LOUNGE.c + M + Math.floor(LOUNGE.w / 2);
     const lr = LOUNGE.r + M + Math.floor(LOUNGE.h / 2);

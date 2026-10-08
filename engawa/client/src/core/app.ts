@@ -83,7 +83,14 @@ import { InputManager } from '@/world/input';
 import { normalizeOutfit } from '@/world/outfit';
 import { findPath } from '@/world/pathfind';
 import { PlayerState } from '@/world/player';
-import { canOccupy, findWalkableSpawn, isMeetingZone, zoneAt } from '@/world/tilemap';
+import {
+  canOccupy,
+  findAdjacentSpawn,
+  findWalkableSpawn,
+  isDeskSeat,
+  isMeetingZone,
+  zoneAt,
+} from '@/world/tilemap';
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
@@ -562,7 +569,11 @@ export class App {
     if (!this.me) return;
     const target = this.players.get(userId);
     if (!target || target.isSelf) return;
-    const goal = findWalkableSpawn(target.x, target.y, PLAYER_RADIUS);
+    // Stop *beside* them, not on their tile: tile collision ignores player
+    // occupancy, so targeting their exact position lands us overlapping (which
+    // read as "teleported onto them" on a knock-accept). One tile away still
+    // connects via proximity (#263 follow-up).
+    const goal = findAdjacentSpawn(target.x, target.y, this.me.x, this.me.y, PLAYER_RADIUS);
     const path = findPath({ x: this.me.x, y: this.me.y }, goal);
     if (path.length === 0) {
       this.movePath = null;
@@ -1097,6 +1108,7 @@ export class App {
               vx: 0,
               vy: 0,
               zoneId: zoneAt(this.me.x, this.me.y)?.id ?? null,
+              seated: isDeskSeat(this.me.x, this.me.y),
             });
             this.lastSentX = this.me.x;
             this.lastSentY = this.me.y;
@@ -1353,6 +1365,8 @@ export class App {
           vy: selfVy,
           // Report our meeting-room zone so the server can group us (SFU vs mesh).
           zoneId: zoneAt(this.me.x, this.me.y)?.id ?? null,
+          // A desk seat privatises our proximity bubble (#263 follow-up).
+          seated: isDeskSeat(this.me.x, this.me.y),
         });
         this.lastSentX = this.me.x;
         this.lastSentY = this.me.y;

@@ -40,7 +40,17 @@ export type ClientMessage =
   // Avatar appearance changed in the editor; relayed to the workspace so peers
   // re-render this avatar. Stateless: the server forwards it, keeping nothing.
   | { type: 'outfit-update'; outfit: Outfit }
-  | { type: 'move'; x: number; y: number; vx: number; vy: number; zoneId?: string | null }
+  | {
+      type: 'move';
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      zoneId?: string | null;
+      // On an open-office desk seat: a private one-person spot, so the server
+      // shrinks this member's proximity bubble to just the adjacent tiles.
+      seated?: boolean;
+    }
   | {
       type: 'status';
       status: PlayerStatus;
@@ -144,6 +154,10 @@ export const CLICK_MOVE_ARRIVE_THRESHOLD = 4;
 // and pushed via group-update; the client no longer connects/disconnects by
 // pairwise distance. Mirrors the server's PROXIMITY_CONNECT_RADIUS.
 export const CONNECT_RADIUS = 120;
+// Proximity bubble while seated at an open-office desk (#263 follow-up): only the
+// 8 adjacent tiles (diagonal ≈ 71px) connect, never a passer-by two tiles away
+// (orthogonal 100px). Mirrors the server's SEAT_CONNECT_RADIUS.
+export const SEAT_CONNECT_RADIUS = 80;
 export const POSITION_SEND_INTERVAL_MS = 50;
 // How aggressively remote players are pulled toward their predicted position
 // each frame. Higher = snappier but more jitter on noisy networks.
