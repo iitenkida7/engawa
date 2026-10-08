@@ -1099,6 +1099,9 @@ export class RemoteMediaView {
     // value — reporting that would keep pulling full-size video for a window
     // that is not on screen.
     if (tile.container.classList.contains('focus-hidden')) return 1;
-    return tile.container.clientWidth || null;
+    // A tile trimmed from a capped layout (meeting-hidden / layout-hidden) is
+    // display:none and reads 0, which the layer picker treats as off screen
+    // (issue #269).
+    return tile.container.clientWidth;
   }
 }

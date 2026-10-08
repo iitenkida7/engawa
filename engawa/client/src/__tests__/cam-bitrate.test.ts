@@ -11,6 +11,7 @@ import {
   computePreferredRid,
   computeScreenEncoding,
   computeScreenScale,
+  computeSfuCamRid,
   isHeldSpeaking,
   SCREEN_BITRATE_HIGH,
   SCREEN_BITRATE_THROTTLED,
@@ -22,8 +23,11 @@ import {
   SFU_CAM_DEFAULT_RID,
   SFU_CAM_HALF_RID,
   SFU_CAM_LAYERS,
+  SFU_CAM_QUARTER_RID,
   SIMULCAST_FULL_MIN_WIDTH,
+  SIMULCAST_HALF_MIN_WIDTH,
   SPEAKER_HOLD_MS,
+  sfuCamSimulcast,
 } from '@/rtc/cam-bitrate';
 
 describe('computeCamEncoding', () => {
@@ -179,10 +183,56 @@ describe('computePreferredRid (SFU simulcast layer selection)', () => {
     expect(computePreferredRid(640)).toBe('f');
   });
 
-  it('requests the half layer for small thumbnails (saves downlink)', () => {
+  it('requests the half layer for mid-size tiles (e.g. a big gallery)', () => {
     expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH - 1)).toBe('h');
-    expect(computePreferredRid(120)).toBe('h');
-    expect(computePreferredRid(0)).toBe('h');
+    expect(computePreferredRid(SIMULCAST_HALF_MIN_WIDTH)).toBe('h');
+    expect(computePreferredRid(280)).toBe('h');
+  });
+
+  it('requests the quarter layer for thumbnails (saves downlink)', () => {
+    expect(computePreferredRid(SIMULCAST_HALF_MIN_WIDTH - 1)).toBe('q');
+    expect(computePreferredRid(148)).toBe('q');
+    expect(computePreferredRid(0)).toBe('q');
+  });
+});
+
+describe('computeSfuCamRid (issue #269)', () => {
+  const visible = { pageHidden: false, congested: false };
+
+  it('follows the tile width while the tab is visible and the downlink is fine', () => {
+    expect(computeSfuCamRid(640, visible)).toBe('f');
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH - 1, visible)).toBe('h');
+  });
+
+  it('drops an off-screen (zero-width) tile to the quarter layer', () => {
+    expect(computeSfuCamRid(0, visible)).toBe('q');
+  });
+
+  it('drops every camera to the quarter layer in a hidden tab', () => {
+    expect(computeSfuCamRid(640, { pageHidden: true, congested: false })).toBe('q');
+  });
+
+  it('caps every camera at the half layer on a congested downlink', () => {
+    const congested = { pageHidden: false, congested: true };
+    expect(computeSfuCamRid(640, congested)).toBe('h');
+    expect(computeSfuCamRid(148, congested)).toBe('q');
+  });
+});
+
+describe('sfuCamSimulcast (issue #269)', () => {
+  it('lets the SFU step down by rid order and keeps the preferred rid', () => {
+    expect(sfuCamSimulcast('h')).toEqual({
+      preferredRid: 'h',
+      priorityOrdering: 'asciibetical',
+      ridNotAvailable: 'asciibetical',
+    });
+  });
+
+  it('orders the ladder rids asciibetically from best to worst quality', () => {
+    // Cloudflare's asciibetical policy treats the alphabetically-first rid as
+    // the most desirable, so the ladder (best first) must already be sorted.
+    const rids = SFU_CAM_LAYERS.map((l) => l.rid);
+    expect([...rids].sort()).toEqual(rids);
   });
 });
 
@@ -203,9 +253,16 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
     expect(full?.scaleResolutionDownBy).toBe(1);
   });
 
-  it('contains both rids computePreferredRid can return', () => {
+  it('contains every rid computePreferredRid can return', () => {
     const rids = SFU_CAM_LAYERS.map((l) => l.rid);
     expect(rids).toContain(SFU_CAM_DEFAULT_RID);
     expect(rids).toContain(SFU_CAM_HALF_RID);
+    expect(rids).toContain(SFU_CAM_QUARTER_RID);
+  });
+
+  it('steps bitrate down with each smaller layer', () => {
+    for (let i = 1; i < SFU_CAM_LAYERS.length; i++) {
+      expect(SFU_CAM_LAYERS[i].maxBitrate).toBeLessThan(SFU_CAM_LAYERS[i - 1].maxBitrate);
+    }
   });
 });

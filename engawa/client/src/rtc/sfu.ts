@@ -1,7 +1,12 @@
 import { mediaAuthHeaders } from '@/core/media-auth';
 import { logNet } from '@/core/netlog';
 import type { SfuTrack, StreamKind } from '@/core/types';
-import { SFU_CAM_LAYERS, SFU_SCREEN_MAX_BITRATE } from '@/rtc/cam-bitrate';
+import {
+  SFU_CAM_DEFAULT_RID,
+  SFU_CAM_LAYERS,
+  SFU_SCREEN_MAX_BITRATE,
+  sfuCamSimulcast,
+} from '@/rtc/cam-bitrate';
 import { fetchIceServers } from '@/rtc/ice';
 import {
   diffRtcStats,
@@ -350,7 +355,7 @@ export class SfuManager {
       if (!this.sessionId || !entry.mid) return;
       try {
         await this.api<TracksResponse>(`/${this.sessionId}/tracks/update`, 'PUT', {
-          tracks: [{ mid: entry.mid, simulcast: { preferredRid: rid } }],
+          tracks: [{ mid: entry.mid, simulcast: sfuCamSimulcast(rid) }],
         });
       } catch (err) {
         // Layer selection is a downlink optimization, not call-critical: a failed
@@ -634,6 +639,7 @@ export class SfuManager {
         rid: l.rid,
         scaleResolutionDownBy: l.scaleResolutionDownBy,
         maxBitrate: l.maxBitrate,
+        maxFramerate: l.maxFramerate,
       }));
     }
     if (kind === 'screen') return [{ maxBitrate: SFU_SCREEN_MAX_BITRATE }];
@@ -739,6 +745,9 @@ export class SfuManager {
         location: 'remote',
         sessionId: i.sessionId,
         trackName: i.trackName,
+        // Only the camera is simulcast; let the SFU adapt its layer to our
+        // downlink from the first frame (issue #269).
+        ...(i.kind === 'cam' ? { simulcast: sfuCamSimulcast(SFU_CAM_DEFAULT_RID) } : {}),
       })),
     });
     const reqErr = sfuErrorMessage(resp);
@@ -774,7 +783,8 @@ export class SfuManager {
         mid: r.mid,
         streamId: null,
         trackId: null,
-        preferredRid: null,
+        // What the pull above asked for, so re-requesting it is a no-op.
+        preferredRid: item.kind === 'cam' ? SFU_CAM_DEFAULT_RID : null,
       });
       this.midToRemote.set(r.mid, key);
     });
