@@ -1615,6 +1615,12 @@
         </div>
         <div class="panel-body">
           <video id="self-video" autoplay muted playsinline></video>
+          <!-- Camera-off placeholder so your own tile still shows (initials) in a
+               call/meeting, mirroring the remote camera-off tiles (#263). -->
+          <div class="no-video" id="self-no-video" style="display: none">
+            <span class="no-video-initials" id="self-no-video-initials"></span>
+            <span class="no-video-name" id="self-no-video-name"></span>
+          </div>
         </div>
       </div>
       <!-- Screenshare stages are created dynamically (one per sharing user) by

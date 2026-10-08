@@ -114,6 +114,9 @@ export class RemoteMediaView {
   private selfPreviewEl: HTMLDivElement;
   private selfPreviewLabelEl: HTMLSpanElement;
   private selfVideoEl: HTMLVideoElement;
+  private selfNoVideoEl: HTMLDivElement;
+  private selfNoVideoInitialsEl: HTMLSpanElement;
+  private selfNoVideoNameEl: HTMLSpanElement;
 
   // Speaking detection
   private localSpeakingDetector: SpeakingDetector | null = null;
@@ -188,6 +191,11 @@ export class RemoteMediaView {
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
     this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
+    this.selfNoVideoEl = document.getElementById('self-no-video') as HTMLDivElement;
+    this.selfNoVideoInitialsEl = document.getElementById(
+      'self-no-video-initials',
+    ) as HTMLSpanElement;
+    this.selfNoVideoNameEl = document.getElementById('self-no-video-name') as HTMLSpanElement;
 
     // The self preview is static markup, so its maximize button is added here;
     // dynamic panels get theirs at creation.
@@ -413,6 +421,9 @@ export class RemoteMediaView {
       this.remoteTiles.delete(id);
       changed = true;
     }
+    // Being in / out of a conversation flips whether your own camera-off tile
+    // shows (so you appear alongside the person you walked up to).
+    this.refreshSelfPreview();
     if (changed) this.reflowLayout();
   }
 
@@ -642,6 +653,10 @@ export class RemoteMediaView {
     this.selfPreviewEl.classList.toggle('muted', !this.media.micOn);
     const stream = this.media.camStream;
     const wasHidden = this.selfPreviewEl.classList.contains('hidden');
+    // Show your own tile whenever your camera is on OR you're in a call/meeting —
+    // so everyone (yourself included) is visible regardless of camera state
+    // (#263). Only hide it when you're genuinely alone with the camera off.
+    const show = stream != null || this.meetingMode || this.conversationMembers.size > 0;
     if (stream) {
       if (this.selfVideoEl.srcObject !== stream) {
         this.selfVideoEl.srcObject = stream;
@@ -649,15 +664,23 @@ export class RemoteMediaView {
           /* autoplay should already be allowed after the join click */
         });
       }
-      this.selfPreviewEl.classList.remove('hidden');
+      this.selfVideoEl.style.display = '';
+      this.selfNoVideoEl.style.display = 'none';
     } else {
       try {
         this.selfVideoEl.srcObject = null;
       } catch {
         /* noop */
       }
-      this.selfPreviewEl.classList.add('hidden');
+      // Camera off: render the initials placeholder (matching remote tiles).
+      const me = this.players.get(this.getMyId());
+      const name = me?.name || t('common.you');
+      this.selfNoVideoInitialsEl.textContent = me ? me.initials() : name.slice(0, 2).toUpperCase();
+      this.selfNoVideoNameEl.textContent = name;
+      this.selfVideoEl.style.display = 'none';
+      this.selfNoVideoEl.style.display = show ? '' : 'none';
     }
+    this.selfPreviewEl.classList.toggle('hidden', !show);
     // The self preview joins/leaves the auto-layout as it shows/hides, so
     // re-flow whenever its visibility flips (issue #175).
     if (wasHidden !== this.selfPreviewEl.classList.contains('hidden')) this.reflowLayout();
@@ -767,6 +790,8 @@ export class RemoteMediaView {
     if (this.meetingMode === on) return;
     this.meetingMode = on;
     if (!on) this.filmstripExpanded = false;
+    // Entering/leaving a meeting flips whether your own camera-off tile shows.
+    this.refreshSelfPreview();
     this.reflowLayout();
   }
 

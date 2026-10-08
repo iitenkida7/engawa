@@ -18,7 +18,7 @@ function mountDom() {
       <button id="filmstrip-toggle" type="button" style="display: none"></button>
       <div id="self-preview" class="panel hidden">
         <div class="panel-header"><span class="label" id="self-preview-label"></span></div>
-        <div class="panel-body"><video id="self-video"></video></div>
+        <div class="panel-body"><video id="self-video"></video><div class="no-video" id="self-no-video"><span class="no-video-initials" id="self-no-video-initials"></span><span class="no-video-name" id="self-no-video-name"></span></div></div>
       </div>
     </div>`;
 }
@@ -107,5 +107,40 @@ describe('RemoteMediaView.hasMediaWindows', () => {
     expect(view.hasMediaWindows()).toBe(true);
     view.removeScreenshare('c');
     expect(view.hasMediaWindows()).toBe(false);
+  });
+});
+
+// Your own tile must show (camera on or off) whenever you're in a call or a
+// meeting, so everyone — yourself included — is visible regardless of camera
+// state (#263). Only when genuinely alone with the camera off does it hide.
+describe('self tile visibility while the camera is off', () => {
+  let view: RemoteMediaView;
+  const selfHidden = () => document.getElementById('self-preview')!.classList.contains('hidden');
+  const placeholderShown = () =>
+    (document.getElementById('self-no-video') as HTMLElement).style.display !== 'none';
+
+  beforeEach(() => {
+    view = setup();
+  });
+
+  it('is hidden when alone with the camera off', () => {
+    expect(selfHidden()).toBe(true);
+  });
+
+  it('shows a camera-off placeholder once in a meeting zone', () => {
+    view.setMeetingMode(true);
+    expect(selfHidden()).toBe(false);
+    expect(placeholderShown()).toBe(true);
+    view.setMeetingMode(false);
+    expect(selfHidden()).toBe(true);
+  });
+
+  it('shows yourself alongside someone you walk up to (and hides again when they leave)', () => {
+    players.set('a', player('a', 'A'));
+    view.setConversationMembers(['a']);
+    expect(selfHidden()).toBe(false);
+    expect(placeholderShown()).toBe(true);
+    view.setConversationMembers([]);
+    expect(selfHidden()).toBe(true);
   });
 });
