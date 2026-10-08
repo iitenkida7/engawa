@@ -572,20 +572,21 @@ export const LOUNGE_TABLE_RECT = {
 // kinds. Pixel rects so props that don't fill a whole tile still block.
 const SOLID_RECTS: { x: number; y: number; w: number; h: number }[] = [LOUNGE_TABLE_RECT];
 
-// One accent rug under each island (a centre column + its face-to-face desk
-// rows): 3 tiles wide (the desk block) × 4 tiles tall (chair-desk-desk-chair),
-// so each private workstation reads as its own little spot. Centres are ≥4 apart
-// so the 3-wide rugs never touch.
-const ISLANDS: { col: number; rowTop: number }[] = [
-  ...TOP_ISLAND_COLS.map((col) => ({ col, rowTop: 9 })),
-  ...BOTTOM_ISLAND_COLS.map((col) => ({ col, rowTop: 15 })),
-];
-export const POD_RUGS = ISLANDS.map(({ col, rowTop }) => ({
-  x: (col - 1) * TILE_SIZE + OFF_X,
-  y: (rowTop - 1) * TILE_SIZE + OFF_Y, // top chair row
-  w: 3 * TILE_SIZE,
-  h: 4 * TILE_SIZE, // chair, desk, desk, chair
-}));
+// One accent rug per SEAT — a 3×3 block centred on the chair, i.e. the exact
+// "connect zone" (the seat + its 8 adjacent tiles, SEAT_CONNECT_RADIUS). It
+// makes each private seat legible: step onto someone's rug and you connect,
+// stay off it and you don't. Two facing seats in an island get two separate
+// rugs (they're 3 tiles apart → never in each other's zone). The desk is drawn
+// over the desk-side row of the rug.
+export const POD_RUGS = OPEN_DESK_UNITS.map((u) => {
+  const [sc, sr] = seatOf(u);
+  return {
+    x: (sc - 1) * TILE_SIZE + OFF_X,
+    y: (sr - 1) * TILE_SIZE + OFF_Y,
+    w: 3 * TILE_SIZE,
+    h: 3 * TILE_SIZE,
+  };
+});
 
 /**
  * Named meeting-room zone. Rooms act as isolated call bubbles: everyone inside
