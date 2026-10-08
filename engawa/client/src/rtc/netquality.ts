@@ -49,6 +49,12 @@ export function classifySample(s: QualitySample): NetTier {
       if (s.availableOutgoingKbps < AVAIL_TIER_KBPS[i]) tier = Math.max(tier, i + 1);
     }
   }
+  // CPU-bound encoder (#261): the machine is overloaded (e.g. decoding many camera
+  // tiles in a big call), so shed load — floor at tier 2, which forces the low
+  // receive layer (lighter decode) and throttles our own send. Everyone stays
+  // visible; a device that's *also* network-starved (loss/RTT) still escalates to
+  // tier 3 (auto camera-off + audio-only receive) through the signals above.
+  if (s.cpuLimited) tier = Math.max(tier, 2);
   return tier as NetTier;
 }
 

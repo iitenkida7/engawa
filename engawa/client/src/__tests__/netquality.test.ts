@@ -52,6 +52,12 @@ describe('classifySample', () => {
     expect(classifySample(sample(loaded))).toBe(0);
   });
 
+  it('floors at tier 2 when the encoder is CPU-bound (#261)', () => {
+    expect(classifySample(sample({ cpuLimited: true }))).toBe(2);
+    // A worse signal still wins — a starved CPU-bound device reaches tier 3.
+    expect(classifySample(sample({ cpuLimited: true, rttMs: 800 }))).toBe(3);
+  });
+
   it('ignores the uplink estimate in (near) audio-only calls where BWE never probes', () => {
     // ~40kbps of audio on a gigabit link still reports a low idle estimate;
     // that must not be read as congestion.
