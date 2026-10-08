@@ -409,11 +409,11 @@ const OPEN_PLANTS: [number, number][] = [
   [17, 4],
 ];
 
-// Building-local top row of the side gates: a 3-tile gap in BOTH the left and
+// Building-local top row of the side gates: a 2-tile gap in BOTH the left and
 // right outer walls at the open-office corridor, so you can walk out to the
 // grounds (#229). The south wall can't be used — the bottom room strip blocks it.
-const GATE_R = 12;
-const GATE_H = 3;
+const GATE_R = 13;
+const GATE_H = 2;
 
 function buildOfficeMap(): number[][] {
   const m: number[][] = [];

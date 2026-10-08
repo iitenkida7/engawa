@@ -26,7 +26,6 @@ import {
   MAP_ROWS,
   MEETING_ROOM_RECTS,
   OPEN_DESK_CHAIRS,
-  OUTDOOR_MARGIN,
   officeMap,
   POD_RUGS,
   ROOM_FURNITURE,
@@ -104,12 +103,9 @@ const PALETTE = {
   floorStripeV: 'rgba(230,155,190,0.16)',
   brickMortar: 'rgba(150,120,80,0.22)',
   shadow: 'rgba(40,35,25,0.14)',
-  // Team-island rug (accent under desk pods) and window glass on outer walls.
+  // Team-island rug (accent under desk pods).
   podRug: '#ece1c8',
   podRugEdge: 'rgba(150,130,95,0.45)',
-  windowFrame: '#b9ad92',
-  windowGlass: '#cfe3ec',
-  windowGlint: 'rgba(255,255,255,0.55)',
   // Meeting-room props: a wall whiteboard and a filing cabinet.
   boardFrame: '#9aa2ad',
   boardFace: '#fbfdff',
@@ -1173,8 +1169,13 @@ export class CanvasRenderer {
 
   // Warm off-white wall: a light base with a soft top highlight, a subtle bottom
   // shadow, and a faint seam — a clean partition, not the old near-black block.
-  // Outer side walls facing the open office (every other row) get a window.
-  private drawWall(cx: CanvasRenderingContext2D, tx: number, ty: number, col: number, row: number) {
+  private drawWall(
+    cx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    _col: number,
+    _row: number,
+  ) {
     const S = TILE_SIZE;
     cx.fillStyle = PALETTE.wall;
     cx.fillRect(tx, ty, S, S);
@@ -1185,29 +1186,6 @@ export class CanvasRenderer {
     cx.strokeStyle = PALETTE.wallSeam;
     cx.lineWidth = 1;
     cx.strokeRect(tx + 0.5, ty + 0.5, S - 1, S - 1);
-
-    // Windows: the building's left/right outer walls. A vertical outer wall has
-    // grass on exactly one horizontal side (the grounds). Two windows above the
-    // side gate and two below it, at fixed building-local rows.
-    const leftGrass = officeMap[row]?.[col - 1] === Tile.GRASS;
-    const rightGrass = officeMap[row]?.[col + 1] === Tile.GRASS;
-    const onSideWall = leftGrass !== rightGrass;
-    const windowRow = [8, 10, 15, 17].includes(row - OUTDOOR_MARGIN);
-    if (onSideWall && windowRow) {
-      const m = 9; // inset from the tile edge
-      cx.fillStyle = PALETTE.windowFrame;
-      this.roundRect(cx, tx + m - 2, ty + m - 2, S - (m - 2) * 2, S - (m - 2) * 2, 3);
-      cx.fill();
-      cx.fillStyle = PALETTE.windowGlass;
-      this.roundRect(cx, tx + m, ty + m, S - m * 2, S - m * 2, 2);
-      cx.fill();
-      cx.strokeStyle = PALETTE.windowGlint;
-      cx.lineWidth = 2;
-      cx.beginPath();
-      cx.moveTo(tx + m + 3, ty + S - m - 4);
-      cx.lineTo(tx + S - m - 4, ty + m + 3);
-      cx.stroke();
-    }
   }
 
   // Open-office workstation: a rounded off-white desk top on the floor, a dark
