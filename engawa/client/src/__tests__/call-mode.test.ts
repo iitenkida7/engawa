@@ -143,4 +143,15 @@ describe('self tile visibility while the camera is off', () => {
     view.setConversationMembers([]);
     expect(selfHidden()).toBe(true);
   });
+
+  it('keeps a solo camera-on preview small in the corner, not filling the grid', () => {
+    media.camStream = new MediaStream();
+    view.refreshSelfPreview();
+    const self = document.getElementById('self-preview') as HTMLElement;
+    expect(selfHidden()).toBe(false);
+    // No inline geometry from the auto-layout → it falls back to the small
+    // bottom-right CSS default instead of being blown up to fill the viewport.
+    expect(self.style.width).toBe('');
+    expect(self.style.left).toBe('auto');
+  });
 });

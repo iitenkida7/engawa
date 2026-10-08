@@ -844,6 +844,14 @@ export class RemoteMediaView {
       this.syncFocusButtons(panels, -1);
       return;
     }
+    // Alone with just your own camera (no call, no meeting): keep it a small
+    // corner preview so the map stays usable, instead of blowing it up to fill
+    // the one-tile grid (which hid the map, trapping you watching yourself).
+    if (panels.length === 1 && panels[0].key === 'self') {
+      this.layoutSelfCorner(panels[0].el);
+      this.syncFocusButtons(panels, -1);
+      return;
+    }
     const items = panels.map((p) => p.item);
     const geos =
       this.layoutMode === 'presentation'
@@ -919,6 +927,17 @@ export class RemoteMediaView {
 
   private hideFilmstripToggle() {
     this.filmstripToggleEl.style.display = 'none';
+  }
+
+  // Drops the self preview back to its small bottom-right CSS default by clearing
+  // the inline geometry the auto-layout writes (used when it's the only window).
+  private layoutSelfCorner(el: HTMLElement) {
+    el.style.left = 'auto';
+    el.style.top = 'auto';
+    el.style.right = '';
+    el.style.bottom = '';
+    el.style.width = '';
+    el.style.height = '';
   }
 
   // Marks the maximized window's button as active — the toolbar's "this is on"
