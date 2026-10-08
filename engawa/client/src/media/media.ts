@@ -3,6 +3,8 @@ import {
   BG_PRESETS,
   type BgSpec,
   imagePainter,
+  imagePresets,
+  isImagePresetChoice,
   isProcessingChoice,
   loadImage,
   VBG_BLUR,
@@ -42,6 +44,8 @@ export class MediaManager {
   bgChoice: string = VBG_OFF;
   customBgDataUrl: string | null = null;
   private customImg: HTMLImageElement | null = null;
+  // Decoded bundled image-preset backgrounds (#233), cached by choice id.
+  private presetImgs = new Map<string, HTMLImageElement>();
   // While a background is active, camStream is the processed (canvas) stream and
   // these hold the underlying capture + processor for teardown.
   private vbg: VirtualBackground | null = null;
@@ -252,7 +256,7 @@ export class MediaManager {
       // Background on → process through VirtualBackground; on any failure
       // (model/WASM unavailable, no WebGL) fall back to the raw camera so the
       // camera still works.
-      if (this.bgChoice === VBG_CUSTOM) await this.ensureCustomImg();
+      await this.ensureBgImage();
       try {
         const vbg = new VirtualBackground(raw, this.buildBgSpec());
         const processed = await vbg.start();
@@ -319,6 +323,26 @@ export class MediaManager {
     }
   }
 
+  // Load whatever image the current choice needs (uploaded custom or a bundled
+  // image preset) so buildBgSpec can paint it. Safe to call repeatedly. Public so
+  // the toolbar can await it before an in-place updateBackground (#233).
+  async ensureBgImage() {
+    if (this.bgChoice === VBG_CUSTOM) {
+      await this.ensureCustomImg();
+      return;
+    }
+    if (isImagePresetChoice(this.bgChoice) && !this.presetImgs.has(this.bgChoice)) {
+      const p = imagePresets().find((x) => x.id === this.bgChoice);
+      if (p) {
+        try {
+          this.presetImgs.set(this.bgChoice, await loadImage(p.url));
+        } catch {
+          /* leave unset → buildBgSpec falls back to blur */
+        }
+      }
+    }
+  }
+
   private buildBgSpec(): BgSpec {
     if (this.bgChoice === VBG_BLUR) return { kind: 'blur' };
     const preset = BG_PRESETS.find((p) => p.id === this.bgChoice);
@@ -326,7 +350,9 @@ export class MediaManager {
     if (this.bgChoice === VBG_CUSTOM && this.customImg) {
       return { kind: 'image', paint: imagePainter(this.customImg) };
     }
-    return { kind: 'blur' }; // safe fallback (e.g. custom chosen but no image)
+    const presetImg = this.presetImgs.get(this.bgChoice);
+    if (presetImg) return { kind: 'image', paint: imagePainter(presetImg) };
+    return { kind: 'blur' }; // safe fallback (e.g. image chosen but not yet loaded)
   }
 
   // Update the running background in place (no track swap). Caller is
