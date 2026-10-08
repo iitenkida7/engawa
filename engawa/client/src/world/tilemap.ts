@@ -318,11 +318,13 @@ export const MEETING_ROOM_RECTS = ROOMS.filter(
 // islands with wide aisles; the bottom band stays left of the lounge.
 type DeskUnit = { col: number; row: number; facing: 'south' | 'north' };
 
-// Island centre columns per band. Within an island the two desk rows face each
-// other (upper row south → chair above, lower row north → chair below). Centres
-// are ≥4 tiles apart so a chair never lands in a neighbour's adjacent ring.
-const TOP_ISLAND_COLS = [2, 6, 10, 14, 20, 24, 28];
-const BOTTOM_ISLAND_COLS = [2, 6, 10, 14]; // left of the lounge (cols 24-30)
+// Island centre columns per band (building-local; the centre column also equals
+// the island's left-edge tile counting the left wall as tile 1). Pitch 5 = a
+// 3-tile desk block with a 2-tile aisle on each side. Within an island the two
+// desk rows face each other (upper row south → chair above, lower row north →
+// chair below); centres are ≥5 apart so a chair never lands in a neighbour's ring.
+const TOP_ISLAND_COLS = [4, 9, 14, 19, 24, 29];
+const BOTTOM_ISLAND_COLS = [4, 9, 14, 19]; // left of the lounge (cols 24-30)
 
 const OPEN_DESK_UNITS: DeskUnit[] = [
   ...TOP_ISLAND_COLS.flatMap((col): DeskUnit[] => [
