@@ -38,6 +38,23 @@ export function sfuTrackError(resp: {
   return null;
 }
 
+// Pair each requested pull with its per-track result from a batched tracks/new
+// response (issue #254): { mid } when it came back routable, { error } when it
+// didn't (see sfuTrackError). Entries are matched by (sessionId, trackName)
+// when the SFU echoes them, falling back to request order otherwise.
+export function matchPullResults(
+  requested: { sessionId: string; trackName: string }[],
+  tracks: { mid?: string; sessionId?: string; trackName?: string; errorCode?: string }[] = [],
+): ({ mid: string } | { error: string })[] {
+  return requested.map((req, idx) => {
+    const t =
+      tracks.find((r) => r.sessionId === req.sessionId && r.trackName === req.trackName) ??
+      tracks[idx];
+    const err = sfuTrackError({ tracks: t ? [t] : [] });
+    return err ? { error: err } : { mid: t!.mid! };
+  });
+}
+
 // Interpret a session/new response: null when a session id came back, otherwise
 // the reason creation failed. A missing id with no description still fails.
 export function sfuSessionError(resp: {
@@ -91,20 +108,34 @@ export function sfuPullRetryDelayMs(retry: number): number | null {
   return 1000 * 2 ** (retry - 1);
 }
 
-// Minimum spacing between whole-transport rebuild attempts (App.onSfuFailed):
-// the first failure rebuilds the SFU session in place; a second failure inside
-// this window means the SFU path really is unhealthy → degrade to mesh.
-export const SFU_REBUILD_MIN_INTERVAL_MS = 30_000;
+// Delay before the Nth consecutive SFU transport rebuild (issue #254). The
+// SFU path never degrades to mesh — mesh is sized for ≤3 people and a one-sided
+// fallback left groups half on mesh, half on SFU — so a failing transport is
+// rebuilt in place indefinitely: the first at once, then backing off to a cap.
+const SFU_REBUILD_DELAYS_MS = [0, 2_000, 5_000, 10_000, 20_000, 30_000];
 
-// Whether an RTCPeerConnection state change should trigger the mesh fallback.
-// Only a hard 'failed' degrades the call, and never after we deliberately
-// closed the transport (closeAll sets closed=true, which also closes the PC and
-// can surface a late 'failed' we must ignore).
-export function shouldFallbackToMesh(
-  connectionState: RTCPeerConnectionState,
-  closed: boolean,
-): boolean {
-  return connectionState === 'failed' && !closed;
+export function sfuRebuildDelayMs(attempt: number): number {
+  const i = Math.min(Math.max(attempt, 1), SFU_REBUILD_DELAYS_MS.length) - 1;
+  return SFU_REBUILD_DELAYS_MS[i];
+}
+
+// From which consecutive rebuild the "reconnecting to the call server" notice
+// shows: a lone quick rebuild only gets the per-tile overlay.
+export const SFU_RECONNECT_NOTICE_FROM = 2;
+
+// A failure this long after the transport last connected starts a fresh
+// backoff; anything sooner counts as the same outage (a PC that connects and
+// then fails straight away must not rebuild at full speed forever).
+export const SFU_REBUILD_RESET_MS = 60_000;
+
+// How long after a rebuild connects the frozen pre-rebuild streams are kept
+// before any that were not replaced by a re-pull are swept away.
+export const SFU_STALE_STREAM_GRACE_MS = 15_000;
+
+// Whether an RTCPeerConnection state change means the SFU transport failed and
+// must be rebuilt. Only a hard 'failed' counts ('disconnected' often recovers).
+export function isSfuTransportFailed(connectionState: RTCPeerConnectionState): boolean {
+  return connectionState === 'failed';
 }
 
 // Diff a peer's announced track directory against what we've already pulled:

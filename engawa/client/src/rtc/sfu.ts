@@ -14,6 +14,8 @@ import { transformSdpForLowLatency } from '@/rtc/sdp';
 import {
   chainOp,
   isRetryableSfuHttp,
+  isSfuTransportFailed,
+  matchPullResults,
   reconcilePeerTracks,
   remoteKey,
   SFU_API_MAX_ATTEMPTS,
@@ -22,8 +24,6 @@ import {
   sfuErrorMessage,
   sfuPullRetryDelayMs,
   sfuSessionError,
-  sfuTrackError,
-  shouldFallbackToMesh,
 } from '@/rtc/sfu-logic';
 import { JITTER_BUFFER_TARGET_MS, tuneReceiver, tuneSfuSender } from '@/rtc/tune';
 
@@ -72,8 +72,10 @@ export type SfuEvents = {
   // Fired after our published track set changes so the App can announce it to
   // the server (sfu-publish) for relay to the group.
   onPublished: (sessionId: string, tracks: SfuTrack[]) => void;
-  // Fired when the SFU peer connection fails, so the App can fall back to mesh.
+  // Fired when the SFU transport fails for good, so the App can rebuild it.
   onFailed: () => void;
+  // Fired when the SFU peer connection reaches 'connected' (a rebuild landed).
+  onConnected: () => void;
 };
 
 // `published` is false while the track is in the directory we announce to peers
@@ -100,6 +102,9 @@ type RemoteEntry = {
   preferredRid: string | null;
 };
 
+type PullItem = { userId: string; sessionId: string; kind: StreamKind; trackName: string };
+type PendingDir = { sessionId: string; tracks: SfuTrack[]; seq: number; retry: number };
+
 // Thrown by an op that outlived the transport it started on (closeAll ran while
 // it awaited). Expected, not a transport fault: never trips onFailed (#196).
 class StaleSfuOpError extends Error {
@@ -107,11 +112,6 @@ class StaleSfuOpError extends Error {
     super('sfu: op superseded by closeAll');
   }
 }
-
-// Thrown by pullTrack when the SFU answered but rejected the pull (top-level or
-// per-track errorCode). The PC is untouched at that point, so it is a fault of
-// that one peer's directory entry, not of our transport (issue #250).
-class SfuPullRejectedError extends Error {}
 
 export class SfuManager {
   private events: SfuEvents;
@@ -147,6 +147,9 @@ export class SfuManager {
   // Bumped on every directory a peer announces (and dropped when they leave), so
   // a scheduled pull retry can tell its directory has been superseded (#250).
   private peerDirSeq = new Map<string, number>();
+  // Latest not-yet-reconciled directory per peer, drained by one queued flush.
+  private pendingDirs = new Map<string, PendingDir>();
+  private flushQueued = false;
 
   // Serializes every renegotiation against the single PC.
   private opChain: Promise<void> = Promise.resolve();
@@ -223,62 +226,88 @@ export class SfuManager {
   // anything that disappeared (e.g. they turned their camera off). A changed
   // session id first drops everything pulled from the peer's previous session —
   // those tracks are dead after their transport rebuild (issue #186).
+  //
+  // Directories are coalesced (issue #254): every call just records the peer's
+  // latest directory and one queued flush reconciles all pending peers together,
+  // so a rebuild's re-feed of N peers becomes two batched pulls (all mics, then
+  // all video) instead of N×kinds serialized round-trips.
   setPeerTracks(userId: string, sessionId: string, tracks: SfuTrack[]) {
     this.reopen();
     const seq = (this.peerDirSeq.get(userId) ?? 0) + 1;
     this.peerDirSeq.set(userId, seq);
-    this.reconcilePeer(userId, sessionId, tracks, seq, 0);
+    this.pendingDirs.set(userId, { sessionId, tracks, seq, retry: 0 });
+    this.scheduleFlush();
   }
 
-  private reconcilePeer(
-    userId: string,
-    sessionId: string,
-    tracks: SfuTrack[],
-    seq: number,
-    retry: number,
-  ) {
-    const gen = this.generation;
-    this.enqueue(async () => {
+  private scheduleFlush() {
+    if (this.flushQueued) return;
+    this.flushQueued = true;
+    this.enqueue(() => this.flushPeerTracks());
+  }
+
+  private async flushPeerTracks() {
+    this.flushQueued = false;
+    const dirs = new Map(this.pendingDirs);
+    this.pendingDirs.clear();
+    const toPull: PullItem[] = [];
+    const toDrop: string[] = [];
+    for (const [userId, dir] of dirs) {
+      // Superseded by a newer directory, or the peer left the group.
+      if (this.peerDirSeq.get(userId) !== dir.seq) {
+        dirs.delete(userId);
+        continue;
+      }
       const prevSession = this.peerSessions.get(userId);
-      if (prevSession !== undefined && prevSession !== sessionId) {
+      if (prevSession !== undefined && prevSession !== dir.sessionId) {
         for (const key of [...this.remoteTracks.keys()]) {
           if (this.remoteTracks.get(key)!.userId === userId) await this.dropRemote(key);
         }
       }
-      this.peerSessions.set(userId, sessionId);
+      this.peerSessions.set(userId, dir.sessionId);
       // Audio-only receive: reconcile against the mic subset so video tracks
       // are treated as absent (existing ones drop, new ones aren't pulled).
-      const desired = this.videoPullPaused ? tracks.filter((t) => t.kind === 'mic') : tracks;
-      const { toPull, toDrop } = reconcilePeerTracks(userId, desired, this.remoteTracks.keys());
-      let rejected: SfuPullRejectedError | null = null;
-      for (const t of toPull) {
-        try {
-          await this.pullTrack(userId, sessionId, t.kind, t.trackName);
-        } catch (err) {
-          // A rejected pull is this peer's problem (stale directory), not our
-          // transport's: skip it and retry below rather than rebuild (#250).
-          if (!(err instanceof SfuPullRejectedError)) throw err;
-          logNet('sfu-pull-rejected', { err: err.message, retry });
-          rejected = err;
-        }
-      }
-      for (const key of toDrop) await this.dropRemote(key);
-      if (!rejected) return;
-      const delay = sfuPullRetryDelayMs(retry + 1);
+      const desired = this.videoPullPaused
+        ? dir.tracks.filter((t) => t.kind === 'mic')
+        : dir.tracks;
+      const r = reconcilePeerTracks(userId, desired, this.remoteTracks.keys());
+      for (const t of r.toPull) toPull.push({ userId, sessionId: dir.sessionId, ...t });
+      toDrop.push(...r.toDrop);
+    }
+    // Every mic first, so voices come back before any video (issue #254).
+    const rejected = [
+      ...(await this.pullBatch(toPull.filter((t) => t.kind === 'mic'))),
+      ...(await this.pullBatch(toPull.filter((t) => t.kind !== 'mic'))),
+    ];
+    for (const key of toDrop) await this.dropRemote(key);
+
+    // A rejected pull is that peer's problem (stale directory), not our
+    // transport's: retry it with backoff rather than rebuild (#250).
+    let exhausted: Error | null = null;
+    const gen = this.opGen;
+    for (const userId of new Set(rejected.map((r) => r.userId))) {
+      const dir = dirs.get(userId)!;
+      logNet('sfu-pull-rejected', { retry: dir.retry });
+      const delay = sfuPullRetryDelayMs(dir.retry + 1);
       // Still rejected against an unchanged directory after every retry: the
       // fault may be our own session after all, so take the normal failure path.
-      if (delay === null) throw rejected;
+      if (delay === null) {
+        exhausted = new Error(`sfu pull: rejected after ${dir.retry} retries`);
+        continue;
+      }
       setTimeout(() => {
         if (this.closed || gen !== this.generation) return;
-        if (this.peerDirSeq.get(userId) !== seq) return; // superseded or left
-        this.reconcilePeer(userId, sessionId, tracks, seq, retry + 1);
+        if (this.peerDirSeq.get(userId) !== dir.seq) return; // superseded or left
+        this.pendingDirs.set(userId, { ...dir, retry: dir.retry + 1 });
+        this.scheduleFlush();
       }, delay);
-    });
+    }
+    if (exhausted) throw exhausted;
   }
 
   // A peer left the group entirely: drop all of their pulled tracks.
   removePeer(userId: string) {
     this.peerDirSeq.delete(userId);
+    this.pendingDirs.delete(userId);
     this.enqueue(async () => {
       this.peerSessions.delete(userId);
       for (const key of [...this.remoteTracks.keys()]) {
@@ -332,20 +361,29 @@ export class SfuManager {
     });
   }
 
-  closeAll() {
+  // Tear the transport down. Normally emits the same closure events the mesh
+  // transport does (WebRtcManager.closeAll → onPeerClosed per peer), so the UI
+  // removes tiles/stages: pc.close() fires no 'ended' events, and pcAbort just
+  // detached the per-track listeners, so without this their tiles would freeze
+  // on the last frame forever (ghost tiles).
+  //
+  // `keepTiles` (an in-place rebuild, issue #254) suppresses those events so the
+  // call doesn't visibly blank out: the re-pulled streams replace the frozen ones
+  // per (peer, kind). The streams that were live are returned so the caller can
+  // sweep any that never get replaced (e.g. a camera turned off meanwhile).
+  closeAll(opts: { keepTiles?: boolean } = {}): { userId: string; streamId: string }[] {
     this.closed = true;
     this.generation++;
     this.pcAbort?.abort();
     this.pcAbort = null;
-    // Emit the same closure events the mesh transport does (WebRtcManager.closeAll
-    // → onPeerClosed per peer), so the UI removes tiles/stages for members who
-    // won't reappear in the next mesh group. pc.close() fires no 'ended' events,
-    // and pcAbort just detached the per-track listeners, so without this their
-    // tiles would freeze on the last frame forever (SFU→mesh ghost tiles).
+    const live: { userId: string; streamId: string }[] = [];
     const peerIds = new Set<string>();
     for (const entry of this.remoteTracks.values()) {
-      if (entry.streamId) this.events.onRemoteStreamRemoved(entry.userId, entry.streamId);
+      if (entry.streamId) live.push({ userId: entry.userId, streamId: entry.streamId });
       peerIds.add(entry.userId);
+    }
+    if (!opts.keepTiles) {
+      for (const l of live) this.events.onRemoteStreamRemoved(l.userId, l.streamId);
     }
     try {
       this.pc?.close();
@@ -358,8 +396,13 @@ export class SfuManager {
     this.remoteTracks.clear();
     this.midToRemote.clear();
     this.peerSessions.clear();
+    this.pendingDirs.clear();
+    this.flushQueued = false;
     this.statsPrev = null;
-    for (const userId of peerIds) this.events.onPeerClosed(userId);
+    if (!opts.keepTiles) {
+      for (const userId of peerIds) this.events.onPeerClosed(userId);
+    }
+    return live;
   }
 
   // closeAll() latches `closed` so chainOp skips any still-queued ops while we
@@ -515,7 +558,9 @@ export class SfuManager {
     pc.addEventListener(
       'connectionstatechange',
       () => {
-        if (shouldFallbackToMesh(pc.connectionState, this.closed)) this.events.onFailed();
+        if (this.closed) return;
+        if (pc.connectionState === 'connected') this.events.onConnected();
+        else if (isSfuTransportFailed(pc.connectionState)) this.events.onFailed();
       },
       { signal },
     );
@@ -677,44 +722,62 @@ export class SfuManager {
     this.announcePublished();
   }
 
-  private async pullTrack(
-    userId: string,
-    theirSessionId: string,
-    kind: StreamKind,
-    trackName: string,
-  ) {
+  // Pull several remote tracks (any mix of peers) in ONE tracks/new request and
+  // one renegotiation (issue #254). Returns the items the SFU rejected — a
+  // request-level errorCode, or a per-track one inside resp.tracks[] — which
+  // the caller retries per peer instead of failing the transport (#250).
+  // Rejected items are never recorded, so a later directory can re-pull them.
+  // Network / renegotiation failures still throw (a transport fault).
+  private async pullBatch(items: PullItem[]): Promise<PullItem[]> {
+    const todo = items.filter((i) => !this.remoteTracks.has(remoteKey(i.userId, i.kind)));
+    if (todo.length === 0) return [];
     const pc = await this.ensurePc();
     const sid = await this.ensureSession();
-    const key = remoteKey(userId, kind);
-    if (this.remoteTracks.has(key)) return;
 
     const resp = await this.api<TracksResponse>(`/${sid}/tracks/new`, 'POST', {
-      tracks: [{ location: 'remote', sessionId: theirSessionId, trackName }],
+      tracks: todo.map((i) => ({
+        location: 'remote',
+        sessionId: i.sessionId,
+        trackName: i.trackName,
+      })),
     });
-    const pullErr = sfuErrorMessage(resp);
-    if (pullErr) throw new SfuPullRejectedError(`sfu pull: ${pullErr}`);
-    // A per-track failure (200 top-level, error inside resp.tracks[], no mid) must
-    // also throw — otherwise we'd store an unroutable entry that gives no media and
-    // blocks every future re-pull. Throwing before remoteTracks.set leaves the key
-    // un-recorded so a later directory update can retry.
-    const trackErr = sfuTrackError(resp);
-    if (trackErr) throw new SfuPullRejectedError(`sfu pull ${trackName}: ${trackErr}`);
+    const reqErr = sfuErrorMessage(resp);
+    if (reqErr) {
+      // The whole request was refused, so which track caused it is unknown: pull
+      // each one alone, so one stale entry can't hold back everyone else's.
+      if (todo.length === 1) {
+        console.warn('[sfu] pull rejected', reqErr);
+        return todo;
+      }
+      const rejected: PullItem[] = [];
+      for (const i of todo) rejected.push(...(await this.pullBatch([i])));
+      return rejected;
+    }
 
-    // Cloudflare returns, in resp.tracks, the mid it assigned this remote track
-    // in the offer SDP it just sent us — the same mid the browser exposes on the
+    // Cloudflare returns, per requested track, the mid it assigned it in the
+    // offer SDP it just sent us — the same mid the browser exposes on the
     // transceiver in the 'track' event, so we route ontrack by it.
-    const mid = resp.tracks?.[0]?.mid ?? null;
-    const entry: RemoteEntry = {
-      userId,
-      kind,
-      trackName,
-      mid,
-      streamId: null,
-      trackId: null,
-      preferredRid: null,
-    };
-    this.remoteTracks.set(key, entry);
-    if (mid) this.midToRemote.set(mid, key);
+    const results = matchPullResults(todo, resp.tracks);
+    const rejected: PullItem[] = [];
+    todo.forEach((item, idx) => {
+      const r = results[idx];
+      if ('error' in r) {
+        console.warn(`[sfu] pull ${item.trackName} rejected`, r.error);
+        rejected.push(item);
+        return;
+      }
+      const key = remoteKey(item.userId, item.kind);
+      this.remoteTracks.set(key, {
+        userId: item.userId,
+        kind: item.kind,
+        trackName: item.trackName,
+        mid: r.mid,
+        streamId: null,
+        trackId: null,
+        preferredRid: null,
+      });
+      this.midToRemote.set(r.mid, key);
+    });
 
     if (resp.requiresImmediateRenegotiation && resp.sessionDescription) {
       await pc.setRemoteDescription(resp.sessionDescription);
@@ -732,6 +795,7 @@ export class SfuManager {
       const renegErr = sfuErrorMessage(reneg);
       if (renegErr) throw new Error(`sfu renegotiate: ${renegErr}`);
     }
+    return rejected;
   }
 
   private async dropRemote(key: string) {

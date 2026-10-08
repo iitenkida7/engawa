@@ -127,6 +127,9 @@ export class RemoteMediaView {
   // null when nothing is maximized. An override on top of layoutMode rather than
   // a mode of its own, so clearing it drops straight back to the active mode.
   private focusedKey: string | null = null;
+  // True while the SFU transport is being rebuilt (issue #254): remote panels
+  // stay up, frozen, under a "reconnecting" overlay until the re-pull lands.
+  private reconnecting = false;
 
   // Replays remote media the autoplay policy refused on the next user gesture
   // (issue #201); the App shows / hides the "enable audio" prompt.
@@ -224,6 +227,19 @@ export class RemoteMediaView {
     }
     dot.className = `quality-dot q${level}`;
     dot.title = t(`quality.q${level}`);
+  }
+
+  // Toggle the "reconnecting" overlay on every remote panel (tiles + remote
+  // screenshare stages). New panels pick the flag up on creation.
+  setReconnecting(on: boolean) {
+    if (this.reconnecting === on) return;
+    this.reconnecting = on;
+    for (const tile of this.remoteTiles.values())
+      tile.container.classList.toggle('reconnecting', on);
+    const me = this.getMyId();
+    for (const [userId, ss] of this.screenshares) {
+      if (userId !== me) ss.container.classList.toggle('reconnecting', on);
+    }
   }
 
   // ============= Remote streams =============
@@ -386,6 +402,7 @@ export class RemoteMediaView {
     // Reflect the current mute state right away (a placeholder tile may be
     // created between status broadcasts, which only fire on change).
     if (p?.isMuted) container.classList.add('muted');
+    if (this.reconnecting) container.classList.add('reconnecting');
 
     const header = document.createElement('div');
     header.className = 'panel-header';
@@ -406,6 +423,7 @@ export class RemoteMediaView {
 
     const body = document.createElement('div');
     body.className = 'panel-body';
+    body.dataset.reconnectingLabel = t('media.reconnecting');
     container.appendChild(body);
 
     const video = document.createElement('video');
@@ -555,6 +573,7 @@ export class RemoteMediaView {
     container.className = isMain ? 'panel screenshare-stage main' : 'panel screenshare-stage';
     container.dataset.userId = userId;
     container.dataset.focusKey = `screen:${userId}`;
+    if (this.reconnecting && userId !== this.getMyId()) container.classList.add('reconnecting');
 
     const header = document.createElement('div');
     header.className = 'panel-header';
@@ -567,6 +586,7 @@ export class RemoteMediaView {
 
     const body = document.createElement('div');
     body.className = 'panel-body';
+    body.dataset.reconnectingLabel = t('media.reconnecting');
     container.appendChild(body);
 
     const video = document.createElement('video');

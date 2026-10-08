@@ -197,6 +197,7 @@ const STR: Record<string, Record<Lang, string>> = {
     en: 'Double-click to make this the main view',
   },
   'media.focus': { ja: '拡大表示', en: 'Maximize' },
+  'media.reconnecting': { ja: '再接続中…', en: 'Reconnecting…' },
   'media.unfocus': { ja: '拡大を解除（Esc）', en: 'Exit maximize (Esc)' },
 
   // -- chat -----------------------------------------------------------------
@@ -224,9 +225,9 @@ const STR: Record<string, Record<Lang, string>> = {
     en: 'Your browser is blocking audio playback.',
   },
   'app.autoplayEnable': { ja: '🔊 音声を有効にする', en: '🔊 Enable audio' },
-  'app.sfuFallback': {
-    ja: '通話サーバーに接続できないため、P2P 接続に切り替えました。',
-    en: "Couldn't reach the call server — switched to a P2P connection.",
+  'app.sfuReconnecting': {
+    ja: '通話サーバーに再接続しています…',
+    en: 'Reconnecting to the call server…',
   },
   'app.netCamOff': {
     ja: '回線が不安定なため、音声を優先してカメラを一時停止しました(回復すると自動で再開します)。',

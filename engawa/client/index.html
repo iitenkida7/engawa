@@ -628,6 +628,21 @@
         aspect-ratio: 16 / 9;
       }
 
+      /* SFU transport rebuild (issue #254): the panel keeps its last frame,
+         dimmed, under a "reconnecting" label instead of disappearing. */
+      .panel.reconnecting .panel-body::after {
+        content: attr(data-reconnecting-label);
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        font-size: 13px;
+        pointer-events: none;
+      }
+
       .remote-tile.speaking {
         border-color: rgba(80, 220, 120, 0.9);
         box-shadow: 0 0 10px rgba(80, 220, 120, 0.3);
