@@ -107,10 +107,58 @@ export const BG_PRESETS: BgPreset[] = [
   },
 ];
 
+// Bundled image backgrounds (#233): drop CC0 JPG/PNG/WebP files into
+// client/src/assets/backgrounds/ and they appear as presets automatically — no
+// code change needed. The filename (sans extension) becomes the id/label.
+export interface BgImagePreset {
+  id: string;
+  label: string;
+  url: string;
+}
+
+// `import.meta.glob` is a Vite build-time macro (undefined under bun test), so
+// resolve it lazily behind a guard — importing this module in a unit test must
+// not throw (mirrors world/character.ts). Vite rewrites each match to a URL.
+let imagePresetCache: BgImagePreset[] | null = null;
+export function imagePresets(): BgImagePreset[] {
+  if (imagePresetCache) return imagePresetCache;
+  let map: Record<string, string> = {};
+  try {
+    map = import.meta.glob('@/assets/backgrounds/*.{jpg,jpeg,png,webp}', {
+      eager: true,
+      query: '?url',
+      import: 'default',
+    }) as Record<string, string>;
+  } catch {
+    map = {};
+  }
+  imagePresetCache = Object.entries(map)
+    .map(([path, url]) => {
+      const base = (path.split('/').pop() ?? path).replace(/\.[^.]+$/, '');
+      const label = base.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      return { id: `${VBG_IMAGE_PREFIX}${base}`, label, url };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return imagePresetCache;
+}
+
+// Bundled image preset ids are namespaced so they never collide with the
+// gradient preset ids or the reserved off/blur/custom values.
+export const VBG_IMAGE_PREFIX = 'bg:';
+export function isImagePresetChoice(choice: string): boolean {
+  return choice.startsWith(VBG_IMAGE_PREFIX);
+}
+
 // All selectable choices in menu order (custom is appended by the UI only when
 // an image is stored). Used to validate persisted values.
 export function allChoices(): string[] {
-  return [VBG_OFF, VBG_BLUR, ...BG_PRESETS.map((p) => p.id), VBG_CUSTOM];
+  return [
+    VBG_OFF,
+    VBG_BLUR,
+    ...BG_PRESETS.map((p) => p.id),
+    ...imagePresets().map((p) => p.id),
+    VBG_CUSTOM,
+  ];
 }
 
 // Parse a persisted choice string, falling back to 'off' for anything unknown.
@@ -145,6 +193,9 @@ export function choiceLabel(choice: string): string {
   if (choice === VBG_OFF) return t('vbg.btnBg');
   if (choice === VBG_BLUR) return t('vbg.btnBlur');
   if (choice === VBG_CUSTOM) return t('vbg.btnImage');
+  if (isImagePresetChoice(choice)) {
+    return imagePresets().find((p) => p.id === choice)?.label ?? t('vbg.btnImage');
+  }
   const preset = BG_PRESETS.find((p) => p.id === choice);
   return preset ? preset.label : t('vbg.btnBg');
 }
@@ -332,6 +383,10 @@ export class VirtualBackground {
     this.pctx.save();
     this.pctx.globalCompositeOperation = 'destination-in';
     this.pctx.imageSmoothingEnabled = true;
+    // Feather the low-res (≈256px) segmentation mask as it's upscaled, so the
+    // person's edge is a soft gradient instead of the jagged stair-step the raw
+    // mask produces at 720p (#233). Scaled to the output so it's consistent.
+    if (CTX_FILTER_SUPPORTED) this.pctx.filter = `blur(${Math.max(2, Math.round(h / 180))}px)`;
     this.pctx.drawImage(this.maskCanvas, 0, 0, w, h);
     this.pctx.restore();
 

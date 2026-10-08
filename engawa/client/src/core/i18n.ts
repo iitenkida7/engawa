@@ -154,10 +154,10 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
 
   // -- virtual background presets & button ----------------------------------
-  'vbg.office': { ja: '🏢 オフィス', en: '🏢 Office' },
-  'vbg.sky': { ja: '🌤 青空', en: '🌤 Blue sky' },
-  'vbg.sunset': { ja: '🌇 夕焼け', en: '🌇 Sunset' },
-  'vbg.green': { ja: '🌿 グリーン', en: '🌿 Green' },
+  'vbg.office': { ja: '⬛ ダーク', en: '⬛ Dark' },
+  'vbg.sky': { ja: '🟦 ブルー', en: '🟦 Blue' },
+  'vbg.sunset': { ja: '🟧 サンセット', en: '🟧 Sunset' },
+  'vbg.green': { ja: '🟩 グリーン', en: '🟩 Green' },
   'vbg.btnBg': { ja: '🪄 背景', en: '🪄 Background' },
   'vbg.btnBlur': { ja: '🌫 ぼかし', en: '🌫 Blur' },
   'vbg.btnImage': { ja: '🖼 画像', en: '🖼 Image' },

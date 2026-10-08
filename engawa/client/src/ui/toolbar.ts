@@ -6,6 +6,7 @@ import type { RecorderManager } from '@/media/recorder';
 import {
   BG_PRESETS,
   fileToDownscaledDataUrl,
+  imagePresets,
   parseVbgChoice,
   serializeVbgChoice,
   VBG_BLUR,
@@ -514,6 +515,10 @@ export class ToolbarController {
     for (const preset of BG_PRESETS) {
       addBg(preset.label, () => void this.setBackground(preset.id), preset.id);
     }
+    // Bundled image backgrounds (#233): auto-listed from assets/backgrounds/.
+    for (const preset of imagePresets()) {
+      addBg(preset.label, () => void this.setBackground(preset.id), preset.id);
+    }
     if (this.media.customBgDataUrl) {
       addBg(t('toolbar.bgCustom'), () => void this.setBackground(VBG_CUSTOM), VBG_CUSTOM);
     }
@@ -613,6 +618,7 @@ export class ToolbarController {
     // update in place, keeping the same RTC track (no renegotiation, no
     // status re-broadcast).
     if (wasProcessing && nowProcessing && this.media.bgActive) {
+      await this.media.ensureBgImage();
       this.media.updateBackground();
       return;
     }
