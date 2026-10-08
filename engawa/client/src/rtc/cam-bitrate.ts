@@ -187,9 +187,11 @@ export const SFU_CAM_HALF_RID = 'h';
 
 // Below this rendered tile width (CSS px) a receiver requests the half layer
 // instead of full, so small thumbnails don't waste downlink (issue #78: don't
-// waste bandwidth on small tiles). The capture is 320 wide, so ~240 is a natural
-// break between "thumbnail" and "looking at it".
-export const SIMULCAST_FULL_MIN_WIDTH = 240;
+// waste bandwidth on small tiles). 400 sends every cell of a 5-column gallery
+// (16+ people, ≤ ~380px even on a 1920 screen) to the 480-wide half layer instead
+// of pulling ~19 full 540p streams, while 3-column layouts (≤ 9 people) keep the
+// full layer (issue #269).
+export const SIMULCAST_FULL_MIN_WIDTH = 400;
 
 // Pure: the simulcast layer (rid) a receiver should request for a tile of the
 // given rendered width. Larger tiles / the screenshare-sized stage take the full
