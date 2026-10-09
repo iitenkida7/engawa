@@ -139,7 +139,7 @@ const FLOOR_THEMES: { base: string; accent: string }[] = [
   { base: '#dcd7e1', accent: 'rgba(112,98,134,0.28)' }, // lavender — muted greyed mauve
   { base: '#ede0dc', accent: 'rgba(190,144,140,0.28)' }, // pink — Nordic dusty rose
   { base: '#efe6cf', accent: 'rgba(186,156,86,0.3)' }, // amber — Nordic mustard/ochre
-  { base: '#d7ebe5', accent: 'rgba(55,150,140,0.27)' }, // teal
+  { base: '#c6d7d1', accent: 'rgba(58,124,116,0.3)' }, // teal — muted Nordic
   { base: '#f1e1d4', accent: 'rgba(185,110,75,0.27)' }, // terracotta
   { base: '#e3e5ec', accent: 'rgba(95,108,130,0.27)' }, // slate
 ];
