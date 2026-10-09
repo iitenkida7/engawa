@@ -393,10 +393,20 @@ export function isDeskSeat(px: number, py: number): boolean {
 // (negative on the left, past BUILDING_COLS on the right) so the shared stamping
 // machinery places them on the grass. Each is a conversation-restricted zone (an
 // isolated call bubble, like the old lounge): walkable rug + sofas + a table.
-export type Lounge = { id: string; name: string; c: number; r: number; w: number; h: number };
+export type LoungePattern = 'brick' | 'tatami' | 'herringbone';
+export type Lounge = {
+  id: string;
+  name: string;
+  c: number;
+  r: number;
+  w: number;
+  h: number;
+  // Floor rug style for this café (the renderer picks it per-café).
+  pattern: LoungePattern;
+};
 export const LOUNGES: Lounge[] = [
-  { id: 'cafe-left', name: t('zone.cafe'), c: -7, r: 12, w: 6, h: 5 },
-  { id: 'cafe-right', name: t('zone.cafe'), c: 35, r: 12, w: 6, h: 5 },
+  { id: 'cafe-left', name: t('zone.cafe'), c: -7, r: 12, w: 6, h: 5, pattern: 'tatami' },
+  { id: 'cafe-right', name: t('zone.cafe'), c: 35, r: 12, w: 6, h: 5, pattern: 'herringbone' },
 ];
 
 // Greenery dotted around the open floor — along the side walls and in the aisles
@@ -581,6 +591,18 @@ export const LOUNGE_TABLE_RECTS: Rect[] = LOUNGE_RECTS.map((r) => ({
   w: r.w * 0.46,
   h: r.h * 0.2,
 }));
+
+// The café rug pattern at a map tile (col,row), or null when it isn't a café —
+// lets the renderer give each café its own floor style.
+export function loungePatternAt(col: number, row: number): LoungePattern | null {
+  const cx = col * TILE_SIZE + TILE_SIZE / 2;
+  const cy = row * TILE_SIZE + TILE_SIZE / 2;
+  for (let i = 0; i < LOUNGE_RECTS.length; i++) {
+    const r = LOUNGE_RECTS[i];
+    if (cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h) return LOUNGES[i].pattern;
+  }
+  return null;
+}
 
 // Impassable sub-tile props, checked by isSolid in addition to the SOLID tile
 // kinds. Pixel rects so props that don't fill a whole tile still block.
