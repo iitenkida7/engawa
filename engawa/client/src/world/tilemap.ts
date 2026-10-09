@@ -861,3 +861,7 @@ export function findAdjacentSpawn(
   }
   return best ?? findWalkableSpawn(tx, ty, radius);
 }
+
+// Dev only: floor layout/styles are baked into the renderer's cached map image,
+// which survives HMR — so a hot edit here would not show. Force a full reload.
+if (import.meta.hot) import.meta.hot.accept(() => location.reload());

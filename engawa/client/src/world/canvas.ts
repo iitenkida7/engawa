@@ -1510,3 +1510,9 @@ export class CanvasRenderer {
     ctx.closePath();
   }
 }
+
+// Dev only: the baked map image is cached on the Renderer instance, which
+// survives an HMR module swap — so a hot edit to the renderer would leave the map
+// (floors, rug patterns/colours, furniture) stale. Force a full reload instead,
+// which recreates the Renderer and rebuilds the map. Stripped from prod builds.
+if (import.meta.hot) import.meta.hot.accept(() => location.reload());
