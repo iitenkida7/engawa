@@ -591,6 +591,10 @@ function placeTrees(m: number[][]): Tree[] {
     [buildingRight, MAP_COLS - 2, OUTDOOR_MARGIN, buildingBottom - 1, 18, 0.68], // right
     // Fill the sparse right-middle strip with a few small trees so it's not bare.
     [buildingRight, MAP_COLS - 2, midRow0, midRow1, 12, 0], // right-middle (small)
+    // The lounge + detached room crowd out big trees on the right, so target the
+    // clear strips (above the lounge, below the room) with big-tree-only passes.
+    [buildingRight + 1, MAP_COLS - 2, OUTDOOR_MARGIN + 1, gateTop - 4, 16, 1], // upper-right (big)
+    [buildingRight + 1, MAP_COLS - 2, buildingBottom + 1, MAP_ROWS - 3, 12, 1], // lower-right (big)
   ];
   for (const [colMin, colMax, rowMin, rowMax, attempts, bigProb] of bands) {
     for (let i = 0; i < attempts; i++) tryPlace(colMin, colMax, rowMin, rowMax, bigProb);
