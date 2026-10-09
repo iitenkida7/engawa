@@ -19,6 +19,7 @@ import { floorKindAt, propFor, type RoomKind, roomKindAt } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import {
   deskFacesSouth,
+  type FloorPattern,
   isDeskSeat,
   LOUNGE_RECTS,
   LOUNGE_TABLE_RECTS,
@@ -31,6 +32,7 @@ import {
   POD_RUGS,
   ROOM_FURNITURE,
   type RoomFurniture,
+  roomFloorAt,
   TILE_SIZE,
   Tile,
   TREES,
@@ -106,6 +108,7 @@ const PALETTE = {
   // Café floors (#263 follow-up): crosshatch = a soft diagonal net over the café's
   // sage base; herringbone = warm wood planks with soft grooves.
   crosshatchLine: 'rgba(90,110,80,0.28)',
+  chevronLine: 'rgba(120,95,140,0.3)',
   herringWood: '#d9c29a',
   herringWoodAlt: '#cdb488',
   herringMortar: 'rgba(120,88,52,0.38)',
@@ -216,6 +219,7 @@ export class CanvasRenderer {
   private houndPattern: CanvasPattern | null = null;
   private crosshatchPattern: CanvasPattern | null = null;
   private herringPattern: CanvasPattern | null = null;
+  private chevronPattern: CanvasPattern | null = null;
 
   // Zoom factor about the camera center. ZOOM_DEFAULT (1.0) is the 1:1 view;
   // smaller surveys more of the office, larger magnifies. Driven by the mouse
@@ -658,6 +662,7 @@ export class CanvasRenderer {
     this.houndPattern = this.buildHoundstooth(cx);
     this.crosshatchPattern = this.buildCrosshatch(cx);
     this.herringPattern = this.buildHerringbone(cx);
+    this.chevronPattern = this.buildChevron(cx);
 
     // Pass 1 — floors + walls: rooms/lounge get a colour-coded rug, the open
     // office oak; walls get a window where they face the open floor.
@@ -676,8 +681,11 @@ export class CanvasRenderer {
           continue;
         }
         const roomKind = roomKindAt(c, r);
-        const pattern =
-          roomKind === 'oneonone'
+        // A per-café (lounge) or per-room override wins; otherwise pick by kind.
+        const override = roomKind === 'lounge' ? loungePatternAt(c, r) : roomFloorAt(c, r);
+        const pattern: FloorPattern =
+          override ??
+          (roomKind === 'oneonone'
             ? 'stripe'
             : roomKind === 'booth'
               ? 'houndstooth'
@@ -686,8 +694,8 @@ export class CanvasRenderer {
                 : roomKind === 'exec'
                   ? 'vstripe'
                   : roomKind === 'lounge'
-                    ? (loungePatternAt(c, r) ?? 'brick')
-                    : 'none';
+                    ? 'brick'
+                    : 'none');
         this.drawFloorTile(
           cx,
           tx,
@@ -1017,15 +1025,7 @@ export class CanvasRenderer {
     tx: number,
     ty: number,
     color: string,
-    pattern:
-      | 'none'
-      | 'stripe'
-      | 'vstripe'
-      | 'checker'
-      | 'houndstooth'
-      | 'brick'
-      | 'crosshatch'
-      | 'herringbone' = 'none',
+    pattern: FloorPattern = 'none',
   ) {
     const S = TILE_SIZE;
     cx.fillStyle = color;
@@ -1083,6 +1083,10 @@ export class CanvasRenderer {
     } else if (pattern === 'herringbone' && this.herringPattern) {
       // Herringbone wood — the right café. Opaque planks over the sage base.
       cx.fillStyle = this.herringPattern;
+      cx.fillRect(tx, ty, S, S);
+    } else if (pattern === 'chevron' && this.chevronPattern) {
+      // Chevron zigzag — negotiation booth 4. A soft accent over the base.
+      cx.fillStyle = this.chevronPattern;
       cx.fillRect(tx, ty, S, S);
     }
     cx.strokeStyle = PALETTE.floorGrid;
@@ -1182,6 +1186,29 @@ export class CanvasRenderer {
     }
     g.stroke();
     g.restore();
+    return cx.createPattern(p, 'repeat');
+  }
+
+  // Chevron zigzag (booth 4): repeating ^ stripes, drawn transparent so the
+  // booth base shows through. Enters/exits each cell at the same y so it tiles.
+  private buildChevron(cx: CanvasRenderingContext2D): CanvasPattern | null {
+    const W = 24; // chevron width (one ^)
+    const H = 12; // vertical pitch between stripes
+    const p = document.createElement('canvas');
+    p.width = W;
+    p.height = H;
+    const g = p.getContext('2d');
+    if (!g) return null;
+    g.strokeStyle = PALETTE.chevronLine;
+    g.lineWidth = 3;
+    g.lineJoin = 'miter';
+    g.beginPath();
+    for (let y = -H; y <= H * 2; y += H) {
+      g.moveTo(0, y);
+      g.lineTo(W / 2, y - H / 2); // up to the peak
+      g.lineTo(W, y); // back down — same y at x=W, so it wraps
+    }
+    g.stroke();
     return cx.createPattern(p, 'repeat');
   }
 

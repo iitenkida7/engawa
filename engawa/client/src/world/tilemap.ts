@@ -63,6 +63,20 @@ export function canOccupy(cx: number, cy: number, radius: number): boolean {
 // Each room is stamped as a wall ring + MEETING interior + door gap(s) + desks.
 // The layout lives here once; buildZones() derives the named Zone from it, so
 // adding/moving a room needs no other edits.
+
+// Floor rug patterns the renderer can draw. Named here so a room/café can request
+// a specific one; the renderer (canvas.ts) maps each to a drawing.
+export type FloorPattern =
+  | 'none'
+  | 'stripe'
+  | 'vstripe'
+  | 'checker'
+  | 'houndstooth'
+  | 'brick'
+  | 'crosshatch'
+  | 'herringbone'
+  | 'chevron';
+
 type RoomDef = {
   id: string;
   name: string;
@@ -73,6 +87,8 @@ type RoomDef = {
   h: number;
   doors: [number, number][]; // wall tiles opened to FLOOR (col, row)
   desks: [number, number][]; // furniture inside (col, row)
+  // Optional floor override — otherwise the renderer picks by room kind.
+  floor?: FloorPattern;
 };
 
 // Rooms fill the top and bottom edges edge-to-edge: neighbours share a single
@@ -262,6 +278,7 @@ const ROOMS: RoomDef[] = [
     h: 3,
     doors: [[30, 22]],
     desks: [[30, 24]],
+    floor: 'chevron',
   },
 ];
 
@@ -602,6 +619,16 @@ export function loungePatternAt(col: number, row: number): LoungePattern | null 
     if (cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h) return LOUNGES[i].pattern;
   }
   return null;
+}
+
+// Per-room floor overrides (zone id → pattern), e.g. a single booth styled
+// differently. Null when the room has no override (renderer uses its kind).
+const ROOM_FLOOR_OVERRIDES = new Map<string, FloorPattern>(
+  ROOMS.filter((r) => r.floor).map((r) => [r.id, r.floor as FloorPattern]),
+);
+export function roomFloorAt(col: number, row: number): FloorPattern | null {
+  const z = zoneAt(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2);
+  return z ? (ROOM_FLOOR_OVERRIDES.get(z.id) ?? null) : null;
 }
 
 // Impassable sub-tile props, checked by isSolid in addition to the SOLID tile
