@@ -421,7 +421,7 @@ const OPEN_PLANTS: [number, number][] = [
   [1, 21],
   [32, 6],
   [32, 21],
-  [8, 12],
+  [7, 12],
   [26, 12],
   // All-hands room corners (interior cols 6-17, rows 1-4) — a little greenery.
   [6, 1],
