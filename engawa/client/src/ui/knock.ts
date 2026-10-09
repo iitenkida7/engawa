@@ -60,7 +60,8 @@ export class KnockController {
   }
 
   // Someone knocked us: offer an accept/decline toast. Accepting tells them OK
-  // (their client then walks over); 「あとで」 declines politely.
+  // and walks us over to them (the responder goes to the caller, like Gather);
+  // 「あとで」 declines politely.
   received(fromUserId: string, name: string) {
     this.deps.sounds.enter();
     this.deps.toasts.action(
@@ -69,7 +70,10 @@ export class KnockController {
         {
           label: t('knock.accept'),
           primary: true,
-          onClick: () => this.deps.send({ type: 'knock-reply', to: fromUserId, accept: true }),
+          onClick: () => {
+            this.deps.send({ type: 'knock-reply', to: fromUserId, accept: true });
+            this.deps.goTo(fromUserId);
+          },
         },
         {
           label: t('knock.later'),
@@ -80,14 +84,14 @@ export class KnockController {
     );
   }
 
-  // Reply to a knock we sent. On accept we walk over to them (via goTo); on
-  // decline we just say so quietly. Either way the reply clears our pending
-  // timer and cooldown so we can try again right away.
+  // Reply to a knock we sent. On accept the responder walks over to us (they
+  // call goTo on their side), so we just acknowledge; on decline we say so
+  // quietly. Either way the reply clears our pending timer and cooldown so we
+  // can try again right away.
   reply(fromUserId: string, name: string, accept: boolean) {
     this.forget(fromUserId);
     if (accept) {
       this.deps.toasts.info(t('knock.accepted', { name }));
-      this.deps.goTo(fromUserId);
     } else {
       this.deps.toasts.info(t('knock.busy', { name }));
     }

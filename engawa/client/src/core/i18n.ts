@@ -173,8 +173,8 @@ const STR: Record<string, Record<Lang, string>> = {
   'knock.accept': { ja: '応じる', en: 'Accept' },
   'knock.later': { ja: 'あとで', en: 'Later' },
   'knock.accepted': {
-    ja: '{name} さんが応じました。近づきます',
-    en: '{name} accepted — heading over',
+    ja: '{name} さんが応じました。来てくれます',
+    en: '{name} accepted — on their way',
   },
   'knock.busy': { ja: '{name} さんは今は手が離せないようです', en: '{name} is tied up right now' },
   'knock.someone': { ja: '相手', en: 'someone' },
