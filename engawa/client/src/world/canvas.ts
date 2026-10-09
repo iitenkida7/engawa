@@ -15,10 +15,9 @@ import {
 } from '@/core/types';
 import { STATUS_EMOJI } from '@/ui/status-menu';
 import { CharacterSheet } from '@/world/character';
-import { floorKindAt, propFor } from '@/world/decor';
+import { propFor } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import {
-  deskFacesSouth,
   type FloorPattern,
   type FloorStyle,
   floorStyleAt,
@@ -719,20 +718,20 @@ export class CanvasRenderer {
       this.drawPodRug(cx, rug, islandFloorStyle(i));
     });
 
-    // Pass 2 — props: open-office desks are workstations; in-room desks are drawn
-    // as designed tables/chairs by the furniture pass below, so skip them here.
+    // Pass 2 — props: plants here; open-office desks are drawn per 3-wide unit
+    // (one long desk) just below. In-room desks are drawn as designed tables by
+    // the furniture pass, so skip them here.
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
-        const tile = officeMap[r][c];
-        const tx = c * TILE_SIZE;
-        const ty = r * TILE_SIZE;
-        const prop = propFor(tile);
-        if (prop === 'desk' && floorKindAt(c, r) === 'wood') {
-          this.drawWorkstation(cx, tx, ty, deskFacesSouth(c, r));
-        } else if (prop === 'plant') {
-          this.drawPlant(cx, tx, ty);
+        if (propFor(officeMap[r][c]) === 'plant') {
+          this.drawPlant(cx, c * TILE_SIZE, r * TILE_SIZE);
         }
       }
+    }
+    // One long desk per island unit (spans the 3 desk tiles with end margins, so
+    // it reads as a ~2-tile desk) + a single centred monitor/keyboard.
+    for (const u of OPEN_DESK_CHAIRS) {
+      this.drawWorkstation(cx, u.col * TILE_SIZE, u.row * TILE_SIZE, u.facesSouth);
     }
 
     // One chair in front of each open-office desk island (centred on the 3-wide
@@ -866,7 +865,6 @@ export class CanvasRenderer {
     table: { x: number; y: number; w: number; h: number },
   ) {
     const cxp = f.x + f.w / 2;
-    const cyp = f.y + f.h / 2;
 
     // Framed rug: a double rounded border for a tidy, furnished look.
     this.roundRect(cx, f.x + 5, f.y + 5, f.w - 10, f.h - 10, 14);
@@ -880,15 +878,16 @@ export class CanvasRenderer {
     // Coffee table rect — geometry shared with collision (LOUNGE_TABLE_RECTS).
     const { x: tx, y: ty, w: tw, h: th } = table;
 
-    // Three sofas around the table (left/right 2-seaters + a longer one at the
-    // bottom); the top is left open for greenery + a lamp — reads as a lounge
-    // nook instead of a boxed-in square.
-    const near = 9 + 14;
-    this.drawCouch(cx, cxp - tw / 2 - near, cyp, 'right', 54);
-    this.drawCouch(cx, cxp + tw / 2 + near, cyp, 'left', 54);
-    this.drawCouch(cx, cxp, cyp + th / 2 + near, 'up', 150);
+    // Single-seat armchairs, each a spot you stand on to look "seated" (like the
+    // meeting-room chairs) — backrest on the side away from the table. Three above
+    // (facing down) and three below (facing up).
+    const gap = 26; // chair centre offset from the table edge
+    for (const dx of [-52, 0, 52]) {
+      this.drawArmchair(cx, cxp + dx, ty - gap, 'down');
+      this.drawArmchair(cx, cxp + dx, ty + th + gap, 'up');
+    }
 
-    // A potted plant and a floor lamp along the top, framing the nook.
+    // A potted plant and a floor lamp in the top corners, framing the nook.
     this.drawPlant(cx, f.x + 6, f.y + 2);
     this.drawFloorLamp(cx, f.x + f.w - 30, f.y + 62);
 
@@ -957,63 +956,47 @@ export class CanvasRenderer {
   // A couch centred at (cxc, cyc) facing toward the coffee table. `len` is its
   // long dimension (so 150 ≈ a 4-seater, 54 ≈ a 2-seater). Backrest on the far
   // side, arm caps at both ends, evenly-spaced seat cushions, and a soft shadow.
-  private drawCouch(
+  private drawArmchair(
     cx: CanvasRenderingContext2D,
     cxc: number,
     cyc: number,
     facing: 'left' | 'right' | 'up' | 'down',
-    len: number,
   ) {
-    const thick = 18;
-    const backW = 6;
-    const arm = 7;
-    const horizontal = facing === 'up' || facing === 'down';
-    const w = horizontal ? len : thick;
-    const h = horizontal ? thick : len;
-    const x = cxc - w / 2;
-    const y = cyc - h / 2;
-    this.softShadow(cx, cxc, y + h + 1, w / 2, 4);
-    // Base.
-    this.roundRect(cx, x, y, w, h, 6);
+    const s = 30; // chair footprint
+    const back = 7;
+    const arm = 6;
+    const x = cxc - s / 2;
+    const y = cyc - s / 2;
+    this.softShadow(cx, cxc, y + s + 1, s / 2, 4);
+    // Seat base.
+    this.roundRect(cx, x, y, s, s, 8);
     cx.fillStyle = PALETTE.sofa;
     cx.fill();
-    // Backrest on the far side from the table.
+    // Backrest on the side AWAY from the table (opposite the facing direction).
     cx.fillStyle = PALETTE.sofaBack;
-    if (facing === 'right') this.roundRect(cx, x, y, backW, h, 5);
-    else if (facing === 'left') this.roundRect(cx, x + w - backW, y, backW, h, 5);
-    else if (facing === 'down') this.roundRect(cx, x, y, w, backW, 5);
-    else this.roundRect(cx, x, y + h - backW, w, backW, 5);
+    if (facing === 'down') this.roundRect(cx, x, y, s, back, 6);
+    else if (facing === 'up') this.roundRect(cx, x, y + s - back, s, back, 6);
+    else if (facing === 'right') this.roundRect(cx, x, y, back, s, 6);
+    else this.roundRect(cx, x + s - back, y, back, s, 6);
     cx.fill();
-    // Arm caps at the two ends.
+    // Arm caps on the two sides perpendicular to the facing.
     cx.fillStyle = PALETTE.sofaArm;
-    if (horizontal) {
-      this.roundRect(cx, x, y, arm, h, 5);
+    if (facing === 'up' || facing === 'down') {
+      this.roundRect(cx, x, y, arm, s, 5);
       cx.fill();
-      this.roundRect(cx, x + w - arm, y, arm, h, 5);
+      this.roundRect(cx, x + s - arm, y, arm, s, 5);
       cx.fill();
     } else {
-      this.roundRect(cx, x, y, w, arm, 5);
+      this.roundRect(cx, x, y, s, arm, 5);
       cx.fill();
-      this.roundRect(cx, x, y + h - arm, w, arm, 5);
+      this.roundRect(cx, x, y + s - arm, s, arm, 5);
       cx.fill();
     }
-    // Evenly-spaced seat cushions along the long axis, on the seat side.
-    const avail = len - arm * 2;
-    const n = Math.max(2, Math.round(avail / 30));
-    const step = avail / n;
+    // Seat-cushion highlight.
     cx.fillStyle = PALETTE.sofaHi;
-    for (let k = 0; k < n; k++) {
-      if (horizontal) {
-        const cxk = x + arm + k * step;
-        const cyk = facing === 'down' ? y + backW + 1 : y + 1;
-        this.roundRect(cx, cxk + 1, cyk, step - 2, thick - backW - 2, 3);
-      } else {
-        const cyk = y + arm + k * step;
-        const cxk = facing === 'right' ? x + backW + 1 : x + 1;
-        this.roundRect(cx, cxk, cyk + 1, thick - backW - 2, step - 2, 3);
-      }
-      cx.fill();
-    }
+    const inset = arm;
+    this.roundRect(cx, x + inset, y + inset, s - inset * 2, s - inset * 2, 4);
+    cx.fill();
   }
 
   // A wall-mounted whiteboard along the top interior edge of a meeting room, with
@@ -1370,6 +1353,9 @@ export class CanvasRenderer {
   // monitor with a soft screen, and a hint of a keyboard. `facesSouth` flips it
   // vertically (monitor at the bottom, keyboard at the top) so the occupant sits
   // above, facing down — used for the upper row of a facing pod.
+  // (tx, ty) is the CENTRE tile of a 3-wide desk unit. Draws one long desk across
+  // the three tiles — inset at both ends so it reads as a ~2-tile desk — with a
+  // single centred monitor/keyboard.
   private drawWorkstation(
     cx: CanvasRenderingContext2D,
     tx: number,
@@ -1378,16 +1364,21 @@ export class CanvasRenderer {
   ) {
     const S = TILE_SIZE;
     const pad = 5;
+    const end = S * 0.45; // end margin: the slab spans ~2 tiles, not the full 3
+    const slabX = tx - S + end;
+    const slabW = 3 * S - end * 2;
+    const slabY = ty + pad;
+    const slabH = S - pad * 2;
     const cxm = tx + S / 2;
-    this.softShadow(cx, cxm, ty + S - pad + 1, S / 2 - pad + 1, 5);
+    this.softShadow(cx, cxm, ty + S - pad + 1, slabW / 2 - pad + 1, 5);
     // Desk: thickness slab, then a gradient top and rim.
-    this.roundRect(cx, tx + pad, ty + pad + 2, S - pad * 2, S - pad * 2, 6);
+    this.roundRect(cx, slabX, slabY + 2, slabW, slabH, 7);
     cx.fillStyle = PALETTE.deskEdge;
     cx.fill();
-    const dg = cx.createLinearGradient(0, ty + pad, 0, ty + S - pad);
+    const dg = cx.createLinearGradient(0, slabY, 0, slabY + slabH);
     dg.addColorStop(0, PALETTE.deskTopHi);
     dg.addColorStop(1, PALETTE.deskTop);
-    this.roundRect(cx, tx + pad, ty + pad, S - pad * 2, S - pad * 2, 6);
+    this.roundRect(cx, slabX, slabY, slabW, slabH, 7);
     cx.fillStyle = dg;
     cx.fill();
     cx.strokeStyle = PALETTE.deskEdge;
