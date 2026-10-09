@@ -1066,6 +1066,22 @@ export class CanvasRenderer {
     accent: string,
   ): CanvasPattern | null {
     const p = document.createElement('canvas');
+    // Size per pattern. IMPORTANT: set width/height BEFORE any style/draw —
+    // assigning a canvas's size resets its 2D context (fillStyle back to black).
+    const sizes: Record<string, [number, number]> = {
+      stripe: [14, 14],
+      vstripe: [16, 16],
+      checker: [20, 20],
+      brick: [46, 32],
+      houndstooth: [28, 28],
+      crosshatch: [18, 18],
+      herringbone: [48, 48],
+      chevron: [24, 12],
+    };
+    const size = sizes[pattern];
+    if (!size) return null;
+    p.width = size[0];
+    p.height = size[1];
     const g = p.getContext('2d');
     if (!g) return null;
     g.fillStyle = accent;
@@ -1073,30 +1089,22 @@ export class CanvasRenderer {
     switch (pattern) {
       case 'stripe': {
         // Horizontal stripes (2px line every 14px).
-        p.width = 14;
-        p.height = 14;
         g.fillRect(0, 0, 14, 2);
         break;
       }
       case 'vstripe': {
         // Vertical bands (8px on / 8px off).
-        p.width = 16;
-        p.height = 16;
         g.fillRect(0, 0, 8, 16);
         break;
       }
       case 'checker': {
         // Checkerboard (10px cells).
-        p.width = 20;
-        p.height = 20;
         g.fillRect(0, 0, 10, 10);
         g.fillRect(10, 10, 10, 10);
         break;
       }
       case 'brick': {
         // Running-bond: horizontal mortar every 16px, verticals offset per row.
-        p.width = 46;
-        p.height = 32;
         g.fillRect(0, 0, 46, 2);
         g.fillRect(0, 16, 46, 2);
         g.fillRect(0, 0, 2, 16); // top row vertical
@@ -1106,8 +1114,6 @@ export class CanvasRenderer {
       case 'houndstooth': {
         // 4×4 broken-twill weave (千鳥格子).
         const u = 7;
-        p.width = u * 4;
-        p.height = u * 4;
         const mask = [
           [1, 1, 0, 1],
           [1, 1, 1, 0],
@@ -1121,8 +1127,6 @@ export class CanvasRenderer {
       case 'crosshatch': {
         // Diagonal net: one ╲ and one ╱ per cell.
         const s = 18;
-        p.width = s;
-        p.height = s;
         g.lineWidth = 1.5;
         g.beginPath();
         g.moveTo(0, 0);
@@ -1136,8 +1140,6 @@ export class CanvasRenderer {
         // Diagonal plank grooves meeting in a V on the seam (48×48, spacing 12).
         const T = 48;
         const sp = 12;
-        p.width = T;
-        p.height = T;
         g.lineWidth = 1.5;
         g.save();
         g.beginPath();
@@ -1167,8 +1169,6 @@ export class CanvasRenderer {
         // Repeating ^ stripes (wraps at the cell edges).
         const W = 24;
         const H = 12;
-        p.width = W;
-        p.height = H;
         g.lineWidth = 3;
         g.lineJoin = 'miter';
         g.beginPath();
