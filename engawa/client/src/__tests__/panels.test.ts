@@ -202,6 +202,32 @@ describe('computeSidebarLayout', () => {
     expect(geos[1].width).toBe(colW - 8 /* PANEL_GAP */);
   });
 
+  it('packs a 2-person stack at natural height and centres it (no huge gap)', () => {
+    const items = [cam(), cam()];
+    const geos = computeSidebarLayout(items, VW, VH);
+    const boxes = geos.map((g, i) => box(g, items[i]));
+    // Tiles sit flush with only the panel gap between them, not spread apart.
+    const gap = boxes[1].y - (boxes[0].y + boxes[0].h);
+    expect(gap).toBeLessThanOrEqual(PANEL_GAP + 1);
+    expect(gap).toBeGreaterThanOrEqual(0);
+    // The group is centred: the top margin above the stack roughly equals the
+    // bottom margin below it.
+    const topMargin = boxes[0].y - AREA.top;
+    const bottomMargin = AREA.bottom - (boxes[1].y + boxes[1].h);
+    expect(Math.abs(topMargin - bottomMargin)).toBeLessThanOrEqual(2);
+    expect(topMargin).toBeGreaterThan(0);
+  });
+
+  it('falls back to an even divide when too many tiles to pack', () => {
+    const items = [cam(), cam(), cam(), cam(), cam(), cam()];
+    const geos = computeSidebarLayout(items, VW, VH);
+    const boxes = geos.map((g, i) => box(g, items[i]));
+    boxes.forEach((b) => expect(withinArea(b)).toBe(true));
+    for (let i = 1; i < boxes.length; i++) {
+      expect(boxes[i].y).toBeGreaterThanOrEqual(boxes[i - 1].y);
+    }
+  });
+
   it('clamps the column width between the min and max', () => {
     // Wide viewport → capped at the max (25% of 4000 would be 1000).
     const wide = computeSidebarLayout([screen()], 4000, VH);
