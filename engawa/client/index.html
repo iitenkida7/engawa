@@ -161,10 +161,18 @@
         cursor: pointer;
       }
 
-      .pass-remember input {
+      /* Scope under #join-overlay so this beats `#join-overlay input` (an ID
+         selector); otherwise the checkbox inherits width:100% and stretches,
+         pushing the label onto a second line. */
+      #join-overlay .pass-remember input {
         width: auto;
+        flex: 0 0 auto;
         margin: 0;
         cursor: pointer;
+      }
+
+      .pass-remember span {
+        white-space: nowrap;
       }
 
       #toolbar {
