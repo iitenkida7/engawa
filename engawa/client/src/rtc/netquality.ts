@@ -59,9 +59,14 @@ export function classifySample(s: QualitySample): NetTier {
 }
 
 // Hysteresis: downgrade after 2 consecutive worse samples (~10s — fast, the
-// user is already suffering), upgrade one step only after 6 consecutive better
-// samples (~30s — climbing back too eagerly re-congests the link and pulses
-// the picture).
+// user is already suffering), upgrade only after 6 consecutive better samples
+// (~30s — climbing back too eagerly re-congests the link and pulses the
+// picture). Both directions move ONE step at a time: a collapsing link must
+// actually try the intermediate rungs (600kbps, then 120kbps/15fps/half-res)
+// before tier 3 pulls the camera ~30s in, so a link that recovers on a lower
+// ceiling keeps its video instead of jumping straight to a black tile (issue
+// #273). It matters most in a 2-person call, where no peer-count throttle
+// applies and the camera sends at its full ceiling until this ladder lowers it.
 export const TIER_DOWNGRADE_SAMPLES = 2;
 export const TIER_UPGRADE_SAMPLES = 6;
 
@@ -78,7 +83,9 @@ export const INITIAL_TIER_STATE: TierState = { tier: 0, worse: 0, better: 0 };
 export function updateTierState(state: TierState, sample: NetTier): TierState {
   if (sample > state.tier) {
     const worse = state.worse + 1;
-    if (worse >= TIER_DOWNGRADE_SAMPLES) return { tier: sample, worse: 0, better: 0 };
+    if (worse >= TIER_DOWNGRADE_SAMPLES) {
+      return { tier: (state.tier + 1) as NetTier, worse: 0, better: 0 };
+    }
     return { tier: state.tier, worse, better: 0 };
   }
   if (sample < state.tier) {
