@@ -612,6 +612,9 @@ export const FLOOR_PATTERNS: FloorPattern[] = [
   'chevron',
 ];
 export const FLOOR_COLOR_COUNT = 8;
+// Reserved colour index (outside the random 0..FLOOR_COLOR_COUNT-1 range) used
+// only for the cafés, so both share a dedicated red theme.
+export const CAFE_COLOR = FLOOR_COLOR_COUNT;
 export type FloorStyle = { pattern: FloorPattern; color: number };
 
 // FNV-1a hash → a stable per-key ordering of a pool, so each area has its own
@@ -685,6 +688,11 @@ function computeFloorStyles(): Map<string, FloorStyle> {
     const pi = po.find((i) => !usedP.has(FLOOR_PATTERNS[i])) ?? po[0];
     const ci = co.find((i) => !usedC.has(i)) ?? co[0];
     styles.set(id, { pattern: FLOOR_PATTERNS[pi], color: ci });
+  }
+  // Cafés are fixed to the reserved red theme (keeping their distinct patterns).
+  for (const lo of LOUNGES) {
+    const s = styles.get(lo.id);
+    if (s) s.color = CAFE_COLOR;
   }
   return styles;
 }

@@ -143,6 +143,8 @@ const FLOOR_THEMES: { base: string; accent: string }[] = [
   { base: '#aec5bf', accent: 'rgba(70,118,108,0.3)' }, // teal — greyed
   { base: '#d1b8ab', accent: 'rgba(158,104,78,0.3)' }, // terracotta — greyed clay
   { base: '#bcc4d6', accent: 'rgba(84,100,132,0.32)' }, // slate
+  // Index 8 (CAFE_COLOR): reserved dusty-red theme for the cafés.
+  { base: '#d2a7a2', accent: 'rgba(168,74,68,0.32)' }, // café red — muted brick red
 ];
 
 // How far (world px) a reaction bubble drifts upward over its lifetime.
