@@ -134,7 +134,7 @@ const PALETTE = {
 // so the floors are varied instead of colour-coded by kind. Order is the colour
 // index; keep the length == FLOOR_COLOR_COUNT.
 const FLOOR_THEMES: { base: string; accent: string }[] = [
-  { base: '#d2dbcb', accent: 'rgba(92,120,98,0.3)' }, // green — muted Nordic sage
+  { base: '#bcc6b0', accent: 'rgba(76,102,82,0.32)' }, // green — deep muted Nordic sage
   { base: '#dce7f1', accent: 'rgba(70,110,170,0.26)' }, // blue
   { base: '#dcd7e1', accent: 'rgba(112,98,134,0.28)' }, // lavender — muted greyed mauve
   { base: '#ede0dc', accent: 'rgba(190,144,140,0.28)' }, // pink — Nordic dusty rose
