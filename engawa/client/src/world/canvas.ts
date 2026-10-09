@@ -866,7 +866,6 @@ export class CanvasRenderer {
     table: { x: number; y: number; w: number; h: number },
   ) {
     const cxp = f.x + f.w / 2;
-    const cyp = f.y + f.h / 2;
 
     // Framed rug: a double rounded border for a tidy, furnished look.
     this.roundRect(cx, f.x + 5, f.y + 5, f.w - 10, f.h - 10, 14);
