@@ -134,14 +134,15 @@ const PALETTE = {
 // so the floors are varied instead of colour-coded by kind. Order is the colour
 // index; keep the length == FLOOR_COLOR_COUNT.
 const FLOOR_THEMES: { base: string; accent: string }[] = [
-  { base: '#bcc6b0', accent: 'rgba(76,102,82,0.32)' }, // green — deep muted Nordic sage
-  { base: '#dce7f1', accent: 'rgba(70,110,170,0.26)' }, // blue
-  { base: '#dcd7e1', accent: 'rgba(112,98,134,0.28)' }, // lavender — muted greyed mauve
-  { base: '#ede0dc', accent: 'rgba(190,144,140,0.28)' }, // pink — Nordic dusty rose
-  { base: '#efe6cf', accent: 'rgba(186,156,86,0.3)' }, // amber — Nordic mustard/ochre
-  { base: '#c6d7d1', accent: 'rgba(58,124,116,0.3)' }, // teal — muted Nordic
-  { base: '#f1e1d4', accent: 'rgba(185,110,75,0.27)' }, // terracotta
-  { base: '#e3e5ec', accent: 'rgba(95,108,130,0.27)' }, // slate
+  // Gather-like clear mid pastels (more saturated → higher contrast).
+  { base: '#b7d19f', accent: 'rgba(74,116,64,0.34)' }, // green — sage
+  { base: '#a9c8e8', accent: 'rgba(52,100,168,0.32)' }, // blue
+  { base: '#cfc2e6', accent: 'rgba(108,84,160,0.32)' }, // lavender
+  { base: '#e7b3c6', accent: 'rgba(190,96,135,0.32)' }, // pink — rose
+  { base: '#e8d499', accent: 'rgba(168,132,52,0.34)' }, // amber — mustard
+  { base: '#a7d2c6', accent: 'rgba(40,134,118,0.32)' }, // teal
+  { base: '#ebbca3', accent: 'rgba(188,100,60,0.32)' }, // terracotta
+  { base: '#bcc4d6', accent: 'rgba(84,100,132,0.32)' }, // slate
 ];
 
 // How far (world px) a reaction bubble drifts upward over its lifetime.
