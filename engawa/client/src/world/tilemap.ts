@@ -277,6 +277,19 @@ const ROOMS: RoomDef[] = [
     doors: [[30, 22]],
     desks: [[30, 24]],
   },
+  // A small standalone room out on the grass past the building's bottom-right
+  // corner (a booth-style 3×3: door at top, desk + chairs). Its left wall sits
+  // 3 tiles right of the corner. Building-local coords land it in the margin.
+  {
+    id: 'techtale',
+    name: t('zone.techtale'),
+    c: 36,
+    r: 23,
+    w: 3,
+    h: 3,
+    doors: [[37, 22]],
+    desks: [[37, 24]],
+  },
 ];
 
 // Furniture footprint for the renderer: the bounding rect of a room's desk tiles
@@ -534,6 +547,17 @@ function placeTrees(m: number[][]): Tree[] {
   const blocksGate = (c: number, r: number, span: number): boolean =>
     r + span > gateTop - 3 && r < gateTop + 5 && (c < OUTDOOR_MARGIN || c + span > buildingRight);
 
+  // Keep trees clear of each room's wall ring + a 1-tile margin, so a detached
+  // grass-side room (e.g. the Tech Tale room) isn't crowded or overhung.
+  const roomKeepouts = ROOMS.map((room) => ({
+    c0: room.c + OUTDOOR_MARGIN - 2,
+    c1: room.c + room.w + OUTDOOR_MARGIN + 2,
+    r0: room.r + OUTDOOR_MARGIN - 2,
+    r1: room.r + room.h + OUTDOOR_MARGIN + 2,
+  }));
+  const blocksRoom = (c: number, r: number, span: number): boolean =>
+    roomKeepouts.some((k) => c < k.c1 && c + span > k.c0 && r < k.r1 && r + span > k.r0);
+
   // Try to place one tree somewhere in [colMin,colMax]×[rowMin,rowMax]. Biased
   // toward big trees; spaced so nothing clumps. Returns whether it placed.
   const tryPlace = (
@@ -546,7 +570,7 @@ function placeTrees(m: number[][]): Tree[] {
     const tiles = rng() < bigProb ? 2 : 1;
     const c = colMin + Math.floor(rng() * (colMax - colMin + 1));
     const r = rowMin + Math.floor(rng() * (rowMax - rowMin + 1));
-    if (blocksGate(c, r, tiles) || !allGrass(c, r, tiles)) return false;
+    if (blocksGate(c, r, tiles) || blocksRoom(c, r, tiles) || !allGrass(c, r, tiles)) return false;
     // Require a one-tile grass gap around the footprint so trees stay spaced out.
     if (!allGrass(c - 1, r - 1, tiles + 2)) return false;
     for (let rr = r; rr < r + tiles; rr++)
@@ -567,6 +591,10 @@ function placeTrees(m: number[][]): Tree[] {
     [buildingRight, MAP_COLS - 2, OUTDOOR_MARGIN, buildingBottom - 1, 18, 0.68], // right
     // Fill the sparse right-middle strip with a few small trees so it's not bare.
     [buildingRight, MAP_COLS - 2, midRow0, midRow1, 12, 0], // right-middle (small)
+    // The lounge + detached room crowd out big trees on the right, so target the
+    // clear strips (above the lounge, below the room) with big-tree-only passes.
+    [buildingRight + 1, MAP_COLS - 2, OUTDOOR_MARGIN + 1, gateTop - 4, 16, 1], // upper-right (big)
+    [buildingRight + 1, MAP_COLS - 2, buildingBottom + 1, MAP_ROWS - 3, 12, 1], // lower-right (big)
   ];
   for (const [colMin, colMax, rowMin, rowMax, attempts, bigProb] of bands) {
     for (let i = 0; i < attempts; i++) tryPlace(colMin, colMax, rowMin, rowMax, bigProb);
@@ -655,17 +683,21 @@ function computeFloorStyles(): Map<string, FloorStyle> {
       for (let j = i + 1; j < ids.length; j++) edge(ids[i], ids[j]);
   };
 
-  // Rooms: within each strip (top / bottom) every room is distinct.
+  // Rooms: within each wall-to-wall strip (top / bottom) every room is distinct.
+  // Only rooms inside the building form the strip; detached rooms out on the grass
+  // get a free style (ensured below) since nothing sits next to them.
+  const inBuilding = (r: RoomDef) => r.c >= 1 && r.c + r.w <= BUILDING_COLS;
   clique(
-    ROOMS.filter((r) => r.r < 10)
+    ROOMS.filter((r) => r.r < 10 && inBuilding(r))
       .sort((a, b) => a.c - b.c)
       .map((r) => r.id),
   );
   clique(
-    ROOMS.filter((r) => r.r >= 10)
+    ROOMS.filter((r) => r.r >= 10 && inBuilding(r))
       .sort((a, b) => a.c - b.c)
       .map((r) => r.id),
   );
+  for (const r of ROOMS) ensure(r.id); // detached rooms still need a node
   // Cafés: the two sit opposite each other — just make them differ.
   if (LOUNGES.length === 2) edge(LOUNGES[0].id, LOUNGES[1].id);
   else {

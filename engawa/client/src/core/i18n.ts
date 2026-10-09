@@ -173,8 +173,8 @@ const STR: Record<string, Record<Lang, string>> = {
   'knock.accept': { ja: '応じる', en: 'Accept' },
   'knock.later': { ja: 'あとで', en: 'Later' },
   'knock.accepted': {
-    ja: '{name} さんが応じました。近づきます',
-    en: '{name} accepted — heading over',
+    ja: '{name} さんが応じました。来てくれます',
+    en: '{name} accepted — on their way',
   },
   'knock.busy': { ja: '{name} さんは今は手が離せないようです', en: '{name} is tied up right now' },
   'knock.someone': { ja: '相手', en: 'someone' },
@@ -289,11 +289,12 @@ const STR: Record<string, Record<Lang, string>> = {
   'zone.booth-1': { ja: '商談ブース1', en: 'Meeting booth 1' },
   'zone.booth-2': { ja: '商談ブース2', en: 'Meeting booth 2' },
   'zone.booth-3': { ja: '商談ブース3', en: 'Meeting booth 3' },
-  'zone.booth-4': { ja: 'テックテール部屋', en: 'Tech Tale Room' },
+  'zone.booth-4': { ja: '商談ブース4', en: 'Meeting booth 4' },
   'zone.lounge': { ja: 'ラウンジ', en: 'Lounge' },
   'zone.cafe': { ja: 'カフェ', en: 'Café' },
   'zone.lounge-1': { ja: 'ラウンジ1', en: 'Lounge 1' },
   'zone.lounge-2': { ja: 'ラウンジ2', en: 'Lounge 2' },
+  'zone.techtale': { ja: 'テックテール部屋', en: 'Tech Tale Room' },
 };
 
 /**

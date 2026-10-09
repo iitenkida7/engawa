@@ -10,8 +10,9 @@
          reload.ts already handles update prompts (see issue #112). -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#1a1d24" />
-    <link rel="icon" type="image/png" href="/icons/icon-192.png" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <link rel="icon" href="/icons/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/svg+xml" href="/icons/engawa-logo.svg" />
+    <link rel="apple-touch-icon" href="/icons/engawa-logo-180.png" />
     <script>
       // Polyfills required by simple-peer (Node globals not present in browsers)
       window.global = window;
@@ -173,6 +174,103 @@
 
       .pass-remember span {
         white-space: nowrap;
+      }
+
+      /* Bottom-left corner nav (#280): a vertical stack mirroring the toolbar's
+         dark pill look. Lives in the lower-left corner, independent of the
+         centered toolbar so neither can push the other into a second row. */
+      #corner-nav {
+        position: absolute;
+        bottom: 16px;
+        left: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        background: rgba(20, 23, 30, 0.9);
+        padding: 6px;
+        border-radius: 10px;
+        backdrop-filter: blur(8px);
+        z-index: 1000;
+      }
+
+      #corner-nav button {
+        padding: 5px 6px;
+        border-radius: 7px;
+        border: 1px solid #3a4050;
+        background: #2a2f3a;
+        color: #e6e8ee;
+        font-size: 11px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #corner-nav button:hover {
+        background: #353a47;
+      }
+
+      #corner-nav button.active {
+        background: #4f8cff;
+        border-color: #4f8cff;
+        color: white;
+      }
+
+      #corner-nav button.icon-toggle .ico {
+        display: block;
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      /* Tooltip anchored to the right of the button (it hugs the left edge, so a
+         centered/upward bubble would overflow off-screen). */
+      #corner-nav button[data-tip] {
+        position: relative;
+      }
+
+      #corner-nav button[data-tip]::after,
+      #corner-nav button[data-tip]::before {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.12s ease;
+        position: absolute;
+        top: 50%;
+        z-index: 30;
+      }
+
+      #corner-nav button[data-tip]::after {
+        content: attr(data-tip);
+        left: calc(100% + 9px);
+        transform: translateY(-50%);
+        background: rgba(28, 32, 40, 0.98);
+        color: #e6e8ee;
+        border: 1px solid #3a4050;
+        border-radius: 6px;
+        padding: 5px 9px;
+        font-size: 12px;
+        line-height: 1;
+        white-space: nowrap;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      }
+
+      #corner-nav button[data-tip]::before {
+        content: '';
+        left: calc(100% + 4px);
+        transform: translateY(-50%);
+        border: 5px solid transparent;
+        border-right-color: rgba(28, 32, 40, 0.98);
+      }
+
+      #corner-nav button[data-tip]:hover::after,
+      #corner-nav button[data-tip]:hover::before,
+      #corner-nav button[data-tip]:focus-visible::after,
+      #corner-nav button[data-tip]:focus-visible::before {
+        opacity: 1;
       }
 
       #toolbar {
@@ -1569,6 +1667,30 @@
         </div>
         <div id="roster-list"></div>
       </div>
+      <!-- Bottom-left corner navigation (#280): roster + zoom controls pulled out
+           of the center toolbar so a narrow viewport can't wrap it to two rows.
+           Stacked vertically in the lower-left corner. -->
+      <div id="corner-nav" class="hidden">
+        <button id="btn-roster" data-i18n-tip="roster.title" data-tip="参加者" aria-label="参加者">👥</button>
+        <button id="btn-zoom-self" class="icon-toggle" data-i18n-tip="zoom.self" data-tip="自分にズーム" aria-label="自分にズーム">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+            <line x1="12" y1="2" x2="12" y2="5" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+            <line x1="2" y1="12" x2="5" y2="12" />
+            <line x1="19" y1="12" x2="22" y2="12" />
+          </svg>
+        </button>
+        <button id="btn-zoom-fit" class="icon-toggle" data-i18n-tip="zoom.fit" data-tip="全体表示" aria-label="全体表示">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9V4h5" />
+            <path d="M20 9V4h-5" />
+            <path d="M4 15v5h5" />
+            <path d="M20 15v5h-5" />
+          </svg>
+        </button>
+      </div>
       <div id="toolbar" class="hidden">
         <div class="btn-group">
           <button id="btn-mic" class="icon-toggle" data-i18n-tip="toolbar.micTitle" data-tip="マイク" aria-label="マイク">
@@ -1611,7 +1733,6 @@
           </svg>
         </button>
         <button id="btn-status" data-i18n-tip="roster.status" data-tip="ステータス" aria-label="ステータス">🟢</button>
-        <button id="btn-roster" data-i18n-tip="roster.title" data-tip="参加者" aria-label="参加者">👥</button>
         <div class="btn-group">
           <button id="btn-reaction" data-i18n-tip="toolbar.reactions" data-tip="リアクション" aria-label="リアクション">😀</button>
           <div id="reaction-menu" class="device-menu hidden"></div>
@@ -1620,24 +1741,6 @@
           <button id="btn-more" data-i18n-tip="toolbar.more" data-tip="その他" aria-label="その他">⋯</button>
           <div id="more-menu" class="device-menu hidden"></div>
         </div>
-        <button id="btn-zoom-self" class="icon-toggle" data-i18n-tip="zoom.self" data-tip="自分にズーム" aria-label="自分にズーム">
-          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="6" />
-            <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
-            <line x1="12" y1="2" x2="12" y2="5" />
-            <line x1="12" y1="19" x2="12" y2="22" />
-            <line x1="2" y1="12" x2="5" y2="12" />
-            <line x1="19" y1="12" x2="22" y2="12" />
-          </svg>
-        </button>
-        <button id="btn-zoom-fit" class="icon-toggle" data-i18n-tip="zoom.fit" data-tip="全体表示" aria-label="全体表示">
-          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 9V4h5" />
-            <path d="M20 9V4h-5" />
-            <path d="M4 15v5h5" />
-            <path d="M20 15v5h-5" />
-          </svg>
-        </button>
         <div class="btn-group layout-group">
           <button id="btn-layout-grid" data-mode="grid" data-i18n-tip="layout.grid" data-tip="グリッド整列" aria-label="グリッド整列">
             <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
