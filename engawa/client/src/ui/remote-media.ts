@@ -132,11 +132,12 @@ export class RemoteMediaView {
   private localSpeakingDetector: SpeakingDetector | null = null;
   private remoteSpeakingDetectors = new Map<string, SpeakingDetector>();
 
-  // The active window-layout mode. 'grid' (default) tiles every window evenly;
-  // a screenshare auto-switches to 'presentation' and reverts to 'grid' when the
-  // last share stops (issue #175). Every mode auto-arranges and re-flows on
-  // viewport/membership/screenshare changes — there is no manual placement.
-  private layoutMode: LayoutMode = 'grid';
+  // The active window-layout mode. 'sidebar' (default) stacks cameras in a
+  // compact side column so approaching someone doesn't slam two full-screen
+  // previews up; a screenshare auto-switches to 'presentation' and reverts to
+  // 'sidebar' when the last share stops (issue #175). Every mode auto-arranges
+  // and re-flows on viewport/membership/screenshare changes — no manual placement.
+  private layoutMode: LayoutMode = 'sidebar';
   // Fired whenever layoutMode changes (toolbar selection OR the screenshare
   // auto-switch) so the toolbar can re-highlight the active layout button.
   private onLayoutModeChange: ((mode: LayoutMode) => void) | null = null;
@@ -587,7 +588,7 @@ export class RemoteMediaView {
 
   // Removes a user's screenshare stage (no-op if they aren't sharing). When the
   // main share stops, the next-oldest share is promoted to main. When the last
-  // share stops, the layout reverts to the grid (issue #175).
+  // share stops, the layout reverts to the sidebar default (issue #175).
   removeScreenshare(userId: string) {
     const ss = this.screenshares.get(userId);
     if (!ss) return;
@@ -606,8 +607,8 @@ export class RemoteMediaView {
       this.mainScreenshareUserId = nextId;
       if (nextId) this.screenshares.get(nextId)!.container.classList.add('main');
     }
-    // Last share gone → back to the grid (never remembers a manual choice).
-    if (this.screenshares.size === 0) this.setLayoutModeSilently('grid');
+    // Last share gone → back to the sidebar default (never remembers a manual choice).
+    if (this.screenshares.size === 0) this.setLayoutModeSilently('sidebar');
     this.reflowLayout();
   }
 
