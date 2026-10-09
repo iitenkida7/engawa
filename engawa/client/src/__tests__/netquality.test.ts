@@ -88,10 +88,10 @@ describe('updateTierState', () => {
 
   it('downgrades only after consecutive worse samples', () => {
     let s = INITIAL_TIER_STATE;
-    s = updateTierState(s, 2);
+    s = updateTierState(s, 1);
     expect(s.tier).toBe(0); // one bad sample is noise
-    s = updateTierState(s, 2);
-    expect(s.tier).toBe(2); // two in a row is a trend
+    s = updateTierState(s, 1);
+    expect(s.tier).toBe(1); // two in a row is a trend
   });
 
   it('a good sample in between resets the downgrade streak', () => {
@@ -109,7 +109,28 @@ describe('updateTierState', () => {
 
   it('needs TIER_DOWNGRADE_SAMPLES to move down', () => {
     const s = runSamples(INITIAL_TIER_STATE, Array(TIER_DOWNGRADE_SAMPLES).fill(3) as NetTier[]);
+    expect(s.tier).toBe(1);
+  });
+
+  it('walks down one tier at a time even when the link collapses (#273)', () => {
+    // A link that classifies straight to tier 3 still has to pass through the
+    // 600kbps and 120kbps rungs before the camera auto-off at tier 3.
+    const step = Array(TIER_DOWNGRADE_SAMPLES).fill(3) as NetTier[];
+    let s = runSamples(INITIAL_TIER_STATE, step);
+    expect(s.tier).toBe(1);
+    s = runSamples(s, step);
+    expect(s.tier).toBe(2);
+    s = runSamples(s, step);
     expect(s.tier).toBe(3);
+  });
+
+  it('a recovery mid-collapse stops the descent before the camera is pulled', () => {
+    // Two bad samples drop us to tier 1; the lower ceiling lets the link
+    // recover, so tier 3 (camera off) is never reached.
+    let s = runSamples(INITIAL_TIER_STATE, [3, 3]);
+    expect(s.tier).toBe(1);
+    s = runSamples(s, Array(TIER_UPGRADE_SAMPLES).fill(0) as NetTier[]);
+    expect(s.tier).toBe(0);
   });
 });
 
