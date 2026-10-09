@@ -282,8 +282,8 @@ const ROOMS: RoomDef[] = [
   // corner (a booth-style 3×3: door at top, desk + chairs). Its left wall sits
   // 3 tiles right of the corner. Building-local coords land it in the margin.
   {
-    id: 'techtale',
-    name: t('zone.techtale'),
+    id: 'hanare',
+    name: t('zone.hanare'),
     c: 36,
     r: 23,
     w: 3,
@@ -560,7 +560,7 @@ function placeTrees(m: number[][]): Tree[] {
     r + span > gateTop - 3 && r < gateTop + 5 && (c < OUTDOOR_MARGIN || c + span > buildingRight);
 
   // Keep trees clear of each room's wall ring + a 1-tile margin, so a detached
-  // grass-side room (e.g. the Tech Tale room) isn't crowded or overhung.
+  // grass-side room (e.g. the detached annex / 離れ) isn't crowded or overhung.
   const roomKeepouts = ROOMS.map((room) => ({
     c0: room.c + OUTDOOR_MARGIN - 2,
     c1: room.c + room.w + OUTDOOR_MARGIN + 2,
