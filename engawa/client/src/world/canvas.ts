@@ -134,14 +134,14 @@ const PALETTE = {
 // so the floors are varied instead of colour-coded by kind. Order is the colour
 // index; keep the length == FLOOR_COLOR_COUNT.
 const FLOOR_THEMES: { base: string; accent: string }[] = [
-  { base: '#dde9d7', accent: 'rgba(70,120,80,0.14)' }, // green
-  { base: '#dce7f1', accent: 'rgba(70,110,170,0.14)' }, // blue
-  { base: '#e8ddee', accent: 'rgba(120,95,160,0.15)' }, // lavender
-  { base: '#f6e3ec', accent: 'rgba(200,110,150,0.15)' }, // pink
-  { base: '#f1e8d2', accent: 'rgba(170,135,65,0.16)' }, // amber
-  { base: '#d7ebe5', accent: 'rgba(55,150,140,0.15)' }, // teal
-  { base: '#f1e1d4', accent: 'rgba(185,110,75,0.15)' }, // terracotta
-  { base: '#e3e5ec', accent: 'rgba(95,108,130,0.15)' }, // slate
+  { base: '#dde9d7', accent: 'rgba(70,120,80,0.26)' }, // green
+  { base: '#dce7f1', accent: 'rgba(70,110,170,0.26)' }, // blue
+  { base: '#e8ddee', accent: 'rgba(120,95,160,0.27)' }, // lavender
+  { base: '#f6e3ec', accent: 'rgba(200,110,150,0.27)' }, // pink
+  { base: '#f1e8d2', accent: 'rgba(170,135,65,0.3)' }, // amber
+  { base: '#d7ebe5', accent: 'rgba(55,150,140,0.27)' }, // teal
+  { base: '#f1e1d4', accent: 'rgba(185,110,75,0.27)' }, // terracotta
+  { base: '#e3e5ec', accent: 'rgba(95,108,130,0.27)' }, // slate
 ];
 
 // How far (world px) a reaction bubble drifts upward over its lifetime.
