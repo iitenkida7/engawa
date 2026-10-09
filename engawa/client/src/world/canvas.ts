@@ -47,7 +47,7 @@ import {
 // plants in terracotta pots. Drawn procedurally (no tile sprites), so there are
 // no pixel-art patterns and nothing to license for the map.
 const PALETTE = {
-  floorWood: '#e8dcc8', // open-office oak
+  floorWood: '#efe3d7', // open-office floor — light warm beige
   floorWoodSeam: 'rgba(196,178,148,0.45)',
   floorRug: '#efe9e0', // meeting-room cream rug
   wall: '#d3c8b2', // warm taupe wall
