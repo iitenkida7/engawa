@@ -249,7 +249,7 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     { col: 21, row: 23 }, // 商談ブース2
     { col: 25, row: 23 }, // 商談ブース3
     { col: 29, row: 23 }, // 商談ブース4
-    { col: 36, row: 23 }, // テックテール部屋 (detached, out on the grass)
+    { col: 36, row: 23 }, // 離れ (detached annex, out on the grass)
   ];
 
   it('derives one zone per walled-off MEETING room, plus the cafés', () => {
