@@ -59,6 +59,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'pass.title': { ja: '合言葉を入力', en: 'Enter the passphrase' },
   'pass.placeholder': { ja: 'パスワード', en: 'Password' },
   'pass.error': { ja: 'パスワードが正しくありません', en: 'Incorrect password' },
+  'pass.remember': { ja: 'この端末で記憶する', en: 'Remember on this device' },
   'pass.next': { ja: '次へ', en: 'Next' },
 
   // -- join screen ----------------------------------------------------------

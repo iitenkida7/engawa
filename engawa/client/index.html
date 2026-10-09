@@ -151,6 +151,22 @@
         font-size: 13px;
       }
 
+      .pass-remember {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 12px;
+        color: #aab2c5;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      .pass-remember input {
+        width: auto;
+        margin: 0;
+        cursor: pointer;
+      }
+
       #toolbar {
         position: absolute;
         bottom: 16px;
@@ -1692,6 +1708,10 @@
           <input id="join-password" type="password" data-i18n-ph="pass.placeholder" placeholder="パスワード" maxlength="64"
             autocomplete="current-password" />
           <div id="join-pass-error" class="hidden" data-i18n="pass.error">パスワードが正しくありません</div>
+          <label class="pass-remember">
+            <input id="join-pass-remember" type="checkbox" checked />
+            <span data-i18n="pass.remember">この端末で記憶する</span>
+          </label>
           <button type="submit" data-i18n="pass.next">次へ</button>
         </form>
         <!-- Step 2: name + avatar. No password field here. -->
