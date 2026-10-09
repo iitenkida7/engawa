@@ -409,8 +409,8 @@ export function isDeskSeat(px: number, py: number): boolean {
 // isolated call bubble, like the old lounge): walkable rug + sofas + a table.
 export type Lounge = { id: string; name: string; c: number; r: number; w: number; h: number };
 export const LOUNGES: Lounge[] = [
-  { id: 'cafe-left', name: t('zone.cafe'), c: -7, r: 12, w: 6, h: 5 },
-  { id: 'cafe-right', name: t('zone.cafe'), c: 35, r: 12, w: 6, h: 5 },
+  { id: 'cafe-left', name: t('zone.lounge-1'), c: -7, r: 12, w: 6, h: 5 },
+  { id: 'cafe-right', name: t('zone.lounge-2'), c: 35, r: 12, w: 6, h: 5 },
 ];
 
 // Greenery dotted around the open floor — along the side walls and in the aisles
