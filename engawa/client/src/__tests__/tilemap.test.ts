@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'bun:test';
 import {
   canOccupy,
+  FLOOR_COLOR_COUNT,
+  FLOOR_PATTERNS,
   findAdjacentSpawn,
   findWalkableSpawn,
+  floorStyleAt,
   isDeskSeat,
+  islandFloorStyle,
   isSolid,
-  LOUNGE_TABLE_RECT,
+  LOUNGE_TABLE_RECTS,
+  LOUNGES,
   MAP_COLS,
   MAP_ROWS,
   OPEN_DESK_CHAIRS,
@@ -75,8 +80,8 @@ describe('canOccupy', () => {
   });
 
   it('blocks the lounge coffee table even though its tiles are walkable (#225)', () => {
-    const tableCx = LOUNGE_TABLE_RECT.x + LOUNGE_TABLE_RECT.w / 2;
-    const tableCy = LOUNGE_TABLE_RECT.y + LOUNGE_TABLE_RECT.h / 2;
+    const tableCx = LOUNGE_TABLE_RECTS[0].x + LOUNGE_TABLE_RECTS[0].w / 2;
+    const tableCy = LOUNGE_TABLE_RECTS[0].y + LOUNGE_TABLE_RECTS[0].h / 2;
     expect(isSolid(tableCx, tableCy)).toBe(true);
     expect(canOccupy(tableCx, tableCy, 5)).toBe(false);
   });
@@ -181,6 +186,51 @@ describe('isDeskSeat (private one-person desk seats)', () => {
   });
 });
 
+describe('floor styles (randomised rugs)', () => {
+  const M = OUTDOOR_MARGIN;
+  const same = (a: { pattern: string; color: number }, b: { pattern: string; color: number }) =>
+    a.pattern === b.pattern && a.color === b.color;
+
+  it('gives every room a valid style, and open floor none', () => {
+    const s = floorStyleAt(1 + M, 1 + M); // ceo office
+    expect(s).not.toBeNull();
+    expect(FLOOR_PATTERNS).toContain(s!.pattern);
+    expect(s!.color).toBeGreaterThanOrEqual(0);
+    expect(s!.color).toBeLessThan(FLOOR_COLOR_COUNT);
+    // The central corridor (building row 13) is open floor — no rug.
+    expect(floorStyleAt(16 + M, 13 + M)).toBeNull();
+  });
+
+  it('never repeats pattern+colour across adjacent top-strip rooms', () => {
+    // Use non-desk interior tiles (desk tiles carry no zone).
+    const ceo = floorStyleAt(1 + M, 1 + M)!;
+    const allHands = floorStyleAt(8 + M, 2 + M)!;
+    const meeting1 = floorStyleAt(19 + M, 1 + M)!;
+    expect(same(ceo, allHands)).toBe(false);
+    expect(same(allHands, meeting1)).toBe(false);
+  });
+
+  it('never repeats a colour within the top room strip', () => {
+    const cols = [1, 8, 19, 24, 29].map((c) => floorStyleAt(c + M, 1 + M)?.color);
+    expect(cols.every((c) => c !== undefined)).toBe(true);
+    expect(new Set(cols).size).toBe(cols.length); // all distinct
+  });
+
+  it('gives the two cafés different styles', () => {
+    const left = floorStyleAt(3, 22)!; // cafe-left (map cols 1-6, rows 20-24)
+    const right = floorStyleAt(45, 22)!; // cafe-right (map cols 43-48)
+    expect(left).not.toBeNull();
+    expect(right).not.toBeNull();
+    expect(same(left, right)).toBe(false);
+  });
+
+  it('shares a style within an island but differs between neighbours', () => {
+    // Two pod rugs per island → rug 0 and rug 1 are the same island.
+    expect(islandFloorStyle(0)).toEqual(islandFloorStyle(1));
+    expect(same(islandFloorStyle(0), islandFloorStyle(2))).toBe(false); // next island along
+  });
+});
+
 describe('ZONES / zoneAt (meeting-room zones)', () => {
   // One interior MEETING tile per walled-off room: the top strip (president's
   // office + all-hands + three meeting rooms) and the bottom strip (four 1-on-1
@@ -201,21 +251,21 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     { col: 29, row: 23 }, // 商談ブース4
   ];
 
-  it('derives one zone per walled-off MEETING room, plus the lounge', () => {
-    // One zone per room sample + the open lounge (a conversation-restricted zone).
-    expect(ZONES).toHaveLength(roomSamples.length + 1);
+  it('derives one zone per walled-off MEETING room, plus the cafés', () => {
+    // One zone per room sample + the outdoor cafés (conversation-restricted zones).
+    expect(ZONES).toHaveLength(roomSamples.length + LOUNGES.length);
   });
 
-  it('assigns a zone to every MEETING / LOUNGE tile and none to other tiles', () => {
+  it('zones cover every meeting/lounge tile and never bleed onto walls or grass', () => {
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         const z = zoneAt(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2);
-        // The lounge is a zone too (an open call bubble), keyed off LOUNGE tiles.
-        if (officeMap[r][c] === Tile.MEETING || officeMap[r][c] === Tile.LOUNGE) {
-          expect(z).not.toBeNull();
-        } else {
-          expect(z).toBeNull();
-        }
+        const tile = officeMap[r][c];
+        // MEETING / LOUNGE tiles are always inside a zone. (Room interiors also
+        // zone their table/plant tiles so the floor rug shows under furniture.)
+        if (tile === Tile.MEETING || tile === Tile.LOUNGE) expect(z).not.toBeNull();
+        // Zones never extend onto the outer walls or the outdoor grass.
+        if (tile === Tile.WALL || tile === Tile.GRASS || tile === Tile.TREE) expect(z).toBeNull();
       }
     }
   });

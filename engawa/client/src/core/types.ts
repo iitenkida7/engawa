@@ -1,4 +1,5 @@
 import type { Outfit } from '@/world/outfit';
+import { MAP_COLS, MAP_ROWS, TILE_SIZE } from '@/world/tilemap';
 
 export type { Outfit };
 
@@ -125,11 +126,12 @@ export type ServerMessage =
   // their tracks by (sessionId, trackName).
   | { type: 'sfu-peer-tracks'; userId: string; sessionId: string; tracks: SfuTrack[] };
 
-// Must equal MAP_COLS/ROWS × TILE_SIZE in world/tilemap.ts (a 34×25 building plus
-// a 6-tile grass margin on each side = 46×37 tiles) and match the server's
-// MAP_WIDTH/HEIGHT.
-export const MAP_WIDTH = 2300;
-export const MAP_HEIGHT = 1850;
+// Pixel size of the whole map, DERIVED from the tile grid so it can never drift
+// from world/tilemap.ts again (it previously went stale when the margin/building
+// grew, clipping the grass + border short of the walkable edge). Keep the
+// server's MAP_WIDTH/HEIGHT (logic.ts) in sync — the server has no tilemap.
+export const MAP_WIDTH = MAP_COLS * TILE_SIZE;
+export const MAP_HEIGHT = MAP_ROWS * TILE_SIZE;
 export const PLAYER_RADIUS = 20;
 // Collision uses a smaller radius than the drawn avatar so squeezing between
 // solid tiles is forgiving: a one-tile (50px) gap leaves an 18px window for the

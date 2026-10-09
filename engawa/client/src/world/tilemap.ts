@@ -14,7 +14,7 @@ const BUILDING_COLS = 34;
 const BUILDING_ROWS = 27;
 // Grass margin (tiles) on each side of the building. Exported so tests/callers
 // can convert building-local coords to map coords.
-export const OUTDOOR_MARGIN = 6;
+export const OUTDOOR_MARGIN = 8;
 export const MAP_COLS = BUILDING_COLS + OUTDOOR_MARGIN * 2;
 export const MAP_ROWS = BUILDING_ROWS + OUTDOOR_MARGIN * 2;
 // Pixel offset of the building's origin within the map.
@@ -63,6 +63,20 @@ export function canOccupy(cx: number, cy: number, radius: number): boolean {
 // Each room is stamped as a wall ring + MEETING interior + door gap(s) + desks.
 // The layout lives here once; buildZones() derives the named Zone from it, so
 // adding/moving a room needs no other edits.
+
+// Floor rug patterns the renderer can draw. Named here so a room/café can request
+// a specific one; the renderer (canvas.ts) maps each to a drawing.
+export type FloorPattern =
+  | 'none'
+  | 'stripe'
+  | 'vstripe'
+  | 'checker'
+  | 'houndstooth'
+  | 'brick'
+  | 'crosshatch'
+  | 'herringbone'
+  | 'chevron';
+
 type RoomDef = {
   id: string;
   name: string;
@@ -324,7 +338,7 @@ type DeskUnit = { col: number; row: number; facing: 'south' | 'north' };
 // desk rows face each other (upper row south → chair above, lower row north →
 // chair below); centres are ≥5 apart so a chair never lands in a neighbour's ring.
 const TOP_ISLAND_COLS = [4, 9, 14, 19, 24, 29];
-const BOTTOM_ISLAND_COLS = [4, 9, 14, 19]; // left of the lounge (cols 24-30)
+const BOTTOM_ISLAND_COLS = [4, 9, 14, 19, 24, 29]; // lounge moved outdoors, so full width
 
 const OPEN_DESK_UNITS: DeskUnit[] = [
   ...TOP_ISLAND_COLS.flatMap((col): DeskUnit[] => [
@@ -387,12 +401,17 @@ export function isDeskSeat(px: number, py: number): boolean {
   return SEAT_TILES.has(`${col},${row}`);
 }
 
-// A casual lounge in the open bottom-right corner: an OPEN social spot (not a
-// walled zone / isolated call bubble), so people on spatial audio can gather and
-// chat. Walkable rug (LOUNGE tiles aren't SOLID); the renderer draws sofas + a
-// coffee table on top. Placed clear of the desk pods and the booth doors below.
-// (Design is a placeholder — easy to restyle later.)
-export const LOUNGE = { c: 24, r: 15, w: 7, h: 5 } as const;
+// Outdoor cafés (#263 follow-up): casual social spots moved OUT of the building
+// onto the grass beside each side gate, freeing the interior for a full bottom
+// desk band. Building-local coords deliberately fall in the outdoor margin
+// (negative on the left, past BUILDING_COLS on the right) so the shared stamping
+// machinery places them on the grass. Each is a conversation-restricted zone (an
+// isolated call bubble, like the old lounge): walkable rug + sofas + a table.
+export type Lounge = { id: string; name: string; c: number; r: number; w: number; h: number };
+export const LOUNGES: Lounge[] = [
+  { id: 'cafe-left', name: t('zone.lounge-1'), c: -7, r: 12, w: 6, h: 5 },
+  { id: 'cafe-right', name: t('zone.lounge-2'), c: 35, r: 12, w: 6, h: 5 },
+];
 
 // Greenery dotted around the open floor — along the side walls and in the aisles
 // between the pod rugs. Kept off the island rugs, the central spawn path, the
@@ -402,7 +421,7 @@ const OPEN_PLANTS: [number, number][] = [
   [1, 21],
   [32, 6],
   [32, 21],
-  [8, 12],
+  [7, 12],
   [26, 12],
   // All-hands room corners (interior cols 6-17, rows 1-4) — a little greenery.
   [6, 1],
@@ -464,8 +483,8 @@ function buildOfficeMap(): number[][] {
     for (const [dc, dr] of room.desks) set(dc, dr, Tile.DESK);
   }
 
-  // ── Lounge rug (walkable), then open-office desk seats + greenery ──
-  fill(LOUNGE.c, LOUNGE.r, LOUNGE.w, LOUNGE.h, Tile.LOUNGE);
+  // ── Outdoor café rugs (walkable), then open-office desk seats + greenery ──
+  for (const lo of LOUNGES) fill(lo.c, lo.r, lo.w, lo.h, Tile.LOUNGE);
   for (const [c, r] of OPEN_DESKS) set(c, r, Tile.DESK);
   for (const [c, r] of OPEN_PLANTS) set(c, r, Tile.PLANT);
 
@@ -557,27 +576,146 @@ function placeTrees(m: number[][]): Tree[] {
 
 export const TREES: Tree[] = placeTrees(officeMap);
 
-// Pixel rect of the lounge, for the renderer (rug accent + sofas/coffee table).
-export const LOUNGE_RECT = {
-  x: LOUNGE.c * TILE_SIZE + OFF_X,
-  y: LOUNGE.r * TILE_SIZE + OFF_Y,
-  w: LOUNGE.w * TILE_SIZE,
-  h: LOUNGE.h * TILE_SIZE,
-};
+type Rect = { x: number; y: number; w: number; h: number };
 
-// Pixel rect of the lounge coffee table, centered in the lounge (46% × 20% of
-// it). Shared by the renderer (draws it) and collision (SOLID_RECTS) so the two
-// can't drift — you can't walk onto the table (#225).
-export const LOUNGE_TABLE_RECT = {
-  x: LOUNGE_RECT.x + LOUNGE_RECT.w / 2 - (LOUNGE_RECT.w * 0.46) / 2,
-  y: LOUNGE_RECT.y + LOUNGE_RECT.h / 2 - (LOUNGE_RECT.h * 0.2) / 2,
-  w: LOUNGE_RECT.w * 0.46,
-  h: LOUNGE_RECT.h * 0.2,
-};
+// Pixel rect of each café, for the renderer (rug accent + sofas/coffee table).
+export const LOUNGE_RECTS: Rect[] = LOUNGES.map((lo) => ({
+  x: lo.c * TILE_SIZE + OFF_X,
+  y: lo.r * TILE_SIZE + OFF_Y,
+  w: lo.w * TILE_SIZE,
+  h: lo.h * TILE_SIZE,
+}));
+
+// Pixel rect of each café's coffee table, centered in the café (46% × 20% of it).
+// Shared by the renderer (draws it) and collision (SOLID_RECTS) so the two can't
+// drift — you can't walk onto the table (#225).
+export const LOUNGE_TABLE_RECTS: Rect[] = LOUNGE_RECTS.map((r) => ({
+  x: r.x + r.w / 2 - (r.w * 0.46) / 2,
+  y: r.y + r.h / 2 - (r.h * 0.2) / 2,
+  w: r.w * 0.46,
+  h: r.h * 0.2,
+}));
+
+// ===== Randomised rug styles (#263 follow-up) =====
+// Every room, café and desk island gets a (pattern, colour) rug, assigned
+// deterministically so it's stable across reloads and unit-testable. Adjacent
+// areas never share a pattern OR a colour. The renderer (canvas.ts) maps the
+// colour index to a concrete base/accent theme.
+export const FLOOR_PATTERNS: FloorPattern[] = [
+  'stripe',
+  'vstripe',
+  'checker',
+  'houndstooth',
+  'brick',
+  'crosshatch',
+  'herringbone',
+  'chevron',
+];
+export const FLOOR_COLOR_COUNT = 8;
+// Reserved colour index (outside the random 0..FLOOR_COLOR_COUNT-1 range) used
+// only for the cafés, so both share a dedicated red theme.
+export const CAFE_COLOR = FLOOR_COLOR_COUNT;
+export type FloorStyle = { pattern: FloorPattern; color: number };
+
+// FNV-1a hash → a stable per-key ordering of a pool, so each area has its own
+// deterministic preference without a global RNG.
+function hashStr(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+function prefOrder(key: string, n: number): number[] {
+  return [...Array(n).keys()].sort(
+    (a, b) => (hashStr(`${key}#${a}`) % 99991) - (hashStr(`${key}#${b}`) % 99991),
+  );
+}
+
+// Island ids are `island-k` (top band first, then bottom); 2 pod rugs per island.
+function islandId(k: number): string {
+  return `island-${k}`;
+}
+
+function computeFloorStyles(): Map<string, FloorStyle> {
+  const nbrs = new Map<string, string[]>();
+  const ensure = (id: string) => {
+    if (!nbrs.has(id)) nbrs.set(id, []);
+  };
+  const edge = (a: string, b: string) => {
+    ensure(a);
+    ensure(b);
+    nbrs.get(a)?.push(b);
+    nbrs.get(b)?.push(a);
+  };
+  // A clique: every member differs from every other, so no pattern/colour
+  // repeats within the group (a chain only stops *immediate* neighbours matching,
+  // which let e.g. lavender recur along a strip).
+  const clique = (ids: string[]) => {
+    ids.forEach(ensure);
+    for (let i = 0; i < ids.length; i++)
+      for (let j = i + 1; j < ids.length; j++) edge(ids[i], ids[j]);
+  };
+
+  // Rooms: within each strip (top / bottom) every room is distinct.
+  clique(
+    ROOMS.filter((r) => r.r < 10)
+      .sort((a, b) => a.c - b.c)
+      .map((r) => r.id),
+  );
+  clique(
+    ROOMS.filter((r) => r.r >= 10)
+      .sort((a, b) => a.c - b.c)
+      .map((r) => r.id),
+  );
+  // Cafés: the two sit opposite each other — just make them differ.
+  if (LOUNGES.length === 2) edge(LOUNGES[0].id, LOUNGES[1].id);
+  else {
+    for (const l of LOUNGES) ensure(l.id);
+  }
+  // Islands: within each band every island is distinct, and a top island also
+  // differs from the bottom island in the same column.
+  const topN = TOP_ISLAND_COLS.length;
+  const botN = BOTTOM_ISLAND_COLS.length;
+  clique(Array.from({ length: topN }, (_, k) => islandId(k)));
+  clique(Array.from({ length: botN }, (_, k) => islandId(topN + k)));
+  for (let i = 0; i < Math.min(topN, botN); i++) edge(islandId(i), islandId(topN + i));
+
+  // Greedy assignment in a fixed id order. Each edge is respected because the
+  // later-assigned endpoint avoids the earlier one; pools are larger than any
+  // area's degree, so a free option always exists.
+  const styles = new Map<string, FloorStyle>();
+  for (const id of [...nbrs.keys()].sort()) {
+    const near = nbrs.get(id) ?? [];
+    const usedP = new Set(near.map((n) => styles.get(n)?.pattern).filter(Boolean));
+    const usedC = new Set(near.map((n) => styles.get(n)?.color).filter((v) => v !== undefined));
+    const po = prefOrder(`${id}|p`, FLOOR_PATTERNS.length);
+    const co = prefOrder(`${id}|c`, FLOOR_COLOR_COUNT);
+    const pi = po.find((i) => !usedP.has(FLOOR_PATTERNS[i])) ?? po[0];
+    const ci = co.find((i) => !usedC.has(i)) ?? co[0];
+    styles.set(id, { pattern: FLOOR_PATTERNS[pi], color: ci });
+  }
+  // Cafés are fixed to the reserved red theme (keeping their distinct patterns).
+  for (const lo of LOUNGES) {
+    const s = styles.get(lo.id);
+    if (s) s.color = CAFE_COLOR;
+  }
+  return styles;
+}
+const FLOOR_STYLES = computeFloorStyles();
+
+// Rug style for a room/café tile (zone-based), or null when the tile isn't one.
+export function floorStyleAt(col: number, row: number): FloorStyle | null {
+  const z = zoneAt(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2);
+  return z ? (FLOOR_STYLES.get(z.id) ?? null) : null;
+}
+
+// Rug style for the island owning POD_RUGS[rugIndex] (2 rugs per island).
+export function islandFloorStyle(rugIndex: number): FloorStyle {
+  return FLOOR_STYLES.get(islandId(Math.floor(rugIndex / 2))) ?? { pattern: 'none', color: 0 };
+}
 
 // Impassable sub-tile props, checked by isSolid in addition to the SOLID tile
 // kinds. Pixel rects so props that don't fill a whole tile still block.
-const SOLID_RECTS: { x: number; y: number; w: number; h: number }[] = [LOUNGE_TABLE_RECT];
+const SOLID_RECTS: Rect[] = [...LOUNGE_TABLE_RECTS];
 
 // One accent rug per SEAT — a 3×3 block centred on the chair, i.e. the exact
 // "connect zone" (the seat + its 8 adjacent tiles, SEAT_CONNECT_RADIUS). It
@@ -612,10 +750,12 @@ export type Zone = { id: string; name: string; x: number; y: number; w: number; 
 function buildZones(): { zones: Zone[]; grid: number[][] } {
   const grid: number[][] = officeMap.map((row) => row.map(() => -1));
   const zones: Zone[] = ROOMS.map((room, idx) => {
+    // Mark the whole interior rect (incl. the table/desk + plant tiles), so the
+    // room's floor rug shows under the furniture too, not just on standable tiles.
     for (let rr = room.r + OUTDOOR_MARGIN; rr < room.r + room.h + OUTDOOR_MARGIN; rr++) {
       for (let cc = room.c + OUTDOOR_MARGIN; cc < room.c + room.w + OUTDOOR_MARGIN; cc++) {
         if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) continue;
-        if (officeMap[rr][cc] === Tile.MEETING) grid[rr][cc] = idx;
+        grid[rr][cc] = idx;
       }
     }
     return {
@@ -628,23 +768,18 @@ function buildZones(): { zones: Zone[]; grid: number[][] } {
     };
   });
 
-  // The lounge is a conversation-restricted zone too (like the booths): an
+  // Each outdoor café is a conversation-restricted zone too (like the booths): an
   // isolated call bubble where everyone inside is connected and audio doesn't
-  // leak out — but it has no walls, so its grid cells are the LOUNGE tiles.
-  const loungeIdx = zones.length;
-  for (let rr = LOUNGE.r + OUTDOOR_MARGIN; rr < LOUNGE.r + LOUNGE.h + OUTDOOR_MARGIN; rr++) {
-    for (let cc = LOUNGE.c + OUTDOOR_MARGIN; cc < LOUNGE.c + LOUNGE.w + OUTDOOR_MARGIN; cc++) {
-      if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) continue;
-      if (officeMap[rr][cc] === Tile.LOUNGE) grid[rr][cc] = loungeIdx;
+  // leak out — but it has no walls, so its grid cells are its LOUNGE tiles.
+  LOUNGES.forEach((lo, i) => {
+    const idx = zones.length;
+    for (let rr = lo.r + OUTDOOR_MARGIN; rr < lo.r + lo.h + OUTDOOR_MARGIN; rr++) {
+      for (let cc = lo.c + OUTDOOR_MARGIN; cc < lo.c + lo.w + OUTDOOR_MARGIN; cc++) {
+        if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) continue;
+        if (officeMap[rr][cc] === Tile.LOUNGE) grid[rr][cc] = idx;
+      }
     }
-  }
-  zones.push({
-    id: 'lounge',
-    name: t('zone.lounge'),
-    x: LOUNGE_RECT.x,
-    y: LOUNGE_RECT.y,
-    w: LOUNGE_RECT.w,
-    h: LOUNGE_RECT.h,
+    zones.push({ id: lo.id, name: lo.name, ...LOUNGE_RECTS[i] });
   });
 
   return { zones, grid };
@@ -740,3 +875,7 @@ export function findAdjacentSpawn(
   }
   return best ?? findWalkableSpawn(tx, ty, radius);
 }
+
+// Dev only: floor layout/styles are baked into the renderer's cached map image,
+// which survives HMR — so a hot edit here would not show. Force a full reload.
+if (import.meta.hot) import.meta.hot.accept(() => location.reload());

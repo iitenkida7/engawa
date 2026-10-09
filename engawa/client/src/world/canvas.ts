@@ -15,13 +15,17 @@ import {
 } from '@/core/types';
 import { STATUS_EMOJI } from '@/ui/status-menu';
 import { CharacterSheet } from '@/world/character';
-import { floorKindAt, propFor, type RoomKind, roomKindAt } from '@/world/decor';
+import { floorKindAt, propFor } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import {
   deskFacesSouth,
+  type FloorPattern,
+  type FloorStyle,
+  floorStyleAt,
   isDeskSeat,
-  LOUNGE_RECT,
-  LOUNGE_TABLE_RECT,
+  islandFloorStyle,
+  LOUNGE_RECTS,
+  LOUNGE_TABLE_RECTS,
   MAP_COLS,
   MAP_ROWS,
   MEETING_ROOM_RECTS,
@@ -43,7 +47,7 @@ import {
 // plants in terracotta pots. Drawn procedurally (no tile sprites), so there are
 // no pixel-art patterns and nothing to license for the map.
 const PALETTE = {
-  floorWood: '#e8dcc8', // open-office oak
+  floorWood: '#efe3d7', // open-office floor — light warm beige
   floorWoodSeam: 'rgba(196,178,148,0.45)',
   floorRug: '#efe9e0', // meeting-room cream rug
   wall: '#d3c8b2', // warm taupe wall
@@ -73,7 +77,7 @@ const PALETTE = {
   // Lounge (placeholder styling): a warm sage rug with soft seating, distinct
   // from the oak open office and the cream meeting rooms.
   loungeRug: '#dfe7d8',
-  loungeRugEdge: 'rgba(125,155,106,0.5)',
+  loungeRugEdge: 'rgba(150,135,110,0.5)', // warm taupe (matches the greige rug)
   sofa: '#9aa7b8',
   sofaShade: '#7f8da0',
   sofaBack: '#78879b',
@@ -82,6 +86,11 @@ const PALETTE = {
   coffeeTable: '#a9774f',
   coffeeTableTop: '#c79b70',
   coffeeTableHi: '#dcbb95',
+  // Floor lamp (lounge accent).
+  lampShade: '#ead9b4',
+  lampGlow: 'rgba(255,228,160,0.4)',
+  lampPole: '#8a8276',
+  lampBase: '#6f685d',
   // Outdoor grounds (#229): grass lawn and trees around the building.
   grass: '#dcebcd',
   grassSeam: 'rgba(150,180,125,0.12)',
@@ -102,6 +111,13 @@ const PALETTE = {
   floorCheckBlue: 'rgba(85,120,165,0.12)',
   floorStripeV: 'rgba(230,155,190,0.16)',
   brickMortar: 'rgba(150,120,80,0.22)',
+  // Café floors (#263 follow-up): crosshatch = a soft diagonal net over the café's
+  // sage base; herringbone = warm wood planks with soft grooves.
+  crosshatchLine: 'rgba(90,110,80,0.28)',
+  chevronLine: 'rgba(120,95,140,0.3)',
+  herringWood: '#d9c29a',
+  herringWoodAlt: '#cdb488',
+  herringMortar: 'rgba(120,88,52,0.38)',
   shadow: 'rgba(40,35,25,0.14)',
   // Team-island rug (accent under desk pods).
   podRug: '#ece1c8',
@@ -117,14 +133,34 @@ const PALETTE = {
   cabinetHandle: '#6f7784',
 } as const;
 
-// Per-room floor tints (Gather-like colour coding). Open office stays oak wood.
-const ROOM_FLOOR: Record<RoomKind, string> = {
-  exec: '#f8e9f0', // president's office — pale pink
-  meeting: '#dce7f1', // meeting / all-hands — soft blue
-  oneonone: '#dde9d7', // 1-on-1 — soft green
-  booth: '#e8ddee', // negotiation booths — soft lavender
-  lounge: '#dfe7d8', // lounge — sage
-};
+// (Rooms/cafés/islands no longer colour-code by kind; they use FLOOR_THEMES.)
+// Rug colour themes (#263 follow-up): a pale base fill + a matching accent for
+// the pattern marks. Rooms/cafés/islands pick one by index (tilemap FloorStyle),
+// so the floors are varied instead of colour-coded by kind. Order is the colour
+// index; keep the length == FLOOR_COLOR_COUNT.
+// Scale an `rgba(r,g,b,a)` string's alpha by a factor (used to soften heavier
+// floor patterns). Returns the input unchanged when it can't be parsed.
+function scaleAlpha(rgba: string, factor: number): string {
+  if (factor >= 1) return rgba;
+  const m = rgba.match(/rgba?\(([^)]+)\)/);
+  if (!m) return rgba;
+  const [r, g, b, a = '1'] = m[1].split(',').map((s) => s.trim());
+  return `rgba(${r}, ${g}, ${b}, ${(Number.parseFloat(a) * factor).toFixed(3)})`;
+}
+
+const FLOOR_THEMES: { base: string; accent: string }[] = [
+  // Muted, greyed mid-tones (calm, not colourful) — matched to the slate feel.
+  { base: '#b4c2a8', accent: 'rgba(84,106,78,0.32)' }, // green — greyed sage
+  { base: '#b2c0d4', accent: 'rgba(74,100,138,0.32)' }, // blue — greyed
+  { base: '#c3bcce', accent: 'rgba(104,92,134,0.3)' }, // lavender — greyed mauve
+  { base: '#d2bcc3', accent: 'rgba(158,108,126,0.3)' }, // pink — greyed rose
+  { base: '#f4efdd', accent: 'rgba(176,152,88,0.22)' }, // amber — near-white, faint yellow
+  { base: '#dce2e0', accent: 'rgba(108,128,124,0.24)' }, // teal — pale greyish
+  { base: '#d1b8ab', accent: 'rgba(158,104,78,0.3)' }, // terracotta — greyed clay
+  { base: '#bcc4d6', accent: 'rgba(84,100,132,0.32)' }, // slate
+  // Index 8 (CAFE_COLOR): reserved greige theme for the lounges.
+  { base: '#dcd4c6', accent: 'rgba(122,110,90,0.26)' }, // lounge — greige / taupe
+];
 
 // How far (world px) a reaction bubble drifts upward over its lifetime.
 const REACTION_RISE_PX = 36;
@@ -206,7 +242,9 @@ export class CanvasRenderer {
   private mapCache: HTMLCanvasElement | null = null;
   private mapCacheDpr = 0;
   // Repeating houndstooth fill for the booth floors, built with the cache context.
-  private houndPattern: CanvasPattern | null = null;
+  // Floor-pattern cache, keyed by `${pattern}|${accent}` so each colour variant is
+  // built once and reused across tiles.
+  private patternCache = new Map<string, CanvasPattern | null>();
 
   // Zoom factor about the camera center. ZOOM_DEFAULT (1.0) is the 1:1 view;
   // smaller surveys more of the office, larger magnifies. Driven by the mouse
@@ -432,7 +470,14 @@ export class CanvasRenderer {
     // is full-map world space, so drawing it under the existing camera translate
     // lets the browser clip the offscreen part for free.
     const dpr = Math.min(this.dpr, 2);
-    if (!this.mapCache || this.mapCacheDpr !== dpr) this.buildMapCache(dpr);
+    // Rebuild when the device-pixel ratio changes OR the baked image no longer
+    // matches the current map size — the latter guards against a stale cache
+    // after the map dimensions change (e.g. a hot-reload that widened the outdoor
+    // margin), which would otherwise leave the grass/border drawn to the old edge.
+    const wantW = Math.round(MAP_WIDTH * dpr);
+    if (!this.mapCache || this.mapCacheDpr !== dpr || this.mapCache.width !== wantW) {
+      this.buildMapCache(dpr);
+    }
     // Blit at LOGICAL map size — the destination ctx is already dpr-scaled, so
     // passing device px here would double-scale.
     ctx.drawImage(this.mapCache as HTMLCanvasElement, 0, 0, MAP_WIDTH, MAP_HEIGHT);
@@ -639,7 +684,7 @@ export class CanvasRenderer {
     cache.height = Math.round(MAP_HEIGHT * dpr);
     const cx = cache.getContext('2d')!;
     cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.houndPattern = this.buildHoundstooth(cx);
+    this.patternCache.clear();
 
     // Pass 1 — floors + walls: rooms/lounge get a colour-coded rug, the open
     // office oak; walls get a window where they face the open floor.
@@ -657,31 +702,22 @@ export class CanvasRenderer {
           this.drawGrassTile(cx, tx, ty, c, r);
           continue;
         }
-        const roomKind = roomKindAt(c, r);
-        const pattern =
-          roomKind === 'oneonone'
-            ? 'stripe'
-            : roomKind === 'booth'
-              ? 'houndstooth'
-              : roomKind === 'meeting'
-                ? 'checker'
-                : roomKind === 'exec'
-                  ? 'vstripe'
-                  : roomKind === 'lounge'
-                    ? 'brick'
-                    : 'none';
-        this.drawFloorTile(
-          cx,
-          tx,
-          ty,
-          roomKind ? ROOM_FLOOR[roomKind] : PALETTE.floorWood,
-          pattern,
-        );
+        // Rooms + cafés get a randomised (pattern, colour) rug; open floor is oak.
+        const style = floorStyleAt(c, r);
+        if (style) {
+          const theme = FLOOR_THEMES[style.color];
+          this.drawFloorTile(cx, tx, ty, theme.base, style.pattern, theme.accent);
+        } else {
+          this.drawFloorTile(cx, tx, ty, PALETTE.floorWood, 'none');
+        }
       }
     }
 
-    // Team-island rugs under the desk pods (over the floor, under the desks).
-    for (const rug of POD_RUGS) this.drawPodRug(cx, rug);
+    // Team-island rugs under the desk pods (over the floor, under the desks),
+    // each with its own randomised style.
+    POD_RUGS.forEach((rug, i) => {
+      this.drawPodRug(cx, rug, islandFloorStyle(i));
+    });
 
     // Pass 2 — props: open-office desks are workstations; in-room desks are drawn
     // as designed tables/chairs by the furniture pass below, so skip them here.
@@ -712,7 +748,8 @@ export class CanvasRenderer {
     for (const f of ROOM_FURNITURE) this.drawRoomFurniture(cx, f);
 
     // Lounge: sofas around a round coffee table, over the sage rug.
-    this.drawLounge(cx, LOUNGE_RECT);
+    for (let i = 0; i < LOUNGE_RECTS.length; i++)
+      this.drawLounge(cx, LOUNGE_RECTS[i], LOUNGE_TABLE_RECTS[i]);
 
     // Meeting-room props: a wall whiteboard and a corner filing cabinet.
     for (const rect of MEETING_ROOM_RECTS) {
@@ -826,44 +863,95 @@ export class CanvasRenderer {
   private drawLounge(
     cx: CanvasRenderingContext2D,
     f: { x: number; y: number; w: number; h: number },
+    table: { x: number; y: number; w: number; h: number },
   ) {
     const cxp = f.x + f.w / 2;
     const cyp = f.y + f.h / 2;
 
-    // Rug outline to frame the area.
-    this.roundRect(cx, f.x + 5, f.y + 5, f.w - 10, f.h - 10, 12);
+    // Framed rug: a double rounded border for a tidy, furnished look.
+    this.roundRect(cx, f.x + 5, f.y + 5, f.w - 10, f.h - 10, 14);
     cx.strokeStyle = PALETTE.loungeRugEdge;
     cx.lineWidth = 2;
     cx.stroke();
+    this.roundRect(cx, f.x + 9, f.y + 9, f.w - 18, f.h - 18, 11);
+    cx.lineWidth = 1;
+    cx.stroke();
 
-    // Long, thin rectangular coffee table in the middle. Geometry is shared with
-    // collision (LOUNGE_TABLE_RECT) so the drawn table is exactly what blocks.
-    const { x: tx, y: ty, w: tw, h: th } = LOUNGE_TABLE_RECT;
+    // Coffee table rect — geometry shared with collision (LOUNGE_TABLE_RECTS).
+    const { x: tx, y: ty, w: tw, h: th } = table;
 
-    // Sofas tucked right up to the table on all four sides, facing in: 2-seaters
-    // left/right, 4-seaters top/bottom. Offset = half the table + half the sofa
-    // thickness (9) + a small gap.
+    // Three sofas around the table (left/right 2-seaters + a longer one at the
+    // bottom); the top is left open for greenery + a lamp — reads as a lounge
+    // nook instead of a boxed-in square.
     const near = 9 + 14;
     this.drawCouch(cx, cxp - tw / 2 - near, cyp, 'right', 54);
     this.drawCouch(cx, cxp + tw / 2 + near, cyp, 'left', 54);
-    this.drawCouch(cx, cxp, cyp - th / 2 - near, 'down', 150);
     this.drawCouch(cx, cxp, cyp + th / 2 + near, 'up', 150);
 
-    // Table surface: thickness, lit top, rim.
+    // A potted plant and a floor lamp along the top, framing the nook.
+    this.drawPlant(cx, f.x + 6, f.y + 2);
+    this.drawFloorLamp(cx, f.x + f.w - 30, f.y + 62);
+
+    // Rounded coffee table (within the collision rect), lit top + rim.
+    const r = Math.min(th / 2, 14);
     this.softShadow(cx, cxp, ty + th + 2, tw / 2, 6);
-    this.roundRect(cx, tx, ty + 3, tw, th, 6); // side/thickness
+    this.roundRect(cx, tx, ty + 3, tw, th, r); // side/thickness
     cx.fillStyle = PALETTE.coffeeTable;
     cx.fill();
     const tg = cx.createLinearGradient(0, ty, 0, ty + th);
     tg.addColorStop(0, PALETTE.coffeeTableHi);
     tg.addColorStop(1, PALETTE.coffeeTableTop);
-    this.roundRect(cx, tx, ty, tw, th, 6);
+    this.roundRect(cx, tx, ty, tw, th, r);
     cx.fillStyle = tg;
     cx.fill();
     cx.strokeStyle = PALETTE.coffeeTable;
     cx.lineWidth = 1;
-    this.roundRect(cx, tx, ty, tw, th, 6);
+    this.roundRect(cx, tx, ty, tw, th, r);
     cx.stroke();
+
+    // A little plant/vase centred on the table.
+    const vy = ty + th / 2;
+    cx.fillStyle = PALETTE.pot;
+    cx.beginPath();
+    cx.moveTo(cxp - 6, vy - 1);
+    cx.lineTo(cxp + 6, vy - 1);
+    cx.lineTo(cxp + 4, vy + 7);
+    cx.lineTo(cxp - 4, vy + 7);
+    cx.closePath();
+    cx.fill();
+    cx.fillStyle = PALETTE.leaf;
+    this.circle(cx, cxp, vy - 5, 6);
+    this.circle(cx, cxp - 5, vy - 1, 4);
+    this.circle(cx, cxp + 5, vy - 1, 4);
+    cx.fillStyle = PALETTE.leafDark;
+    this.circle(cx, cxp, vy - 2, 3.5);
+  }
+
+  // A small floor lamp (lounge accent): warm glow, trapezoid shade, thin pole,
+  // round base. (bx, by) is the base centre; it rises upward from there.
+  private drawFloorLamp(cx: CanvasRenderingContext2D, bx: number, by: number) {
+    const poleH = 40;
+    const topY = by - poleH;
+    this.softShadow(cx, bx, by + 2, 10, 4);
+    // Base.
+    cx.fillStyle = PALETTE.lampBase;
+    this.roundRect(cx, bx - 8, by - 3, 16, 6, 3);
+    cx.fill();
+    // Pole.
+    cx.fillStyle = PALETTE.lampPole;
+    cx.fillRect(bx - 1.5, topY, 3, poleH);
+    // Warm glow behind the shade.
+    cx.fillStyle = PALETTE.lampGlow;
+    this.circle(cx, bx, topY, 16);
+    // Trapezoid shade.
+    cx.fillStyle = PALETTE.lampShade;
+    cx.beginPath();
+    cx.moveTo(bx - 7, topY - 10);
+    cx.lineTo(bx + 7, topY - 10);
+    cx.lineTo(bx + 11, topY + 4);
+    cx.lineTo(bx - 11, topY + 4);
+    cx.closePath();
+    cx.fill();
   }
 
   // A couch centred at (cxc, cyc) facing toward the coffee table. `len` is its
@@ -997,57 +1085,20 @@ export class CanvasRenderer {
     tx: number,
     ty: number,
     color: string,
-    pattern: 'none' | 'stripe' | 'vstripe' | 'checker' | 'houndstooth' | 'brick' = 'none',
+    pattern: FloorPattern = 'none',
+    accent = 'rgba(0,0,0,0.12)',
   ) {
     const S = TILE_SIZE;
     cx.fillStyle = color;
     cx.fillRect(tx, ty, S, S);
-    // Patterns are world-aligned so they run continuously across tile boundaries.
-    if (pattern === 'stripe') {
-      // Horizontal stripes (2px line every 14px) — the 1-on-1 rooms.
-      cx.fillStyle = PALETTE.floorStripe;
-      for (let y = Math.ceil(ty / 14) * 14; y < ty + S; y += 14) {
-        cx.fillRect(tx, y, S, 2);
+    // The pattern is a world-origin-anchored CanvasPattern, so accent marks run
+    // continuously across tile boundaries.
+    if (pattern !== 'none') {
+      const pat = this.getFloorPattern(cx, pattern, accent);
+      if (pat) {
+        cx.fillStyle = pat;
+        cx.fillRect(tx, ty, S, S);
       }
-    } else if (pattern === 'vstripe') {
-      // Thin vertical bands (8px on / 8px off), world-aligned — president's office.
-      const band = 8;
-      const period = band * 2;
-      cx.fillStyle = PALETTE.floorStripeV;
-      for (let gx = Math.floor(tx / period) * period; gx < tx + S; gx += period) {
-        const x0 = Math.max(gx, tx);
-        const x1 = Math.min(gx + band, tx + S);
-        if (x1 > x0) cx.fillRect(x0, ty, x1 - x0, S);
-      }
-    } else if (pattern === 'checker') {
-      // Checkerboard (10px cells) — the meeting rooms.
-      const CS = 10;
-      cx.fillStyle = PALETTE.floorCheckBlue;
-      for (let gx = Math.floor(tx / CS) * CS; gx < tx + S; gx += CS) {
-        for (let gy = Math.floor(ty / CS) * CS; gy < ty + S; gy += CS) {
-          if ((gx / CS + gy / CS) % 2 === 0) cx.fillRect(gx, gy, CS, CS);
-        }
-      }
-    } else if (pattern === 'brick') {
-      // Running-bond brick: horizontal mortar lines, and vertical mortar offset
-      // half a brick every other row. World-aligned so it tiles seamlessly.
-      const BH = 16;
-      const BW = 46;
-      cx.fillStyle = PALETTE.brickMortar;
-      for (let y = Math.floor(ty / BH) * BH; y < ty + S; y += BH) {
-        if (y >= ty) cx.fillRect(tx, y, S, 2); // horizontal mortar
-        const off = (Math.floor(y / BH) % 2) * (BW / 2);
-        const y0 = Math.max(y, ty);
-        const y1 = Math.min(y + BH, ty + S);
-        for (let x = Math.ceil((tx - off) / BW) * BW + off; x < tx + S; x += BW) {
-          if (x >= tx && y1 > y0) cx.fillRect(x, y0, 2, y1 - y0); // vertical mortar
-        }
-      }
-    } else if (pattern === 'houndstooth' && this.houndPattern) {
-      // Houndstooth weave — the negotiation booths. Pattern is anchored to the
-      // world origin, so it tiles seamlessly across adjacent booth tiles.
-      cx.fillStyle = this.houndPattern;
-      cx.fillRect(tx, ty, S, S);
     }
     cx.strokeStyle = PALETTE.floorGrid;
     cx.lineWidth = 1;
@@ -1059,27 +1110,150 @@ export class CanvasRenderer {
     cx.stroke();
   }
 
-  // Build a repeating houndstooth (千鳥格子) tile in the booth accent colour. A
-  // 4×4 broken-twill mask tiled over the floor gives the classic woven look.
-  private buildHoundstooth(cx: CanvasRenderingContext2D): CanvasPattern | null {
-    const u = 7; // cell size (px)
-    const n = 4;
+  // Returns (building once, then cached) a repeating CanvasPattern of accent-
+  // coloured marks for a floor pattern, so any pattern can be drawn in any colour.
+  private getFloorPattern(
+    cx: CanvasRenderingContext2D,
+    pattern: FloorPattern,
+    accent: string,
+  ): CanvasPattern | null {
+    const key = `${pattern}|${accent}`;
+    const hit = this.patternCache.get(key);
+    if (hit !== undefined) return hit;
+    const pat = this.buildFloorPattern(cx, pattern, accent);
+    this.patternCache.set(key, pat);
+    return pat;
+  }
+
+  // Builds a repeating accent-coloured tile for one floor pattern. All marks are
+  // drawn in `accent` over a transparent background, so the tile's base colour
+  // shows through. Every tile is sized so its motif wraps seamlessly.
+  private buildFloorPattern(
+    cx: CanvasRenderingContext2D,
+    pattern: FloorPattern,
+    accent: string,
+  ): CanvasPattern | null {
     const p = document.createElement('canvas');
-    p.width = u * n;
-    p.height = u * n;
+    // Size per pattern. IMPORTANT: set width/height BEFORE any style/draw —
+    // assigning a canvas's size resets its 2D context (fillStyle back to black).
+    const sizes: Record<string, [number, number]> = {
+      stripe: [14, 14],
+      vstripe: [16, 16],
+      checker: [20, 20],
+      brick: [46, 32],
+      houndstooth: [28, 28],
+      crosshatch: [18, 18],
+      herringbone: [48, 48],
+      chevron: [24, 12],
+    };
+    const size = sizes[pattern];
+    if (!size) return null;
+    p.width = size[0];
+    p.height = size[1];
     const g = p.getContext('2d');
     if (!g) return null;
-    g.fillStyle = PALETTE.floorCheck;
-    const mask = [
-      [1, 1, 0, 1],
-      [1, 1, 1, 0],
-      [0, 1, 1, 1],
-      [1, 0, 1, 1],
-    ];
-    for (let y = 0; y < n; y++) {
-      for (let x = 0; x < n; x++) {
-        if (mask[y][x]) g.fillRect(x * u, y * u, u, u);
+    // Some patterns cover more area and read heavier at the same opacity, so
+    // soften them a touch (multiplier on the accent's alpha).
+    const softer: Record<string, number> = { vstripe: 0.55, brick: 0.6 };
+    const ink = scaleAlpha(accent, softer[pattern] ?? 1);
+    g.fillStyle = ink;
+    g.strokeStyle = ink;
+    switch (pattern) {
+      case 'stripe': {
+        // Horizontal stripes (2px line every 14px).
+        g.fillRect(0, 0, 14, 2);
+        break;
       }
+      case 'vstripe': {
+        // Vertical bands (8px on / 8px off).
+        g.fillRect(0, 0, 8, 16);
+        break;
+      }
+      case 'checker': {
+        // Checkerboard (10px cells).
+        g.fillRect(0, 0, 10, 10);
+        g.fillRect(10, 10, 10, 10);
+        break;
+      }
+      case 'brick': {
+        // Running-bond: horizontal mortar every 16px, verticals offset per row.
+        g.fillRect(0, 0, 46, 2);
+        g.fillRect(0, 16, 46, 2);
+        g.fillRect(0, 0, 2, 16); // top row vertical
+        g.fillRect(23, 16, 2, 16); // bottom row vertical, offset half a brick
+        break;
+      }
+      case 'houndstooth': {
+        // 4×4 broken-twill weave (千鳥格子).
+        const u = 7;
+        const mask = [
+          [1, 1, 0, 1],
+          [1, 1, 1, 0],
+          [0, 1, 1, 1],
+          [1, 0, 1, 1],
+        ];
+        for (let y = 0; y < 4; y++)
+          for (let x = 0; x < 4; x++) if (mask[y][x]) g.fillRect(x * u, y * u, u, u);
+        break;
+      }
+      case 'crosshatch': {
+        // Diagonal net: one ╲ and one ╱ per cell.
+        const s = 18;
+        g.lineWidth = 1.5;
+        g.beginPath();
+        g.moveTo(0, 0);
+        g.lineTo(s, s);
+        g.moveTo(0, s);
+        g.lineTo(s, 0);
+        g.stroke();
+        break;
+      }
+      case 'herringbone': {
+        // Diagonal plank grooves meeting in a V on the seam (48×48, spacing 12).
+        const T = 48;
+        const sp = 12;
+        g.lineWidth = 1.5;
+        g.save();
+        g.beginPath();
+        g.rect(0, 0, T / 2, T);
+        g.clip();
+        g.beginPath();
+        for (let k = -T; k <= T; k += sp) {
+          g.moveTo(k, 0);
+          g.lineTo(k + T, T);
+        }
+        g.stroke();
+        g.restore();
+        g.save();
+        g.beginPath();
+        g.rect(T / 2, 0, T / 2, T);
+        g.clip();
+        g.beginPath();
+        for (let k = 0; k <= 2 * T; k += sp) {
+          g.moveTo(k, 0);
+          g.lineTo(k - T, T);
+        }
+        g.stroke();
+        g.restore();
+        break;
+      }
+      case 'chevron': {
+        // Repeating ^ stripes (wraps at the cell edges).
+        const W = 24;
+        const H = 12;
+        g.lineWidth = 3;
+        g.lineJoin = 'miter';
+        g.beginPath();
+        for (let y = -H; y <= H * 2; y += H) {
+          g.moveTo(0, y);
+          g.lineTo(W / 2, y - H / 2);
+          g.lineTo(W, y);
+        }
+        g.stroke();
+        break;
+      }
+      default:
+        return null;
     }
     return cx.createPattern(p, 'repeat');
   }
@@ -1092,15 +1266,19 @@ export class CanvasRenderer {
     cx.fill();
   }
 
-  // Soft accent rug under a desk pod, so team islands read as neighbourhoods.
+  // Solid themed rug under a desk pod (no pattern — keeps the open office calm;
+  // patterns stay on the rooms). Each island uses its assigned colour, framed by
+  // the old double inset border.
   private drawPodRug(
     cx: CanvasRenderingContext2D,
     f: { x: number; y: number; w: number; h: number },
+    style: FloorStyle,
   ) {
+    const theme = FLOOR_THEMES[style.color];
     this.roundRect(cx, f.x, f.y, f.w, f.h, 10);
-    cx.fillStyle = PALETTE.podRug;
+    cx.fillStyle = theme.base;
     cx.fill();
-    cx.strokeStyle = PALETTE.podRugEdge;
+    cx.strokeStyle = theme.accent;
     cx.lineWidth = 1.5;
     cx.stroke();
     // Inset second border line, for a tidy framed-rug look.
@@ -1397,3 +1575,9 @@ export class CanvasRenderer {
     ctx.closePath();
   }
 }
+
+// Dev only: the baked map image is cached on the Renderer instance, which
+// survives an HMR module swap — so a hot edit to the renderer would leave the map
+// (floors, rug patterns/colours, furniture) stale. Force a full reload instead,
+// which recreates the Renderer and rebuilds the map. Stripped from prod builds.
+if (import.meta.hot) import.meta.hot.accept(() => location.reload());

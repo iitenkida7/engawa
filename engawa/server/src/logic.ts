@@ -4,11 +4,12 @@
 
 import type { GroupMethod, Outfit, PlayerStatus, SfuTrack, StreamKind } from './types';
 
-/** Map bounds used to clamp player positions. Must match the client (core/types.ts
- * MAP_WIDTH/HEIGHT) and world/tilemap.ts MAP_COLS/ROWS × TILE_SIZE (a 34×25
- * building plus a 6-tile grass margin on each side = 46×37 tiles). */
-export const MAP_WIDTH = 2300;
-export const MAP_HEIGHT = 1850;
+/** Map bounds used to clamp player positions. The server has no tilemap, so this
+ * is hardcoded and MUST match world/tilemap.ts MAP_COLS/ROWS × TILE_SIZE — a
+ * 34×27 building plus an 8-tile grass margin on each side = 50×43 tiles × 50px.
+ * (The client derives its copy from tilemap; keep this in sync by hand.) */
+export const MAP_WIDTH = 2500;
+export const MAP_HEIGHT = 2150;
 
 /**
  * Whether an access password is configured (a non-empty ACCESS_PASSWORD). When
@@ -258,11 +259,12 @@ export function clampPosition(
  * deterministic in tests.
  */
 export function generateSpawn(rand: () => number = Math.random): { x: number; y: number } {
-  // Open-office area, shifted by the 300px outdoor margin (#229) so spawns stay
-  // inside the building's center aisle, not out on the grass.
+  // Open-office area, shifted by the 400px outdoor margin (#229, now 8 tiles) so
+  // spawns stay inside the building's center aisle, not out on the grass. The
+  // client snaps this to the nearest walkable tile, so landing near a desk is fine.
   return {
-    x: 1100 + rand() * 400,
-    y: 700 + rand() * 600,
+    x: 1200 + rand() * 400,
+    y: 800 + rand() * 600,
   };
 }
 

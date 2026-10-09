@@ -34,7 +34,7 @@ export function roomKindAt(col: number, row: number): RoomKind | null {
   for (const z of ZONES) {
     if (cx < z.x || cx >= z.x + z.w || cy < z.y || cy >= z.y + z.h) continue;
     if (z.id === 'ceo') return 'exec';
-    if (z.id === 'lounge') return 'lounge';
+    if (z.id === 'lounge' || z.id.startsWith('cafe')) return 'lounge';
     if (z.id.startsWith('1on1')) return 'oneonone';
     if (z.id.startsWith('booth')) return 'booth';
     return 'meeting'; // all-hands + meeting-N
