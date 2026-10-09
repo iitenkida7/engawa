@@ -15,10 +15,9 @@ import {
 } from '@/core/types';
 import { STATUS_EMOJI } from '@/ui/status-menu';
 import { CharacterSheet } from '@/world/character';
-import { floorKindAt, propFor } from '@/world/decor';
+import { propFor } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import {
-  deskFacesSouth,
   type FloorPattern,
   type FloorStyle,
   floorStyleAt,
@@ -719,20 +718,20 @@ export class CanvasRenderer {
       this.drawPodRug(cx, rug, islandFloorStyle(i));
     });
 
-    // Pass 2 — props: open-office desks are workstations; in-room desks are drawn
-    // as designed tables/chairs by the furniture pass below, so skip them here.
+    // Pass 2 — props: plants here; open-office desks are drawn per 3-wide unit
+    // (one long desk) just below. In-room desks are drawn as designed tables by
+    // the furniture pass, so skip them here.
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
-        const tile = officeMap[r][c];
-        const tx = c * TILE_SIZE;
-        const ty = r * TILE_SIZE;
-        const prop = propFor(tile);
-        if (prop === 'desk' && floorKindAt(c, r) === 'wood') {
-          this.drawWorkstation(cx, tx, ty, deskFacesSouth(c, r));
-        } else if (prop === 'plant') {
-          this.drawPlant(cx, tx, ty);
+        if (propFor(officeMap[r][c]) === 'plant') {
+          this.drawPlant(cx, c * TILE_SIZE, r * TILE_SIZE);
         }
       }
+    }
+    // One long desk per island unit (spans the 3 desk tiles with end margins, so
+    // it reads as a ~2-tile desk) + a single centred monitor/keyboard.
+    for (const u of OPEN_DESK_CHAIRS) {
+      this.drawWorkstation(cx, u.col * TILE_SIZE, u.row * TILE_SIZE, u.facesSouth);
     }
 
     // One chair in front of each open-office desk island (centred on the 3-wide
@@ -1354,6 +1353,9 @@ export class CanvasRenderer {
   // monitor with a soft screen, and a hint of a keyboard. `facesSouth` flips it
   // vertically (monitor at the bottom, keyboard at the top) so the occupant sits
   // above, facing down — used for the upper row of a facing pod.
+  // (tx, ty) is the CENTRE tile of a 3-wide desk unit. Draws one long desk across
+  // the three tiles — inset at both ends so it reads as a ~2-tile desk — with a
+  // single centred monitor/keyboard.
   private drawWorkstation(
     cx: CanvasRenderingContext2D,
     tx: number,
@@ -1362,16 +1364,21 @@ export class CanvasRenderer {
   ) {
     const S = TILE_SIZE;
     const pad = 5;
+    const end = S * 0.45; // end margin: the slab spans ~2 tiles, not the full 3
+    const slabX = tx - S + end;
+    const slabW = 3 * S - end * 2;
+    const slabY = ty + pad;
+    const slabH = S - pad * 2;
     const cxm = tx + S / 2;
-    this.softShadow(cx, cxm, ty + S - pad + 1, S / 2 - pad + 1, 5);
+    this.softShadow(cx, cxm, ty + S - pad + 1, slabW / 2 - pad + 1, 5);
     // Desk: thickness slab, then a gradient top and rim.
-    this.roundRect(cx, tx + pad, ty + pad + 2, S - pad * 2, S - pad * 2, 6);
+    this.roundRect(cx, slabX, slabY + 2, slabW, slabH, 7);
     cx.fillStyle = PALETTE.deskEdge;
     cx.fill();
-    const dg = cx.createLinearGradient(0, ty + pad, 0, ty + S - pad);
+    const dg = cx.createLinearGradient(0, slabY, 0, slabY + slabH);
     dg.addColorStop(0, PALETTE.deskTopHi);
     dg.addColorStop(1, PALETTE.deskTop);
-    this.roundRect(cx, tx + pad, ty + pad, S - pad * 2, S - pad * 2, 6);
+    this.roundRect(cx, slabX, slabY, slabW, slabH, 7);
     cx.fillStyle = dg;
     cx.fill();
     cx.strokeStyle = PALETTE.deskEdge;
