@@ -646,18 +646,22 @@ function computeFloorStyles(): Map<string, FloorStyle> {
     nbrs.get(a)?.push(b);
     nbrs.get(b)?.push(a);
   };
-  const chain = (ids: string[]) => {
+  // A clique: every member differs from every other, so no pattern/colour
+  // repeats within the group (a chain only stops *immediate* neighbours matching,
+  // which let e.g. lavender recur along a strip).
+  const clique = (ids: string[]) => {
     ids.forEach(ensure);
-    for (let i = 1; i < ids.length; i++) edge(ids[i - 1], ids[i]);
+    for (let i = 0; i < ids.length; i++)
+      for (let j = i + 1; j < ids.length; j++) edge(ids[i], ids[j]);
   };
 
-  // Rooms: the top strip and the bottom strip are each a left-to-right chain.
-  chain(
+  // Rooms: within each strip (top / bottom) every room is distinct.
+  clique(
     ROOMS.filter((r) => r.r < 10)
       .sort((a, b) => a.c - b.c)
       .map((r) => r.id),
   );
-  chain(
+  clique(
     ROOMS.filter((r) => r.r >= 10)
       .sort((a, b) => a.c - b.c)
       .map((r) => r.id),
@@ -667,12 +671,12 @@ function computeFloorStyles(): Map<string, FloorStyle> {
   else {
     for (const l of LOUNGES) ensure(l.id);
   }
-  // Islands: each band is a chain; a top island is vertically adjacent to the
-  // bottom island in the same column.
+  // Islands: within each band every island is distinct, and a top island also
+  // differs from the bottom island in the same column.
   const topN = TOP_ISLAND_COLS.length;
   const botN = BOTTOM_ISLAND_COLS.length;
-  chain(Array.from({ length: topN }, (_, k) => islandId(k)));
-  chain(Array.from({ length: botN }, (_, k) => islandId(topN + k)));
+  clique(Array.from({ length: topN }, (_, k) => islandId(k)));
+  clique(Array.from({ length: botN }, (_, k) => islandId(topN + k)));
   for (let i = 0; i < Math.min(topN, botN); i++) edge(islandId(i), islandId(topN + i));
 
   // Greedy assignment in a fixed id order. Each edge is respected because the

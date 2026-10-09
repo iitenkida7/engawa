@@ -210,6 +210,12 @@ describe('floor styles (randomised rugs)', () => {
     expect(same(allHands, meeting1)).toBe(false);
   });
 
+  it('never repeats a colour within the top room strip', () => {
+    const cols = [1, 8, 19, 24, 29].map((c) => floorStyleAt(c + M, 1 + M)?.color);
+    expect(cols.every((c) => c !== undefined)).toBe(true);
+    expect(new Set(cols).size).toBe(cols.length); // all distinct
+  });
+
   it('gives the two cafés different styles', () => {
     const left = floorStyleAt(3, 22)!; // cafe-left (map cols 1-6, rows 20-24)
     const right = floorStyleAt(45, 22)!; // cafe-right (map cols 43-48)
