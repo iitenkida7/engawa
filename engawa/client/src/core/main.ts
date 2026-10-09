@@ -6,6 +6,7 @@ const joinOverlay = document.getElementById('join-overlay') as HTMLDivElement;
 const passForm = document.getElementById('join-pass-form') as HTMLFormElement;
 const passInput = document.getElementById('join-password') as HTMLInputElement;
 const passError = document.getElementById('join-pass-error') as HTMLDivElement;
+const passRemember = document.getElementById('join-pass-remember') as HTMLInputElement;
 const nameForm = document.getElementById('join-form') as HTMLFormElement;
 const nameInput = document.getElementById('join-name') as HTMLInputElement;
 const btnAvatarPre = document.getElementById('btn-avatar-pre') as HTMLButtonElement;
@@ -35,6 +36,27 @@ let app: App | null = null;
 // Password verified at the gate; sent on join. '' when the space is open.
 let verifiedPassword = '';
 
+// Remembered passphrase (opt-in, localStorage). Stored only after a successful
+// verify when "remember on this device" is checked, so returning users skip the
+// gate. Cleared whenever it stops working (wrong/changed → auth error).
+const PASS_KEY = 'engawa-pass';
+const getStoredPass = () => localStorage.getItem(PASS_KEY) ?? '';
+const clearStoredPass = () => localStorage.removeItem(PASS_KEY);
+
+// POST the passphrase to the server; true when it's accepted.
+async function verifyPassword(password: string): Promise<boolean> {
+  try {
+    const res = await fetch('/api/verify-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    return !!((await res.json()) as { ok?: boolean }).ok;
+  } catch {
+    return false;
+  }
+}
+
 function showNameStep() {
   passForm.classList.add('hidden');
   nameForm.classList.remove('hidden');
@@ -59,30 +81,34 @@ async function initLogin() {
   } catch {
     passwordRequired = false;
   }
-  if (passwordRequired) showPassStep();
-  else showNameStep();
+  if (!passwordRequired) {
+    showNameStep();
+    return;
+  }
+  // Skip the gate when a remembered passphrase still verifies; otherwise show it
+  // (clearing a stale saved one).
+  const saved = getStoredPass();
+  if (saved && (await verifyPassword(saved))) {
+    verifiedPassword = saved;
+    showNameStep();
+    return;
+  }
+  if (saved) clearStoredPass();
+  showPassStep();
 }
 
 passForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const password = passInput.value;
   passError.classList.add('hidden');
-  let ok = false;
-  try {
-    const res = await fetch('/api/verify-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-    });
-    ok = !!((await res.json()) as { ok?: boolean }).ok;
-  } catch {
-    ok = false;
-  }
-  if (!ok) {
+  if (!(await verifyPassword(password))) {
     passError.classList.remove('hidden');
     return;
   }
   verifiedPassword = password;
+  // Remember on this device only when opted in; otherwise make sure nothing lingers.
+  if (passRemember.checked) localStorage.setItem(PASS_KEY, password);
+  else clearStoredPass();
   showNameStep();
 });
 
@@ -100,8 +126,10 @@ nameForm.addEventListener('submit', (e) => {
 });
 
 // If a later join is rejected (e.g. the password changed), the App re-shows the
-// overlay; restart at the password gate with the error visible.
+// overlay; the remembered passphrase is now wrong, so drop it and restart at the
+// gate with the error visible (so it doesn't silently auto-fill the stale one).
 window.addEventListener('engawa-auth-error', () => {
+  clearStoredPass();
   showPassStep();
   passError.classList.remove('hidden');
 });
