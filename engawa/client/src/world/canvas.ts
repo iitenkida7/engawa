@@ -134,14 +134,14 @@ const PALETTE = {
 // so the floors are varied instead of colour-coded by kind. Order is the colour
 // index; keep the length == FLOOR_COLOR_COUNT.
 const FLOOR_THEMES: { base: string; accent: string }[] = [
-  // Gather-like clear mid pastels (more saturated → higher contrast).
-  { base: '#b7d19f', accent: 'rgba(74,116,64,0.34)' }, // green — sage
-  { base: '#a9c8e8', accent: 'rgba(52,100,168,0.32)' }, // blue
-  { base: '#cfc2e6', accent: 'rgba(108,84,160,0.32)' }, // lavender
-  { base: '#e7b3c6', accent: 'rgba(190,96,135,0.32)' }, // pink — rose
-  { base: '#e8d499', accent: 'rgba(168,132,52,0.34)' }, // amber — mustard
-  { base: '#a7d2c6', accent: 'rgba(40,134,118,0.32)' }, // teal
-  { base: '#ebbca3', accent: 'rgba(188,100,60,0.32)' }, // terracotta
+  // Muted, greyed mid-tones (calm, not colourful) — matched to the slate feel.
+  { base: '#b4c2a8', accent: 'rgba(84,106,78,0.32)' }, // green — greyed sage
+  { base: '#b2c0d4', accent: 'rgba(74,100,138,0.32)' }, // blue — greyed
+  { base: '#c3bcce', accent: 'rgba(104,92,134,0.3)' }, // lavender — greyed mauve
+  { base: '#d2bcc3', accent: 'rgba(158,108,126,0.3)' }, // pink — greyed rose
+  { base: '#cdc4a6', accent: 'rgba(138,120,72,0.32)' }, // amber — greyed ochre
+  { base: '#aec5bf', accent: 'rgba(70,118,108,0.3)' }, // teal — greyed
+  { base: '#d1b8ab', accent: 'rgba(158,104,78,0.3)' }, // terracotta — greyed clay
   { base: '#bcc4d6', accent: 'rgba(84,100,132,0.32)' }, // slate
 ];
 
