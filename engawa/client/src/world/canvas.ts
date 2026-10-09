@@ -77,7 +77,7 @@ const PALETTE = {
   // Lounge (placeholder styling): a warm sage rug with soft seating, distinct
   // from the oak open office and the cream meeting rooms.
   loungeRug: '#dfe7d8',
-  loungeRugEdge: 'rgba(125,155,106,0.5)',
+  loungeRugEdge: 'rgba(150,135,110,0.5)', // warm taupe (matches the greige rug)
   sofa: '#9aa7b8',
   sofaShade: '#7f8da0',
   sofaBack: '#78879b',
@@ -86,6 +86,11 @@ const PALETTE = {
   coffeeTable: '#a9774f',
   coffeeTableTop: '#c79b70',
   coffeeTableHi: '#dcbb95',
+  // Floor lamp (lounge accent).
+  lampShade: '#ead9b4',
+  lampGlow: 'rgba(255,228,160,0.4)',
+  lampPole: '#8a8276',
+  lampBase: '#6f685d',
   // Outdoor grounds (#229): grass lawn and trees around the building.
   grass: '#dcebcd',
   grassSeam: 'rgba(150,180,125,0.12)',
@@ -153,8 +158,8 @@ const FLOOR_THEMES: { base: string; accent: string }[] = [
   { base: '#dce2e0', accent: 'rgba(108,128,124,0.24)' }, // teal — pale greyish
   { base: '#d1b8ab', accent: 'rgba(158,104,78,0.3)' }, // terracotta — greyed clay
   { base: '#bcc4d6', accent: 'rgba(84,100,132,0.32)' }, // slate
-  // Index 8 (CAFE_COLOR): reserved dusty-red theme for the cafés.
-  { base: '#e4c6c2', accent: 'rgba(176,96,90,0.26)' }, // café red — soft dusty red
+  // Index 8 (CAFE_COLOR): reserved greige theme for the lounges.
+  { base: '#dcd4c6', accent: 'rgba(122,110,90,0.26)' }, // lounge — greige / taupe
 ];
 
 // How far (world px) a reaction bubble drifts upward over its lifetime.
@@ -863,40 +868,90 @@ export class CanvasRenderer {
     const cxp = f.x + f.w / 2;
     const cyp = f.y + f.h / 2;
 
-    // Rug outline to frame the area.
-    this.roundRect(cx, f.x + 5, f.y + 5, f.w - 10, f.h - 10, 12);
+    // Framed rug: a double rounded border for a tidy, furnished look.
+    this.roundRect(cx, f.x + 5, f.y + 5, f.w - 10, f.h - 10, 14);
     cx.strokeStyle = PALETTE.loungeRugEdge;
     cx.lineWidth = 2;
     cx.stroke();
+    this.roundRect(cx, f.x + 9, f.y + 9, f.w - 18, f.h - 18, 11);
+    cx.lineWidth = 1;
+    cx.stroke();
 
-    // Long, thin rectangular coffee table in the middle. Geometry is shared with
-    // collision (LOUNGE_TABLE_RECTS) so the drawn table is exactly what blocks.
+    // Coffee table rect — geometry shared with collision (LOUNGE_TABLE_RECTS).
     const { x: tx, y: ty, w: tw, h: th } = table;
 
-    // Sofas tucked right up to the table on all four sides, facing in: 2-seaters
-    // left/right, 4-seaters top/bottom. Offset = half the table + half the sofa
-    // thickness (9) + a small gap.
+    // Three sofas around the table (left/right 2-seaters + a longer one at the
+    // bottom); the top is left open for greenery + a lamp — reads as a lounge
+    // nook instead of a boxed-in square.
     const near = 9 + 14;
     this.drawCouch(cx, cxp - tw / 2 - near, cyp, 'right', 54);
     this.drawCouch(cx, cxp + tw / 2 + near, cyp, 'left', 54);
-    this.drawCouch(cx, cxp, cyp - th / 2 - near, 'down', 150);
     this.drawCouch(cx, cxp, cyp + th / 2 + near, 'up', 150);
 
-    // Table surface: thickness, lit top, rim.
+    // A potted plant and a floor lamp along the top, framing the nook.
+    this.drawPlant(cx, f.x + 6, f.y + 2);
+    this.drawFloorLamp(cx, f.x + f.w - 30, f.y + 62);
+
+    // Rounded coffee table (within the collision rect), lit top + rim.
+    const r = Math.min(th / 2, 14);
     this.softShadow(cx, cxp, ty + th + 2, tw / 2, 6);
-    this.roundRect(cx, tx, ty + 3, tw, th, 6); // side/thickness
+    this.roundRect(cx, tx, ty + 3, tw, th, r); // side/thickness
     cx.fillStyle = PALETTE.coffeeTable;
     cx.fill();
     const tg = cx.createLinearGradient(0, ty, 0, ty + th);
     tg.addColorStop(0, PALETTE.coffeeTableHi);
     tg.addColorStop(1, PALETTE.coffeeTableTop);
-    this.roundRect(cx, tx, ty, tw, th, 6);
+    this.roundRect(cx, tx, ty, tw, th, r);
     cx.fillStyle = tg;
     cx.fill();
     cx.strokeStyle = PALETTE.coffeeTable;
     cx.lineWidth = 1;
-    this.roundRect(cx, tx, ty, tw, th, 6);
+    this.roundRect(cx, tx, ty, tw, th, r);
     cx.stroke();
+
+    // A little plant/vase centred on the table.
+    const vy = ty + th / 2;
+    cx.fillStyle = PALETTE.pot;
+    cx.beginPath();
+    cx.moveTo(cxp - 6, vy - 1);
+    cx.lineTo(cxp + 6, vy - 1);
+    cx.lineTo(cxp + 4, vy + 7);
+    cx.lineTo(cxp - 4, vy + 7);
+    cx.closePath();
+    cx.fill();
+    cx.fillStyle = PALETTE.leaf;
+    this.circle(cx, cxp, vy - 5, 6);
+    this.circle(cx, cxp - 5, vy - 1, 4);
+    this.circle(cx, cxp + 5, vy - 1, 4);
+    cx.fillStyle = PALETTE.leafDark;
+    this.circle(cx, cxp, vy - 2, 3.5);
+  }
+
+  // A small floor lamp (lounge accent): warm glow, trapezoid shade, thin pole,
+  // round base. (bx, by) is the base centre; it rises upward from there.
+  private drawFloorLamp(cx: CanvasRenderingContext2D, bx: number, by: number) {
+    const poleH = 40;
+    const topY = by - poleH;
+    this.softShadow(cx, bx, by + 2, 10, 4);
+    // Base.
+    cx.fillStyle = PALETTE.lampBase;
+    this.roundRect(cx, bx - 8, by - 3, 16, 6, 3);
+    cx.fill();
+    // Pole.
+    cx.fillStyle = PALETTE.lampPole;
+    cx.fillRect(bx - 1.5, topY, 3, poleH);
+    // Warm glow behind the shade.
+    cx.fillStyle = PALETTE.lampGlow;
+    this.circle(cx, bx, topY, 16);
+    // Trapezoid shade.
+    cx.fillStyle = PALETTE.lampShade;
+    cx.beginPath();
+    cx.moveTo(bx - 7, topY - 10);
+    cx.lineTo(bx + 7, topY - 10);
+    cx.lineTo(bx + 11, topY + 4);
+    cx.lineTo(bx - 11, topY + 4);
+    cx.closePath();
+    cx.fill();
   }
 
   // A couch centred at (cxc, cyc) facing toward the coffee table. `len` is its
