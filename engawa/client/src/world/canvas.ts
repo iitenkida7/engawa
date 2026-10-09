@@ -880,15 +880,18 @@ export class CanvasRenderer {
     // Coffee table rect — geometry shared with collision (LOUNGE_TABLE_RECTS).
     const { x: tx, y: ty, w: tw, h: th } = table;
 
-    // Three sofas around the table (left/right 2-seaters + a longer one at the
-    // bottom); the top is left open for greenery + a lamp — reads as a lounge
-    // nook instead of a boxed-in square.
-    const near = 9 + 14;
-    this.drawCouch(cx, cxp - tw / 2 - near, cyp, 'right', 54);
-    this.drawCouch(cx, cxp + tw / 2 + near, cyp, 'left', 54);
-    this.drawCouch(cx, cxp, cyp + th / 2 + near, 'up', 150);
+    // Single-seat armchairs around the table, each a spot you stand on to look
+    // "seated" (like the meeting-room chairs) — backrest on the side away from the
+    // table. Two above, two below, one each side.
+    const gap = 26; // chair centre offset from the table edge
+    this.drawArmchair(cx, cxp - 42, ty - gap, 'down');
+    this.drawArmchair(cx, cxp + 42, ty - gap, 'down');
+    this.drawArmchair(cx, cxp - 42, ty + th + gap, 'up');
+    this.drawArmchair(cx, cxp + 42, ty + th + gap, 'up');
+    this.drawArmchair(cx, tx - gap, cyp, 'right');
+    this.drawArmchair(cx, tx + tw + gap, cyp, 'left');
 
-    // A potted plant and a floor lamp along the top, framing the nook.
+    // A potted plant and a floor lamp in the top corners, framing the nook.
     this.drawPlant(cx, f.x + 6, f.y + 2);
     this.drawFloorLamp(cx, f.x + f.w - 30, f.y + 62);
 
@@ -957,63 +960,47 @@ export class CanvasRenderer {
   // A couch centred at (cxc, cyc) facing toward the coffee table. `len` is its
   // long dimension (so 150 ≈ a 4-seater, 54 ≈ a 2-seater). Backrest on the far
   // side, arm caps at both ends, evenly-spaced seat cushions, and a soft shadow.
-  private drawCouch(
+  private drawArmchair(
     cx: CanvasRenderingContext2D,
     cxc: number,
     cyc: number,
     facing: 'left' | 'right' | 'up' | 'down',
-    len: number,
   ) {
-    const thick = 18;
-    const backW = 6;
-    const arm = 7;
-    const horizontal = facing === 'up' || facing === 'down';
-    const w = horizontal ? len : thick;
-    const h = horizontal ? thick : len;
-    const x = cxc - w / 2;
-    const y = cyc - h / 2;
-    this.softShadow(cx, cxc, y + h + 1, w / 2, 4);
-    // Base.
-    this.roundRect(cx, x, y, w, h, 6);
+    const s = 30; // chair footprint
+    const back = 7;
+    const arm = 6;
+    const x = cxc - s / 2;
+    const y = cyc - s / 2;
+    this.softShadow(cx, cxc, y + s + 1, s / 2, 4);
+    // Seat base.
+    this.roundRect(cx, x, y, s, s, 8);
     cx.fillStyle = PALETTE.sofa;
     cx.fill();
-    // Backrest on the far side from the table.
+    // Backrest on the side AWAY from the table (opposite the facing direction).
     cx.fillStyle = PALETTE.sofaBack;
-    if (facing === 'right') this.roundRect(cx, x, y, backW, h, 5);
-    else if (facing === 'left') this.roundRect(cx, x + w - backW, y, backW, h, 5);
-    else if (facing === 'down') this.roundRect(cx, x, y, w, backW, 5);
-    else this.roundRect(cx, x, y + h - backW, w, backW, 5);
+    if (facing === 'down') this.roundRect(cx, x, y, s, back, 6);
+    else if (facing === 'up') this.roundRect(cx, x, y + s - back, s, back, 6);
+    else if (facing === 'right') this.roundRect(cx, x, y, back, s, 6);
+    else this.roundRect(cx, x + s - back, y, back, s, 6);
     cx.fill();
-    // Arm caps at the two ends.
+    // Arm caps on the two sides perpendicular to the facing.
     cx.fillStyle = PALETTE.sofaArm;
-    if (horizontal) {
-      this.roundRect(cx, x, y, arm, h, 5);
+    if (facing === 'up' || facing === 'down') {
+      this.roundRect(cx, x, y, arm, s, 5);
       cx.fill();
-      this.roundRect(cx, x + w - arm, y, arm, h, 5);
+      this.roundRect(cx, x + s - arm, y, arm, s, 5);
       cx.fill();
     } else {
-      this.roundRect(cx, x, y, w, arm, 5);
+      this.roundRect(cx, x, y, s, arm, 5);
       cx.fill();
-      this.roundRect(cx, x, y + h - arm, w, arm, 5);
+      this.roundRect(cx, x, y + s - arm, s, arm, 5);
       cx.fill();
     }
-    // Evenly-spaced seat cushions along the long axis, on the seat side.
-    const avail = len - arm * 2;
-    const n = Math.max(2, Math.round(avail / 30));
-    const step = avail / n;
+    // Seat-cushion highlight.
     cx.fillStyle = PALETTE.sofaHi;
-    for (let k = 0; k < n; k++) {
-      if (horizontal) {
-        const cxk = x + arm + k * step;
-        const cyk = facing === 'down' ? y + backW + 1 : y + 1;
-        this.roundRect(cx, cxk + 1, cyk, step - 2, thick - backW - 2, 3);
-      } else {
-        const cyk = y + arm + k * step;
-        const cxk = facing === 'right' ? x + backW + 1 : x + 1;
-        this.roundRect(cx, cxk, cyk + 1, thick - backW - 2, step - 2, 3);
-      }
-      cx.fill();
-    }
+    const inset = arm;
+    this.roundRect(cx, x + inset, y + inset, s - inset * 2, s - inset * 2, 4);
+    cx.fill();
   }
 
   // A wall-mounted whiteboard along the top interior edge of a meeting room, with
