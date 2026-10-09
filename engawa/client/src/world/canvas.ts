@@ -880,16 +880,14 @@ export class CanvasRenderer {
     // Coffee table rect — geometry shared with collision (LOUNGE_TABLE_RECTS).
     const { x: tx, y: ty, w: tw, h: th } = table;
 
-    // Single-seat armchairs around the table, each a spot you stand on to look
-    // "seated" (like the meeting-room chairs) — backrest on the side away from the
-    // table. Two above, two below, one each side.
+    // Single-seat armchairs, each a spot you stand on to look "seated" (like the
+    // meeting-room chairs) — backrest on the side away from the table. Three above
+    // (facing down) and three below (facing up).
     const gap = 26; // chair centre offset from the table edge
-    this.drawArmchair(cx, cxp - 42, ty - gap, 'down');
-    this.drawArmchair(cx, cxp + 42, ty - gap, 'down');
-    this.drawArmchair(cx, cxp - 42, ty + th + gap, 'up');
-    this.drawArmchair(cx, cxp + 42, ty + th + gap, 'up');
-    this.drawArmchair(cx, tx - gap, cyp, 'right');
-    this.drawArmchair(cx, tx + tw + gap, cyp, 'left');
+    for (const dx of [-52, 0, 52]) {
+      this.drawArmchair(cx, cxp + dx, ty - gap, 'down');
+      this.drawArmchair(cx, cxp + dx, ty + th + gap, 'up');
+    }
 
     // A potted plant and a floor lamp in the top corners, framing the nook.
     this.drawPlant(cx, f.x + 6, f.y + 2);
