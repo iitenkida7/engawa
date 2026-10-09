@@ -133,6 +133,16 @@ const PALETTE = {
 // the pattern marks. Rooms/cafés/islands pick one by index (tilemap FloorStyle),
 // so the floors are varied instead of colour-coded by kind. Order is the colour
 // index; keep the length == FLOOR_COLOR_COUNT.
+// Scale an `rgba(r,g,b,a)` string's alpha by a factor (used to soften heavier
+// floor patterns). Returns the input unchanged when it can't be parsed.
+function scaleAlpha(rgba: string, factor: number): string {
+  if (factor >= 1) return rgba;
+  const m = rgba.match(/rgba?\(([^)]+)\)/);
+  if (!m) return rgba;
+  const [r, g, b, a = '1'] = m[1].split(',').map((s) => s.trim());
+  return `rgba(${r}, ${g}, ${b}, ${(Number.parseFloat(a) * factor).toFixed(3)})`;
+}
+
 const FLOOR_THEMES: { base: string; accent: string }[] = [
   // Muted, greyed mid-tones (calm, not colourful) — matched to the slate feel.
   { base: '#b4c2a8', accent: 'rgba(84,106,78,0.32)' }, // green — greyed sage
@@ -1087,8 +1097,12 @@ export class CanvasRenderer {
     p.height = size[1];
     const g = p.getContext('2d');
     if (!g) return null;
-    g.fillStyle = accent;
-    g.strokeStyle = accent;
+    // Some patterns cover more area and read heavier at the same opacity, so
+    // soften them a touch (multiplier on the accent's alpha).
+    const softer: Record<string, number> = { vstripe: 0.55, brick: 0.6 };
+    const ink = scaleAlpha(accent, softer[pattern] ?? 1);
+    g.fillStyle = ink;
+    g.strokeStyle = ink;
     switch (pattern) {
       case 'stripe': {
         // Horizontal stripes (2px line every 14px).
