@@ -256,16 +256,16 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     expect(ZONES).toHaveLength(roomSamples.length + LOUNGES.length);
   });
 
-  it('assigns a zone to every MEETING / LOUNGE tile and none to other tiles', () => {
+  it('zones cover every meeting/lounge tile and never bleed onto walls or grass', () => {
     for (let r = 0; r < MAP_ROWS; r++) {
       for (let c = 0; c < MAP_COLS; c++) {
         const z = zoneAt(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2);
-        // The lounge is a zone too (an open call bubble), keyed off LOUNGE tiles.
-        if (officeMap[r][c] === Tile.MEETING || officeMap[r][c] === Tile.LOUNGE) {
-          expect(z).not.toBeNull();
-        } else {
-          expect(z).toBeNull();
-        }
+        const tile = officeMap[r][c];
+        // MEETING / LOUNGE tiles are always inside a zone. (Room interiors also
+        // zone their table/plant tiles so the floor rug shows under furniture.)
+        if (tile === Tile.MEETING || tile === Tile.LOUNGE) expect(z).not.toBeNull();
+        // Zones never extend onto the outer walls or the outdoor grass.
+        if (tile === Tile.WALL || tile === Tile.GRASS || tile === Tile.TREE) expect(z).toBeNull();
       }
     }
   });

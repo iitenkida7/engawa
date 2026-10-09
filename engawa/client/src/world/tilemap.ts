@@ -750,10 +750,12 @@ export type Zone = { id: string; name: string; x: number; y: number; w: number; 
 function buildZones(): { zones: Zone[]; grid: number[][] } {
   const grid: number[][] = officeMap.map((row) => row.map(() => -1));
   const zones: Zone[] = ROOMS.map((room, idx) => {
+    // Mark the whole interior rect (incl. the table/desk + plant tiles), so the
+    // room's floor rug shows under the furniture too, not just on standable tiles.
     for (let rr = room.r + OUTDOOR_MARGIN; rr < room.r + room.h + OUTDOOR_MARGIN; rr++) {
       for (let cc = room.c + OUTDOOR_MARGIN; cc < room.c + room.w + OUTDOOR_MARGIN; cc++) {
         if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) continue;
-        if (officeMap[rr][cc] === Tile.MEETING) grid[rr][cc] = idx;
+        grid[rr][cc] = idx;
       }
     }
     return {
