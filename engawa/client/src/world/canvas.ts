@@ -432,7 +432,14 @@ export class CanvasRenderer {
     // is full-map world space, so drawing it under the existing camera translate
     // lets the browser clip the offscreen part for free.
     const dpr = Math.min(this.dpr, 2);
-    if (!this.mapCache || this.mapCacheDpr !== dpr) this.buildMapCache(dpr);
+    // Rebuild when the device-pixel ratio changes OR the baked image no longer
+    // matches the current map size — the latter guards against a stale cache
+    // after the map dimensions change (e.g. a hot-reload that widened the outdoor
+    // margin), which would otherwise leave the grass/border drawn to the old edge.
+    const wantW = Math.round(MAP_WIDTH * dpr);
+    if (!this.mapCache || this.mapCacheDpr !== dpr || this.mapCache.width !== wantW) {
+      this.buildMapCache(dpr);
+    }
     // Blit at LOGICAL map size — the destination ctx is already dpr-scaled, so
     // passing device px here would double-scale.
     ctx.drawImage(this.mapCache as HTMLCanvasElement, 0, 0, MAP_WIDTH, MAP_HEIGHT);
