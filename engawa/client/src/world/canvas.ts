@@ -1211,8 +1211,9 @@ export class CanvasRenderer {
     cx.fill();
   }
 
-  // Themed rug under a desk pod, so team islands read as neighbourhoods — each
-  // island gets its own base colour + pattern (clipped to the rounded rug).
+  // Solid themed rug under a desk pod (no pattern — keeps the open office calm;
+  // patterns stay on the rooms). Each island uses its assigned colour, framed by
+  // the old double inset border.
   private drawPodRug(
     cx: CanvasRenderingContext2D,
     f: { x: number; y: number; w: number; h: number },
@@ -1222,21 +1223,13 @@ export class CanvasRenderer {
     this.roundRect(cx, f.x, f.y, f.w, f.h, 10);
     cx.fillStyle = theme.base;
     cx.fill();
-    // Pattern, clipped to the rug.
-    if (style.pattern !== 'none') {
-      const pat = this.getFloorPattern(cx, style.pattern, theme.accent);
-      if (pat) {
-        cx.save();
-        this.roundRect(cx, f.x, f.y, f.w, f.h, 10);
-        cx.clip();
-        cx.fillStyle = pat;
-        cx.fillRect(f.x, f.y, f.w, f.h);
-        cx.restore();
-      }
-    }
     cx.strokeStyle = theme.accent;
     cx.lineWidth = 1.5;
-    this.roundRect(cx, f.x, f.y, f.w, f.h, 10);
+    cx.stroke();
+    // Inset second border line, for a tidy framed-rug look.
+    const i = 5;
+    this.roundRect(cx, f.x + i, f.y + i, f.w - i * 2, f.h - i * 2, 7);
+    cx.lineWidth = 1;
     cx.stroke();
   }
 
