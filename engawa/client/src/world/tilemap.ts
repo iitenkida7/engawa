@@ -393,7 +393,7 @@ export function isDeskSeat(px: number, py: number): boolean {
 // (negative on the left, past BUILDING_COLS on the right) so the shared stamping
 // machinery places them on the grass. Each is a conversation-restricted zone (an
 // isolated call bubble, like the old lounge): walkable rug + sofas + a table.
-export type LoungePattern = 'brick' | 'tatami' | 'herringbone';
+export type LoungePattern = 'brick' | 'crosshatch' | 'herringbone';
 export type Lounge = {
   id: string;
   name: string;
@@ -405,7 +405,7 @@ export type Lounge = {
   pattern: LoungePattern;
 };
 export const LOUNGES: Lounge[] = [
-  { id: 'cafe-left', name: t('zone.cafe'), c: -7, r: 12, w: 6, h: 5, pattern: 'tatami' },
+  { id: 'cafe-left', name: t('zone.cafe'), c: -7, r: 12, w: 6, h: 5, pattern: 'crosshatch' },
   { id: 'cafe-right', name: t('zone.cafe'), c: 35, r: 12, w: 6, h: 5, pattern: 'herringbone' },
 ];
 

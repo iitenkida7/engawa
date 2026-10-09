@@ -103,12 +103,9 @@ const PALETTE = {
   floorCheckBlue: 'rgba(85,120,165,0.12)',
   floorStripeV: 'rgba(230,155,190,0.16)',
   brickMortar: 'rgba(150,120,80,0.22)',
-  // Café floors (#263 follow-up): tatami = greenish straw mats with dark cloth
-  // edging; herringbone = warm wood planks with soft grooves. Opaque so they
-  // read as their own material over the café's sage base.
-  tatamiStraw: '#d7d4a8',
-  tatamiStrawAlt: '#cdcb9c',
-  tatamiEdge: 'rgba(60,72,48,0.55)',
+  // Café floors (#263 follow-up): crosshatch = a soft diagonal net over the café's
+  // sage base; herringbone = warm wood planks with soft grooves.
+  crosshatchLine: 'rgba(90,110,80,0.28)',
   herringWood: '#d9c29a',
   herringWoodAlt: '#cdb488',
   herringMortar: 'rgba(120,88,52,0.38)',
@@ -217,7 +214,7 @@ export class CanvasRenderer {
   private mapCacheDpr = 0;
   // Repeating houndstooth fill for the booth floors, built with the cache context.
   private houndPattern: CanvasPattern | null = null;
-  private tatamiPattern: CanvasPattern | null = null;
+  private crosshatchPattern: CanvasPattern | null = null;
   private herringPattern: CanvasPattern | null = null;
 
   // Zoom factor about the camera center. ZOOM_DEFAULT (1.0) is the 1:1 view;
@@ -659,7 +656,7 @@ export class CanvasRenderer {
     const cx = cache.getContext('2d')!;
     cx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.houndPattern = this.buildHoundstooth(cx);
-    this.tatamiPattern = this.buildTatami(cx);
+    this.crosshatchPattern = this.buildCrosshatch(cx);
     this.herringPattern = this.buildHerringbone(cx);
 
     // Pass 1 — floors + walls: rooms/lounge get a colour-coded rug, the open
@@ -1027,7 +1024,7 @@ export class CanvasRenderer {
       | 'checker'
       | 'houndstooth'
       | 'brick'
-      | 'tatami'
+      | 'crosshatch'
       | 'herringbone' = 'none',
   ) {
     const S = TILE_SIZE;
@@ -1079,9 +1076,9 @@ export class CanvasRenderer {
       // world origin, so it tiles seamlessly across adjacent booth tiles.
       cx.fillStyle = this.houndPattern;
       cx.fillRect(tx, ty, S, S);
-    } else if (pattern === 'tatami' && this.tatamiPattern) {
-      // Tatami mats — the left café. Opaque straw over the sage base.
-      cx.fillStyle = this.tatamiPattern;
+    } else if (pattern === 'crosshatch' && this.crosshatchPattern) {
+      // Diagonal net — the left café. A light mesh over the sage base.
+      cx.fillStyle = this.crosshatchPattern;
       cx.fillRect(tx, ty, S, S);
     } else if (pattern === 'herringbone' && this.herringPattern) {
       // Herringbone wood — the right café. Opaque planks over the sage base.
@@ -1123,34 +1120,23 @@ export class CanvasRenderer {
     return cx.createPattern(p, 'repeat');
   }
 
-  // Tatami mats (left café): vertical straw mats with dark cloth edging (縁),
-  // neighbouring columns offset half a mat for the classic staggered look. The
-  // 100×100 cell holds two mat columns and repeats seamlessly.
-  private buildTatami(cx: CanvasRenderingContext2D): CanvasPattern | null {
-    const M = 50; // mat width
-    const H = 100; // mat height (2:1)
+  // Crosshatch net (left café): a soft diagonal grid (one +45° and one −45° line
+  // per cell) that repeats seamlessly, drawn transparent so the sage base shows
+  // through as a woven mesh.
+  private buildCrosshatch(cx: CanvasRenderingContext2D): CanvasPattern | null {
+    const S = 18; // diamond cell size
     const p = document.createElement('canvas');
-    p.width = M * 2;
-    p.height = H;
+    p.width = S;
+    p.height = S;
     const g = p.getContext('2d');
     if (!g) return null;
-    g.fillStyle = PALETTE.tatamiStraw;
-    g.fillRect(0, 0, p.width, p.height);
-    g.fillStyle = PALETTE.tatamiStrawAlt;
-    g.fillRect(M, 0, M, H); // right column a touch darker (woven sheen)
-    g.strokeStyle = PALETTE.tatamiEdge;
-    g.lineWidth = 2;
+    g.strokeStyle = PALETTE.crosshatchLine;
+    g.lineWidth = 1.5;
     g.beginPath();
-    // Vertical cloth edges between mats (left edge wraps with the neighbour).
-    g.moveTo(0.5, 0);
-    g.lineTo(0.5, H);
-    g.moveTo(M + 0.5, 0);
-    g.lineTo(M + 0.5, H);
-    // Mat ends: left column aligned (edge at top), right column offset by half.
-    g.moveTo(0, 1);
-    g.lineTo(M, 1);
-    g.moveTo(M, H / 2 + 0.5);
-    g.lineTo(2 * M, H / 2 + 0.5);
+    g.moveTo(0, 0); // ╲ (x = y)
+    g.lineTo(S, S);
+    g.moveTo(0, S); // ╱ (x + y = S)
+    g.lineTo(S, 0);
     g.stroke();
     return cx.createPattern(p, 'repeat');
   }
