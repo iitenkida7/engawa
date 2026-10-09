@@ -1140,6 +1140,7 @@ export class App {
         }
         this.view.setSelfName(this.joinedName);
         document.getElementById('toolbar')?.classList.remove('hidden');
+        document.getElementById('corner-nav')?.classList.remove('hidden');
         this.statusMenu.refresh();
         this.broadcastStatus();
         break;
