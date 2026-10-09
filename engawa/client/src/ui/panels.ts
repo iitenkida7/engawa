@@ -128,7 +128,10 @@ export const SIDEBAR_MAX_WIDTH = 360;
 
 // Pure: sidebar layout — every window stacks in a single column pinned to the
 // right edge, so the 2D map stays visible on the left. The column width scales
-// with the viewport (clamped). Windows split the column height evenly.
+// with the viewport (clamped). Tiles keep their natural (aspect-derived) height
+// and the whole stack is centred vertically, so a 1–2 person call sits compact
+// instead of spreading tiles far apart. Only when the natural stack would
+// overflow do cells divide the column evenly to fit.
 export function computeSidebarLayout(items: LayoutItem[], vw: number, vh: number): PanelGeometry[] {
   const n = items.length;
   if (n === 0) return [];
@@ -136,8 +139,17 @@ export function computeSidebarLayout(items: LayoutItem[], vw: number, vh: number
   const colW = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(vw * 0.25)));
   const w = Math.min(colW, area.w);
   const colX = area.x + area.w - w;
-  const cellH = area.h / n;
-  return items.map((item, i) => fitInCell(item, colX, area.y + i * cellH, w, cellH));
+  const innerW = Math.max(1, w - PANEL_GAP);
+  // Preferred per-tile cell height from the camera aspect (header + body + gap).
+  // Fall back to an even split when nothing is aspect-locked (e.g. all shares),
+  // where there is no natural height to pack to.
+  const aspect = items.find((it) => it.aspectLocked)?.aspect;
+  const preferredCellH = aspect ? PANEL_HEADER + innerW / aspect + PANEL_GAP : area.h / n;
+  // Pack at the natural height, but never overflow: fall to an even divide.
+  const cellH = Math.min(preferredCellH, area.h / n);
+  // Centre the stack vertically in the column.
+  const startY = area.y + Math.max(0, (area.h - cellH * n) / 2);
+  return items.map((item, i) => fitInCell(item, colX, startY + i * cellH, w, cellH));
 }
 
 // ===== Immersive meeting layout (issue #263) =====
