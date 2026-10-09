@@ -164,20 +164,20 @@ describe('clampPosition', () => {
 describe('generateSpawn', () => {
   test('is deterministic when given a fixed random source', () => {
     const spawn = generateSpawn(() => 0.5);
-    expect(spawn).toEqual({ x: 1300, y: 1000 });
+    expect(spawn).toEqual({ x: 1400, y: 1100 });
   });
 
   test('produces the minimum corner when rand returns 0', () => {
-    expect(generateSpawn(() => 0)).toEqual({ x: 1100, y: 700 });
+    expect(generateSpawn(() => 0)).toEqual({ x: 1200, y: 800 });
   });
 
   test('stays within the open office area for any rand in [0,1)', () => {
     for (const r of [0, 0.25, 0.5, 0.75, 0.999]) {
       const { x, y } = generateSpawn(() => r);
-      expect(x).toBeGreaterThanOrEqual(1100);
-      expect(x).toBeLessThan(1500);
-      expect(y).toBeGreaterThanOrEqual(700);
-      expect(y).toBeLessThan(1300);
+      expect(x).toBeGreaterThanOrEqual(1200);
+      expect(x).toBeLessThan(1600);
+      expect(y).toBeGreaterThanOrEqual(800);
+      expect(y).toBeLessThan(1400);
     }
   });
 });

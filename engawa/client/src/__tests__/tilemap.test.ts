@@ -5,7 +5,8 @@ import {
   findWalkableSpawn,
   isDeskSeat,
   isSolid,
-  LOUNGE_TABLE_RECT,
+  LOUNGE_TABLE_RECTS,
+  LOUNGES,
   MAP_COLS,
   MAP_ROWS,
   OPEN_DESK_CHAIRS,
@@ -75,8 +76,8 @@ describe('canOccupy', () => {
   });
 
   it('blocks the lounge coffee table even though its tiles are walkable (#225)', () => {
-    const tableCx = LOUNGE_TABLE_RECT.x + LOUNGE_TABLE_RECT.w / 2;
-    const tableCy = LOUNGE_TABLE_RECT.y + LOUNGE_TABLE_RECT.h / 2;
+    const tableCx = LOUNGE_TABLE_RECTS[0].x + LOUNGE_TABLE_RECTS[0].w / 2;
+    const tableCy = LOUNGE_TABLE_RECTS[0].y + LOUNGE_TABLE_RECTS[0].h / 2;
     expect(isSolid(tableCx, tableCy)).toBe(true);
     expect(canOccupy(tableCx, tableCy, 5)).toBe(false);
   });
@@ -201,9 +202,9 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     { col: 29, row: 23 }, // 商談ブース4
   ];
 
-  it('derives one zone per walled-off MEETING room, plus the lounge', () => {
-    // One zone per room sample + the open lounge (a conversation-restricted zone).
-    expect(ZONES).toHaveLength(roomSamples.length + 1);
+  it('derives one zone per walled-off MEETING room, plus the cafés', () => {
+    // One zone per room sample + the outdoor cafés (conversation-restricted zones).
+    expect(ZONES).toHaveLength(roomSamples.length + LOUNGES.length);
   });
 
   it('assigns a zone to every MEETING / LOUNGE tile and none to other tiles', () => {

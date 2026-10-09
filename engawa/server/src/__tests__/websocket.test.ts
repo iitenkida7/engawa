@@ -256,10 +256,10 @@ describe('createWebSocketHandler — join', () => {
     handler.open!(joiner);
     deliver(handler, joiner, { type: 'join', name: 'Alice', workspace: 'ws1' });
 
-    expect(joiner.data.x).toBeGreaterThanOrEqual(1100);
-    expect(joiner.data.x).toBeLessThan(1500);
-    expect(joiner.data.y).toBeGreaterThanOrEqual(700);
-    expect(joiner.data.y).toBeLessThan(1300);
+    expect(joiner.data.x).toBeGreaterThanOrEqual(1200);
+    expect(joiner.data.x).toBeLessThan(1600);
+    expect(joiner.data.y).toBeGreaterThanOrEqual(800);
+    expect(joiner.data.y).toBeLessThan(1400);
   });
 
   test('ignores a second join on the same socket (no workspace switch)', () => {

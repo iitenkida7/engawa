@@ -258,11 +258,12 @@ export function clampPosition(
  * deterministic in tests.
  */
 export function generateSpawn(rand: () => number = Math.random): { x: number; y: number } {
-  // Open-office area, shifted by the 300px outdoor margin (#229) so spawns stay
-  // inside the building's center aisle, not out on the grass.
+  // Open-office area, shifted by the 400px outdoor margin (#229, now 8 tiles) so
+  // spawns stay inside the building's center aisle, not out on the grass. The
+  // client snaps this to the nearest walkable tile, so landing near a desk is fine.
   return {
-    x: 1100 + rand() * 400,
-    y: 700 + rand() * 600,
+    x: 1200 + rand() * 400,
+    y: 800 + rand() * 600,
   };
 }
 

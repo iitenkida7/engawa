@@ -14,7 +14,7 @@ const BUILDING_COLS = 34;
 const BUILDING_ROWS = 27;
 // Grass margin (tiles) on each side of the building. Exported so tests/callers
 // can convert building-local coords to map coords.
-export const OUTDOOR_MARGIN = 6;
+export const OUTDOOR_MARGIN = 8;
 export const MAP_COLS = BUILDING_COLS + OUTDOOR_MARGIN * 2;
 export const MAP_ROWS = BUILDING_ROWS + OUTDOOR_MARGIN * 2;
 // Pixel offset of the building's origin within the map.
@@ -324,7 +324,7 @@ type DeskUnit = { col: number; row: number; facing: 'south' | 'north' };
 // desk rows face each other (upper row south → chair above, lower row north →
 // chair below); centres are ≥5 apart so a chair never lands in a neighbour's ring.
 const TOP_ISLAND_COLS = [4, 9, 14, 19, 24, 29];
-const BOTTOM_ISLAND_COLS = [4, 9, 14, 19]; // left of the lounge (cols 24-30)
+const BOTTOM_ISLAND_COLS = [4, 9, 14, 19, 24, 29]; // lounge moved outdoors, so full width
 
 const OPEN_DESK_UNITS: DeskUnit[] = [
   ...TOP_ISLAND_COLS.flatMap((col): DeskUnit[] => [
@@ -387,12 +387,17 @@ export function isDeskSeat(px: number, py: number): boolean {
   return SEAT_TILES.has(`${col},${row}`);
 }
 
-// A casual lounge in the open bottom-right corner: an OPEN social spot (not a
-// walled zone / isolated call bubble), so people on spatial audio can gather and
-// chat. Walkable rug (LOUNGE tiles aren't SOLID); the renderer draws sofas + a
-// coffee table on top. Placed clear of the desk pods and the booth doors below.
-// (Design is a placeholder — easy to restyle later.)
-export const LOUNGE = { c: 24, r: 15, w: 7, h: 5 } as const;
+// Outdoor cafés (#263 follow-up): casual social spots moved OUT of the building
+// onto the grass beside each side gate, freeing the interior for a full bottom
+// desk band. Building-local coords deliberately fall in the outdoor margin
+// (negative on the left, past BUILDING_COLS on the right) so the shared stamping
+// machinery places them on the grass. Each is a conversation-restricted zone (an
+// isolated call bubble, like the old lounge): walkable rug + sofas + a table.
+export type Lounge = { id: string; name: string; c: number; r: number; w: number; h: number };
+export const LOUNGES: Lounge[] = [
+  { id: 'cafe-left', name: t('zone.cafe'), c: -7, r: 12, w: 6, h: 5 },
+  { id: 'cafe-right', name: t('zone.cafe'), c: 35, r: 12, w: 6, h: 5 },
+];
 
 // Greenery dotted around the open floor — along the side walls and in the aisles
 // between the pod rugs. Kept off the island rugs, the central spawn path, the
@@ -464,8 +469,8 @@ function buildOfficeMap(): number[][] {
     for (const [dc, dr] of room.desks) set(dc, dr, Tile.DESK);
   }
 
-  // ── Lounge rug (walkable), then open-office desk seats + greenery ──
-  fill(LOUNGE.c, LOUNGE.r, LOUNGE.w, LOUNGE.h, Tile.LOUNGE);
+  // ── Outdoor café rugs (walkable), then open-office desk seats + greenery ──
+  for (const lo of LOUNGES) fill(lo.c, lo.r, lo.w, lo.h, Tile.LOUNGE);
   for (const [c, r] of OPEN_DESKS) set(c, r, Tile.DESK);
   for (const [c, r] of OPEN_PLANTS) set(c, r, Tile.PLANT);
 
@@ -557,27 +562,29 @@ function placeTrees(m: number[][]): Tree[] {
 
 export const TREES: Tree[] = placeTrees(officeMap);
 
-// Pixel rect of the lounge, for the renderer (rug accent + sofas/coffee table).
-export const LOUNGE_RECT = {
-  x: LOUNGE.c * TILE_SIZE + OFF_X,
-  y: LOUNGE.r * TILE_SIZE + OFF_Y,
-  w: LOUNGE.w * TILE_SIZE,
-  h: LOUNGE.h * TILE_SIZE,
-};
+type Rect = { x: number; y: number; w: number; h: number };
 
-// Pixel rect of the lounge coffee table, centered in the lounge (46% × 20% of
-// it). Shared by the renderer (draws it) and collision (SOLID_RECTS) so the two
-// can't drift — you can't walk onto the table (#225).
-export const LOUNGE_TABLE_RECT = {
-  x: LOUNGE_RECT.x + LOUNGE_RECT.w / 2 - (LOUNGE_RECT.w * 0.46) / 2,
-  y: LOUNGE_RECT.y + LOUNGE_RECT.h / 2 - (LOUNGE_RECT.h * 0.2) / 2,
-  w: LOUNGE_RECT.w * 0.46,
-  h: LOUNGE_RECT.h * 0.2,
-};
+// Pixel rect of each café, for the renderer (rug accent + sofas/coffee table).
+export const LOUNGE_RECTS: Rect[] = LOUNGES.map((lo) => ({
+  x: lo.c * TILE_SIZE + OFF_X,
+  y: lo.r * TILE_SIZE + OFF_Y,
+  w: lo.w * TILE_SIZE,
+  h: lo.h * TILE_SIZE,
+}));
+
+// Pixel rect of each café's coffee table, centered in the café (46% × 20% of it).
+// Shared by the renderer (draws it) and collision (SOLID_RECTS) so the two can't
+// drift — you can't walk onto the table (#225).
+export const LOUNGE_TABLE_RECTS: Rect[] = LOUNGE_RECTS.map((r) => ({
+  x: r.x + r.w / 2 - (r.w * 0.46) / 2,
+  y: r.y + r.h / 2 - (r.h * 0.2) / 2,
+  w: r.w * 0.46,
+  h: r.h * 0.2,
+}));
 
 // Impassable sub-tile props, checked by isSolid in addition to the SOLID tile
 // kinds. Pixel rects so props that don't fill a whole tile still block.
-const SOLID_RECTS: { x: number; y: number; w: number; h: number }[] = [LOUNGE_TABLE_RECT];
+const SOLID_RECTS: Rect[] = [...LOUNGE_TABLE_RECTS];
 
 // One accent rug per SEAT — a 3×3 block centred on the chair, i.e. the exact
 // "connect zone" (the seat + its 8 adjacent tiles, SEAT_CONNECT_RADIUS). It
@@ -628,23 +635,18 @@ function buildZones(): { zones: Zone[]; grid: number[][] } {
     };
   });
 
-  // The lounge is a conversation-restricted zone too (like the booths): an
+  // Each outdoor café is a conversation-restricted zone too (like the booths): an
   // isolated call bubble where everyone inside is connected and audio doesn't
-  // leak out — but it has no walls, so its grid cells are the LOUNGE tiles.
-  const loungeIdx = zones.length;
-  for (let rr = LOUNGE.r + OUTDOOR_MARGIN; rr < LOUNGE.r + LOUNGE.h + OUTDOOR_MARGIN; rr++) {
-    for (let cc = LOUNGE.c + OUTDOOR_MARGIN; cc < LOUNGE.c + LOUNGE.w + OUTDOOR_MARGIN; cc++) {
-      if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) continue;
-      if (officeMap[rr][cc] === Tile.LOUNGE) grid[rr][cc] = loungeIdx;
+  // leak out — but it has no walls, so its grid cells are its LOUNGE tiles.
+  LOUNGES.forEach((lo, i) => {
+    const idx = zones.length;
+    for (let rr = lo.r + OUTDOOR_MARGIN; rr < lo.r + lo.h + OUTDOOR_MARGIN; rr++) {
+      for (let cc = lo.c + OUTDOOR_MARGIN; cc < lo.c + lo.w + OUTDOOR_MARGIN; cc++) {
+        if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) continue;
+        if (officeMap[rr][cc] === Tile.LOUNGE) grid[rr][cc] = idx;
+      }
     }
-  }
-  zones.push({
-    id: 'lounge',
-    name: t('zone.lounge'),
-    x: LOUNGE_RECT.x,
-    y: LOUNGE_RECT.y,
-    w: LOUNGE_RECT.w,
-    h: LOUNGE_RECT.h,
+    zones.push({ id: lo.id, name: lo.name, ...LOUNGE_RECTS[i] });
   });
 
   return { zones, grid };

@@ -20,8 +20,8 @@ import type { PlayerState } from '@/world/player';
 import {
   deskFacesSouth,
   isDeskSeat,
-  LOUNGE_RECT,
-  LOUNGE_TABLE_RECT,
+  LOUNGE_RECTS,
+  LOUNGE_TABLE_RECTS,
   MAP_COLS,
   MAP_ROWS,
   MEETING_ROOM_RECTS,
@@ -712,7 +712,8 @@ export class CanvasRenderer {
     for (const f of ROOM_FURNITURE) this.drawRoomFurniture(cx, f);
 
     // Lounge: sofas around a round coffee table, over the sage rug.
-    this.drawLounge(cx, LOUNGE_RECT);
+    for (let i = 0; i < LOUNGE_RECTS.length; i++)
+      this.drawLounge(cx, LOUNGE_RECTS[i], LOUNGE_TABLE_RECTS[i]);
 
     // Meeting-room props: a wall whiteboard and a corner filing cabinet.
     for (const rect of MEETING_ROOM_RECTS) {
@@ -826,6 +827,7 @@ export class CanvasRenderer {
   private drawLounge(
     cx: CanvasRenderingContext2D,
     f: { x: number; y: number; w: number; h: number },
+    table: { x: number; y: number; w: number; h: number },
   ) {
     const cxp = f.x + f.w / 2;
     const cyp = f.y + f.h / 2;
@@ -837,8 +839,8 @@ export class CanvasRenderer {
     cx.stroke();
 
     // Long, thin rectangular coffee table in the middle. Geometry is shared with
-    // collision (LOUNGE_TABLE_RECT) so the drawn table is exactly what blocks.
-    const { x: tx, y: ty, w: tw, h: th } = LOUNGE_TABLE_RECT;
+    // collision (LOUNGE_TABLE_RECTS) so the drawn table is exactly what blocks.
+    const { x: tx, y: ty, w: tw, h: th } = table;
 
     // Sofas tucked right up to the table on all four sides, facing in: 2-seaters
     // left/right, 4-seaters top/bottom. Offset = half the table + half the sofa
