@@ -102,13 +102,14 @@ describe('KnockController', () => {
     h.ctrl.onPlayerLeft('u1');
   });
 
-  it('reply(accept) walks over and clears the cooldown so re-knock is immediate', () => {
+  it('reply(accept) does not walk over (the responder comes to us) but clears the cooldown', () => {
     const players = new Map([['u1', player('田中')]]);
     const h = setup(players);
     h.setNow(0);
     h.ctrl.request('u1');
     h.ctrl.reply('u1', '田中', true);
-    expect(h.goTos).toEqual(['u1']);
+    // The caller stays put; the responder walks over on their side.
+    expect(h.goTos).toEqual([]);
     // cooldown cleared → an immediate re-knock goes through
     h.ctrl.request('u1');
     expect(h.sent.filter((m) => m.type === 'knock').length).toBe(2);
@@ -124,7 +125,7 @@ describe('KnockController', () => {
     h.ctrl.onPlayerLeft('u1');
   });
 
-  it('received plays the enter chime and offers accept/decline actions that reply', () => {
+  it('received plays the enter chime; accepting replies and walks us to the caller', () => {
     const players = new Map([['u2', player('佐藤')]]);
     const h = setup(players);
     h.ctrl.received('u2', '佐藤');
@@ -137,5 +138,7 @@ describe('KnockController', () => {
       { type: 'knock-reply', to: 'u2', accept: true },
       { type: 'knock-reply', to: 'u2', accept: false },
     ]);
+    // Accepting walks the responder over to the caller (Gather-style).
+    expect(h.goTos).toEqual(['u2']);
   });
 });
