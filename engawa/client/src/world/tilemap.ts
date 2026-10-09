@@ -28,12 +28,13 @@ export const Tile = {
   MEETING: 3,
   LOUNGE: 4,
   PLANT: 5,
-  // Outdoor tiles (#229): walkable grass, plus solid trees on it.
+  // Outdoor tiles (#229): walkable grass, plus solid trees and a pond on it.
   GRASS: 6,
   TREE: 7,
+  POND: 8,
 } as const;
 
-export const SOLID = new Set<number>([Tile.WALL, Tile.DESK, Tile.PLANT, Tile.TREE]);
+export const SOLID = new Set<number>([Tile.WALL, Tile.DESK, Tile.PLANT, Tile.TREE, Tile.POND]);
 
 // Tile colours live with the renderer (world/canvas.ts PALETTE), which draws the
 // map procedurally. tilemap.ts stays pure layout + collision.
@@ -443,6 +444,11 @@ const OPEN_PLANTS: [number, number][] = [
   [17, 4],
 ];
 
+// Outdoor pond footprint, in MAP-ABSOLUTE tile coords (not building-local): the
+// top-right grounds, clear of the building (right of col 41) and above it (rows
+// < OUTDOOR_MARGIN). Solid (you walk around it); the renderer draws the water.
+export const POND = { c: 41, r: 2, w: 5, h: 4 } as const;
+
 // Building-local top row of the side gates: a 2-tile gap in BOTH the left and
 // right outer walls at the open-office corridor, so you can walk out to the
 // grounds (#229). The south wall can't be used — the bottom room strip blocks it.
@@ -500,6 +506,12 @@ function buildOfficeMap(): number[][] {
   for (const lo of LOUNGES) fill(lo.c, lo.r, lo.w, lo.h, Tile.LOUNGE);
   for (const [c, r] of OPEN_DESKS) set(c, r, Tile.DESK);
   for (const [c, r] of OPEN_PLANTS) set(c, r, Tile.PLANT);
+
+  // ── Outdoor pond: a water body on the top-right grounds (map-absolute coords).
+  // Stamped before placeTrees so the tree scatter avoids it (allGrass check).
+  for (let rr = POND.r; rr < POND.r + POND.h; rr++)
+    for (let cc = POND.c; cc < POND.c + POND.w; cc++)
+      if (rr >= 0 && rr < MAP_ROWS && cc >= 0 && cc < MAP_COLS) m[rr][cc] = Tile.POND;
 
   return m;
 }
@@ -560,6 +572,10 @@ function placeTrees(m: number[][]): Tree[] {
 
   // Try to place one tree somewhere in [colMin,colMax]×[rowMin,rowMax]. Biased
   // toward big trees; spaced so nothing clumps. Returns whether it placed.
+  // IMPORTANT: every attempt draws the SAME four rng() values up front, whether or
+  // not it ends up placing a tree. This decouples the random stream from the map
+  // contents, so moving/adding an obstacle (e.g. the pond) only changes the few
+  // attempts that actually land on it — not the layout everywhere else.
   const tryPlace = (
     colMin: number,
     colMax: number,
@@ -570,12 +586,13 @@ function placeTrees(m: number[][]): Tree[] {
     const tiles = rng() < bigProb ? 2 : 1;
     const c = colMin + Math.floor(rng() * (colMax - colMin + 1));
     const r = rowMin + Math.floor(rng() * (rowMax - rowMin + 1));
+    const variant = rng() < 0.5 ? 1 : 0;
     if (blocksGate(c, r, tiles) || blocksRoom(c, r, tiles) || !allGrass(c, r, tiles)) return false;
     // Require a one-tile grass gap around the footprint so trees stay spaced out.
     if (!allGrass(c - 1, r - 1, tiles + 2)) return false;
     for (let rr = r; rr < r + tiles; rr++)
       for (let cc = c; cc < c + tiles; cc++) m[rr][cc] = Tile.TREE;
-    trees.push({ x: c * TILE_SIZE, y: r * TILE_SIZE, tiles, variant: rng() < 0.5 ? 1 : 0 });
+    trees.push({ x: c * TILE_SIZE, y: r * TILE_SIZE, tiles, variant });
     return true;
   };
 
@@ -586,7 +603,12 @@ function placeTrees(m: number[][]): Tree[] {
   const midRow1 = buildingBottom - 8;
   const bands: [number, number, number, number, number, number][] = [
     [1, MAP_COLS - 2, 1, OUTDOOR_MARGIN - 1, 24, 0.68], // top
-    [1, MAP_COLS - 2, buildingBottom, MAP_ROWS - 2, 24, 0.68], // bottom
+    // Bottom gets more attempts than the top: the detached room + its keepout eat
+    // into the right end, so a bigger budget keeps the strip from reading as bare.
+    [1, MAP_COLS - 2, buildingBottom, MAP_ROWS - 2, 40, 0.68], // bottom
+    // The bottom-centre (below the booths) stays thin under a uniform scatter, so
+    // give it a dedicated pass.
+    [OUTDOOR_MARGIN + 10, OUTDOOR_MARGIN + 26, buildingBottom, MAP_ROWS - 2, 16, 0.5], // bottom-centre
     [1, OUTDOOR_MARGIN - 1, OUTDOOR_MARGIN, buildingBottom - 1, 18, 0.68], // left
     [buildingRight, MAP_COLS - 2, OUTDOOR_MARGIN, buildingBottom - 1, 18, 0.68], // right
     // Fill the sparse right-middle strip with a few small trees so it's not bare.
@@ -595,6 +617,9 @@ function placeTrees(m: number[][]): Tree[] {
     // clear strips (above the lounge, below the room) with big-tree-only passes.
     [buildingRight + 1, MAP_COLS - 2, OUTDOOR_MARGIN + 1, gateTop - 4, 16, 1], // upper-right (big)
     [buildingRight + 1, MAP_COLS - 2, buildingBottom + 1, MAP_ROWS - 3, 12, 1], // lower-right (big)
+    // Ring the top-right pond with small trees (the allGrass + gap checks keep
+    // them off the water and spaced around it).
+    [POND.c - 3, POND.c + POND.w + 1, 1, OUTDOOR_MARGIN - 1, 16, 0], // around the pond (small)
   ];
   for (const [colMin, colMax, rowMin, rowMax, attempts, bigProb] of bands) {
     for (let i = 0; i < attempts; i++) tryPlace(colMin, colMax, rowMin, rowMax, bigProb);
@@ -605,6 +630,14 @@ function placeTrees(m: number[][]): Tree[] {
 export const TREES: Tree[] = placeTrees(officeMap);
 
 type Rect = { x: number; y: number; w: number; h: number };
+
+// Pixel rect of the outdoor pond (map-absolute; POND is already in map coords).
+export const POND_RECT: Rect = {
+  x: POND.c * TILE_SIZE,
+  y: POND.r * TILE_SIZE,
+  w: POND.w * TILE_SIZE,
+  h: POND.h * TILE_SIZE,
+};
 
 // Pixel rect of each café, for the renderer (rug accent + sofas/coffee table).
 export const LOUNGE_RECTS: Rect[] = LOUNGES.map((lo) => ({

@@ -16,6 +16,8 @@ import {
   OPEN_DESK_CHAIRS,
   OUTDOOR_MARGIN,
   officeMap,
+  POND,
+  POND_RECT,
   SOLID,
   TILE_SIZE,
   Tile,
@@ -56,6 +58,36 @@ describe('isSolid', () => {
     expect(isSolid(10, -1)).toBe(true);
     expect(isSolid(MAP_COLS * TILE_SIZE + 1, 10)).toBe(true);
     expect(isSolid(10, MAP_ROWS * TILE_SIZE + 1)).toBe(true);
+  });
+});
+
+describe('outdoor pond', () => {
+  it('stamps POND tiles over its footprint, all solid', () => {
+    for (let r = POND.r; r < POND.r + POND.h; r++) {
+      for (let c = POND.c; c < POND.c + POND.w; c++) {
+        expect(officeMap[r][c]).toBe(Tile.POND);
+        const { x, y } = center(c, r);
+        expect(isSolid(x, y)).toBe(true);
+      }
+    }
+  });
+
+  it('sits outside the building on the top-right grounds', () => {
+    // Above the building's top wall (within the top grass margin).
+    expect(POND.r + POND.h).toBeLessThanOrEqual(OUTDOOR_MARGIN);
+    // On the right half of the map.
+    expect(POND.c).toBeGreaterThan(MAP_COLS / 2);
+    // Fully inside the map.
+    expect(POND.c + POND.w).toBeLessThanOrEqual(MAP_COLS);
+  });
+
+  it('POND_RECT matches the tile footprint in pixels', () => {
+    expect(POND_RECT).toEqual({
+      x: POND.c * TILE_SIZE,
+      y: POND.r * TILE_SIZE,
+      w: POND.w * TILE_SIZE,
+      h: POND.h * TILE_SIZE,
+    });
   });
 });
 

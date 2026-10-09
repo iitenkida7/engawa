@@ -31,6 +31,7 @@ import {
   OPEN_DESK_CHAIRS,
   officeMap,
   POD_RUGS,
+  POND_RECT,
   ROOM_FURNITURE,
   type RoomFurniture,
   TILE_SIZE,
@@ -102,6 +103,26 @@ const PALETTE = {
   treeCanopy2: '#3f7a3c',
   treeCanopyHi2: '#57984e',
   treeCanopyShade2: '#2d5c2b',
+  // Outdoor pond (#229 redux): layered water for depth, a damp shore ring, lily
+  // pads and glints — richer than the old flat ellipse.
+  pondShadow: 'rgba(60,90,70,0.16)',
+  pondShore: '#c6d2a6',
+  waterDeep: '#3b7b95',
+  water: '#58a2bd',
+  waterShallow: '#9ccfdd',
+  waterEdge: 'rgba(42,92,116,0.5)',
+  waterRipple: 'rgba(255,255,255,0.16)',
+  waterGlint: 'rgba(255,255,255,0.55)',
+  lilyPad: '#5a9b4e',
+  lilyPadShade: '#48813f',
+  lilyPadHi: 'rgba(160,205,125,0.6)',
+  lilyFlower: '#f2d7e6',
+  // Rocks ringing the pond: two warm-grey tints with a highlight/shade for form.
+  rock: '#a7a299',
+  rock2: '#948d82',
+  rockHi: '#c6c1b6',
+  rockShade: '#6c685f',
+  rockShadow: 'rgba(60,70,60,0.18)',
   // Faint tile grid drawn on every floor, and a soft shadow under furniture, for
   // a tidy "game floor" look with a little depth.
   floorGrid: 'rgba(90,75,50,0.07)',
@@ -696,8 +717,9 @@ export class CanvasRenderer {
           this.drawWall(cx, tx, ty, c, r);
           continue;
         }
-        // Outdoor tiles (#229): grass base, with trees drawn on top in pass 2.
-        if (tile === Tile.GRASS || tile === Tile.TREE) {
+        // Outdoor tiles (#229): grass base under trees and the pond too; the pond
+        // water shape is painted once below so it reads as a single body.
+        if (tile === Tile.GRASS || tile === Tile.TREE || tile === Tile.POND) {
           this.drawGrassTile(cx, tx, ty, c, r);
           continue;
         }
@@ -711,6 +733,10 @@ export class CanvasRenderer {
         }
       }
     }
+
+    // Outdoor pond: one layered water body over the grass, drawn before the trees
+    // so their canopies can overhang its edge (collision is the POND tiles).
+    this.drawPond(cx, POND_RECT);
 
     // Team-island rugs under the desk pods (over the floor, under the desks),
     // each with its own randomised style.
@@ -1326,6 +1352,172 @@ export class CanvasRenderer {
     this.circle(cx, cxp, cy, S * 0.3);
     cx.fillStyle = canopyHi;
     this.circle(cx, cxp - S * 0.1, cy - S * 0.1, S * 0.14);
+  }
+
+  // Traces a closed, slightly irregular "blob" path (an organic pond outline)
+  // centred at (cxp,cyp). `scale` shrinks the whole shape (1 = full rect). The
+  // wobble array is fixed so the shape is deterministic across reloads. Points are
+  // smoothed with quadratic midpoints so the outline reads as a soft curve.
+  private pondBlobPath(
+    cx: CanvasRenderingContext2D,
+    cxp: number,
+    cyp: number,
+    rx: number,
+    ry: number,
+    scale: number,
+  ) {
+    const wob = [1.0, 0.9, 1.06, 0.88, 1.08, 0.92, 1.03, 0.86];
+    const n = wob.length;
+    const pts: [number, number][] = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const r = wob[i] * scale;
+      pts.push([cxp + Math.cos(a) * rx * r, cyp + Math.sin(a) * ry * r]);
+    }
+    cx.beginPath();
+    const first = pts[0];
+    const last = pts[n - 1];
+    cx.moveTo((first[0] + last[0]) / 2, (first[1] + last[1]) / 2);
+    for (let i = 0; i < n; i++) {
+      const cur = pts[i];
+      const nxt = pts[(i + 1) % n];
+      cx.quadraticCurveTo(cur[0], cur[1], (cur[0] + nxt[0]) / 2, (cur[1] + nxt[1]) / 2);
+    }
+    cx.closePath();
+  }
+
+  // The outdoor pond: a damp shore ring, a depth-graded water body with concentric
+  // ripples, specular glints, and a few lily pads — drawn over the grass. Collision
+  // is handled by the POND tiles underneath (#229).
+  private drawPond(
+    cx: CanvasRenderingContext2D,
+    rect: { x: number; y: number; w: number; h: number },
+  ) {
+    const cxp = rect.x + rect.w / 2;
+    const cyp = rect.y + rect.h / 2;
+    const rx = rect.w / 2;
+    const ry = rect.h / 2;
+    const minR = Math.min(rx, ry);
+    cx.save();
+
+    // 1. Soft ground shadow, nudged down, so the pond sits in the lawn.
+    this.pondBlobPath(cx, cxp, cyp + 4, rx * 0.98, ry * 0.98, 1);
+    cx.fillStyle = PALETTE.pondShadow;
+    cx.fill();
+
+    // 2. Damp shore ring just outside the water.
+    this.pondBlobPath(cx, cxp, cyp, rx * 0.98, ry * 0.98, 1);
+    cx.fillStyle = PALETTE.pondShore;
+    cx.fill();
+
+    // 3. Water body: clip to the (slightly inset) blob, fill with a depth gradient.
+    this.pondBlobPath(cx, cxp, cyp, rx, ry, 0.86);
+    cx.save();
+    cx.clip();
+    const g = cx.createRadialGradient(
+      cxp - rx * 0.22,
+      cyp - ry * 0.24,
+      minR * 0.1,
+      cxp,
+      cyp,
+      Math.max(rx, ry) * 0.95,
+    );
+    g.addColorStop(0, PALETTE.waterShallow);
+    g.addColorStop(0.5, PALETTE.water);
+    g.addColorStop(1, PALETTE.waterDeep);
+    cx.fillStyle = g;
+    cx.fillRect(rect.x - 20, rect.y - 20, rect.w + 40, rect.h + 40);
+    // Concentric ripples.
+    cx.strokeStyle = PALETTE.waterRipple;
+    cx.lineWidth = 2;
+    for (const f of [0.74, 0.52, 0.3]) {
+      cx.beginPath();
+      cx.ellipse(cxp, cyp, rx * f * 0.86, ry * f * 0.86, 0, 0, Math.PI * 2);
+      cx.stroke();
+    }
+    cx.restore();
+
+    // 4. Rim stroke on the waterline.
+    this.pondBlobPath(cx, cxp, cyp, rx, ry, 0.86);
+    cx.strokeStyle = PALETTE.waterEdge;
+    cx.lineWidth = 2.5;
+    cx.stroke();
+
+    // 5. Specular glints near the top-left (light source).
+    cx.fillStyle = PALETTE.waterGlint;
+    cx.beginPath();
+    cx.ellipse(cxp - rx * 0.34, cyp - ry * 0.32, rx * 0.16, ry * 0.07, -0.5, 0, Math.PI * 2);
+    cx.fill();
+    cx.beginPath();
+    cx.ellipse(cxp - rx * 0.12, cyp - ry * 0.12, rx * 0.07, ry * 0.035, -0.5, 0, Math.PI * 2);
+    cx.fill();
+
+    // 6. A few lily pads scattered on the surface.
+    this.drawLilyPad(cx, cxp + rx * 0.34, cyp + ry * 0.22, minR * 0.2);
+    this.drawLilyPad(cx, cxp - rx * 0.28, cyp + ry * 0.36, minR * 0.15);
+    this.drawLilyPad(cx, cxp + rx * 0.08, cyp - ry * 0.34, minR * 0.13);
+
+    // 7. A ring of rocks bordering the pond, sitting on the shore so they straddle
+    // the waterline. Deterministic angle/radius/size jitter so it never shuffles.
+    const rj = [0.0, 0.35, -0.2, 0.15, -0.3, 0.25, -0.1, 0.3, -0.25, 0.1, -0.15, 0.2];
+    const rrf = [0.98, 1.02, 0.95, 1.0, 1.03, 0.97, 1.01, 0.96, 1.02, 0.99, 0.94, 1.0];
+    const rsz = [0.26, 0.2, 0.3, 0.22, 0.18, 0.28, 0.23, 0.19, 0.27, 0.21, 0.31, 0.24];
+    const count = rj.length;
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + rj[i] * 0.4;
+      const rockX = cxp + Math.cos(a) * rx * rrf[i] * 0.98;
+      const rockY = cyp + Math.sin(a) * ry * rrf[i] * 0.98;
+      this.drawRock(cx, rockX, rockY, minR * rsz[i], i);
+    }
+
+    cx.restore();
+  }
+
+  // One shoreline rock: a soft drop shadow, a rounded two-lobe body in an
+  // alternating grey tint, a lit top-left cap and a shaded base — small enough to
+  // read as a stone, not a boulder. `seed` just alternates the tint.
+  private drawRock(cx: CanvasRenderingContext2D, x: number, y: number, s: number, seed: number) {
+    cx.fillStyle = PALETTE.rockShadow;
+    cx.beginPath();
+    cx.ellipse(x, y + s * 0.35, s * 1.1, s * 0.5, 0, 0, Math.PI * 2);
+    cx.fill();
+    cx.fillStyle = seed % 2 === 0 ? PALETTE.rock : PALETTE.rock2;
+    cx.beginPath();
+    cx.ellipse(x, y, s, s * 0.78, 0, 0, Math.PI * 2);
+    cx.fill();
+    cx.fillStyle = PALETTE.rockShade;
+    cx.beginPath();
+    cx.ellipse(x, y + s * 0.2, s * 0.86, s * 0.42, 0, 0, Math.PI);
+    cx.fill();
+    cx.fillStyle = PALETTE.rockHi;
+    cx.beginPath();
+    cx.ellipse(x - s * 0.28, y - s * 0.28, s * 0.42, s * 0.28, -0.5, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  // A single lily pad: a round leaf with a V-notch, a lighter highlight, and a
+  // small flower on the biggest ones.
+  private drawLilyPad(cx: CanvasRenderingContext2D, x: number, y: number, r: number) {
+    cx.fillStyle = PALETTE.lilyPadShade;
+    cx.beginPath();
+    cx.ellipse(x, y + 1.5, r, r * 0.82, 0, 0.5, Math.PI * 2 + 0.2);
+    cx.lineTo(x, y + 1.5);
+    cx.closePath();
+    cx.fill();
+    cx.fillStyle = PALETTE.lilyPad;
+    cx.beginPath();
+    cx.ellipse(x, y, r, r * 0.82, 0, 0.5, Math.PI * 2 + 0.2);
+    cx.lineTo(x, y);
+    cx.closePath();
+    cx.fill();
+    cx.fillStyle = PALETTE.lilyPadHi;
+    cx.beginPath();
+    cx.ellipse(x - r * 0.18, y - r * 0.18, r * 0.42, r * 0.3, 0, 0, Math.PI * 2);
+    cx.fill();
+    if (r > 16) {
+      cx.fillStyle = PALETTE.lilyFlower;
+      this.circle(cx, x + r * 0.15, y - r * 0.1, r * 0.22);
+    }
   }
 
   // Warm off-white wall: a light base with a soft top highlight, a subtle bottom
