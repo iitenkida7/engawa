@@ -198,11 +198,33 @@ describe('isDeskSeat (private one-person desk seats)', () => {
     }
   });
 
+  const seatAt = (col: number, row: number) => {
+    const c = center(col, row);
+    return isDeskSeat(c.x, c.y);
+  };
+
+  it('covers the whole rug: the seat row sides and the far row count as seated', () => {
+    for (const ch of OPEN_DESK_CHAIRS) {
+      const seatRow = ch.row + (ch.facesSouth ? -1 : 1);
+      // The two tiles beside the chair (椅子の両隣).
+      expect(seatAt(ch.col - 1, seatRow)).toBe(true);
+      expect(seatAt(ch.col + 1, seatRow)).toBe(true);
+      // The row on the far side of the desk (椅子の下の段) — one more step away
+      // from the desk than the chair.
+      const farRow = seatRow + (ch.facesSouth ? -1 : 1);
+      for (const dc of [-1, 0, 1]) {
+        expect(seatAt(ch.col + dc, farRow)).toBe(true);
+      }
+    }
+  });
+
   it('is false on the desk tile itself and on open aisle floor', () => {
     const desk = center(OPEN_DESK_CHAIRS[0].col, OPEN_DESK_CHAIRS[0].row);
     expect(isDeskSeat(desk.x, desk.y)).toBe(false);
     // A spot far from any desk (map origin grass) is not a seat.
     expect(isDeskSeat(TILE_SIZE / 2, TILE_SIZE / 2)).toBe(false);
+    // Two tiles to the side of a seat (off the 3-wide rug) is open aisle.
+    expect(seatAt(seats[0].col + 2, seats[0].row)).toBe(false);
   });
 
   it('spaces seats so none sit in another seat’s adjacency ring (privacy)', () => {

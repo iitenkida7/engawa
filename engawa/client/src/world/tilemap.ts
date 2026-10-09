@@ -399,16 +399,27 @@ export const OPEN_DESK_CHAIRS: { col: number; row: number; facesSouth: boolean }
     facesSouth: u.facing === 'south',
   }));
 
-// Seat tiles (map coords) — where a person actually sits. Standing here marks you
-// "seated", which privatises your proximity bubble (server-side).
+// Seat tiles (map coords) — the whole walkable rug around a desk, not just the
+// chair tile: the seat row (chair + its two side tiles) plus the row on the far
+// side of the desk, i.e. the 3×3 pod rug minus the solid desk row. Standing
+// anywhere on the rug marks you "seated", which privatises your proximity bubble
+// (server-side) — so you can shuffle around your own rug without losing the
+// private bubble, and others only greet you once they step onto the rug too.
 const SEAT_TILES = new Set<string>(
-  OPEN_DESK_UNITS.map((u) => {
+  OPEN_DESK_UNITS.flatMap((u) => {
     const [sc, sr] = seatOf(u);
-    return `${sc + OUTDOOR_MARGIN},${sr + OUTDOOR_MARGIN}`;
+    const tiles: string[] = [];
+    for (let c = sc - 1; c <= sc + 1; c++) {
+      for (let r = sr - 1; r <= sr + 1; r++) {
+        if (r === u.row) continue; // skip the solid desk row (can't stand there)
+        tiles.push(`${c + OUTDOOR_MARGIN},${r + OUTDOOR_MARGIN}`);
+      }
+    }
+    return tiles;
   }),
 );
 
-/** True when (px,py) is on an open-office desk seat (a private one-person spot). */
+/** True when (px,py) is on an open-office desk's rug (a private one-person spot). */
 export function isDeskSeat(px: number, py: number): boolean {
   const col = Math.floor(px / TILE_SIZE);
   const row = Math.floor(py / TILE_SIZE);
