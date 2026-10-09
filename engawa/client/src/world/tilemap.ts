@@ -87,8 +87,6 @@ type RoomDef = {
   h: number;
   doors: [number, number][]; // wall tiles opened to FLOOR (col, row)
   desks: [number, number][]; // furniture inside (col, row)
-  // Optional floor override — otherwise the renderer picks by room kind.
-  floor?: FloorPattern;
 };
 
 // Rooms fill the top and bottom edges edge-to-edge: neighbours share a single
@@ -278,7 +276,6 @@ const ROOMS: RoomDef[] = [
     h: 3,
     doors: [[30, 22]],
     desks: [[30, 24]],
-    floor: 'chevron',
   },
 ];
 
@@ -410,20 +407,10 @@ export function isDeskSeat(px: number, py: number): boolean {
 // (negative on the left, past BUILDING_COLS on the right) so the shared stamping
 // machinery places them on the grass. Each is a conversation-restricted zone (an
 // isolated call bubble, like the old lounge): walkable rug + sofas + a table.
-export type LoungePattern = 'brick' | 'crosshatch' | 'herringbone';
-export type Lounge = {
-  id: string;
-  name: string;
-  c: number;
-  r: number;
-  w: number;
-  h: number;
-  // Floor rug style for this café (the renderer picks it per-café).
-  pattern: LoungePattern;
-};
+export type Lounge = { id: string; name: string; c: number; r: number; w: number; h: number };
 export const LOUNGES: Lounge[] = [
-  { id: 'cafe-left', name: t('zone.cafe'), c: -7, r: 12, w: 6, h: 5, pattern: 'crosshatch' },
-  { id: 'cafe-right', name: t('zone.cafe'), c: 35, r: 12, w: 6, h: 5, pattern: 'herringbone' },
+  { id: 'cafe-left', name: t('zone.cafe'), c: -7, r: 12, w: 6, h: 5 },
+  { id: 'cafe-right', name: t('zone.cafe'), c: 35, r: 12, w: 6, h: 5 },
 ];
 
 // Greenery dotted around the open floor — along the side walls and in the aisles
@@ -609,26 +596,109 @@ export const LOUNGE_TABLE_RECTS: Rect[] = LOUNGE_RECTS.map((r) => ({
   h: r.h * 0.2,
 }));
 
-// The café rug pattern at a map tile (col,row), or null when it isn't a café —
-// lets the renderer give each café its own floor style.
-export function loungePatternAt(col: number, row: number): LoungePattern | null {
-  const cx = col * TILE_SIZE + TILE_SIZE / 2;
-  const cy = row * TILE_SIZE + TILE_SIZE / 2;
-  for (let i = 0; i < LOUNGE_RECTS.length; i++) {
-    const r = LOUNGE_RECTS[i];
-    if (cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h) return LOUNGES[i].pattern;
-  }
-  return null;
+// ===== Randomised rug styles (#263 follow-up) =====
+// Every room, café and desk island gets a (pattern, colour) rug, assigned
+// deterministically so it's stable across reloads and unit-testable. Adjacent
+// areas never share a pattern OR a colour. The renderer (canvas.ts) maps the
+// colour index to a concrete base/accent theme.
+export const FLOOR_PATTERNS: FloorPattern[] = [
+  'stripe',
+  'vstripe',
+  'checker',
+  'houndstooth',
+  'brick',
+  'crosshatch',
+  'herringbone',
+  'chevron',
+];
+export const FLOOR_COLOR_COUNT = 8;
+export type FloorStyle = { pattern: FloorPattern; color: number };
+
+// FNV-1a hash → a stable per-key ordering of a pool, so each area has its own
+// deterministic preference without a global RNG.
+function hashStr(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return h >>> 0;
+}
+function prefOrder(key: string, n: number): number[] {
+  return [...Array(n).keys()].sort(
+    (a, b) => (hashStr(`${key}#${a}`) % 99991) - (hashStr(`${key}#${b}`) % 99991),
+  );
 }
 
-// Per-room floor overrides (zone id → pattern), e.g. a single booth styled
-// differently. Null when the room has no override (renderer uses its kind).
-const ROOM_FLOOR_OVERRIDES = new Map<string, FloorPattern>(
-  ROOMS.filter((r) => r.floor).map((r) => [r.id, r.floor as FloorPattern]),
-);
-export function roomFloorAt(col: number, row: number): FloorPattern | null {
+// Island ids are `island-k` (top band first, then bottom); 2 pod rugs per island.
+function islandId(k: number): string {
+  return `island-${k}`;
+}
+
+function computeFloorStyles(): Map<string, FloorStyle> {
+  const nbrs = new Map<string, string[]>();
+  const ensure = (id: string) => {
+    if (!nbrs.has(id)) nbrs.set(id, []);
+  };
+  const edge = (a: string, b: string) => {
+    ensure(a);
+    ensure(b);
+    nbrs.get(a)?.push(b);
+    nbrs.get(b)?.push(a);
+  };
+  const chain = (ids: string[]) => {
+    ids.forEach(ensure);
+    for (let i = 1; i < ids.length; i++) edge(ids[i - 1], ids[i]);
+  };
+
+  // Rooms: the top strip and the bottom strip are each a left-to-right chain.
+  chain(
+    ROOMS.filter((r) => r.r < 10)
+      .sort((a, b) => a.c - b.c)
+      .map((r) => r.id),
+  );
+  chain(
+    ROOMS.filter((r) => r.r >= 10)
+      .sort((a, b) => a.c - b.c)
+      .map((r) => r.id),
+  );
+  // Cafés: the two sit opposite each other — just make them differ.
+  if (LOUNGES.length === 2) edge(LOUNGES[0].id, LOUNGES[1].id);
+  else {
+    for (const l of LOUNGES) ensure(l.id);
+  }
+  // Islands: each band is a chain; a top island is vertically adjacent to the
+  // bottom island in the same column.
+  const topN = TOP_ISLAND_COLS.length;
+  const botN = BOTTOM_ISLAND_COLS.length;
+  chain(Array.from({ length: topN }, (_, k) => islandId(k)));
+  chain(Array.from({ length: botN }, (_, k) => islandId(topN + k)));
+  for (let i = 0; i < Math.min(topN, botN); i++) edge(islandId(i), islandId(topN + i));
+
+  // Greedy assignment in a fixed id order. Each edge is respected because the
+  // later-assigned endpoint avoids the earlier one; pools are larger than any
+  // area's degree, so a free option always exists.
+  const styles = new Map<string, FloorStyle>();
+  for (const id of [...nbrs.keys()].sort()) {
+    const near = nbrs.get(id) ?? [];
+    const usedP = new Set(near.map((n) => styles.get(n)?.pattern).filter(Boolean));
+    const usedC = new Set(near.map((n) => styles.get(n)?.color).filter((v) => v !== undefined));
+    const po = prefOrder(`${id}|p`, FLOOR_PATTERNS.length);
+    const co = prefOrder(`${id}|c`, FLOOR_COLOR_COUNT);
+    const pi = po.find((i) => !usedP.has(FLOOR_PATTERNS[i])) ?? po[0];
+    const ci = co.find((i) => !usedC.has(i)) ?? co[0];
+    styles.set(id, { pattern: FLOOR_PATTERNS[pi], color: ci });
+  }
+  return styles;
+}
+const FLOOR_STYLES = computeFloorStyles();
+
+// Rug style for a room/café tile (zone-based), or null when the tile isn't one.
+export function floorStyleAt(col: number, row: number): FloorStyle | null {
   const z = zoneAt(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2);
-  return z ? (ROOM_FLOOR_OVERRIDES.get(z.id) ?? null) : null;
+  return z ? (FLOOR_STYLES.get(z.id) ?? null) : null;
+}
+
+// Rug style for the island owning POD_RUGS[rugIndex] (2 rugs per island).
+export function islandFloorStyle(rugIndex: number): FloorStyle {
+  return FLOOR_STYLES.get(islandId(Math.floor(rugIndex / 2))) ?? { pattern: 'none', color: 0 };
 }
 
 // Impassable sub-tile props, checked by isSolid in addition to the SOLID tile

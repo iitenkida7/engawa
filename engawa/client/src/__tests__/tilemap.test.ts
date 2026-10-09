@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import {
   canOccupy,
+  FLOOR_COLOR_COUNT,
+  FLOOR_PATTERNS,
   findAdjacentSpawn,
   findWalkableSpawn,
+  floorStyleAt,
   isDeskSeat,
+  islandFloorStyle,
   isSolid,
   LOUNGE_TABLE_RECTS,
   LOUNGES,
@@ -179,6 +183,45 @@ describe('isDeskSeat (private one-person desk seats)', () => {
         expect(cheby).toBeGreaterThanOrEqual(2);
       }
     }
+  });
+});
+
+describe('floor styles (randomised rugs)', () => {
+  const M = OUTDOOR_MARGIN;
+  const same = (a: { pattern: string; color: number }, b: { pattern: string; color: number }) =>
+    a.pattern === b.pattern && a.color === b.color;
+
+  it('gives every room a valid style, and open floor none', () => {
+    const s = floorStyleAt(1 + M, 1 + M); // ceo office
+    expect(s).not.toBeNull();
+    expect(FLOOR_PATTERNS).toContain(s!.pattern);
+    expect(s!.color).toBeGreaterThanOrEqual(0);
+    expect(s!.color).toBeLessThan(FLOOR_COLOR_COUNT);
+    // The central corridor (building row 13) is open floor — no rug.
+    expect(floorStyleAt(16 + M, 13 + M)).toBeNull();
+  });
+
+  it('never repeats pattern+colour across adjacent top-strip rooms', () => {
+    // Use non-desk interior tiles (desk tiles carry no zone).
+    const ceo = floorStyleAt(1 + M, 1 + M)!;
+    const allHands = floorStyleAt(8 + M, 2 + M)!;
+    const meeting1 = floorStyleAt(19 + M, 1 + M)!;
+    expect(same(ceo, allHands)).toBe(false);
+    expect(same(allHands, meeting1)).toBe(false);
+  });
+
+  it('gives the two cafés different styles', () => {
+    const left = floorStyleAt(3, 22)!; // cafe-left (map cols 1-6, rows 20-24)
+    const right = floorStyleAt(45, 22)!; // cafe-right (map cols 43-48)
+    expect(left).not.toBeNull();
+    expect(right).not.toBeNull();
+    expect(same(left, right)).toBe(false);
+  });
+
+  it('shares a style within an island but differs between neighbours', () => {
+    // Two pod rugs per island → rug 0 and rug 1 are the same island.
+    expect(islandFloorStyle(0)).toEqual(islandFloorStyle(1));
+    expect(same(islandFloorStyle(0), islandFloorStyle(2))).toBe(false); // next island along
   });
 });
 
