@@ -21,7 +21,12 @@ export interface KnockDeps {
   goTo: (userId: string) => void;
   // Injectable clock for deterministic tests; defaults to performance.now.
   now?: () => number;
+  // Whether the tab is in the background; defaults to document.hidden.
+  isHidden?: () => boolean;
 }
+
+// A knock received while the tab was hidden, keyed by sender (latest wins).
+type MissedKnock = { name: string; at: number };
 
 // Owns the knock (call-request) feature end to end: the knocker-side pending /
 // cooldown state and both sides' toast interactions. App used to embed this; it
@@ -32,10 +37,13 @@ export class KnockController {
   // this.now() until which a re-knock is suppressed.
   private pending = new Map<string, ReturnType<typeof setTimeout>>();
   private cooldownUntil = new Map<string, number>();
+  private missed = new Map<string, MissedKnock>();
   private now: () => number;
+  private isHidden: () => boolean;
 
   constructor(private deps: KnockDeps) {
     this.now = deps.now ?? (() => performance.now());
+    this.isHidden = deps.isHidden ?? (() => document.hidden);
   }
 
   // Roster "🔔" button: send a knock to that player. Throttled per target
@@ -63,6 +71,9 @@ export class KnockController {
   // and walks us over to them (the responder goes to the caller, like Gather);
   // 「あとで」 declines politely.
   received(fromUserId: string, name: string) {
+    // Remember knocks that land in a background tab: the toast below expires
+    // after KNOCK_COOLDOWN_MS, possibly before the user comes back (#140).
+    if (this.isHidden()) this.missed.set(fromUserId, { name, at: this.now() });
     this.deps.sounds.enter();
     this.deps.toasts.action(
       t('knock.wantsTalk', { name }),
@@ -97,9 +108,32 @@ export class KnockController {
     }
   }
 
-  // A player left: drop any pending timer and cooldown we held for them.
+  // The tab became visible again. Knocks whose live toast is still up can be
+  // answered there; for ones that already expired, offer a call-back toast
+  // (a regular knock to the sender, so the usual cooldown applies).
+  onVisible() {
+    const now = this.now();
+    for (const [userId, k] of this.missed) {
+      const elapsed = now - k.at;
+      if (elapsed < KNOCK_COOLDOWN_MS || !this.deps.players.has(userId)) continue;
+      const minutes = Math.max(1, Math.floor(elapsed / 60000));
+      this.deps.toasts.action(
+        t('knock.missed', { name: k.name, minutes }),
+        [
+          { label: t('knock.callBack'), primary: true, onClick: () => this.request(userId) },
+          { label: t('knock.dismiss'), onClick: () => {} },
+        ],
+        0,
+      );
+    }
+    this.missed.clear();
+  }
+
+  // A player left: drop any pending timer, cooldown and missed knock we held
+  // for them.
   onPlayerLeft(userId: string) {
     this.forget(userId);
+    this.missed.delete(userId);
   }
 
   private forget(userId: string) {
