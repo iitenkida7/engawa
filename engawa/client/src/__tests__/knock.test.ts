@@ -17,6 +17,7 @@ type Harness = {
   enters: number;
   goTos: string[];
   setNow: (ms: number) => void;
+  setHidden: (hidden: boolean) => void;
 };
 
 function setup(players: Map<string, PlayerState>): Harness {
@@ -26,6 +27,7 @@ function setup(players: Map<string, PlayerState>): Harness {
   let enters = 0;
   const goTos: string[] = [];
   let nowMs = 0;
+  let hidden = false;
 
   const deps: KnockDeps = {
     players,
@@ -44,6 +46,7 @@ function setup(players: Map<string, PlayerState>): Harness {
     } as unknown as KnockDeps['sounds'],
     goTo: (id) => goTos.push(id),
     now: () => nowMs,
+    isHidden: () => hidden,
   };
 
   return {
@@ -57,6 +60,9 @@ function setup(players: Map<string, PlayerState>): Harness {
     goTos,
     setNow: (ms) => {
       nowMs = ms;
+    },
+    setHidden: (h) => {
+      hidden = h;
     },
   } as Harness;
 }
@@ -140,5 +146,56 @@ describe('KnockController', () => {
     ]);
     // Accepting walks the responder over to the caller (Gather-style).
     expect(h.goTos).toEqual(['u2']);
+  });
+
+  it('offers a call-back on return for a knock whose toast expired while hidden', () => {
+    const players = new Map([['u2', player('佐藤')]]);
+    const h = setup(players);
+    h.setHidden(true);
+    h.setNow(0);
+    h.ctrl.received('u2', '佐藤');
+    h.setHidden(false);
+    h.setNow(3 * 60000);
+    h.ctrl.onVisible();
+    expect(h.actions.length).toBe(2); // live knock toast + call-back toast
+    expect(h.actions[1].text).toContain('佐藤');
+    h.actions[1].actions[0].onClick(); // 呼び返す
+    expect(h.sent).toEqual([{ type: 'knock', to: 'u2' }]);
+    // Shown once: a second return doesn't repeat it.
+    h.ctrl.onVisible();
+    expect(h.actions.length).toBe(2);
+    h.ctrl.onPlayerLeft('u2');
+  });
+
+  it('skips the call-back while the live knock toast is still up', () => {
+    const players = new Map([['u2', player('佐藤')]]);
+    const h = setup(players);
+    h.setHidden(true);
+    h.setNow(0);
+    h.ctrl.received('u2', '佐藤');
+    h.setNow(KNOCK_COOLDOWN_MS - 1);
+    h.ctrl.onVisible();
+    expect(h.actions.length).toBe(1);
+  });
+
+  it('does not record knocks received while visible', () => {
+    const players = new Map([['u2', player('佐藤')]]);
+    const h = setup(players);
+    h.ctrl.received('u2', '佐藤');
+    h.setNow(KNOCK_COOLDOWN_MS * 10);
+    h.ctrl.onVisible();
+    expect(h.actions.length).toBe(1);
+  });
+
+  it('drops a missed knock when its sender has left', () => {
+    const players = new Map([['u2', player('佐藤')]]);
+    const h = setup(players);
+    h.setHidden(true);
+    h.ctrl.received('u2', '佐藤');
+    players.delete('u2');
+    h.ctrl.onPlayerLeft('u2');
+    h.setNow(KNOCK_COOLDOWN_MS * 10);
+    h.ctrl.onVisible();
+    expect(h.actions.length).toBe(1);
   });
 });

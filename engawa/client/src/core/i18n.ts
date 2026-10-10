@@ -178,6 +178,22 @@ const STR: Record<string, Record<Lang, string>> = {
   },
   'knock.busy': { ja: '{name} さんは今は手が離せないようです', en: '{name} is tied up right now' },
   'knock.someone': { ja: '相手', en: 'someone' },
+  'knock.missed': {
+    ja: '{name} さんがノックしました（{minutes} 分前）',
+    en: '{name} knocked ({minutes} min ago)',
+  },
+  'knock.callBack': { ja: '呼び返す', en: 'Call back' },
+  'knock.dismiss': { ja: '閉じる', en: 'Dismiss' },
+
+  // -- desktop notifications (#140) ----------------------------------------
+  'notify.knockTitle': { ja: '🔔 {name} さんがノック', en: '🔔 {name} is knocking' },
+  'notify.knockBody': { ja: '話したがっています', en: 'They would like to talk' },
+  'notify.toggleOn': { ja: '🔔 デスクトップ通知: ON', en: '🔔 Desktop notifications: ON' },
+  'notify.toggleOff': { ja: '🔕 デスクトップ通知: OFF', en: '🔕 Desktop notifications: OFF' },
+  'notify.denied': {
+    ja: '通知がブロックされています。ブラウザのサイト設定で通知を許可してください',
+    en: 'Notifications are blocked. Allow them in your browser site settings',
+  },
 
   // -- debug console --------------------------------------------------------
   'debug.title': { ja: '🐛 デバッグ — RTC 接続', en: '🐛 Debug — RTC connections' },

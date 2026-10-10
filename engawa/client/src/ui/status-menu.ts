@@ -24,6 +24,8 @@ const STATUS_LABELS: Record<PlayerStatus, string> = {
 export class StatusMenu {
   private getStatus: () => PlayerStatus;
   private onSetStatus: (status: PlayerStatus) => void;
+  // Desktop-notification toggle (#140); null hides it (API unsupported).
+  private notify: { isOn: () => boolean; onToggle: () => void } | null;
 
   private btn: HTMLButtonElement;
   private menu: HTMLDivElement;
@@ -31,9 +33,11 @@ export class StatusMenu {
   constructor(opts: {
     getStatus: () => PlayerStatus;
     onSetStatus: (status: PlayerStatus) => void;
+    notify: { isOn: () => boolean; onToggle: () => void } | null;
   }) {
     this.getStatus = opts.getStatus;
     this.onSetStatus = opts.onSetStatus;
+    this.notify = opts.notify;
 
     this.btn = document.getElementById('btn-status') as HTMLButtonElement;
     this.menu = document.getElementById('status-menu') as HTMLDivElement;
@@ -91,5 +95,20 @@ export class StatusMenu {
       });
       this.menu.appendChild(item);
     }
+
+    if (!this.notify) return;
+    const { isOn, onToggle } = this.notify;
+    const sep = document.createElement('div');
+    sep.className = 'menu-separator';
+    this.menu.appendChild(sep);
+    const toggle = document.createElement('button');
+    toggle.className = 'device-item';
+    toggle.textContent = isOn() ? t('notify.toggleOn') : t('notify.toggleOff');
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.menu.classList.add('hidden');
+      onToggle();
+    });
+    this.menu.appendChild(toggle);
   }
 }

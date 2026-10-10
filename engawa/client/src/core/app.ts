@@ -67,6 +67,7 @@ import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
 import { DebugConsole } from '@/ui/debug-console';
+import { DesktopNotifier, knockAlertLevel } from '@/ui/desktop-notify';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
 import { ReactionToasts } from '@/ui/reaction-toast';
@@ -114,6 +115,7 @@ export class App {
   private reactionToasts = new ReactionToasts();
   private roster = new RosterPanel({ getPlayers: () => this.players });
   private sounds = new SoundManager();
+  private desktopNotifier = new DesktopNotifier();
   private knocks: KnockController;
   private editor: AvatarEditor;
 
@@ -267,6 +269,12 @@ export class App {
     // Drop / restore the SFU camera layers right away rather than on the next
     // ~1s layer tick (issue #269).
     this.updateSfuLayers();
+    // Back in front: clear the title badge and surface knocks missed while
+    // hidden (#140).
+    if (!document.hidden) {
+      this.desktopNotifier.clearBadge();
+      this.knocks.onVisible();
+    }
   };
   // The OS reported connectivity is back: reconnect a dropped socket right away
   // (the backoff may still be waiting out a long delay), or probe a socket that
@@ -429,6 +437,13 @@ export class App {
     this.statusMenu = new StatusMenu({
       getStatus: () => this.myStatus,
       onSetStatus: (status) => this.setStatus(status),
+      notify:
+        this.desktopNotifier.permission() === 'unsupported'
+          ? null
+          : {
+              isOn: () => this.desktopNotifier.isEnabled(),
+              onToggle: () => void this.toggleDesktopNotify(),
+            },
     });
 
     // Knock (call-request) feature: owns its own pending/cooldown state. App
@@ -1221,6 +1236,18 @@ export class App {
       }
       case 'knock': {
         this.knocks.received(msg.from, msg.name);
+        const level = knockAlertLevel({
+          hidden: document.hidden,
+          status: this.myStatus,
+          enabled: this.desktopNotifier.isEnabled(),
+          permission: this.desktopNotifier.permission(),
+        });
+        this.desktopNotifier.knock(
+          level,
+          msg.from,
+          t('notify.knockTitle', { name: msg.name }),
+          t('notify.knockBody'),
+        );
         break;
       }
       case 'knock-reply': {
@@ -1548,6 +1575,13 @@ export class App {
       isMuted: !this.media.micOn,
       isVideoOn: this.media.camOn,
     });
+  }
+
+  // Status-menu toggle for desktop notifications (#140). A denied permission
+  // can only be lifted in the browser's site settings, so say so.
+  private async toggleDesktopNotify() {
+    const perm = await this.desktopNotifier.toggle();
+    if (perm === 'denied') this.toasts.error(t('notify.denied'));
   }
 
   // Set the presence status. No-ops when it already matches. Going away (#220)
