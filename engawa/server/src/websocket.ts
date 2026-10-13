@@ -546,6 +546,24 @@ export function createWebSocketHandler(
           break;
         }
 
+        case 'recording': {
+          if (!ws.data.joined) return;
+          // Tell the rest of the workspace; the client only surfaces it for peers
+          // currently in its call (privacy: everyone being recorded is notified).
+          broadcast(
+            clients,
+            ws.data.workspace,
+            {
+              type: 'player-recording',
+              userId: ws.data.userId,
+              name: ws.data.name,
+              recording: !!msg.recording,
+            },
+            ws.data.userId,
+          );
+          break;
+        }
+
         case 'knock': {
           if (!ws.data.joined) return;
           const target = clients.get(msg.to);

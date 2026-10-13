@@ -504,6 +504,31 @@
         display: block;
       }
 
+      /* "Someone else in the call is recording" badge: a small red dot at the
+         button's top-right. Independent of our own .recording state, so both can
+         show at once (I'm recording AND so is someone else). */
+      #toolbar button#btn-rec {
+        position: relative;
+      }
+
+      #toolbar button#btn-rec .rec-badge {
+        display: none;
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #ff4d4f;
+        border: 1.5px solid rgba(20, 23, 30, 0.9);
+        box-shadow: 0 0 5px rgba(255, 77, 79, 0.9);
+        animation: rec-pulse 1.5s ease-in-out infinite;
+      }
+
+      #toolbar button#btn-rec.others-recording .rec-badge {
+        display: block;
+      }
+
       .device-menu {
         position: absolute;
         bottom: calc(100% + 6px);
@@ -1760,6 +1785,9 @@
             <circle class="rec-dot" cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />
             <rect class="rec-stop" x="8" y="8" width="8" height="8" rx="1.5" fill="currentColor" stroke="none" />
           </svg>
+          <!-- Privacy badge: a red dot shown when SOMEONE ELSE in the call is
+               recording (toggled via .others-recording in JS). -->
+          <span class="rec-badge" aria-hidden="true"></span>
         </button>
         <button id="btn-status" data-i18n-tip="roster.status" data-tip="ステータス" aria-label="ステータス">🟢</button>
         <div class="btn-group">
