@@ -29,26 +29,67 @@ export class SoundManager {
     this.playSequence([783.99, 523.25], 0.08, 0.12); // G5 → C5
   }
 
-  private playSequence(freqs: number[], durEach: number, peak: number) {
+  // Two-tone doorbell "ピンポン" for an incoming knock (someone is calling you) —
+  // longer, bell-like notes so it's clearly distinct from the enter/leave chimes.
+  knock() {
+    // Relaxed change (gap 0.24) with a long ring (0.9), so the two notes overlap
+    // into a slow, sustained ding-dong. A bell-like overtone stack (fundamental +
+    // octave + fifth-above + two-octave) gives it body instead of a pure beep.
+    this.playSequence([1318.51, 1046.5], 0.9, 0.26, 0.24, [1, 0.5, 0.3, 0.18]); // E6 → C6
+  }
+
+  // `gap` is the time between note STARTS; it defaults to `durEach` so notes play
+  // back-to-back, but can be shorter than the note length to let notes overlap and
+  // ring (a chime), or longer to space them out. `harmonics` are the relative gains
+  // of each overtone (index 0 = fundamental, 1 = 2×, 2 = 3×, …); the default is a
+  // single pure sine.
+  private playSequence(
+    freqs: number[],
+    durEach: number,
+    peak: number,
+    gap = durEach,
+    harmonics: number[] = [1],
+  ) {
     const ctx = this.getCtx();
     let t = ctx.currentTime + 0.005;
     for (const f of freqs) {
-      this.playNote(ctx, f, t, durEach, peak);
-      t += durEach;
+      this.playNote(ctx, f, t, durEach, peak, harmonics);
+      t += gap;
     }
   }
 
-  private playNote(ctx: AudioContext, freq: number, startAt: number, dur: number, peak: number) {
-    const osc = ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.value = freq;
+  private playNote(
+    ctx: AudioContext,
+    freq: number,
+    startAt: number,
+    dur: number,
+    peak: number,
+    harmonics: number[] = [1],
+  ) {
+    // Sum the overtones through one gain envelope: each partial is a sine at an
+    // integer multiple of the fundamental, scaled by its relative weight.
     const gain = ctx.createGain();
-    // Quick attack + exponential decay for a clean "pin" / "pon" feel.
     gain.gain.setValueAtTime(0.0001, startAt);
     gain.gain.exponentialRampToValueAtTime(peak, startAt + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, startAt + dur);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start(startAt);
-    osc.stop(startAt + dur + 0.02);
+    // High-cut: a 2nd-order low-pass (-12 dB/oct) at 5 kHz tames the harsh upper
+    // overtones. Q 0.707 = Butterworth (flat, no resonant bump).
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = 5000;
+    lowpass.Q.value = 0.707;
+    gain.connect(lowpass).connect(ctx.destination);
+    const weightSum = harmonics.reduce((s, w) => s + w, 0) || 1;
+    harmonics.forEach((weight, i) => {
+      if (weight <= 0) return;
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq * (i + 1);
+      const partial = ctx.createGain();
+      partial.gain.value = weight / weightSum;
+      osc.connect(partial).connect(gain);
+      osc.start(startAt);
+      osc.stop(startAt + dur + 0.02);
+    });
   }
 }

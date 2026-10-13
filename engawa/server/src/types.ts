@@ -81,6 +81,9 @@ export type ClientMessage =
   // An emoji reaction, broadcast to the whole workspace (whitelist-validated)
   // and rendered as a short-lived bubble above the sender's avatar.
   | { type: 'reaction'; emoji: string }
+  // Recording state change (privacy): relayed to the workspace so others in the
+  // same call learn someone is recording.
+  | { type: 'recording'; recording: boolean }
   // SFU: announce/replace the tracks this client has published to its Cloudflare
   // session, so the server can relay them to the group as a track directory.
   | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] }
@@ -130,6 +133,9 @@ export type ServerMessage =
   // An emoji reaction from a workspace peer (from === self for our own echo),
   // shown floating above that user's avatar.
   | { type: 'reaction'; userId: string; emoji: string }
+  // A workspace peer's recording state changed; the client shows it only for a
+  // peer currently in its call.
+  | { type: 'player-recording'; userId: string; name: string; recording: boolean }
   // SFU: the recipient's current proximity group and its transport. The client
   // talks to exactly these members (members includes self) via mesh or SFU.
   // Meeting-room groups are always 'sfu'; outdoor groups promote at 4 and latch.

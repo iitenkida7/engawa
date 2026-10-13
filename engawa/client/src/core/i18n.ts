@@ -123,6 +123,11 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.selectCam': { ja: 'カメラ・背景を選択', en: 'Select camera / background' },
   'toolbar.screenTitle': { ja: '画面共有', en: 'Screen share' },
   'toolbar.recTitle': { ja: '録画', en: 'Record' },
+  // Recording notices (privacy): shown to others in the same call, plus the rec
+  // button's "someone else is recording" badge tooltip.
+  'rec.started': { ja: '{name} さんが録画を開始しました', en: '{name} started recording' },
+  'rec.stopped': { ja: '{name} さんが録画を終了しました', en: '{name} stopped recording' },
+  'rec.othersTip': { ja: '録画中: {names}', en: 'Recording: {names}' },
   'toolbar.reactions': { ja: 'リアクション', en: 'Reactions' },
   'toolbar.more': { ja: 'その他', en: 'More' },
   // -- toolbar menus & toasts -----------------------------------------------

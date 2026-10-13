@@ -15,6 +15,7 @@ type Harness = {
   infos: string[];
   actions: { text: string; actions: ToastAction[] }[];
   enters: number;
+  knocks: number;
   goTos: string[];
   setNow: (ms: number) => void;
   setHidden: (hidden: boolean) => void;
@@ -25,6 +26,7 @@ function setup(players: Map<string, PlayerState>): Harness {
   const infos: string[] = [];
   const actions: { text: string; actions: ToastAction[] }[] = [];
   let enters = 0;
+  let knocks = 0;
   const goTos: string[] = [];
   let nowMs = 0;
   let hidden = false;
@@ -43,6 +45,9 @@ function setup(players: Map<string, PlayerState>): Harness {
       enter: () => {
         enters++;
       },
+      knock: () => {
+        knocks++;
+      },
     } as unknown as KnockDeps['sounds'],
     goTo: (id) => goTos.push(id),
     now: () => nowMs,
@@ -56,6 +61,9 @@ function setup(players: Map<string, PlayerState>): Harness {
     actions,
     get enters() {
       return enters;
+    },
+    get knocks() {
+      return knocks;
     },
     goTos,
     setNow: (ms) => {
@@ -131,11 +139,11 @@ describe('KnockController', () => {
     h.ctrl.onPlayerLeft('u1');
   });
 
-  it('received plays the enter chime; accepting replies and walks us to the caller', () => {
+  it('received plays the knock chime; accepting replies and walks us to the caller', () => {
     const players = new Map([['u2', player('佐藤')]]);
     const h = setup(players);
     h.ctrl.received('u2', '佐藤');
-    expect(h.enters).toBe(1);
+    expect(h.knocks).toBe(1);
     expect(h.actions.length).toBe(1);
     const [accept, decline] = h.actions[0].actions;
     accept.onClick();

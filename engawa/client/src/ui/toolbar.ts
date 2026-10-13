@@ -52,6 +52,7 @@ export class ToolbarController {
   private broadcastStatus: () => void;
   private getMe: () => PlayerState | null;
   private onReaction: (emoji: string) => void;
+  private onRecordingChange: (recording: boolean) => void;
   private onOpenAvatar: () => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
@@ -79,6 +80,9 @@ export class ToolbarController {
     broadcastStatus: () => void;
     getMe: () => PlayerState | null;
     onReaction: (emoji: string) => void;
+    // Fired after the user starts/stops their own recording, so the App can tell
+    // the rest of the call (privacy notice). Passes the new recording state.
+    onRecordingChange: (recording: boolean) => void;
     onOpenAvatar: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
@@ -99,6 +103,7 @@ export class ToolbarController {
     this.broadcastStatus = opts.broadcastStatus;
     this.getMe = opts.getMe;
     this.onReaction = opts.onReaction;
+    this.onRecordingChange = opts.onRecordingChange;
     this.onOpenAvatar = opts.onOpenAvatar;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
@@ -306,7 +311,8 @@ export class ToolbarController {
   }
 
   private toggleRecord() {
-    if (this.recorder.recording) {
+    const wasRecording = this.recorder.recording;
+    if (wasRecording) {
       this.recorder.stop();
       this.compositor.stop();
     } else {
@@ -321,7 +327,25 @@ export class ToolbarController {
       // compositor running with nothing consuming it.
       if (!this.recorder.recording) this.compositor.stop();
     }
+    // Notify the call when our recording state actually changed (start succeeded
+    // or we stopped), so others get the privacy notice.
+    if (this.recorder.recording !== wasRecording) {
+      this.onRecordingChange(this.recorder.recording);
+    }
     this.refresh();
+  }
+
+  // Show/clear the "someone else in the call is recording" badge on the record
+  // button, with their names in the tooltip (privacy). Independent of our own
+  // recording state, so the button can show both at once.
+  setOthersRecording(names: string[]) {
+    const on = names.length > 0;
+    this.btnRec.classList.toggle('others-recording', on);
+    // Swap the tooltip to who's recording while the badge shows; restore the plain
+    // "録画" label when it clears.
+    this.btnRec.dataset.tip = on
+      ? t('rec.othersTip', { names: names.join(', ') })
+      : t('toolbar.recTitle');
   }
 
   // ============= Device menus + "more" overflow =============
