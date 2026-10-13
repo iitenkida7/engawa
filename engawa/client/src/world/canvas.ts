@@ -717,22 +717,36 @@ export class CanvasRenderer {
     labelH: number,
     viewW: number,
   ) {
-    const bw = 30;
-    const bh = 18;
+    const bw = 32;
+    const bh = 20;
     const cy = labelTop + labelH / 2;
     const by = cy - bh / 2;
     // Default to the right of the label; flip to the left if it would overflow.
-    let bx = labelCx + labelLw / 2 + 5;
-    if (bx + bw > viewW - 4) bx = labelCx - labelLw / 2 - 5 - bw;
+    let bx = labelCx + labelLw / 2 + 7;
+    let onLeft = false;
+    if (bx + bw > viewW - 4) {
+      bx = labelCx - labelLw / 2 - 7 - bw;
+      onLeft = true;
+    }
     const now = performance.now();
     ctx.save();
-    ctx.fillStyle = 'rgba(34,38,46,0.92)';
-    this.roundRect(ctx, bx, by, bw, bh, 7);
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    this.roundRect(ctx, bx, by, bw, bh, 9);
+    ctx.fill();
+    // A little tail on the bottom, angled back toward the avatar/label so it reads
+    // as a speech bubble. Wide and short so the horn is soft, not a sharp spike.
+    const tailX = onLeft ? bx + bw - 11 : bx + 11;
+    const tipX = onLeft ? bx + bw - 4 : bx + 4;
+    ctx.beginPath();
+    ctx.moveTo(tailX - 6, by + bh - 1);
+    ctx.lineTo(tailX + 6, by + bh - 1);
+    ctx.lineTo(tipX, by + bh + 4);
+    ctx.closePath();
     ctx.fill();
     for (let i = 0; i < 3; i++) {
       const phase = (now / 450 + i * 0.33) % 1;
       ctx.globalAlpha = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(phase * Math.PI * 2));
-      ctx.fillStyle = '#e6e8ee';
+      ctx.fillStyle = '#8a8f99';
       ctx.beginPath();
       ctx.arc(bx + 8 + i * 7, by + bh / 2, 2.1, 0, Math.PI * 2);
       ctx.fill();
