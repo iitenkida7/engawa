@@ -126,11 +126,15 @@ const FPS = 30;
 const FRAME_INTERVAL_MS = 1000 / FPS;
 const FLOOR_BG = '#1a1d24';
 
-// Fixed 16:9 recording frame (logical px). The backing store is scaled by the
-// device pixel ratio (capped) so the capture stays crisp, while all drawing
-// keeps using these logical coordinates.
+// Fixed 16:9 recording frame (logical px). The backing store is always
+// REC_SCALE× this (2560×1440), independent of the device pixel ratio: the
+// screenshare stage (~74% of the width) then holds an FHD share at ~1:1 and a
+// 4K share at ~0.5×, which keeps text legible. Following devicePixelRatio
+// instead meant a DPR-1 machine recorded at 1280×720, where a 4K share came out
+// at ~0.24× and its text was unreadable (#291).
 const REC_WIDTH = 1280;
 const REC_HEIGHT = 720;
+const REC_SCALE = 2;
 
 export class SceneCompositor {
   private canvas = document.createElement('canvas');
@@ -159,12 +163,16 @@ export class SceneCompositor {
   // output is a fixed 16:9 frame for the whole recording, independent of the
   // window size, so resizing never distorts the recording's aspect ratio.
   start(): MediaStream {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.width = REC_WIDTH;
     this.height = REC_HEIGHT;
-    this.canvas.width = Math.floor(this.width * dpr);
-    this.canvas.height = Math.floor(this.height * dpr);
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.canvas.width = this.width * REC_SCALE;
+    this.canvas.height = this.height * REC_SCALE;
+    this.ctx.setTransform(REC_SCALE, 0, 0, REC_SCALE, 0, 0);
+    // Resizing the canvas resets context state. Downscaling a screenshare with
+    // the default (low) filter aliases small text into noise; 'high' resamples
+    // properly so a 4K share stays readable at 0.5×.
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = 'high';
     this.running = true;
     this.lastDrawMs = 0;
     this.drawFrame(); // paint an initial frame before capture starts
