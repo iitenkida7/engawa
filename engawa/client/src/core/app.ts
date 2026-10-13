@@ -92,6 +92,17 @@ import {
   zoneAt,
 } from '@/world/tilemap';
 
+// How long after a peer logs in their first proximity entry is treated as a login
+// (chime suppressed) rather than a walk-up. Covers the join → group-negotiation
+// gap; after it, walking into range chimes normally.
+const JOIN_CHIME_GRACE_MS = 2500;
+
+// Persist our own position so next login returns us to "our usual spot" (the
+// server honours it only when it's still clear of others). Saved at most this
+// often to keep localStorage writes cheap.
+const POS_STORAGE_KEY = 'engawa-pos';
+const POS_SAVE_INTERVAL_MS = 3000;
+
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
 // media panels live in RemoteMediaView and the toolbar in ToolbarController;
@@ -150,6 +161,10 @@ export class App {
 
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
+  // userId → the time they joined, kept briefly so we can SUPPRESS the proximity
+  // enter chime for someone who just logged in near us (that's a login, not a
+  // walk-up). Walk-ups and room transitions still chime. Expires after the grace.
+  private justJoined = new Map<string, number>();
   // Peers who have announced they're recording (privacy). Only those currently in
   // our call drive the record-button badge; pruned when they leave the call.
   private recordingPeers = new Set<string>();
@@ -190,6 +205,8 @@ export class App {
   // (drives the post-speech hold). The computed camera encoding / screen bitrate
   // are pushed to the WebRtcManager each frame, which no-ops when unchanged.
   private lastLoudAtMs: number | null = null;
+  // Throttle for persisting our position to localStorage (next-login spawn).
+  private lastPosSaveAt = 0;
 
   // The server's boot id from the first welcome. A different id on a later
   // welcome (after a reconnect) means the server restarted/redeployed — see the
@@ -884,6 +901,29 @@ export class App {
     }
   }
 
+  // Our saved last position, if it's still a walkable spot (the map may have
+  // changed between sessions). Returned as the preferred spawn on join; null when
+  // absent/invalid so the server uses the normal spawn.
+  private savedSpawn(): { x: number; y: number } | null {
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(POS_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+    if (!raw) return null;
+    try {
+      const pos = JSON.parse(raw) as { x?: unknown; y?: unknown };
+      if (typeof pos.x !== 'number' || typeof pos.y !== 'number') return null;
+      if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return null;
+      // Skip if it's no longer walkable (map edits can leave it inside a wall/desk).
+      if (!canOccupy(pos.x, pos.y, PLAYER_RADIUS)) return null;
+      return { x: pos.x, y: pos.y };
+    } catch {
+      return null;
+    }
+  }
+
   private onOpen() {
     // Connected: the backoff resets and any "connection lost" toast clears. If
     // auth then fails the auth-error handler re-shows the join overlay.
@@ -893,12 +933,14 @@ export class App {
     this.dismissConnToast?.();
     this.dismissConnToast = null;
     // Single space now — no workspace is selected or sent (the server defaults it).
+    const spawn = this.savedSpawn();
     this.net.send({
       type: 'join',
       name: this.joinedName,
       outfit: this.editor.getOutfit(),
       ...(this.joinedPassword ? { password: this.joinedPassword } : {}),
       ...(this.myResumeToken ? { resumeToken: this.myResumeToken } : {}),
+      ...(spawn ? { spawn } : {}),
     });
   }
 
@@ -1169,6 +1211,9 @@ export class App {
         if (msg.player.userId === this.myId) break;
         const joined = { ...msg.player, outfit: normalizeOutfit(msg.player.outfit, OUTFIT_COUNTS) };
         this.players.set(msg.player.userId, new PlayerState(joined, false));
+        // Mark them as freshly logged-in so their first proximity entry doesn't
+        // chime (a login is not a walk-up).
+        this.justJoined.set(msg.player.userId, performance.now());
         break;
       }
       case 'player-moved': {
@@ -1194,6 +1239,7 @@ export class App {
       }
       case 'player-left': {
         this.removeRemotePlayer(msg.userId);
+        this.justJoined.delete(msg.userId);
         break;
       }
       case 'signal': {
@@ -1461,6 +1507,16 @@ export class App {
       void this.sampleQuality();
     }
 
+    // Remember our position (throttled) so next login can return us here.
+    if (this.me && now - this.lastPosSaveAt > POS_SAVE_INTERVAL_MS) {
+      this.lastPosSaveAt = now;
+      try {
+        localStorage.setItem(POS_STORAGE_KEY, JSON.stringify({ x: this.me.x, y: this.me.y }));
+      } catch {
+        /* ignore private-mode storage errors */
+      }
+    }
+
     // Chime sounds. Both mesh and SFU membership are decided by the server's
     // group-update (the connected component, meeting-room isolation included),
     // so the chime mirrors who we are *actually* in a call with — it can no
@@ -1474,7 +1530,16 @@ export class App {
         if (!this.players.has(id)) continue;
         nowInProximity.add(id);
         if (!this.inProximity.has(id)) {
-          this.sounds.enter();
+          // Suppress the chime if they just logged in near us (a login, not a
+          // walk-up). Consuming it means a later walk-up still chimes.
+          const joinedAt = this.justJoined.get(id);
+          if (joinedAt !== undefined && now - joinedAt < JOIN_CHIME_GRACE_MS) {
+            this.justJoined.delete(id);
+          } else {
+            this.sounds.enter();
+          }
+          // Still a new call member regardless of the chime: a late joiner must
+          // be told we're recording (privacy).
           gainedPeer = true;
         }
       }

@@ -6,6 +6,7 @@ import {
   generateSpawn,
   isAllowedReaction,
   isPasswordRequired,
+  isSpawnClear,
   isValidStreamMetaKind,
   MAP_HEIGHT,
   MAP_WIDTH,
@@ -179,6 +180,35 @@ describe('generateSpawn', () => {
       expect(y).toBeGreaterThanOrEqual(800);
       expect(y).toBeLessThan(1400);
     }
+  });
+
+  test('with no one here, is unaffected (first candidate) — back-compat', () => {
+    expect(generateSpawn(() => 0.5, [])).toEqual({ x: 1400, y: 1100 });
+  });
+
+  test('spawns clear of an existing member when a clear spot exists', () => {
+    // First candidate lands on the occupant (0,0 → 1200,800); the next sample
+    // (0.999) is in the far corner, clear of the bubble, so it's chosen.
+    const seq = [0, 0, 0.999, 0.999];
+    let i = 0;
+    const rand = () => seq[i++ % seq.length];
+    const spawn = generateSpawn(rand, [{ x: 1200, y: 800 }]);
+    const dist = Math.hypot(spawn.x - 1200, spawn.y - 800);
+    expect(dist).toBeGreaterThanOrEqual(150);
+  });
+});
+
+describe('isSpawnClear (returning to your usual spot)', () => {
+  test('is clear when nobody is here', () => {
+    expect(isSpawnClear({ x: 1300, y: 1000 }, [])).toBe(true);
+  });
+
+  test('is clear when everyone is beyond the clearance', () => {
+    expect(isSpawnClear({ x: 1300, y: 1000 }, [{ x: 2000, y: 2000 }])).toBe(true);
+  });
+
+  test('is NOT clear when someone sits inside the bubble', () => {
+    expect(isSpawnClear({ x: 1300, y: 1000 }, [{ x: 1320, y: 1010 }])).toBe(false);
   });
 });
 

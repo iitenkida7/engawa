@@ -48,6 +48,9 @@ export type ClientMessage =
       password?: string;
       outfit?: Outfit;
       resumeToken?: string;
+      // Preferred spawn (client's last position); honoured only when it's clear of
+      // others, else the normal spawn is used.
+      spawn?: { x: number; y: number };
     }
   // Avatar appearance changed; relayed to the workspace (sanitized, never stored).
   | { type: 'outfit-update'; outfit: Outfit }

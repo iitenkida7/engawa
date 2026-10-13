@@ -5,6 +5,7 @@ import {
   type GroupMember,
   generateSpawn,
   isAllowedReaction,
+  isSpawnClear,
   isValidStreamMetaKind,
   MAP_HEIGHT,
   MAP_WIDTH,
@@ -353,8 +354,23 @@ export function createWebSocketHandler(
           ws.data.name = normalizeName(msg.name);
           ws.data.workspace = workspace;
           ws.data.outfit = sanitizeOutfit(msg.outfit);
-          // Spawn in the open office area (center aisle, avoids walls/desks)
-          const spawn = generateSpawn();
+          // Spawn in the open office area (center aisle, avoids walls/desks), and
+          // clear of people already here so logging in doesn't land you in a
+          // stranger's call (nor fire their enter chime).
+          const occupied: { x: number; y: number }[] = [];
+          for (const c of clients.values()) {
+            if (c.data.userId === ws.data.userId) continue;
+            if (!c.data.joined || c.data.workspace !== workspace || c.data.away) continue;
+            occupied.push({ x: c.data.x, y: c.data.y });
+          }
+          // Prefer the client's saved last position ("your usual spot") when it's
+          // still clear of everyone; otherwise fall back to the normal spawn.
+          let spawn: { x: number; y: number } | null = null;
+          if (msg.spawn && Number.isFinite(msg.spawn.x) && Number.isFinite(msg.spawn.y)) {
+            const preferred = clampPosition(msg.spawn.x, msg.spawn.y);
+            if (isSpawnClear(preferred, occupied)) spawn = preferred;
+          }
+          if (!spawn) spawn = generateSpawn(Math.random, occupied);
           ws.data.x = spawn.x;
           ws.data.y = spawn.y;
           ws.data.joined = true;

@@ -37,6 +37,10 @@ export type ClientMessage =
       password?: string;
       outfit?: Outfit;
       resumeToken?: string;
+      // Preferred spawn = our last position from a previous session (localStorage),
+      // so you return to "your usual spot". The server honours it only when it's
+      // clear of others; otherwise it falls back to the normal spawn.
+      spawn?: { x: number; y: number };
     }
   // Avatar appearance changed in the editor; relayed to the workspace so peers
   // re-render this avatar. Stateless: the server forwards it, keeping nothing.
