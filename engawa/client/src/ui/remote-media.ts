@@ -156,7 +156,7 @@ export class RemoteMediaView {
   private reconnecting = false;
 
   // Immersive meeting mode (issue #263): on only while the local user stands in a
-  // meeting-room zone (the App drives it via setMeetingMode). When on, the media
+  // zone — room, booth or café (the App drives it via setMeetingMode). When on, the media
   // windows fill the screen edge-to-edge over a black backdrop (Gather-style)
   // instead of floating over the 2D map. Orthogonal to layoutMode — it overrides
   // the arrangement while active and restores the floating layout when it clears.

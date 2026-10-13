@@ -859,7 +859,7 @@
       }
 
       /* ===== Immersive meeting mode (#263) =====
-         Entered only while standing in a meeting-room zone: a black full-screen
+         Entered only while standing in a zone (room/booth/café): a black full-screen
          backdrop (above the 2D map, below the media tiles) and gap-free,
          chrome-less tiles that fill the screen edge-to-edge (Gather-style). */
       #meeting-backdrop {
@@ -1650,7 +1650,7 @@
     <div id="app">
       <canvas id="canvas"></canvas>
       <!-- Immersive meeting backdrop (#263): a full-screen black layer shown only
-           while #app has the `.meeting` class (set when in a meeting-room zone),
+           while #app has the `.meeting` class (set when standing in any zone),
            sitting above the 2D map but below the media tiles. -->
       <div id="meeting-backdrop"></div>
       <!-- Self-status menu, opened from the toolbar's status button and anchored
