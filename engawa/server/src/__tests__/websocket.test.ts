@@ -557,6 +557,22 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     });
   });
 
+  test('relays speaking state to peers but not back to the sender', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(peer);
+
+    deliver(handler, sender, { type: 'speaking', speaking: true });
+
+    expect(peer.sent).toContainEqual({
+      type: 'player-speaking',
+      userId: sender.data.userId,
+      speaking: true,
+    });
+    expect(sender.sent.find((m) => m.type === 'player-speaking')).toBeUndefined();
+  });
+
   test('validates an unknown status and coerces flags before broadcasting (#125)', () => {
     const sender = makeWs({ workspace: 'ws1', joined: true });
     const peer = makeWs({ workspace: 'ws1', joined: true });

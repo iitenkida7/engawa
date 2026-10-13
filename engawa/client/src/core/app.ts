@@ -187,6 +187,9 @@ export class App {
   // (drives the post-speech hold). The computed camera encoding / screen bitrate
   // are pushed to the WebRtcManager each frame, which no-ops when unchanged.
   private lastLoudAtMs: number | null = null;
+  // Last speaking state we broadcast to the workspace (so others see our on-map
+  // speech bubble). Sent only on transition, debounced via the post-speech hold.
+  private lastSpeakingSent = false;
 
   // The server's boot id from the first welcome. A different id on a later
   // welcome (after a reconnect) means the server restarted/redeployed — see the
@@ -1234,6 +1237,14 @@ export class App {
         this.reactionToasts.show(name, msg.emoji);
         break;
       }
+      case 'player-speaking': {
+        // Drive the on-map speech bubble for out-of-call peers (we don't get their
+        // audio). For in-call peers the local detector overrides this each frame
+        // in updateSpeaking, so a stale hint can't linger.
+        const p = this.players.get(msg.userId);
+        if (p) p.isSpeaking = msg.speaking;
+        break;
+      }
       case 'knock': {
         this.knocks.received(msg.from, msg.name);
         const level = knockAlertLevel({
@@ -1415,6 +1426,9 @@ export class App {
 
     // Speaking detection (local + remote tiles) is owned by the media view.
     this.view.updateSpeaking();
+    // Share our own speaking state so everyone (even out of our call) can see our
+    // on-map speech bubble.
+    this.broadcastSpeaking(now);
 
     // Speaker-aware send policy: in big proximity groups, lower our own camera
     // (and screen) ceilings while we are not the (recent) speaker.
@@ -1562,6 +1576,20 @@ export class App {
     if (now - this.lastReactionAt < REACTION_DEBOUNCE_MS) return;
     this.lastReactionAt = now;
     this.net.send({ type: 'reaction', emoji });
+  }
+
+  // Broadcast our speaking state to the workspace, debounced: a post-speech hold
+  // (isHeldSpeaking) smooths the flicker, and we send only when it flips, so idle
+  // and mid-utterance frames cost nothing. Mic off → isSpeaking stays false →
+  // resolves to a single "stopped" after the hold.
+  private broadcastSpeaking(nowMs: number) {
+    const me = this.me;
+    if (!me) return;
+    if (me.isSpeaking) this.lastLoudAtMs = nowMs;
+    const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
+    if (speaking === this.lastSpeakingSent) return;
+    this.lastSpeakingSent = speaking;
+    this.net.send({ type: 'speaking', speaking });
   }
 
   private broadcastStatus() {

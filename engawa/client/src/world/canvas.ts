@@ -554,6 +554,10 @@ export class CanvasRenderer {
     // Floating emoji reactions, on top of the avatars they belong to.
     this.drawReactions(ctx, sortedPlayers);
 
+    // Speech bubbles over anyone talking — including people out of our call, so
+    // you can see a far-off conversation happening (Gather-style).
+    this.drawSpeechBubbles(ctx, sortedPlayers);
+
     ctx.restore();
 
     // Away overlay (#220): a faint veil plus a small badge, drawn in screen space
@@ -691,6 +695,43 @@ export class CanvasRenderer {
       ctx.restore();
     }
     this.reactions = alive;
+  }
+
+  // A small dark speech bubble with three animated dots over every talking peer
+  // (not ourselves). Driven by PlayerState.isSpeaking, which is set from the local
+  // audio detector for in-call peers and from the server's player-speaking relay
+  // for everyone else — so a conversation across the office is visible on the map.
+  private drawSpeechBubbles(ctx: CanvasRenderingContext2D, players: PlayerState[]) {
+    const now = performance.now();
+    const bw = 30;
+    const bh = 18;
+    for (const p of players) {
+      if (!p.isSpeaking || p.isSelf) continue;
+      const bx = p.x - bw / 2;
+      const by = p.y - PLAYER_RADIUS - 32;
+      ctx.save();
+      ctx.fillStyle = 'rgba(34,38,46,0.92)';
+      this.roundRect(ctx, bx, by, bw, bh, 7);
+      ctx.fill();
+      // Little tail pointing down at the head.
+      ctx.beginPath();
+      ctx.moveTo(p.x - 4, by + bh - 1);
+      ctx.lineTo(p.x, by + bh + 5);
+      ctx.lineTo(p.x + 4, by + bh - 1);
+      ctx.closePath();
+      ctx.fill();
+      // Three dots with a staggered pulse so the bubble reads as "talking".
+      const cy = by + bh / 2;
+      for (let i = 0; i < 3; i++) {
+        const phase = (now / 450 + i * 0.33) % 1;
+        ctx.globalAlpha = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(phase * Math.PI * 2));
+        ctx.fillStyle = '#e6e8ee';
+        ctx.beginPath();
+        ctx.arc(p.x - 7 + i * 7, cy, 2.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
   }
 
   // Bakes the whole static map into an offscreen world-space canvas, drawn

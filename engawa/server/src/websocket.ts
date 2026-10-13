@@ -546,6 +546,19 @@ export function createWebSocketHandler(
           break;
         }
 
+        case 'speaking': {
+          if (!ws.data.joined) return;
+          // Broadcast to the whole workspace so even people out of this client's
+          // call can show a speech bubble over them on the map.
+          broadcast(
+            clients,
+            ws.data.workspace,
+            { type: 'player-speaking', userId: ws.data.userId, speaking: !!msg.speaking },
+            ws.data.userId,
+          );
+          break;
+        }
+
         case 'knock': {
           if (!ws.data.joined) return;
           const target = clients.get(msg.to);

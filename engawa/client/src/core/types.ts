@@ -70,6 +70,10 @@ export type ClientMessage =
   // An emoji reaction, broadcast to the whole workspace (whitelist-validated)
   // and rendered as a short-lived bubble above the sender's avatar.
   | { type: 'reaction'; emoji: string }
+  // Speaking state change (debounced): broadcast so everyone — even people out of
+  // our call who don't receive our audio — can see a speech bubble over us on the
+  // map. Sent only on transition.
+  | { type: 'speaking'; speaking: boolean }
   // SFU: announce/replace the tracks this client has published to its Cloudflare
   // session, so the server can relay them to the group as a track directory.
   | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] }
@@ -118,6 +122,9 @@ export type ServerMessage =
   // An emoji reaction from a workspace peer (from === self for our own echo),
   // shown floating above that user's avatar.
   | { type: 'reaction'; userId: string; emoji: string }
+  // A workspace peer's speaking state changed; drives the on-map speech bubble so
+  // you can see far-away people talking.
+  | { type: 'player-speaking'; userId: string; speaking: boolean }
   // SFU: the recipient's current proximity group and its transport. The client
   // talks to exactly these members (members includes self) via mesh or SFU.
   // Meeting-room groups are always 'sfu'; outdoor groups promote at 4 and latch.
