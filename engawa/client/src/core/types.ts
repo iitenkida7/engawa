@@ -74,6 +74,10 @@ export type ClientMessage =
   // An emoji reaction, broadcast to the whole workspace (whitelist-validated)
   // and rendered as a short-lived bubble above the sender's avatar.
   | { type: 'reaction'; emoji: string }
+  // Speaking state change (debounced): broadcast so everyone — even people out of
+  // our call who don't receive our audio — can see a speech bubble over us on the
+  // map. Sent only on transition.
+  | { type: 'speaking'; speaking: boolean }
   // Recording state change (privacy): broadcast so others in the same call learn
   // someone is recording. Relayed to the workspace; clients only surface it for
   // peers currently in their call.
@@ -126,6 +130,9 @@ export type ServerMessage =
   // An emoji reaction from a workspace peer (from === self for our own echo),
   // shown floating above that user's avatar.
   | { type: 'reaction'; userId: string; emoji: string }
+  // A workspace peer's speaking state changed; drives the on-map speech bubble so
+  // you can see far-away people talking.
+  | { type: 'player-speaking'; userId: string; speaking: boolean }
   // A workspace peer's recording state changed. The client only shows it (toast +
   // button badge) when that peer is currently in its call.
   | { type: 'player-recording'; userId: string; name: string; recording: boolean }

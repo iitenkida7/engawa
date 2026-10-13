@@ -588,7 +588,14 @@ export class CanvasRenderer {
     const lh = 22;
     const gap = 2;
     const placed: { cx: number; top: number; lw: number }[] = [];
-    const toDraw: { text: string; cx: number; top: number; lw: number; isSelf: boolean }[] = [];
+    const toDraw: {
+      text: string;
+      cx: number;
+      top: number;
+      lw: number;
+      isSelf: boolean;
+      speaking: boolean;
+    }[] = [];
     for (const p of players) {
       if (p.isSelf && selfAway) continue;
       // Project the avatar's head (world) to screen; the label sits just above it
@@ -609,7 +616,8 @@ export class CanvasRenderer {
         if (overlapX && overlapY) top = q.top + lh + gap;
       }
       placed.push({ cx: sx, top, lw });
-      toDraw.push({ text, cx: sx, top, lw, isSelf: p.isSelf });
+      // Speech bubble for anyone talking but ourselves (we know we're talking).
+      toDraw.push({ text, cx: sx, top, lw, isSelf: p.isSelf, speaking: p.isSpeaking && !p.isSelf });
     }
 
     for (const l of toDraw) {
@@ -619,6 +627,11 @@ export class CanvasRenderer {
       ctx.fill();
       ctx.fillStyle = 'white';
       ctx.fillText(l.text, l.cx, l.top + lh / 2 + 1);
+    }
+    // Speech bubbles beside the labels (after all labels, so they sit on top and
+    // the font state from the loop above no longer matters).
+    for (const l of toDraw) {
+      if (l.speaking) this.drawSpeechBubble(ctx, l.cx, l.top, l.lw, lh, w);
     }
     ctx.restore();
   }
@@ -691,6 +704,54 @@ export class CanvasRenderer {
       ctx.restore();
     }
     this.reactions = alive;
+  }
+
+  // A small dark speech bubble with three pulsing dots, in SCREEN space, drawn
+  // beside a talking peer's name label so it never hides it (to the right, or to
+  // the left when that would run off-screen). cx/top/lw describe the label box.
+  private drawSpeechBubble(
+    ctx: CanvasRenderingContext2D,
+    labelCx: number,
+    labelTop: number,
+    labelLw: number,
+    labelH: number,
+    viewW: number,
+  ) {
+    const bw = 32;
+    const bh = 20;
+    const cy = labelTop + labelH / 2;
+    const by = cy - bh / 2;
+    // Default to the right of the label; flip to the left if it would overflow.
+    let bx = labelCx + labelLw / 2 + 7;
+    let onLeft = false;
+    if (bx + bw > viewW - 4) {
+      bx = labelCx - labelLw / 2 - 7 - bw;
+      onLeft = true;
+    }
+    const now = performance.now();
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    this.roundRect(ctx, bx, by, bw, bh, 9);
+    ctx.fill();
+    // A little tail on the bottom, angled back toward the avatar/label so it reads
+    // as a speech bubble. Wide and short so the horn is soft, not a sharp spike.
+    const tailX = onLeft ? bx + bw - 11 : bx + 11;
+    const tipX = onLeft ? bx + bw - 4 : bx + 4;
+    ctx.beginPath();
+    ctx.moveTo(tailX - 6, by + bh - 1);
+    ctx.lineTo(tailX + 6, by + bh - 1);
+    ctx.lineTo(tipX, by + bh + 4);
+    ctx.closePath();
+    ctx.fill();
+    for (let i = 0; i < 3; i++) {
+      const phase = (now / 450 + i * 0.33) % 1;
+      ctx.globalAlpha = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(phase * Math.PI * 2));
+      ctx.fillStyle = '#8a8f99';
+      ctx.beginPath();
+      ctx.arc(bx + 8 + i * 7, by + bh / 2, 2.1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   // Bakes the whole static map into an offscreen world-space canvas, drawn
