@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 import type { MediaManager } from '@/media/media';
 import type { RecorderManager } from '@/media/recorder';
+import { MEETING_FILMSTRIP_MIN_W, MEETING_FILMSTRIP_TILE_W } from '@/ui/panels';
 import { RemoteMediaView } from '@/ui/remote-media';
 import type { PlayerState } from '@/world/player';
 
@@ -16,6 +17,7 @@ function mountDom() {
     <div id="app">
       <div id="remote-videos"></div>
       <button id="filmstrip-toggle" type="button" style="display: none"></button>
+      <div id="filmstrip-resizer" style="display: none"></div>
       <button id="meeting-minimize" type="button" style="display: none"></button>
       <div id="self-preview" class="panel hidden">
         <div class="panel-header"><span class="label" id="self-preview-label"></span></div>
@@ -217,5 +219,75 @@ describe('meeting minimize / restore', () => {
     // Re-entering starts immersive again, not stuck minimized.
     view.setMeetingMode(true);
     expect(immersive()).toBe(true);
+  });
+});
+
+// #288: in the meeting presentation layout (a featured share + the left camera
+// filmstrip) the seam between them is a drag handle that changes the ratio.
+describe('filmstrip / share seam resizer', () => {
+  let view: RemoteMediaView;
+  const resizer = () => document.getElementById('filmstrip-resizer') as HTMLElement;
+  const shown = () => resizer().style.display !== 'none';
+  const camTile = () => document.querySelector<HTMLElement>('.panel[data-focus-key="cam:a"]')!;
+  const tileWidth = () => Number.parseFloat(camTile().style.width);
+  const pointer = (type: string, clientX: number) =>
+    resizer().dispatchEvent(
+      new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientX }),
+    );
+
+  beforeEach(() => {
+    view = setup();
+    view.setMeetingMode(true);
+    addCam(view, 'a');
+  });
+
+  it('is hidden in the gallery (no share) and shown once a share is featured', () => {
+    expect(shown()).toBe(false);
+    view.attachRemoteStream('b', new MediaStream(), 'screen');
+    expect(shown()).toBe(true);
+    // Sits on the seam: just right of the default-width column.
+    expect(Number.parseFloat(resizer().style.left)).toBeGreaterThanOrEqual(
+      MEETING_FILMSTRIP_TILE_W,
+    );
+    expect(tileWidth()).toBe(MEETING_FILMSTRIP_TILE_W);
+  });
+
+  it('dragging the seam resizes the filmstrip tiles, clamped to the allowed range', () => {
+    view.attachRemoteStream('b', new MediaStream(), 'screen');
+    pointer('pointerdown', MEETING_FILMSTRIP_TILE_W);
+    pointer('pointermove', 300);
+    expect(tileWidth()).toBe(300);
+    // Way past the cap → the column clamps to half the viewport (the seam handle
+    // sits at the column edge; the tiles themselves may shrink to fit the
+    // column height). Way left → the minimum.
+    pointer('pointermove', 100_000);
+    const cap = Math.floor(window.innerWidth / 2);
+    expect(Number.parseFloat(resizer().style.left)).toBeGreaterThanOrEqual(cap);
+    expect(tileWidth()).toBeLessThanOrEqual(cap);
+    pointer('pointermove', 1);
+    expect(tileWidth()).toBe(MEETING_FILMSTRIP_MIN_W);
+    pointer('pointerup', 1);
+    // After the drag ends, moves no longer resize.
+    pointer('pointermove', 300);
+    expect(tileWidth()).toBe(MEETING_FILMSTRIP_MIN_W);
+  });
+
+  it('double-click snaps back to the default width; leaving the meeting resets it', () => {
+    view.attachRemoteStream('b', new MediaStream(), 'screen');
+    pointer('pointerdown', MEETING_FILMSTRIP_TILE_W);
+    pointer('pointermove', 300);
+    pointer('pointerup', 300);
+    expect(tileWidth()).toBe(300);
+    resizer().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(tileWidth()).toBe(MEETING_FILMSTRIP_TILE_W);
+    // Drag again, then leave + re-enter: not persisted across meetings.
+    pointer('pointerdown', MEETING_FILMSTRIP_TILE_W);
+    pointer('pointermove', 300);
+    pointer('pointerup', 300);
+    expect(tileWidth()).toBe(300);
+    view.setMeetingMode(false);
+    expect(shown()).toBe(false);
+    view.setMeetingMode(true);
+    expect(tileWidth()).toBe(MEETING_FILMSTRIP_TILE_W);
   });
 });

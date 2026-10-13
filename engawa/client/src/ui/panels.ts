@@ -168,14 +168,34 @@ export const MEETING_GAP = 4;
 // vertically centered beside the share; when there are too many (expanded) they
 // shrink to divide the column so everyone still fits without scrolling.
 export const MEETING_FILMSTRIP_MAX_VISIBLE = 5;
+// Default (and aspect-defining) filmstrip tile size. The column width is user-
+// adjustable by dragging the seam (#288); tiles keep this W:H aspect as they
+// scale, and the width snaps back to this default when the meeting ends.
 export const MEETING_FILMSTRIP_TILE_W = 148;
 export const MEETING_FILMSTRIP_TILE_H = 108;
+// Drag bounds for the filmstrip width: never thinner than a readable thumbnail,
+// never wider than half the viewport (the share must stay the main event).
+export const MEETING_FILMSTRIP_MIN_W = 96;
+export const MEETING_FILMSTRIP_MAX_FRAC = 0.5;
 // Near-zero separation between the filmstrip and the share, so they read as one
 // surface (the tiles sit flush to the left edge; this is just the seam).
 export const MEETING_FILMSTRIP_SEP = 2;
 // The gutter the main share must avoid = the tile width (tiles are flush-left).
-export function meetingFilmstripColWidth(): number {
-  return MEETING_FILMSTRIP_TILE_W;
+export function meetingFilmstripColWidth(stripW: number = MEETING_FILMSTRIP_TILE_W): number {
+  return stripW;
+}
+
+// Pure: clamps a requested filmstrip width into the draggable range for this
+// viewport. Non-finite input (a stray drag) falls back to the default.
+export function clampFilmstripWidth(w: number, vw: number): number {
+  if (!Number.isFinite(w)) return MEETING_FILMSTRIP_TILE_W;
+  const max = Math.max(MEETING_FILMSTRIP_MIN_W, Math.floor(vw * MEETING_FILMSTRIP_MAX_FRAC));
+  return Math.round(Math.max(MEETING_FILMSTRIP_MIN_W, Math.min(max, w)));
+}
+
+// Pure: the filmstrip tile height for a column width, keeping the default aspect.
+export function filmstripTileHeight(stripW: number): number {
+  return Math.max(1, Math.round((stripW * MEETING_FILMSTRIP_TILE_H) / MEETING_FILMSTRIP_TILE_W));
 }
 
 // Full-bleed horizontally; only the bottom toolbar strip is reserved so tiles
@@ -219,13 +239,14 @@ export function computeMeetingGallery(
 // Pure: presentation — items[0] is the featured screenshare (fills the main area
 // on the right); every other item stacks in the LEFT filmstrip gutter. The
 // caller has already trimmed the filmstrip to the visible (collapsed ≤ MAX /
-// expanded) set, so this just places what it is given: fixed-size tiles centered
-// in the column when they fit, shrunk to divide the column when there are too
-// many.
+// expanded) set, so this just places what it is given: `stripW`-wide tiles
+// (default MEETING_FILMSTRIP_TILE_W; user-dragged, #288) centered in the column
+// when they fit, shrunk to divide the column when there are too many.
 export function computeMeetingPresentation(
   items: LayoutItem[],
   vw: number,
   vh: number,
+  stripW: number = MEETING_FILMSTRIP_TILE_W,
 ): PanelGeometry[] {
   const n = items.length;
   if (n === 0) return [];
@@ -236,8 +257,8 @@ export function computeMeetingPresentation(
     return result;
   }
   const strip = n - 1;
-  const tileW = MEETING_FILMSTRIP_TILE_W;
-  const tileH = MEETING_FILMSTRIP_TILE_H;
+  const tileW = stripW;
+  const tileH = filmstripTileHeight(stripW);
   // Main share abuts the strip with only the thin seam between them, and runs
   // full-bleed on the other three edges.
   const mainX = area.x + tileW + MEETING_FILMSTRIP_SEP;
@@ -256,15 +277,22 @@ export function computeMeetingPresentation(
       };
     }
   } else {
-    // Too many at fixed size (shouldn't happen under the MAX cap, but guards the
-    // expanded view on a short viewport): divide the column height so all fit.
+    // Too many at the current size (the expanded view on a short viewport, or a
+    // column dragged wide): divide the column height so all fit, shrinking the
+    // width along with it so tiles keep their aspect instead of cropping to a
+    // letterbox, centered in the column.
     const cellH = area.h / strip;
+    const h = Math.max(1, Math.round(cellH - MEETING_GAP));
+    const w = Math.max(
+      1,
+      Math.min(tileW, Math.round((h * MEETING_FILMSTRIP_TILE_W) / MEETING_FILMSTRIP_TILE_H)),
+    );
     for (let k = 1; k < n; k++) {
       result[k] = {
-        left: area.x,
+        left: Math.round(area.x + (tileW - w) / 2),
         top: Math.round(area.y + (k - 1) * cellH),
-        width: tileW,
-        height: Math.max(1, Math.round(cellH - MEETING_GAP)),
+        width: w,
+        height: h,
       };
     }
   }

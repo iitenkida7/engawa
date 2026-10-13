@@ -961,6 +961,35 @@
         transform: rotate(180deg);
       }
 
+      /* Filmstrip/share seam drag handle (#288): an invisible 10px grab strip
+         centered on the seam (translateX(-50%)), with a thin line that lights up
+         on hover/drag so the affordance is discoverable but not noisy. */
+      #filmstrip-resizer {
+        position: fixed;
+        z-index: 7;
+        width: 10px;
+        transform: translateX(-50%);
+        cursor: col-resize;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #filmstrip-resizer::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 4px;
+        width: 2px;
+        border-radius: 1px;
+        background: rgba(230, 232, 238, 0);
+        transition: background 0.12s ease;
+      }
+      #filmstrip-resizer:hover::after,
+      #filmstrip-resizer.dragging::after {
+        background: rgba(230, 232, 238, 0.75);
+      }
+
       /* Minimize/restore the immersive meeting — top-left, toolbar chrome. */
       #meeting-minimize {
         position: fixed;
@@ -1765,6 +1794,10 @@
            left camera column in meeting presentation mode; positioned/shown in
            JS (RemoteMediaView.positionFilmstripToggle). -->
       <button id="filmstrip-toggle" type="button" style="display: none"></button>
+      <!-- Filmstrip/share seam drag handle (#288): resizes the left camera column
+           in meeting presentation mode; positioned/shown in JS
+           (RemoteMediaView.placeFilmstripResizer). -->
+      <div id="filmstrip-resizer" style="display: none"></div>
       <!-- Immersive meeting minimize/restore (#263): top-left toggle to drop the
            full-screen meeting back to floating tiles so the map (and the way
            out of the room) is reachable. Shown/labelled in JS. -->

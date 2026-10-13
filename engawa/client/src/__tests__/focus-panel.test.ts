@@ -18,6 +18,7 @@ function mountDom() {
     <div id="app">
       <div id="remote-videos"></div>
       <button id="filmstrip-toggle" type="button" style="display: none"></button>
+      <div id="filmstrip-resizer" style="display: none"></div>
       <button id="meeting-minimize" type="button" style="display: none"></button>
       <div id="self-preview" class="panel hidden">
         <div class="panel-header"><span class="label" id="self-preview-label"></span></div>
