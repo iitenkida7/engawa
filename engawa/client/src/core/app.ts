@@ -150,6 +150,9 @@ export class App {
 
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
+  // Peers who have announced they're recording (privacy). Only those currently in
+  // our call drive the record-button badge; pruned when they leave the call.
+  private recordingPeers = new Set<string>();
   private myStatus: PlayerStatus = 'online';
 
   // Server-driven transport for our current proximity group. 'mesh' uses the
@@ -413,6 +416,8 @@ export class App {
       broadcastStatus: () => this.broadcastStatus(),
       getMe: () => this.me,
       onReaction: (emoji) => this.sendReaction(emoji),
+      // Tell the call we started/stopped recording (privacy notice to peers).
+      onRecordingChange: (recording) => this.net.send({ type: 'recording', recording }),
       // The 🧍 avatar editor and 🐛 debug console both live in the toolbar's "⋯"
       // menu now; reopening the character maker in-room relays the new outfit to
       // peers (see onOutfitApplied).
@@ -1234,6 +1239,27 @@ export class App {
         this.reactionToasts.show(name, msg.emoji);
         break;
       }
+      case 'player-recording': {
+        // Privacy notice: only surface a recording state change for someone who is
+        // actually in our call right now (they're the one capturing us).
+        if (this.inProximity.has(msg.userId)) {
+          const name = msg.name || this.players.get(msg.userId)?.name || t('knock.someone');
+          if (msg.recording) {
+            // Toast only on the transition, so a re-announce to a late joiner
+            // (see updateGroups) never double-notifies existing peers.
+            if (!this.recordingPeers.has(msg.userId)) this.toasts.info(t('rec.started', { name }));
+            this.recordingPeers.add(msg.userId);
+          } else if (this.recordingPeers.delete(msg.userId)) {
+            this.toasts.info(t('rec.stopped', { name }));
+          }
+          this.refreshRecordingBadge();
+        } else if (!msg.recording) {
+          // Stopped while out of our call — just drop any stale flag, no toast.
+          this.recordingPeers.delete(msg.userId);
+          this.refreshRecordingBadge();
+        }
+        break;
+      }
       case 'knock': {
         this.knocks.received(msg.from, msg.name);
         const level = knockAlertLevel({
@@ -1442,13 +1468,20 @@ export class App {
     if (this.me) {
       const groupPeers = this.currentMethod === 'sfu' ? this.sfuMembers : this.meshMembers;
       const nowInProximity = new Set<string>();
+      let gainedPeer = false;
       for (const id of groupPeers) {
         if (id === this.myId) continue;
         if (!this.players.has(id)) continue;
         nowInProximity.add(id);
         if (!this.inProximity.has(id)) {
           this.sounds.enter();
+          gainedPeer = true;
         }
+      }
+      // If we're recording and someone just joined the call, re-announce so the
+      // late joiner is told too (privacy). Existing peers dedupe the toast.
+      if (gainedPeer && this.recorder.recording) {
+        this.net.send({ type: 'recording', recording: true });
       }
       for (const id of this.inProximity) {
         if (!nowInProximity.has(id)) {
@@ -1459,6 +1492,8 @@ export class App {
       // Show a tile for everyone in the conversation, even camera-off (issue:
       // see who you're talking to). Camera-off members get a placeholder.
       this.view.setConversationMembers([...nowInProximity]);
+      // Drop the record badge for anyone who just left our call.
+      this.refreshRecordingBadge();
     }
   }
 
@@ -1562,6 +1597,20 @@ export class App {
     if (now - this.lastReactionAt < REACTION_DEBOUNCE_MS) return;
     this.lastReactionAt = now;
     this.net.send({ type: 'reaction', emoji });
+  }
+
+  // Refresh the record-button "others are recording" badge: keep only peers still
+  // in our call, and feed their names to the toolbar for the tooltip.
+  private refreshRecordingBadge() {
+    const names: string[] = [];
+    for (const id of [...this.recordingPeers]) {
+      if (!this.inProximity.has(id)) {
+        this.recordingPeers.delete(id);
+        continue;
+      }
+      names.push(this.players.get(id)?.name ?? t('knock.someone'));
+    }
+    this.toolbar.setOthersRecording(names);
   }
 
   private broadcastStatus() {
