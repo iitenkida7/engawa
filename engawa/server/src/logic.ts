@@ -258,14 +258,40 @@ export function clampPosition(
  * walls/desks). The random source is injectable so spawns can be made
  * deterministic in tests.
  */
-export function generateSpawn(rand: () => number = Math.random): { x: number; y: number } {
+export function generateSpawn(
+  rand: () => number = Math.random,
+  // Positions of people already here. The spawn tries to land clear of everyone's
+  // proximity bubble so logging in doesn't drop you into a stranger's call (and
+  // doesn't fire their enter chime). Best-effort: in a packed aisle it returns the
+  // roomiest candidate it found.
+  occupied: { x: number; y: number }[] = [],
+): { x: number; y: number } {
   // Open-office area, shifted by the 400px outdoor margin (#229, now 8 tiles) so
   // spawns stay inside the building's center aisle, not out on the grass. The
   // client snaps this to the nearest walkable tile, so landing near a desk is fine.
-  return {
-    x: 1200 + rand() * 400,
-    y: 800 + rand() * 600,
-  };
+  const pick = () => ({ x: 1200 + rand() * 400, y: 800 + rand() * 600 });
+  // Clear of everyone's bubble = beyond the disconnect radius (+ a small margin).
+  const clearance = PROXIMITY_DISCONNECT_RADIUS + 20;
+  const minDist = (p: { x: number; y: number }) =>
+    occupied.length === 0
+      ? Number.POSITIVE_INFINITY
+      : Math.min(...occupied.map((o) => Math.hypot(p.x - o.x, p.y - o.y)));
+
+  let best = pick();
+  let bestDist = minDist(best);
+  // Already clear (or nobody here) → done.
+  if (bestDist >= clearance) return best;
+  // Otherwise sample a few more and keep the roomiest.
+  for (let i = 0; i < 24; i++) {
+    const cand = pick();
+    const d = minDist(cand);
+    if (d >= clearance) return cand;
+    if (d > bestDist) {
+      best = cand;
+      bestDist = d;
+    }
+  }
+  return best;
 }
 
 /**

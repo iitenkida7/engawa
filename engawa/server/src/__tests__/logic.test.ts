@@ -180,6 +180,21 @@ describe('generateSpawn', () => {
       expect(y).toBeLessThan(1400);
     }
   });
+
+  test('with no one here, is unaffected (first candidate) — back-compat', () => {
+    expect(generateSpawn(() => 0.5, [])).toEqual({ x: 1400, y: 1100 });
+  });
+
+  test('spawns clear of an existing member when a clear spot exists', () => {
+    // First candidate lands on the occupant (0,0 → 1200,800); the next sample
+    // (0.999) is in the far corner, clear of the bubble, so it's chosen.
+    const seq = [0, 0, 0.999, 0.999];
+    let i = 0;
+    const rand = () => seq[i++ % seq.length];
+    const spawn = generateSpawn(rand, [{ x: 1200, y: 800 }]);
+    const dist = Math.hypot(spawn.x - 1200, spawn.y - 800);
+    expect(dist).toBeGreaterThanOrEqual(150);
+  });
 });
 
 describe('normalizeIceServers', () => {

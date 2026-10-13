@@ -92,6 +92,11 @@ import {
   zoneAt,
 } from '@/world/tilemap';
 
+// How long after a peer logs in their first proximity entry is treated as a login
+// (chime suppressed) rather than a walk-up. Covers the join → group-negotiation
+// gap; after it, walking into range chimes normally.
+const JOIN_CHIME_GRACE_MS = 2500;
+
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
 // media panels live in RemoteMediaView and the toolbar in ToolbarController;
@@ -150,6 +155,10 @@ export class App {
 
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
+  // userId → the time they joined, kept briefly so we can SUPPRESS the proximity
+  // enter chime for someone who just logged in near us (that's a login, not a
+  // walk-up). Walk-ups and room transitions still chime. Expires after the grace.
+  private justJoined = new Map<string, number>();
   private myStatus: PlayerStatus = 'online';
 
   // Server-driven transport for our current proximity group. 'mesh' uses the
@@ -1164,6 +1173,9 @@ export class App {
         if (msg.player.userId === this.myId) break;
         const joined = { ...msg.player, outfit: normalizeOutfit(msg.player.outfit, OUTFIT_COUNTS) };
         this.players.set(msg.player.userId, new PlayerState(joined, false));
+        // Mark them as freshly logged-in so their first proximity entry doesn't
+        // chime (a login is not a walk-up).
+        this.justJoined.set(msg.player.userId, performance.now());
         break;
       }
       case 'player-moved': {
@@ -1189,6 +1201,7 @@ export class App {
       }
       case 'player-left': {
         this.removeRemotePlayer(msg.userId);
+        this.justJoined.delete(msg.userId);
         break;
       }
       case 'signal': {
@@ -1447,7 +1460,14 @@ export class App {
         if (!this.players.has(id)) continue;
         nowInProximity.add(id);
         if (!this.inProximity.has(id)) {
-          this.sounds.enter();
+          // Suppress the chime if they just logged in near us (a login, not a
+          // walk-up). Consuming it means a later walk-up still chimes.
+          const joinedAt = this.justJoined.get(id);
+          if (joinedAt !== undefined && now - joinedAt < JOIN_CHIME_GRACE_MS) {
+            this.justJoined.delete(id);
+          } else {
+            this.sounds.enter();
+          }
         }
       }
       for (const id of this.inProximity) {
