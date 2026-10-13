@@ -573,6 +573,24 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     expect(sender.sent.find((m) => m.type === 'player-speaking')).toBeUndefined();
   });
 
+  test('relays recording state to peers but not back to the sender', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(peer);
+
+    deliver(handler, sender, { type: 'recording', recording: true });
+
+    expect(peer.sent).toContainEqual({
+      type: 'player-recording',
+      userId: sender.data.userId,
+      name: sender.data.name,
+      recording: true,
+    });
+    // The sender already knows its own recording state — no echo back.
+    expect(sender.sent.find((m) => m.type === 'player-recording')).toBeUndefined();
+  });
+
   test('validates an unknown status and coerces flags before broadcasting (#125)', () => {
     const sender = makeWs({ workspace: 'ws1', joined: true });
     const peer = makeWs({ workspace: 'ws1', joined: true });

@@ -48,6 +48,9 @@ export type ClientMessage =
       password?: string;
       outfit?: Outfit;
       resumeToken?: string;
+      // Preferred spawn (client's last position); honoured only when it's clear of
+      // others, else the normal spawn is used.
+      spawn?: { x: number; y: number };
     }
   // Avatar appearance changed; relayed to the workspace (sanitized, never stored).
   | { type: 'outfit-update'; outfit: Outfit }
@@ -81,6 +84,9 @@ export type ClientMessage =
   // Speaking state change (debounced): relayed to the workspace so everyone can
   // see a speech bubble over a talker on the map, even out of their call.
   | { type: 'speaking'; speaking: boolean }
+  // Recording state change (privacy): relayed to the workspace so others in the
+  // same call learn someone is recording.
+  | { type: 'recording'; recording: boolean }
   // SFU: announce/replace the tracks this client has published to its Cloudflare
   // session, so the server can relay them to the group as a track directory.
   | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] }
@@ -132,6 +138,9 @@ export type ServerMessage =
   | { type: 'reaction'; userId: string; emoji: string }
   // A workspace peer's speaking state changed; drives the on-map speech bubble.
   | { type: 'player-speaking'; userId: string; speaking: boolean }
+  // A workspace peer's recording state changed; the client shows it only for a
+  // peer currently in its call.
+  | { type: 'player-recording'; userId: string; name: string; recording: boolean }
   // SFU: the recipient's current proximity group and its transport. The client
   // talks to exactly these members (members includes self) via mesh or SFU.
   // Meeting-room groups are always 'sfu'; outdoor groups promote at 4 and latch.

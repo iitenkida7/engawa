@@ -258,14 +258,38 @@ export function clampPosition(
  * walls/desks). The random source is injectable so spawns can be made
  * deterministic in tests.
  */
-export function generateSpawn(rand: () => number = Math.random): { x: number; y: number } {
+export function generateSpawn(
+  rand: () => number = Math.random,
+  // Positions of people already here. The spawn tries to land clear of everyone's
+  // proximity bubble so logging in doesn't drop you into a stranger's call (and
+  // doesn't fire their enter chime). Best-effort: in a packed aisle it returns the
+  // roomiest candidate it found.
+  occupied: { x: number; y: number }[] = [],
+): { x: number; y: number } {
   // Open-office area, shifted by the 400px outdoor margin (#229, now 8 tiles) so
   // spawns stay inside the building's center aisle, not out on the grass. The
   // client snaps this to the nearest walkable tile, so landing near a desk is fine.
-  return {
-    x: 1200 + rand() * 400,
-    y: 800 + rand() * 600,
-  };
+  const pick = () => ({ x: 1200 + rand() * 400, y: 800 + rand() * 600 });
+  const minDist = (p: { x: number; y: number }) =>
+    occupied.length === 0
+      ? Number.POSITIVE_INFINITY
+      : Math.min(...occupied.map((o) => Math.hypot(p.x - o.x, p.y - o.y)));
+
+  let best = pick();
+  let bestDist = minDist(best);
+  // Already clear (or nobody here) → done.
+  if (bestDist >= SPAWN_CLEARANCE) return best;
+  // Otherwise sample a few more and keep the roomiest.
+  for (let i = 0; i < 24; i++) {
+    const cand = pick();
+    const d = minDist(cand);
+    if (d >= SPAWN_CLEARANCE) return cand;
+    if (d > bestDist) {
+      best = cand;
+      bestDist = d;
+    }
+  }
+  return best;
 }
 
 /**
@@ -317,6 +341,19 @@ export const PROXIMITY_CONNECT_RADIUS = 120;
 // remain co-grouped. That is intentional under the "whole group meshes" model
 // (a latecomer connects to every member, not just nearby ones).
 export const PROXIMITY_DISCONNECT_RADIUS = 150;
+
+// Clear of everyone's bubble = beyond the disconnect radius (+ a small margin).
+export const SPAWN_CLEARANCE = PROXIMITY_DISCONNECT_RADIUS + 20;
+
+// True when `p` is far enough from everyone already here to spawn without landing
+// in a stranger's call. Used to decide whether to honour a returning user's saved
+// position before falling back to the normal spawn.
+export function isSpawnClear(
+  p: { x: number; y: number },
+  occupied: { x: number; y: number }[],
+): boolean {
+  return occupied.every((o) => Math.hypot(p.x - o.x, p.y - o.y) >= SPAWN_CLEARANCE);
+}
 
 // Proximity radii while seated at an open-office desk (#263 follow-up): a desk
 // seat is a private one-person spot, so only the 8 adjacent tiles (diagonal ≈
