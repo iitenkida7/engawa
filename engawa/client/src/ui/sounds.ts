@@ -72,7 +72,13 @@ export class SoundManager {
     gain.gain.setValueAtTime(0.0001, startAt);
     gain.gain.exponentialRampToValueAtTime(peak, startAt + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, startAt + dur);
-    gain.connect(ctx.destination);
+    // High-cut: a 2nd-order low-pass (-12 dB/oct) at 5 kHz tames the harsh upper
+    // overtones. Q 0.707 = Butterworth (flat, no resonant bump).
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = 5000;
+    lowpass.Q.value = 0.707;
+    gain.connect(lowpass).connect(ctx.destination);
     const weightSum = harmonics.reduce((s, w) => s + w, 0) || 1;
     harmonics.forEach((weight, i) => {
       if (weight <= 0) return;
