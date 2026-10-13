@@ -173,6 +173,9 @@ export class RemoteMediaView {
   // Minimized: in a meeting zone but temporarily dropped back to floating tiles
   // so the map (and the way out of the room) is reachable. Reset on leaving.
   private meetingMinimized = false;
+  // Whether the minimize/restore control is currently offered (i.e. we're in a
+  // meeting). Gates the keyboard shortcut — see toggleMeetingView.
+  private meetingControlsVisible = false;
   private appEl: HTMLElement;
   private filmstripToggleEl: HTMLButtonElement;
   private filmstripResizerEl: HTMLDivElement;
@@ -214,12 +217,7 @@ export class RemoteMediaView {
     this.filmstripResizerEl.title = t('media.filmstripResize');
     this.bindFilmstripResizer();
     this.meetingMinimizeEl = document.getElementById('meeting-minimize') as HTMLButtonElement;
-    this.meetingMinimizeEl.addEventListener('click', () => {
-      this.meetingMinimized = !this.meetingMinimized;
-      // Each view starts collapsed; don't carry the chevron state across.
-      this.filmstripExpanded = false;
-      this.reflowLayout();
-    });
+    this.meetingMinimizeEl.addEventListener('click', () => this.toggleMeetingView());
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
     this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
@@ -1064,11 +1062,24 @@ export class RemoteMediaView {
     this.filmstripToggleEl.style.display = 'none';
   }
 
+  // Flip between the immersive meeting view and the map, driven by the top-left
+  // button and by 'm' (issue #297). A no-op outside a meeting: the control is
+  // hidden then, and flipping the flag anyway would leave the NEXT meeting
+  // starting minimized (setMeetingMode only resets it on the way out).
+  toggleMeetingView() {
+    if (!this.meetingControlsVisible) return;
+    this.meetingMinimized = !this.meetingMinimized;
+    // Each view starts collapsed; don't carry the chevron state across.
+    this.filmstripExpanded = false;
+    this.reflowLayout();
+  }
+
   // Shows the top-left minimize/restore toggle whenever we're in a meeting, and
   // labels it for the current state: "show map" (drop to floating tiles) while
   // immersive, "meeting view" (go back full-screen) while minimized.
   private updateMeetingControls(inMeeting: boolean) {
     const btn = this.meetingMinimizeEl;
+    this.meetingControlsVisible = inMeeting;
     if (!inMeeting) {
       btn.style.display = 'none';
       return;

@@ -156,6 +156,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.bgUpload': { ja: '📁 画像をアップロード…', en: '📁 Upload image…' },
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
   'toolbar.audioOnly': { ja: '🔉 音声のみモード', en: '🔉 Audio-only mode' },
+  'toolbar.shortcuts': { ja: '⌨ キーバインド一覧', en: '⌨ Keyboard shortcuts' },
   'toolbar.closeDebug': { ja: '🐛 デバッグを閉じる', en: '🐛 Close debug' },
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
 
@@ -233,6 +234,24 @@ const STR: Record<string, Record<Lang, string>> = {
   // -- chat -----------------------------------------------------------------
   'chat.title': { ja: '💬 チャット', en: '💬 Chat' },
   'chat.placeholder': { ja: '近くの人にメッセージ…', en: 'Message people nearby…' },
+
+  // -- keyboard shortcuts (#297) --------------------------------------------
+  'keys.title': { ja: '⌨ キーバインド', en: '⌨ Keyboard shortcuts' },
+  'keys.move': { ja: '移動（vim）', en: 'Move (vim)' },
+  'keys.moveArrows': { ja: '移動（矢印）', en: 'Move (arrows)' },
+  'keys.meetingView': { ja: '会議表示 ⇄ マップ表示', en: 'Meeting view ⇄ map' },
+  'keys.zoom': { ja: '自分にズーム ⇄ 全体表示', en: 'Zoom to me ⇄ fit map' },
+  'keys.mic': { ja: 'マイク ON/OFF', en: 'Mic on/off' },
+  'keys.cam': { ja: 'カメラ ON/OFF', en: 'Camera on/off' },
+  'keys.screen': { ja: '画面共有 ON/OFF', en: 'Screen share on/off' },
+  'keys.record': { ja: '録画 開始/停止', en: 'Start/stop recording' },
+  'keys.roster': { ja: '参加者リスト 開閉', en: 'Toggle participants' },
+  'keys.reaction': { ja: 'リアクション', en: 'Reactions' },
+  'keys.focusOut': { ja: '最大化を戻す', en: 'Exit maximized view' },
+  'keys.note': {
+    ja: '入力欄にカーソルがあるときは動きません。',
+    en: 'Inactive while a text field has focus.',
+  },
 
   // -- layout ---------------------------------------------------------------
   'layout.grid': { ja: 'グリッド整列', en: 'Grid' },

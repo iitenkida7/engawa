@@ -54,6 +54,7 @@ export class ToolbarController {
   private onReaction: (emoji: string) => void;
   private onRecordingChange: (recording: boolean) => void;
   private onOpenAvatar: () => void;
+  private onOpenShortcuts: () => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
   private onUserCamToggle: () => void;
@@ -84,6 +85,7 @@ export class ToolbarController {
     // the rest of the call (privacy notice). Passes the new recording state.
     onRecordingChange: (recording: boolean) => void;
     onOpenAvatar: () => void;
+    onOpenShortcuts: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
     // Fired on a MANUAL camera-button toggle (not setCamEnabled), so the App's
@@ -105,6 +107,7 @@ export class ToolbarController {
     this.onReaction = opts.onReaction;
     this.onRecordingChange = opts.onRecordingChange;
     this.onOpenAvatar = opts.onOpenAvatar;
+    this.onOpenShortcuts = opts.onOpenShortcuts;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
     this.onUserCamToggle = opts.onUserCamToggle;
@@ -140,23 +143,8 @@ export class ToolbarController {
   }
 
   private setup() {
-    this.btnMic.addEventListener('click', async () => {
-      if (this.media.micOn) {
-        this.stopMic();
-      } else {
-        await this.startMic();
-      }
-      this.broadcastStatus();
-    });
-    this.btnCam.addEventListener('click', async () => {
-      this.onUserCamToggle();
-      if (this.media.camOn) {
-        this.stopCam();
-      } else {
-        await this.startCam();
-      }
-      this.broadcastStatus();
-    });
+    this.btnMic.addEventListener('click', () => this.toggleMic());
+    this.btnCam.addEventListener('click', () => this.toggleCam());
     this.setupDeviceMenus();
     this.bgFileInput.addEventListener('change', () => {
       const file = this.bgFileInput.files?.[0];
@@ -167,6 +155,27 @@ export class ToolbarController {
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
     this.setupLayoutControls();
+  }
+
+  // The four media toggles, public so the keyboard shortcuts (issue #297) run
+  // exactly what the buttons run — one path, no drift between mouse and key.
+  async toggleMic() {
+    if (this.media.micOn) {
+      this.stopMic();
+    } else {
+      await this.startMic();
+    }
+    this.broadcastStatus();
+  }
+
+  async toggleCam() {
+    this.onUserCamToggle();
+    if (this.media.camOn) {
+      this.stopCam();
+    } else {
+      await this.startCam();
+    }
+    this.broadcastStatus();
   }
 
   // Wire the icon-only layout-mode buttons (▦ グリッド / ▤ サイドバー). They live
@@ -279,7 +288,7 @@ export class ToolbarController {
     if (old) this.afterScreenStopped(old);
   }
 
-  private async toggleScreen() {
+  async toggleScreen() {
     if (this.media.screenOn) {
       const old = this.media.disableScreen();
       if (old) this.afterScreenStopped(old);
@@ -310,7 +319,7 @@ export class ToolbarController {
     this.view.removeScreenshare(me?.userId ?? '');
   }
 
-  private toggleRecord() {
+  toggleRecord() {
     const wasRecording = this.recorder.recording;
     if (wasRecording) {
       this.recorder.stop();
@@ -568,6 +577,7 @@ export class ToolbarController {
       menu.appendChild(item);
     };
     addItem(t('toolbar.editAvatar'), () => this.onOpenAvatar());
+    addItem(t('toolbar.shortcuts'), () => this.onOpenShortcuts());
     // Audio-only mode (#188): stops sending cam/screen and (on SFU) receiving
     // video, for rock-bottom bandwidth. ✓ reflects the current state.
     addItem((this.isAudioOnly() ? '✓ ' : '') + t('toolbar.audioOnly'), () =>

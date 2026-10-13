@@ -374,6 +374,15 @@ export class CanvasRenderer {
     this.camAnimating = true;
   }
 
+  // Keyboard twin of the two zoom buttons (issue #297): one key flips between the
+  // 1:1 view on yourself and the whole-map view. `following` is the honest test
+  // of which we're in — zoomToFit clears it and walking (recenter) restores it,
+  // so after a walk the key fits the map, which is what you want next.
+  toggleZoom() {
+    if (this.following) this.zoomToFit();
+    else this.zoomToSelf();
+  }
+
   resize() {
     // Refresh dpr (it can change when the window moves between monitors) and
     // invalidate the cache if it did, so the baked layer stays crisp.
