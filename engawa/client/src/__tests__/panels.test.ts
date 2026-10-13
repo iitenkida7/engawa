@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  clampFilmstripWidth,
   computeFocusLayout,
   computeGridLayout,
   computeMeetingGallery,
   computeMeetingPresentation,
   computePresentationLayout,
   computeSidebarLayout,
+  filmstripTileHeight,
   type LayoutItem,
+  MEETING_FILMSTRIP_MAX_FRAC,
+  MEETING_FILMSTRIP_MIN_W,
   MEETING_FILMSTRIP_TILE_H,
   MEETING_FILMSTRIP_TILE_W,
   meetingFilmstripColWidth,
@@ -364,6 +368,61 @@ describe('computeMeetingPresentation', () => {
     for (const s of strip) {
       expect(s.h).toBeLessThan(MEETING_FILMSTRIP_TILE_H);
       expect(s.y + s.h).toBeLessThanOrEqual(500 - PANEL_BOTTOM_RESERVED + 1);
+      // Shrunk tiles keep the filmstrip aspect (narrower too) and stay inside
+      // the column rather than cropping to a letterbox.
+      expect(
+        Math.abs(s.w / s.h - MEETING_FILMSTRIP_TILE_W / MEETING_FILMSTRIP_TILE_H),
+      ).toBeLessThan(0.05);
+      expect(s.x).toBeGreaterThanOrEqual(0);
+      expect(s.x + s.w).toBeLessThanOrEqual(MEETING_FILMSTRIP_TILE_W);
     }
+  });
+
+  // #288: the filmstrip : share ratio is user-draggable; the layout takes the
+  // column width as a parameter and scales the tiles with it.
+  it('a wider filmstrip width scales the tiles (same aspect) and pushes the share right', () => {
+    const wide = 300;
+    const geos = computeMeetingPresentation([screen(), cam(), cam()], VW, VH, wide);
+    const main = meetBox(geos[0]);
+    const strip = geos.slice(1).map(meetBox);
+    for (const s of strip) {
+      expect(s.w).toBe(wide);
+      expect(s.h).toBe(filmstripTileHeight(wide));
+      expect(s.x).toBe(0);
+    }
+    expect(filmstripTileHeight(wide)).toBe(
+      Math.round((wide * MEETING_FILMSTRIP_TILE_H) / MEETING_FILMSTRIP_TILE_W),
+    );
+    expect(main.x).toBeGreaterThanOrEqual(meetingFilmstripColWidth(wide));
+    // The share still reaches the right edge.
+    expect(main.x + main.w).toBeGreaterThanOrEqual(VW - PANEL_GAP - 1);
+  });
+
+  it('defaults the filmstrip width to the fixed tile width when none is given', () => {
+    const a = computeMeetingPresentation([screen(), cam()], VW, VH);
+    const b = computeMeetingPresentation([screen(), cam()], VW, VH, MEETING_FILMSTRIP_TILE_W);
+    expect(a).toEqual(b);
+    expect(meetingFilmstripColWidth()).toBe(MEETING_FILMSTRIP_TILE_W);
+  });
+});
+
+describe('clampFilmstripWidth (#288)', () => {
+  it('passes a width inside the range through, rounded', () => {
+    expect(clampFilmstripWidth(200.4, VW)).toBe(200);
+  });
+
+  it('never goes thinner than the minimum thumbnail width', () => {
+    expect(clampFilmstripWidth(10, VW)).toBe(MEETING_FILMSTRIP_MIN_W);
+    expect(clampFilmstripWidth(-50, VW)).toBe(MEETING_FILMSTRIP_MIN_W);
+  });
+
+  it('never exceeds the viewport fraction cap', () => {
+    expect(clampFilmstripWidth(5000, VW)).toBe(Math.floor(VW * MEETING_FILMSTRIP_MAX_FRAC));
+  });
+
+  it('keeps the minimum reachable on a tiny viewport and falls back on bad input', () => {
+    // Narrower than 2×MIN: the cap would drop under MIN, so MIN wins.
+    expect(clampFilmstripWidth(500, 100)).toBe(MEETING_FILMSTRIP_MIN_W);
+    expect(clampFilmstripWidth(Number.NaN, VW)).toBe(MEETING_FILMSTRIP_TILE_W);
   });
 });

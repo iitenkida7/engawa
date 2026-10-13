@@ -865,22 +865,17 @@ const { zones: zonesList, grid: zoneGrid } = buildZones();
 
 export const ZONES: Zone[] = zonesList;
 
-// Zones that are enclosed meeting rooms (all-hands, CEO office, the numbered
-// meeting rooms, and the 1-on-1 rooms). Entering one flips the media view to the
-// full-screen immersive meeting layout (issue #263). The casual bubbles — booths
-// and the open lounge — are deliberately excluded: those stay as the small
-// floating tiles over the map, like a hallway chat.
+// Every zone is a conversation-restricted call bubble (meeting rooms, 1-on-1
+// rooms, booths and the outdoor cafés), and the server already puts every zone
+// group on the SFU unconditionally (computeProximityGroups: non-null zoneId =>
+// meeting group). Entering any of them flips the media view to the full-screen
+// immersive meeting layout (issue #263, widened in #287) so the client's
+// "meeting mode" and the server's "always SFU" cover exactly the same ground. A
+// hallway bump (no zone) keeps the small floating tiles over the map.
 export function isMeetingZone(zoneId: string | null | undefined): boolean {
-  if (!zoneId) return false;
-  return (
-    zoneId === 'all-hands' ||
-    zoneId === 'ceo' ||
-    zoneId.startsWith('meeting') ||
-    zoneId.startsWith('1on1')
-  );
+  return !!zoneId;
 }
 
-/** Return the zone containing pixel (px, py), or null when outside every zone. */
 export function zoneAt(px: number, py: number): Zone | null {
   const col = Math.floor(px / TILE_SIZE);
   const row = Math.floor(py / TILE_SIZE);

@@ -859,7 +859,7 @@
       }
 
       /* ===== Immersive meeting mode (#263) =====
-         Entered only while standing in a meeting-room zone: a black full-screen
+         Entered only while standing in a zone (room/booth/café): a black full-screen
          backdrop (above the 2D map, below the media tiles) and gap-free,
          chrome-less tiles that fill the screen edge-to-edge (Gather-style). */
       #meeting-backdrop {
@@ -959,6 +959,35 @@
       /* Expanded = fold back up: same chevron, rotated 180°. */
       #filmstrip-toggle.expanded svg {
         transform: rotate(180deg);
+      }
+
+      /* Filmstrip/share seam drag handle (#288): an invisible 10px grab strip
+         centered on the seam (translateX(-50%)), with a thin line that lights up
+         on hover/drag so the affordance is discoverable but not noisy. */
+      #filmstrip-resizer {
+        position: fixed;
+        z-index: 7;
+        width: 10px;
+        transform: translateX(-50%);
+        cursor: col-resize;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #filmstrip-resizer::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 4px;
+        width: 2px;
+        border-radius: 1px;
+        background: rgba(230, 232, 238, 0);
+        transition: background 0.12s ease;
+      }
+      #filmstrip-resizer:hover::after,
+      #filmstrip-resizer.dragging::after {
+        background: rgba(230, 232, 238, 0.75);
       }
 
       /* Minimize/restore the immersive meeting — top-left, toolbar chrome. */
@@ -1650,7 +1679,7 @@
     <div id="app">
       <canvas id="canvas"></canvas>
       <!-- Immersive meeting backdrop (#263): a full-screen black layer shown only
-           while #app has the `.meeting` class (set when in a meeting-room zone),
+           while #app has the `.meeting` class (set when standing in any zone),
            sitting above the 2D map but below the media tiles. -->
       <div id="meeting-backdrop"></div>
       <!-- Self-status menu, opened from the toolbar's status button and anchored
@@ -1765,6 +1794,10 @@
            left camera column in meeting presentation mode; positioned/shown in
            JS (RemoteMediaView.positionFilmstripToggle). -->
       <button id="filmstrip-toggle" type="button" style="display: none"></button>
+      <!-- Filmstrip/share seam drag handle (#288): resizes the left camera column
+           in meeting presentation mode; positioned/shown in JS
+           (RemoteMediaView.placeFilmstripResizer). -->
+      <div id="filmstrip-resizer" style="display: none"></div>
       <!-- Immersive meeting minimize/restore (#263): top-left toggle to drop the
            full-screen meeting back to floating tiles so the map (and the way
            out of the room) is reachable. Shown/labelled in JS. -->

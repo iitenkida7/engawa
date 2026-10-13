@@ -8,6 +8,7 @@ import {
   floorStyleAt,
   isDeskSeat,
   islandFloorStyle,
+  isMeetingZone,
   isSolid,
   LOUNGE_TABLE_RECTS,
   LOUNGES,
@@ -323,6 +324,15 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
         if (tile === Tile.WALL || tile === Tile.GRASS || tile === Tile.TREE) expect(z).toBeNull();
       }
     }
+  });
+
+  it('isMeetingZone: every zone (rooms, booths, cafés) is a meeting zone; the open floor is not', () => {
+    // #287: the immersive meeting layout covers exactly the zones the server
+    // puts on the SFU unconditionally — i.e. every zone, booths and cafés included.
+    for (const z of ZONES) expect(isMeetingZone(z.id)).toBe(true);
+    expect(isMeetingZone(null)).toBe(false);
+    expect(isMeetingZone(undefined)).toBe(false);
+    expect(isMeetingZone('')).toBe(false);
   });
 
   it('groups each room into a single distinct zone', () => {

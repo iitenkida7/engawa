@@ -1407,8 +1407,8 @@ export class App {
     }
 
     // Immersive meeting layout (#263): full-screen only while standing in a
-    // meeting-room zone; a hallway bump keeps the small floating tiles. No-ops
-    // when unchanged.
+    // zone (any room, booth or café — #287); a hallway bump keeps the small
+    // floating tiles. No-ops when unchanged.
     this.view.setMeetingMode(
       this.myStatus !== 'away' && isMeetingZone(this.me ? zoneAt(this.me.x, this.me.y)?.id : null),
     );

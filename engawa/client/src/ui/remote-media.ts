@@ -12,6 +12,7 @@ import { AutoplayGate } from '@/ui/autoplay';
 import {
   applyPanelGeometry,
   CAM_ASPECT,
+  clampFilmstripWidth,
   computeFocusLayout,
   computeGridLayout,
   computeMeetingGallery,
@@ -22,6 +23,8 @@ import {
   type LayoutItem,
   type LayoutMode,
   MEETING_FILMSTRIP_MAX_VISIBLE,
+  MEETING_FILMSTRIP_SEP,
+  MEETING_FILMSTRIP_TILE_W,
   MINIMIZED_SIDEBAR_MAX_VISIBLE,
   meetingFilmstripColWidth,
   minimizedSidebarWidth,
@@ -156,7 +159,7 @@ export class RemoteMediaView {
   private reconnecting = false;
 
   // Immersive meeting mode (issue #263): on only while the local user stands in a
-  // meeting-room zone (the App drives it via setMeetingMode). When on, the media
+  // zone — room, booth or café (the App drives it via setMeetingMode). When on, the media
   // windows fill the screen edge-to-edge over a black backdrop (Gather-style)
   // instead of floating over the 2D map. Orthogonal to layoutMode — it overrides
   // the arrangement while active and restores the floating layout when it clears.
@@ -164,11 +167,15 @@ export class RemoteMediaView {
   // Whether the camera filmstrip (presentation mode) shows everyone or just the
   // collapsed set. Toggled by the ⬇️ button; reset when meeting mode ends.
   private filmstripExpanded = false;
+  // Filmstrip column width (px) in presentation mode, dragged via the seam
+  // handle (#288). Per-meeting only: not persisted, reset when the meeting ends.
+  private filmstripWidth = MEETING_FILMSTRIP_TILE_W;
   // Minimized: in a meeting zone but temporarily dropped back to floating tiles
   // so the map (and the way out of the room) is reachable. Reset on leaving.
   private meetingMinimized = false;
   private appEl: HTMLElement;
   private filmstripToggleEl: HTMLButtonElement;
+  private filmstripResizerEl: HTMLDivElement;
   private meetingMinimizeEl: HTMLButtonElement;
 
   // Replays remote media the autoplay policy refused on the next user gesture
@@ -203,6 +210,9 @@ export class RemoteMediaView {
       this.filmstripExpanded = !this.filmstripExpanded;
       this.reflowLayout();
     });
+    this.filmstripResizerEl = document.getElementById('filmstrip-resizer') as HTMLDivElement;
+    this.filmstripResizerEl.title = t('media.filmstripResize');
+    this.bindFilmstripResizer();
     this.meetingMinimizeEl = document.getElementById('meeting-minimize') as HTMLButtonElement;
     this.meetingMinimizeEl.addEventListener('click', () => {
       this.meetingMinimized = !this.meetingMinimized;
@@ -814,6 +824,7 @@ export class RemoteMediaView {
     if (!on) {
       this.filmstripExpanded = false;
       this.meetingMinimized = false;
+      this.filmstripWidth = MEETING_FILMSTRIP_TILE_W;
     }
     // Entering/leaving a meeting flips whether your own camera-off tile shows.
     this.refreshSelfPreview();
@@ -848,6 +859,9 @@ export class RemoteMediaView {
     this.appEl.classList.toggle('meeting', meetingActive);
     this.updateMeetingControls(inMeeting);
     if (!meetingActive) this.hideFilmstripToggle();
+    // The seam handle only exists in the meeting presentation layout; every other
+    // branch below hides it, and layoutMeeting re-shows it when it applies.
+    this.hideFilmstripResizer();
     if (panels.length === 0) return;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -962,17 +976,75 @@ export class RemoteMediaView {
     for (const i of stripIdxs.slice(visibleCount)) panels[i].el.classList.add('meeting-hidden');
 
     const order = [mainIdx, ...visible];
+    // Re-clamp every reflow so a viewport shrink pulls an over-wide column back.
+    this.filmstripWidth = clampFilmstripWidth(this.filmstripWidth, vw);
     const geos = computeMeetingPresentation(
       order.map((i) => panels[i].item),
       vw,
       vh,
+      this.filmstripWidth,
     );
     order.forEach((pi, k) => {
       applyPanelGeometry(panels[pi].el, geos[k]);
     });
 
-    if (needToggle) this.placeToggle(meetingFilmstripColWidth() / 2, vh);
+    const colW = meetingFilmstripColWidth(this.filmstripWidth);
+    if (needToggle) this.placeToggle(colW / 2, vh);
     else this.hideFilmstripToggle();
+    // Nothing to resize when the share is alone (no filmstrip column).
+    if (visible.length > 0) this.placeFilmstripResizer(colW, vh);
+  }
+
+  // Parks the drag handle on the seam between the filmstrip and the share (#288):
+  // a thin full-height strip centered on the seam, above the tiles.
+  private placeFilmstripResizer(colW: number, vh: number) {
+    const el = this.filmstripResizerEl;
+    el.style.display = 'block';
+    el.style.left = `${Math.round(colW + MEETING_FILMSTRIP_SEP / 2)}px`;
+    el.style.top = '0px';
+    el.style.height = `${Math.max(1, vh - PANEL_BOTTOM_RESERVED)}px`;
+  }
+
+  // Display only: the `dragging` highlight is owned by the pointer handlers, since
+  // every drag move re-flows (and so passes through here) mid-drag.
+  private hideFilmstripResizer() {
+    this.filmstripResizerEl.style.display = 'none';
+  }
+
+  // Drag the seam to change the filmstrip : share ratio (#288). Pointer capture
+  // keeps the drag alive when the cursor outruns the thin handle; the width is
+  // clamped per reflow. Double-click snaps back to the default width.
+  private bindFilmstripResizer() {
+    const el = this.filmstripResizerEl;
+    let dragging = false;
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      // (Feature-checked: the test DOM has PointerEvent but no capture API.)
+      if (typeof el.setPointerCapture === 'function') el.setPointerCapture(e.pointerId);
+      el.classList.add('dragging');
+      e.preventDefault();
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      // The handle is centered on the seam, so the pointer x IS the column width.
+      this.filmstripWidth = clampFilmstripWidth(e.clientX, window.innerWidth);
+      this.reflowLayout();
+    });
+    const end = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      el.classList.remove('dragging');
+      if (typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId)) {
+        el.releasePointerCapture(e.pointerId);
+      }
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('dblclick', () => {
+      this.filmstripWidth = MEETING_FILMSTRIP_TILE_W;
+      this.reflowLayout();
+    });
   }
 
   // Parks the show-more/less chevron, centered on `centerX` at the bottom of the
