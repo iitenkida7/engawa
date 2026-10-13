@@ -1109,6 +1109,67 @@
         line-height: 1;
       }
 
+      /* ===== Keyboard shortcut reference (#297) ===== */
+      #keyhelp {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: min(380px, calc(100% - 32px));
+        max-height: calc(100% - 80px);
+        display: flex;
+        flex-direction: column;
+        background: rgba(28, 32, 40, 0.98);
+        border: 1px solid #3a4050;
+        border-radius: 10px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        z-index: 1200;
+        overflow: hidden;
+        color: #e6e8ee;
+      }
+      #keyhelp.hidden {
+        display: none;
+      }
+      #keyhelp-list {
+        overflow-y: auto;
+        padding: 6px 0;
+      }
+      .keyhelp-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 14px;
+        font-size: 13px;
+      }
+      .keyhelp-keys {
+        display: flex;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+      .keyhelp-key {
+        min-width: 22px;
+        padding: 2px 6px;
+        text-align: center;
+        background: #2a3040;
+        border: 1px solid #454c60;
+        border-bottom-width: 2px;
+        border-radius: 5px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        color: #e6e8ee;
+      }
+      .keyhelp-label {
+        color: #b9bfcc;
+        text-align: right;
+      }
+      #keyhelp-note {
+        padding: 8px 14px 10px;
+        border-top: 1px solid #3a4050;
+        color: #8a90a0;
+        font-size: 11px;
+      }
+
       /* ===== Participant roster (#242) ===== */
       #roster {
         position: absolute;
@@ -1714,6 +1775,16 @@
       <div id="avatar-menu" class="device-menu hidden"></div>
       <!-- Participant roster (#242): a toggleable list of everyone in the space,
            so audio-only members hidden from the tile grid are still visible. -->
+      <!-- Keyboard shortcut reference (#297), opened from the ⋯ menu. Rows are
+           built by ui/keyhelp.ts from the SHORTCUT_HELP table. -->
+      <div id="keyhelp" class="hidden">
+        <div class="roster-head">
+          <span id="keyhelp-title">⌨ キーバインド</span>
+          <button id="keyhelp-close" class="roster-close" aria-label="閉じる">✕</button>
+        </div>
+        <div id="keyhelp-list"></div>
+        <div id="keyhelp-note"></div>
+      </div>
       <div id="roster" class="hidden">
         <div class="roster-head">
           <span id="roster-title">参加者</span>

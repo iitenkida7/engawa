@@ -19,26 +19,37 @@ describe('InputManager.getDirection', () => {
     expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
   });
 
-  it('moves left on ArrowLeft and right on "d"', () => {
+  it('moves left on ArrowLeft and right on vim\'s "l"', () => {
     const left = new InputManager();
     press('ArrowLeft');
     expect(left.getDirection()).toEqual({ dx: -1, dy: 0 });
     release('ArrowLeft');
 
     const right = new InputManager();
-    press('d');
+    press('l');
     expect(right.getDirection()).toEqual({ dx: 1, dy: 0 });
-    release('d');
+    release('l');
   });
 
-  it('maps w/s to up/down', () => {
+  it('maps vim k/j to up/down and h to left', () => {
     const im = new InputManager();
-    press('w');
+    press('k');
     expect(im.getDirection()).toEqual({ dx: 0, dy: -1 });
-    release('w');
-    press('s');
+    release('k');
+    press('j');
     expect(im.getDirection()).toEqual({ dx: 0, dy: 1 });
-    release('s');
+    release('j');
+    press('h');
+    expect(im.getDirection()).toEqual({ dx: -1, dy: 0 });
+    release('h');
+  });
+
+  it('no longer walks on WASD — those keys are action shortcuts now (#297)', () => {
+    const im = new InputManager();
+    for (const key of ['w', 'a', 's', 'd']) press(key);
+    expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
+    expect(im.getStepDirection()).toEqual({ dx: 0, dy: 0 });
+    for (const key of ['w', 'a', 's', 'd']) release(key);
   });
 
   it('cancels opposite keys', () => {
@@ -50,8 +61,8 @@ describe('InputManager.getDirection', () => {
 
   it('normalizes diagonal movement to unit length', () => {
     const im = new InputManager();
-    press('w');
-    press('d');
+    press('k');
+    press('l');
     const { dx, dy } = im.getDirection();
     const inv = 1 / Math.sqrt(2);
     expect(dx).toBeCloseTo(inv, 10);
@@ -61,27 +72,27 @@ describe('InputManager.getDirection', () => {
 
   it('is case-insensitive for letter keys', () => {
     const im = new InputManager();
-    press('D');
+    press('L');
     expect(im.getDirection()).toEqual({ dx: 1, dy: 0 });
   });
 
   it('clears all keys on window blur', () => {
     const im = new InputManager();
-    press('w');
+    press('k');
     window.dispatchEvent(new Event('blur'));
     expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
   });
 
   it('clears a held key even when keyup fires from a text input (no stuck key)', () => {
     const im = new InputManager();
-    press('w');
+    press('k');
     expect(im.getDirection()).toEqual({ dx: 0, dy: -1 });
 
     // Focus moved into the chat box between keydown and keyup: the keyup now
     // targets the INPUT and bubbles to window. It must still clear the key.
     const input = document.createElement('input');
     document.body.appendChild(input);
-    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'w', bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'k', bubbles: true }));
     input.remove();
 
     expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
@@ -89,9 +100,9 @@ describe('InputManager.getDirection', () => {
 
   it('ignores modifier combos so browser shortcuts are not treated as movement', () => {
     const im = new InputManager();
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', metaKey: true }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }));
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', altKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', metaKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ctrlKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', altKey: true }));
     expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
   });
 });
@@ -108,25 +119,25 @@ describe('InputManager.getStepDirection', () => {
 
   it('returns a single cardinal direction per key (never diagonal)', () => {
     const im = new InputManager();
-    press('w');
-    press('d');
-    // Last pressed wins — 'd' (right), not a diagonal.
+    press('k');
+    press('l');
+    // Last pressed wins — 'l' (right), not a diagonal.
     expect(im.getStepDirection()).toEqual({ dx: 1, dy: 0 });
   });
 
   it('falls back to the still-held key when the latest is released', () => {
     const im = new InputManager();
-    press('w');
-    press('d');
+    press('k');
+    press('l');
     expect(im.getStepDirection()).toEqual({ dx: 1, dy: 0 });
-    release('d');
-    // 'w' is still held → resume moving up.
+    release('l');
+    // 'k' is still held → resume moving up.
     expect(im.getStepDirection()).toEqual({ dx: 0, dy: -1 });
   });
 
   it('clears order on blur', () => {
     const im = new InputManager();
-    press('w');
+    press('k');
     window.dispatchEvent(new Event('blur'));
     expect(im.getStepDirection()).toEqual({ dx: 0, dy: 0 });
   });

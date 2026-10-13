@@ -1,3 +1,6 @@
+// Movement keys: the arrows plus vim's hjkl (issue #297). WASD was dropped at the
+// same time to free the letter row for the action shortcuts in core/shortcuts.ts
+// ('a' mic, 's' screen share) — a key can't both walk and toggle the mic.
 export class InputManager {
   private keys = new Set<string>();
   // Held movement keys in press order (oldest first). Used by getStepDirection
@@ -48,20 +51,20 @@ export class InputManager {
       k === 'arrowdown' ||
       k === 'arrowleft' ||
       k === 'arrowright' ||
-      k === 'w' ||
-      k === 'a' ||
-      k === 's' ||
-      k === 'd'
+      k === 'h' ||
+      k === 'j' ||
+      k === 'k' ||
+      k === 'l'
     );
   }
 
   getDirection(): { dx: number; dy: number } {
     let dx = 0;
     let dy = 0;
-    if (this.keys.has('arrowleft') || this.keys.has('a')) dx -= 1;
-    if (this.keys.has('arrowright') || this.keys.has('d')) dx += 1;
-    if (this.keys.has('arrowup') || this.keys.has('w')) dy -= 1;
-    if (this.keys.has('arrowdown') || this.keys.has('s')) dy += 1;
+    if (this.keys.has('arrowleft') || this.keys.has('h')) dx -= 1;
+    if (this.keys.has('arrowright') || this.keys.has('l')) dx += 1;
+    if (this.keys.has('arrowup') || this.keys.has('k')) dy -= 1;
+    if (this.keys.has('arrowdown') || this.keys.has('j')) dy += 1;
     if (dx !== 0 && dy !== 0) {
       const inv = 1 / Math.sqrt(2);
       dx *= inv;
@@ -77,16 +80,16 @@ export class InputManager {
     for (let i = this.order.length - 1; i >= 0; i--) {
       switch (this.order[i]) {
         case 'arrowleft':
-        case 'a':
+        case 'h':
           return { dx: -1, dy: 0 };
         case 'arrowright':
-        case 'd':
+        case 'l':
           return { dx: 1, dy: 0 };
         case 'arrowup':
-        case 'w':
+        case 'k':
           return { dx: 0, dy: -1 };
         case 'arrowdown':
-        case 's':
+        case 'j':
           return { dx: 0, dy: 1 };
       }
     }

@@ -29,7 +29,9 @@ export class RosterPanel {
     return !this.panel.classList.contains('hidden');
   }
 
-  private toggle() {
+  // Public so the 'p' shortcut (issue #297) opens/closes the same way the button
+  // does.
+  toggle() {
     if (this.isOpen) this.close();
     else this.open();
   }

@@ -15,6 +15,7 @@ import {
   RECONNECT_STEADY_AFTER_ATTEMPTS,
 } from '@/core/reconnect';
 import { evaluateBoot, ReloadBanner } from '@/core/reload';
+import { resolveShortcut } from '@/core/shortcuts';
 import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
   CLICK_MOVE_MULTIPLIER,
@@ -68,6 +69,7 @@ import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
 import { DebugConsole } from '@/ui/debug-console';
 import { DesktopNotifier, knockAlertLevel } from '@/ui/desktop-notify';
+import { KeyHelpPanel } from '@/ui/keyhelp';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
 import { ReactionToasts } from '@/ui/reaction-toast';
@@ -125,6 +127,7 @@ export class App {
   private toasts = new Toasts();
   private reactionToasts = new ReactionToasts();
   private roster = new RosterPanel({ getPlayers: () => this.players });
+  private keyHelp = new KeyHelpPanel();
   private sounds = new SoundManager();
   private desktopNotifier = new DesktopNotifier();
   private knocks: KnockController;
@@ -272,7 +275,7 @@ export class App {
   private onCanvasDblClick = (e: MouseEvent) => this.handleCanvasDblClick(e);
   private onCanvasClick = (e: MouseEvent) => this.handleCanvasClick(e);
   private avatarMenuEl = document.getElementById('avatar-menu') as HTMLDivElement;
-  private onReactionKey = (e: KeyboardEvent) => this.handleReactionKey(e);
+  private onShortcutKey = (e: KeyboardEvent) => this.handleShortcutKey(e);
   private onBeforeUnload = (e: BeforeUnloadEvent) => {
     if (!shouldConfirmUnload(this.me !== null)) return;
     // Setting returnValue is what triggers the browser's native confirm dialog;
@@ -442,6 +445,7 @@ export class App {
       // menu now; reopening the character maker in-room relays the new outfit to
       // peers (see onOutfitApplied).
       onOpenAvatar: () => this.editor.open({ onApply: (o) => this.onOutfitApplied(o) }),
+      onOpenShortcuts: () => this.keyHelp.toggle(),
       // The 🐛 debug console lives in the toolbar's "⋯" menu (issue #113). These
       // resolve lazily on click, so referencing this.debug (built below) is fine.
       toggleDebug: () => this.debug.toggle(),
@@ -503,15 +507,20 @@ export class App {
     this.canvas.addEventListener('dblclick', this.onCanvasDblClick);
     this.canvas.addEventListener('click', this.onCanvasClick);
 
-    // Number keys 1–6 fire the matching reaction (issue #23). Ignored while
-    // typing in a field, and key-repeat is dropped so holding a key doesn't spam.
-    window.addEventListener('keydown', this.onReactionKey);
+    // Keyboard shortcuts: reactions on 1–6 (issue #23) plus the media/view
+    // toggles (issue #297). Ignored while typing in a field, and key-repeat is
+    // dropped so holding a key doesn't spam.
+    window.addEventListener('keydown', this.onShortcutKey);
   }
 
-  // Map a 1–6 keypress to REACTION_EMOJIS and send it. The send-side debounce in
-  // sendReaction guards against rapid presses.
-  private handleReactionKey(e: KeyboardEvent) {
-    if (e.repeat || !this.me) return;
+  // Run a keyboard shortcut. The key → action table lives in core/shortcuts.ts
+  // (pure, tested); this only performs the action it returns. Rapid presses are
+  // safe: reactions are debounced in sendReaction and the rest are toggles.
+  private handleShortcutKey(e: KeyboardEvent) {
+    // Only once we're on the map: before that the join overlay owns the keyboard.
+    if (!this.me) return;
+    // Skipped while typing, same guard as world/input.ts and the Esc handler in
+    // ui/remote-media.ts — 'm' in a message is an 'm', not "show map".
     const t = e.target;
     if (
       t instanceof HTMLElement &&
@@ -519,9 +528,34 @@ export class App {
     ) {
       return;
     }
-    const idx = REACTION_EMOJIS.findIndex((_, i) => e.key === String(i + 1));
-    if (idx < 0) return;
-    this.sendReaction(REACTION_EMOJIS[idx]);
+    const hit = resolveShortcut(e);
+    if (!hit) return;
+    switch (hit.action) {
+      case 'reaction':
+        this.sendReaction(REACTION_EMOJIS[hit.index]);
+        break;
+      case 'meeting-view':
+        this.view.toggleMeetingView();
+        break;
+      case 'zoom':
+        this.renderer.toggleZoom();
+        break;
+      case 'mic':
+        void this.toolbar.toggleMic();
+        break;
+      case 'cam':
+        void this.toolbar.toggleCam();
+        break;
+      case 'screen':
+        void this.toolbar.toggleScreen();
+        break;
+      case 'record':
+        this.toolbar.toggleRecord();
+        break;
+      case 'roster':
+        this.roster.toggle();
+        break;
+    }
   }
 
   private handleCanvasDblClick(e: MouseEvent) {
@@ -754,7 +788,7 @@ export class App {
     this.bgTicker = null;
     this.canvas.removeEventListener('dblclick', this.onCanvasDblClick);
     this.canvas.removeEventListener('click', this.onCanvasClick);
-    window.removeEventListener('keydown', this.onReactionKey);
+    window.removeEventListener('keydown', this.onShortcutKey);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('online', this.onOnline);
