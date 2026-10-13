@@ -5,6 +5,7 @@ import {
   type GroupMember,
   generateSpawn,
   isAllowedReaction,
+  isSpawnClear,
   isValidStreamMetaKind,
   MAP_HEIGHT,
   MAP_WIDTH,
@@ -362,7 +363,14 @@ export function createWebSocketHandler(
             if (!c.data.joined || c.data.workspace !== workspace || c.data.away) continue;
             occupied.push({ x: c.data.x, y: c.data.y });
           }
-          const spawn = generateSpawn(Math.random, occupied);
+          // Prefer the client's saved last position ("your usual spot") when it's
+          // still clear of everyone; otherwise fall back to the normal spawn.
+          let spawn: { x: number; y: number } | null = null;
+          if (msg.spawn && Number.isFinite(msg.spawn.x) && Number.isFinite(msg.spawn.y)) {
+            const preferred = clampPosition(msg.spawn.x, msg.spawn.y);
+            if (isSpawnClear(preferred, occupied)) spawn = preferred;
+          }
+          if (!spawn) spawn = generateSpawn(Math.random, occupied);
           ws.data.x = spawn.x;
           ws.data.y = spawn.y;
           ws.data.joined = true;

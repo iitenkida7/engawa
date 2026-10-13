@@ -6,6 +6,7 @@ import {
   generateSpawn,
   isAllowedReaction,
   isPasswordRequired,
+  isSpawnClear,
   isValidStreamMetaKind,
   MAP_HEIGHT,
   MAP_WIDTH,
@@ -194,6 +195,20 @@ describe('generateSpawn', () => {
     const spawn = generateSpawn(rand, [{ x: 1200, y: 800 }]);
     const dist = Math.hypot(spawn.x - 1200, spawn.y - 800);
     expect(dist).toBeGreaterThanOrEqual(150);
+  });
+});
+
+describe('isSpawnClear (returning to your usual spot)', () => {
+  test('is clear when nobody is here', () => {
+    expect(isSpawnClear({ x: 1300, y: 1000 }, [])).toBe(true);
+  });
+
+  test('is clear when everyone is beyond the clearance', () => {
+    expect(isSpawnClear({ x: 1300, y: 1000 }, [{ x: 2000, y: 2000 }])).toBe(true);
+  });
+
+  test('is NOT clear when someone sits inside the bubble', () => {
+    expect(isSpawnClear({ x: 1300, y: 1000 }, [{ x: 1320, y: 1010 }])).toBe(false);
   });
 });
 
