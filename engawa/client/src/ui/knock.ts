@@ -74,7 +74,8 @@ export class KnockController {
     // Remember knocks that land in a background tab: the toast below expires
     // after KNOCK_COOLDOWN_MS, possibly before the user comes back (#140).
     if (this.isHidden()) this.missed.set(fromUserId, { name, at: this.now() });
-    this.deps.sounds.enter();
+    // A distinct doorbell "ピンポン", not the enter chime, so a call is obvious.
+    this.deps.sounds.knock();
     this.deps.toasts.action(
       t('knock.wantsTalk', { name }),
       [

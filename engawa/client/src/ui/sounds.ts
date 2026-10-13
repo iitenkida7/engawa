@@ -29,6 +29,12 @@ export class SoundManager {
     this.playSequence([783.99, 523.25], 0.08, 0.12); // G5 → C5
   }
 
+  // Two-tone doorbell "ピンポン" for an incoming knock (someone is calling you) —
+  // longer, bell-like notes so it's clearly distinct from the enter/leave chimes.
+  knock() {
+    this.playSequence([659.25, 523.25], 0.26, 0.26); // E5 → C5 (ding-dong)
+  }
+
   private playSequence(freqs: number[], durEach: number, peak: number) {
     const ctx = this.getCtx();
     let t = ctx.currentTime + 0.005;
