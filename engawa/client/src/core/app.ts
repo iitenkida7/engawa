@@ -35,6 +35,7 @@ import {
   type SfuTrack,
   STEP_DURATION_MS,
 } from '@/core/types';
+import { shouldDisableOnZoneExit } from '@/core/zone-media';
 import { SceneCompositor } from '@/media/compositor';
 import { MediaManager } from '@/media/media';
 import { RecorderManager } from '@/media/recorder';
@@ -164,6 +165,10 @@ export class App {
 
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
+  // Previous frame's zone id (null = open floor), so update() can spot the step
+  // out of a room and cut our media (#306). Same prev-state-diff shape as
+  // `inProximity` above.
+  private lastZoneId: string | null = null;
   // userId → the time they joined, kept briefly so we can SUPPRESS the proximity
   // enter chime for someone who just logged in near us (that's a login, not a
   // walk-up). Walk-ups and room transitions still chime. Expires after the grace.
@@ -924,6 +929,13 @@ export class App {
   // and auto-resume once the network has climbed back to tier ≤1. A manual
   // camera toggle clears `autoCamOff` (see onUserCamToggle) so the automation
   // never fights the user.
+  // True when anything we capture is live. Reading MediaManager directly (the
+  // same getters the toolbar uses) keeps this honest about the device state
+  // rather than about which buttons look pressed.
+  private anyLocalMediaOn(): boolean {
+    return this.media.micOn || this.media.camOn || this.media.screenOn;
+  }
+
   private async applyAutoCamPolicy(tier: NetTier) {
     if (tier === 3 && this.media.camOn && !this.autoCamOff) {
       this.autoCamOff = true;
@@ -1523,12 +1535,24 @@ export class App {
       }
     }
 
+    const zoneId = this.me ? (zoneAt(this.me.x, this.me.y)?.id ?? null) : null;
     // Immersive meeting layout (#263): full-screen only while standing in a
     // zone (any room, booth or café — #287); a hallway bump keeps the small
     // floating tiles. No-ops when unchanged.
-    this.view.setMeetingMode(
-      this.myStatus !== 'away' && isMeetingZone(this.me ? zoneAt(this.me.x, this.me.y)?.id : null),
-    );
+    this.view.setMeetingMode(this.myStatus !== 'away' && isMeetingZone(zoneId));
+
+    // Walking out of a zone cuts mic, camera and screen share (#306). The flag
+    // `autoCamOff` is deliberately NOT set: that one belongs to the tier-3
+    // policy, which would otherwise restore this camera the moment the network
+    // recovers. Nothing here turns media back on — walking back in leaves the
+    // decision to re-share with the user, as audio-only mode does (#188).
+    // Recording keeps running: it was started deliberately and is the user's to
+    // stop.
+    if (shouldDisableOnZoneExit(this.lastZoneId, zoneId, this.anyLocalMediaOn())) {
+      this.toolbar.disableAllMedia();
+      this.toasts.info(t('app.zoneLeftMediaOff'));
+    }
+    this.lastZoneId = zoneId;
 
     // Speaking detection (local + remote tiles) is owned by the media view.
     this.view.updateSpeaking();
