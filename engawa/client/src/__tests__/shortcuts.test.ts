@@ -5,12 +5,28 @@ import { REACTION_EMOJIS } from '@/core/types';
 
 describe('resolveShortcut', () => {
   test('maps each bare key to its action', () => {
-    expect(resolveShortcut({ key: 'm' })).toEqual({ action: 'meeting-view' });
-    expect(resolveShortcut({ key: 'z' })).toEqual({ action: 'zoom' });
-    expect(resolveShortcut({ key: 'a' })).toEqual({ action: 'mic' });
+    expect(resolveShortcut({ key: 'm' })).toEqual({ action: 'mic' });
     expect(resolveShortcut({ key: 'c' })).toEqual({ action: 'cam' });
-    expect(resolveShortcut({ key: 's' })).toEqual({ action: 'screen' });
+    expect(resolveShortcut({ key: 'v' })).toEqual({ action: 'meeting-view' });
+    expect(resolveShortcut({ key: 'z' })).toEqual({ action: 'zoom' });
     expect(resolveShortcut({ key: 'p' })).toEqual({ action: 'roster' });
+  });
+
+  test('leaves every movement key to the avatar (#302)', () => {
+    // All three dialects walk, so none of these twelve may fire an action —
+    // 'a' and 's' in particular used to be mic and screen share.
+    for (const key of ['w', 'a', 's', 'd', 'h', 'j', 'k', 'l']) {
+      expect(resolveShortcut({ key })).toBeNull();
+    }
+    for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']) {
+      expect(resolveShortcut({ key })).toBeNull();
+    }
+  });
+
+  test('opens the shortcut list on ?', () => {
+    expect(resolveShortcut({ key: '?', shiftKey: true })).toEqual({ action: 'help' });
+    // Some layouts put '?' on a key of its own, with no Shift reported.
+    expect(resolveShortcut({ key: '?' })).toEqual({ action: 'help' });
   });
 
   test('maps 1–6 to the matching reaction index', () => {
@@ -26,14 +42,18 @@ describe('resolveShortcut', () => {
     expect(resolveShortcut({ key: '0' })).toBeNull();
   });
 
-  test('takes Shift for recording, so a stray keypress cannot start it', () => {
+  test('puts what others see behind Shift, so a stray keypress cannot fire it', () => {
     expect(resolveShortcut({ key: 'R', shiftKey: true })).toEqual({ action: 'record' });
+    expect(resolveShortcut({ key: 'S', shiftKey: true })).toEqual({ action: 'screen' });
     // Bare 'r' is deliberately dead — recording announces itself to the call.
+    // Bare 's' walks the avatar south instead (#302).
     expect(resolveShortcut({ key: 'r' })).toBeNull();
+    expect(resolveShortcut({ key: 's' })).toBeNull();
   });
 
   test('Shift + any other key is dead rather than falling through', () => {
     expect(resolveShortcut({ key: 'M', shiftKey: true })).toBeNull();
+    expect(resolveShortcut({ key: 'V', shiftKey: true })).toBeNull();
     expect(resolveShortcut({ key: 'A', shiftKey: true })).toBeNull();
   });
 
@@ -43,8 +63,10 @@ describe('resolveShortcut', () => {
     expect(resolveShortcut({ key: '1', metaKey: true })).toBeNull();
     expect(resolveShortcut({ key: 'z', metaKey: true })).toBeNull();
     expect(resolveShortcut({ key: 'm', ctrlKey: true })).toBeNull();
-    expect(resolveShortcut({ key: 'a', altKey: true })).toBeNull();
+    expect(resolveShortcut({ key: 'c', altKey: true })).toBeNull();
     expect(resolveShortcut({ key: 'r', shiftKey: true, metaKey: true })).toBeNull();
+    expect(resolveShortcut({ key: 's', shiftKey: true, ctrlKey: true })).toBeNull();
+    expect(resolveShortcut({ key: '?', metaKey: true })).toBeNull();
   });
 
   test('drops auto-repeat so holding a key does not mash a toggle', () => {
@@ -52,16 +74,16 @@ describe('resolveShortcut', () => {
   });
 
   test('leaves IME composition keystrokes to the IME', () => {
-    expect(resolveShortcut({ key: 'a', isComposing: true })).toBeNull();
+    expect(resolveShortcut({ key: 'm', isComposing: true })).toBeNull();
   });
 
   test('survives Caps Lock', () => {
     // Caps Lock reports the uppercase key without shiftKey.
-    expect(resolveShortcut({ key: 'M' })).toEqual({ action: 'meeting-view' });
+    expect(resolveShortcut({ key: 'M' })).toEqual({ action: 'mic' });
   });
 
-  test('ignores keys with no binding, including the movement keys', () => {
-    for (const key of ['h', 'j', 'k', 'l', 'ArrowUp', 'Enter', ' ', 'Escape', 'w', 'd']) {
+  test('ignores keys with no binding', () => {
+    for (const key of ['Enter', ' ', 'Escape', 'Tab', 'q', 'e', 'f', 'g']) {
       expect(resolveShortcut({ key })).toBeNull();
     }
   });
@@ -87,6 +109,8 @@ describe('SHORTCUT_HELP', () => {
     const documented = SHORTCUT_HELP.map((r) => r.labelKey);
     for (const key of [
       'keys.move',
+      'keys.moveArrows',
+      'keys.moveWasd',
       'keys.meetingView',
       'keys.zoom',
       'keys.mic',
@@ -95,6 +119,7 @@ describe('SHORTCUT_HELP', () => {
       'keys.record',
       'keys.roster',
       'keys.reaction',
+      'keys.help',
     ]) {
       expect(documented).toContain(key);
     }

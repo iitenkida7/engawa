@@ -235,10 +235,11 @@ const STR: Record<string, Record<Lang, string>> = {
   'chat.title': { ja: '💬 チャット', en: '💬 Chat' },
   'chat.placeholder': { ja: '近くの人にメッセージ…', en: 'Message people nearby…' },
 
-  // -- keyboard shortcuts (#297) --------------------------------------------
+  // -- keyboard shortcuts (#297, re-laid-out in #302) ------------------------
   'keys.title': { ja: '⌨ キーバインド', en: '⌨ Keyboard shortcuts' },
   'keys.move': { ja: '移動（vim）', en: 'Move (vim)' },
   'keys.moveArrows': { ja: '移動（矢印）', en: 'Move (arrows)' },
+  'keys.moveWasd': { ja: '移動（WASD）', en: 'Move (WASD)' },
   'keys.meetingView': { ja: '会議表示 ⇄ マップ表示', en: 'Meeting view ⇄ map' },
   'keys.zoom': { ja: '自分にズーム ⇄ 全体表示', en: 'Zoom to me ⇄ fit map' },
   'keys.mic': { ja: 'マイク ON/OFF', en: 'Mic on/off' },
@@ -247,10 +248,11 @@ const STR: Record<string, Record<Lang, string>> = {
   'keys.record': { ja: '録画 開始/停止', en: 'Start/stop recording' },
   'keys.roster': { ja: '参加者リスト 開閉', en: 'Toggle participants' },
   'keys.reaction': { ja: 'リアクション', en: 'Reactions' },
+  'keys.help': { ja: 'この一覧 開閉', en: 'Toggle this list' },
   'keys.focusOut': { ja: '最大化を戻す', en: 'Exit maximized view' },
   'keys.note': {
-    ja: '入力欄にカーソルがあるときは動きません。',
-    en: 'Inactive while a text field has focus.',
+    ja: 'Shift 付きは、ほかの人に見える操作です。入力欄にカーソルがあるときは動きません。',
+    en: 'Shift + key is for what others see. Inactive while a text field has focus.',
   },
 
   // -- layout ---------------------------------------------------------------

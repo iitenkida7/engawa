@@ -4,7 +4,9 @@ import { REACTION_EMOJIS } from '@/core/types';
 // it can be tested without a DOM; the App performs the action it returns.
 // Movement keys are NOT here — they're held-state, owned by world/input.ts.
 export type Shortcut =
-  | { action: 'meeting-view' | 'zoom' | 'mic' | 'cam' | 'screen' | 'record' | 'roster' }
+  | {
+      action: 'meeting-view' | 'zoom' | 'mic' | 'cam' | 'screen' | 'record' | 'roster' | 'help';
+    }
   // Index into REACTION_EMOJIS, from the 1-6 number row.
   | { action: 'reaction'; index: number };
 
@@ -34,23 +36,31 @@ export function resolveShortcut(e: ShortcutKeyEvent): Shortcut | null {
   // shortcuts.
   const key = e.key.toLowerCase();
 
-  // Recording announces itself to everyone in the call (issue #293), so it is
-  // the one binding that takes Shift: a stray keypress must not start it.
-  // Shift + anything else is deliberately dead rather than falling through to
-  // the bare-key table (Shift+M is not "show map").
-  if (e.shiftKey) return key === 'r' ? { action: 'record' } : null;
+  // '?' is Shift+/ on most layouts, so it is read before the Shift branch below.
+  if (key === '?') return { action: 'help' };
 
+  // The one rule worth remembering: a bare key only affects you, Shift means
+  // everyone in the call sees it (issue #302). Recording announces itself
+  // (issue #293) and a screen share puts your desktop on their tiles — neither
+  // should ever fire from a stray keypress. Shift + anything else is
+  // deliberately dead rather than falling through to the bare-key table
+  // (Shift+M is not "mic").
+  if (e.shiftKey) {
+    if (key === 'r') return { action: 'record' };
+    if (key === 's') return { action: 'screen' };
+    return null;
+  }
+
+  // Bare keys stay off w/a/s/d and h/j/k/l — those twelve walk (world/input.ts).
   switch (key) {
     case 'm':
-      return { action: 'meeting-view' };
-    case 'z':
-      return { action: 'zoom' };
-    case 'a':
       return { action: 'mic' };
     case 'c':
       return { action: 'cam' };
-    case 's':
-      return { action: 'screen' };
+    case 'v':
+      return { action: 'meeting-view' };
+    case 'z':
+      return { action: 'zoom' };
     case 'p':
       return { action: 'roster' };
   }
@@ -67,15 +77,17 @@ export function resolveShortcut(e: ShortcutKeyEvent): Shortcut | null {
 // can't drift apart. Each entry renders one row: `keys` becomes a chip each
 // (a combo is one chip, "Shift + R"), `labelKey` is looked up with t().
 export const SHORTCUT_HELP: { keys: string[]; labelKey: string }[] = [
-  { keys: ['H', 'J', 'K', 'L'], labelKey: 'keys.move' },
   { keys: ['←', '↓', '↑', '→'], labelKey: 'keys.moveArrows' },
-  { keys: ['M'], labelKey: 'keys.meetingView' },
-  { keys: ['Z'], labelKey: 'keys.zoom' },
-  { keys: ['A'], labelKey: 'keys.mic' },
+  { keys: ['H', 'J', 'K', 'L'], labelKey: 'keys.move' },
+  { keys: ['W', 'A', 'S', 'D'], labelKey: 'keys.moveWasd' },
+  { keys: ['M'], labelKey: 'keys.mic' },
   { keys: ['C'], labelKey: 'keys.cam' },
-  { keys: ['S'], labelKey: 'keys.screen' },
-  { keys: ['Shift + R'], labelKey: 'keys.record' },
+  { keys: ['V'], labelKey: 'keys.meetingView' },
+  { keys: ['Z'], labelKey: 'keys.zoom' },
   { keys: ['P'], labelKey: 'keys.roster' },
   { keys: [`1–${REACTION_EMOJIS.length}`], labelKey: 'keys.reaction' },
+  { keys: ['Shift + S'], labelKey: 'keys.screen' },
+  { keys: ['Shift + R'], labelKey: 'keys.record' },
+  { keys: ['?'], labelKey: 'keys.help' },
   { keys: ['Esc'], labelKey: 'keys.focusOut' },
 ];
