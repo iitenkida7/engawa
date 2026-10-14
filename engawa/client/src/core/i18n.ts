@@ -239,6 +239,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'keys.title': { ja: '⌨ キーバインド', en: '⌨ Keyboard shortcuts' },
   'keys.move': { ja: '移動（vim）', en: 'Move (vim)' },
   'keys.moveArrows': { ja: '移動（矢印）', en: 'Move (arrows)' },
+  'keys.moveWasd': { ja: '移動（WASD）', en: 'Move (WASD)' },
   'keys.meetingView': { ja: '会議表示 ⇄ マップ表示', en: 'Meeting view ⇄ map' },
   'keys.zoom': { ja: '自分にズーム ⇄ 全体表示', en: 'Zoom to me ⇄ fit map' },
   'keys.mic': { ja: 'マイク ON/OFF', en: 'Mic on/off' },

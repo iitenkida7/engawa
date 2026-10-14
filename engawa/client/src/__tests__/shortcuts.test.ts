@@ -7,9 +7,9 @@ describe('resolveShortcut', () => {
   test('maps each bare key to its action', () => {
     expect(resolveShortcut({ key: 'm' })).toEqual({ action: 'meeting-view' });
     expect(resolveShortcut({ key: 'z' })).toEqual({ action: 'zoom' });
-    expect(resolveShortcut({ key: 'a' })).toEqual({ action: 'mic' });
+    expect(resolveShortcut({ key: 'q' })).toEqual({ action: 'mic' });
     expect(resolveShortcut({ key: 'c' })).toEqual({ action: 'cam' });
-    expect(resolveShortcut({ key: 's' })).toEqual({ action: 'screen' });
+    expect(resolveShortcut({ key: 'x' })).toEqual({ action: 'screen' });
     expect(resolveShortcut({ key: 'p' })).toEqual({ action: 'roster' });
   });
 
@@ -61,7 +61,9 @@ describe('resolveShortcut', () => {
   });
 
   test('ignores keys with no binding, including the movement keys', () => {
-    for (const key of ['h', 'j', 'k', 'l', 'ArrowUp', 'Enter', ' ', 'Escape', 'w', 'd']) {
+    // WASD (incl. a/s, which moved off mic/screen) and hjkl/arrows are movement,
+    // not shortcuts, so the resolver ignores them.
+    for (const key of ['h', 'j', 'k', 'l', 'ArrowUp', 'Enter', ' ', 'Escape', 'w', 'a', 's', 'd']) {
       expect(resolveShortcut({ key })).toBeNull();
     }
   });

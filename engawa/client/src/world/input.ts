@@ -1,6 +1,6 @@
-// Movement keys: the arrows plus vim's hjkl (issue #297). WASD was dropped at the
-// same time to free the letter row for the action shortcuts in core/shortcuts.ts
-// ('a' mic, 's' screen share) — a key can't both walk and toggle the mic.
+// Movement keys: the arrows, vim's hjkl, and WASD (revived by request). WASD
+// reclaims 'a'/'s', so the mic/screen action shortcuts moved off them (to 'q'/'x'
+// in core/shortcuts.ts) — a key can't both walk and toggle the mic.
 export class InputManager {
   private keys = new Set<string>();
   // Held movement keys in press order (oldest first). Used by getStepDirection
@@ -54,17 +54,21 @@ export class InputManager {
       k === 'h' ||
       k === 'j' ||
       k === 'k' ||
-      k === 'l'
+      k === 'l' ||
+      k === 'w' ||
+      k === 'a' ||
+      k === 's' ||
+      k === 'd'
     );
   }
 
   getDirection(): { dx: number; dy: number } {
     let dx = 0;
     let dy = 0;
-    if (this.keys.has('arrowleft') || this.keys.has('h')) dx -= 1;
-    if (this.keys.has('arrowright') || this.keys.has('l')) dx += 1;
-    if (this.keys.has('arrowup') || this.keys.has('k')) dy -= 1;
-    if (this.keys.has('arrowdown') || this.keys.has('j')) dy += 1;
+    if (this.keys.has('arrowleft') || this.keys.has('h') || this.keys.has('a')) dx -= 1;
+    if (this.keys.has('arrowright') || this.keys.has('l') || this.keys.has('d')) dx += 1;
+    if (this.keys.has('arrowup') || this.keys.has('k') || this.keys.has('w')) dy -= 1;
+    if (this.keys.has('arrowdown') || this.keys.has('j') || this.keys.has('s')) dy += 1;
     if (dx !== 0 && dy !== 0) {
       const inv = 1 / Math.sqrt(2);
       dx *= inv;
@@ -81,15 +85,19 @@ export class InputManager {
       switch (this.order[i]) {
         case 'arrowleft':
         case 'h':
+        case 'a':
           return { dx: -1, dy: 0 };
         case 'arrowright':
         case 'l':
+        case 'd':
           return { dx: 1, dy: 0 };
         case 'arrowup':
         case 'k':
+        case 'w':
           return { dx: 0, dy: -1 };
         case 'arrowdown':
         case 'j':
+        case 's':
           return { dx: 0, dy: 1 };
       }
     }

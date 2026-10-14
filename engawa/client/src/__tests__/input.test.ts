@@ -44,12 +44,27 @@ describe('InputManager.getDirection', () => {
     release('h');
   });
 
-  it('no longer walks on WASD — those keys are action shortcuts now (#297)', () => {
-    const im = new InputManager();
-    for (const key of ['w', 'a', 's', 'd']) press(key);
-    expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
-    expect(im.getStepDirection()).toEqual({ dx: 0, dy: 0 });
-    for (const key of ['w', 'a', 's', 'd']) release(key);
+  it('walks on WASD (revived): w/a/s/d map to up/left/down/right', () => {
+    const up = new InputManager();
+    press('w');
+    expect(up.getDirection()).toEqual({ dx: 0, dy: -1 });
+    expect(up.getStepDirection()).toEqual({ dx: 0, dy: -1 });
+    release('w');
+
+    const left = new InputManager();
+    press('a');
+    expect(left.getDirection()).toEqual({ dx: -1, dy: 0 });
+    release('a');
+
+    const down = new InputManager();
+    press('s');
+    expect(down.getDirection()).toEqual({ dx: 0, dy: 1 });
+    release('s');
+
+    const right = new InputManager();
+    press('d');
+    expect(right.getDirection()).toEqual({ dx: 1, dy: 0 });
+    release('d');
   });
 
   it('cancels opposite keys', () => {

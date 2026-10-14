@@ -45,11 +45,11 @@ export function resolveShortcut(e: ShortcutKeyEvent): Shortcut | null {
       return { action: 'meeting-view' };
     case 'z':
       return { action: 'zoom' };
-    case 'a':
+    case 'q':
       return { action: 'mic' };
     case 'c':
       return { action: 'cam' };
-    case 's':
+    case 'x':
       return { action: 'screen' };
     case 'p':
       return { action: 'roster' };
@@ -67,13 +67,14 @@ export function resolveShortcut(e: ShortcutKeyEvent): Shortcut | null {
 // can't drift apart. Each entry renders one row: `keys` becomes a chip each
 // (a combo is one chip, "Shift + R"), `labelKey` is looked up with t().
 export const SHORTCUT_HELP: { keys: string[]; labelKey: string }[] = [
-  { keys: ['H', 'J', 'K', 'L'], labelKey: 'keys.move' },
+  { keys: ['W', 'A', 'S', 'D'], labelKey: 'keys.moveWasd' },
   { keys: ['←', '↓', '↑', '→'], labelKey: 'keys.moveArrows' },
+  { keys: ['H', 'J', 'K', 'L'], labelKey: 'keys.move' },
   { keys: ['M'], labelKey: 'keys.meetingView' },
   { keys: ['Z'], labelKey: 'keys.zoom' },
-  { keys: ['A'], labelKey: 'keys.mic' },
+  { keys: ['Q'], labelKey: 'keys.mic' },
   { keys: ['C'], labelKey: 'keys.cam' },
-  { keys: ['S'], labelKey: 'keys.screen' },
+  { keys: ['X'], labelKey: 'keys.screen' },
   { keys: ['Shift + R'], labelKey: 'keys.record' },
   { keys: ['P'], labelKey: 'keys.roster' },
   { keys: [`1–${REACTION_EMOJIS.length}`], labelKey: 'keys.reaction' },
