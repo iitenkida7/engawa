@@ -312,22 +312,47 @@ export function normalizeIceServers(iceServers: unknown): unknown[] {
 // group uses. It computes connected components from positions + reported zone
 // ids and assigns each group a method:
 //   - meeting-room groups → always SFU (membership decides, distance ignored);
-//   - open-floor clusters → mesh until they reach SFU_PROMOTE_AT members, then
+//   - open-floor clusters → mesh until they reach the promote threshold, then
 //     they promote to SFU and *latch*: a cluster that shares any member with a
 //     previous open-floor SFU group stays SFU even as it shrinks. A cluster that
-//     fully disperses and reforms starts fresh as mesh.
+//     fully disperses and reforms starts fresh as mesh. The threshold defaults
+//     to 2 (every multi-person group is SFU) and is set by SFU_PROMOTE_AT.
 // When SFU is disabled (no Cloudflare app configured) every group is mesh, so
 // the pre-SFU behaviour is preserved exactly.
 
-// Open-floor cluster size at which a group promotes to SFU (one-way latch), so
-// mesh carries at most 3 people. Chosen to match the client's send-throttle
-// line: CAM_THROTTLE_MIN_PEERS (rtc/cam-bitrate.ts) starts degrading camera
-// bitrate/fps/resolution at 3 peers — i.e. the same 4-member cluster — because
-// a 4-way mesh is where the uplink and encode cost stop fitting. Each member
-// then encodes 3 copies of its camera (~1.8 Mbps) and, with a screen share,
-// 3 more at 1.5 Mbps each: ~6.3 Mbps up and 3 parallel FHD encodes. A 2-3
-// person chat stays on the lower-latency direct P2P path.
-export const SFU_PROMOTE_AT = 4;
+// Default open-floor cluster size at which a group promotes to SFU (one-way
+// latch). 2 means every group with a peer in it takes the SFU path: one
+// RTCPeerConnection per member has proven steadier in practice than a mesh,
+// where each extra pair adds its own ICE negotiation that can fail on a single
+// leg while the rest of the group connects fine.
+// Override with the SFU_PROMOTE_AT env var (see normalizeSfuPromoteAt): 4 keeps
+// 2-3 person chats on the direct P2P path, which has one hop less of latency
+// and costs no SFU bandwidth — mesh stays affordable up to 3 because the
+// client's CAM_THROTTLE_MIN_PEERS (rtc/cam-bitrate.ts) only starts degrading
+// camera bitrate/fps/resolution at 3 peers, i.e. a 4-member cluster.
+// Irrelevant when no Cloudflare app is configured: every group is then mesh.
+export const SFU_PROMOTE_AT = 2;
+
+/** Lower bound on the promote threshold: a solo group has no peer to talk to,
+ * so promoting it would only open an idle SFU session. */
+export const SFU_PROMOTE_AT_MIN = 2;
+
+/** Upper bound on the promote threshold. Past this a mesh is never the right
+ * transport anyway, so a larger configured value would be meaningless. */
+export const SFU_PROMOTE_AT_MAX = 32;
+
+/**
+ * Normalize the SFU_PROMOTE_AT env value: an integer clamped to
+ * [SFU_PROMOTE_AT_MIN, SFU_PROMOTE_AT_MAX]. Unset, empty or unparseable input
+ * ('', 'four', NaN) falls back to the SFU_PROMOTE_AT default.
+ */
+export function normalizeSfuPromoteAt(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return SFU_PROMOTE_AT;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return SFU_PROMOTE_AT;
+  return Math.max(SFU_PROMOTE_AT_MIN, Math.min(SFU_PROMOTE_AT_MAX, Math.round(n)));
+}
+
 // Connect radius (px) for the open-floor proximity graph. Mirrors the client's
 // CONNECT_RADIUS so the server's grouping matches what users see on the map.
 export const PROXIMITY_CONNECT_RADIUS = 120;

@@ -15,6 +15,7 @@ import {
   normalizeIceServers,
   normalizeName,
   normalizePlayerStatus,
+  normalizeSfuPromoteAt,
   normalizeSfuTracks,
   normalizeStreamId,
   normalizeVelocity,
@@ -24,6 +25,8 @@ import {
   REACTION_EMOJIS,
   SFU_MAX_TRACKS,
   SFU_PROMOTE_AT,
+  SFU_PROMOTE_AT_MAX,
+  SFU_PROMOTE_AT_MIN,
   SFU_TRACK_NAME_MAX_LENGTH,
   STREAM_ID_MAX_LENGTH,
   sfuLatchSeeds,
@@ -249,11 +252,11 @@ describe('computeProximityGroups', () => {
   const groupOf = (groups: ReturnType<typeof computeProximityGroups>, userId: string) =>
     groups.find((g) => g.memberIds.includes(userId));
 
-  test('open floor: two players within the radius form one mesh group', () => {
+  test('open floor: two players within the radius form one group', () => {
     const groups = computeProximityGroups([m('a', 0, 0), m('b', 50, 0)], { sfuEnabled: true });
     expect(groups).toHaveLength(1);
     expect(groups[0].memberIds).toEqual(['a', 'b']);
-    expect(groups[0].method).toBe('mesh');
+    expect(groups[0].method).toBe('sfu'); // default threshold is 2
     expect(groups[0].isMeeting).toBe(false);
   });
 
@@ -304,27 +307,26 @@ describe('computeProximityGroups', () => {
     expect(groups[0].memberIds).toEqual(['a', 'b', 'c']);
   });
 
-  test('open floor: promotes to SFU at exactly SFU_PROMOTE_AT members', () => {
+  test('open floor: promotes to SFU at exactly the configured threshold', () => {
     const cluster = (n: number): GroupMember[] =>
       Array.from({ length: n }, (_, i) => m(String(i), i * 30, 0));
-    expect(
-      computeProximityGroups(cluster(SFU_PROMOTE_AT - 1), { sfuEnabled: true })[0].method,
-    ).toBe('mesh');
-    expect(computeProximityGroups(cluster(SFU_PROMOTE_AT), { sfuEnabled: true })[0].method).toBe(
-      'sfu',
-    );
+    for (const promoteAt of [2, 3, 4, 5]) {
+      const opts = { sfuEnabled: true, promoteAt };
+      expect(computeProximityGroups(cluster(promoteAt - 1), opts)[0].method).toBe('mesh');
+      expect(computeProximityGroups(cluster(promoteAt), opts)[0].method).toBe('sfu');
+    }
   });
 
-  // Pins the actual threshold (not just the symbol): mesh carries at most 3
-  // people, the 4th promotes the whole cluster to SFU. Changing this is a
-  // deliberate capacity decision, not an incidental refactor.
-  test('open floor: mesh up to 3 members, SFU from 4', () => {
+  // Pins the actual default (not just the symbol): only a solo member stays on
+  // mesh, every group with a peer in it is SFU. Changing this is a deliberate
+  // transport decision, not an incidental refactor.
+  test('open floor: solo is mesh, SFU from 2 members by default', () => {
     const cluster = (n: number): GroupMember[] =>
       Array.from({ length: n }, (_, i) => m(String(i), i * 30, 0));
-    expect(SFU_PROMOTE_AT).toBe(4);
-    expect(computeProximityGroups(cluster(2), { sfuEnabled: true })[0].method).toBe('mesh');
-    expect(computeProximityGroups(cluster(3), { sfuEnabled: true })[0].method).toBe('mesh');
-    expect(computeProximityGroups(cluster(4), { sfuEnabled: true })[0].method).toBe('sfu');
+    expect(SFU_PROMOTE_AT).toBe(2);
+    expect(computeProximityGroups(cluster(1), { sfuEnabled: true })[0].method).toBe('mesh');
+    expect(computeProximityGroups(cluster(2), { sfuEnabled: true })[0].method).toBe('sfu');
+    expect(computeProximityGroups(cluster(3), { sfuEnabled: true })[0].method).toBe('sfu');
   });
 
   test('meeting room: same-zone members are always SFU regardless of count/distance', () => {
@@ -355,10 +357,12 @@ describe('computeProximityGroups', () => {
 
   test('latch: a shrinking SFU cluster stays SFU (no demotion)', () => {
     // a, b, c, d were an open-floor SFU group; now only a and b are left. Two
-    // members is below SFU_PROMOTE_AT, so SFU here can only come from the latch.
+    // members is below the promoteAt pinned here, so SFU can only come from the
+    // latch (the default threshold of 2 would promote them outright).
     const members = ['a', 'b'].map((id, i) => m(id, i * 30, 0));
     const groups = computeProximityGroups(members, {
       sfuEnabled: true,
+      promoteAt: 4,
       prevSfuMemberSets: [['a', 'b', 'c', 'd']],
     });
     expect(groups[0].memberIds).toEqual(['a', 'b']);
@@ -367,7 +371,11 @@ describe('computeProximityGroups', () => {
 
   test('no latch without history: a fresh sub-threshold cluster is mesh', () => {
     const members = ['a', 'b', 'c'].map((id, i) => m(id, i * 30, 0));
-    const groups = computeProximityGroups(members, { sfuEnabled: true, prevSfuMemberSets: [] });
+    const groups = computeProximityGroups(members, {
+      sfuEnabled: true,
+      promoteAt: 4,
+      prevSfuMemberSets: [],
+    });
     expect(groups[0].method).toBe('mesh');
   });
 
@@ -375,6 +383,7 @@ describe('computeProximityGroups', () => {
     const members = ['x', 'y'].map((id, i) => m(id, i * 30, 0));
     const groups = computeProximityGroups(members, {
       sfuEnabled: true,
+      promoteAt: 4,
       prevSfuMemberSets: [['a', 'b', 'c', 'd', 'e']],
     });
     expect(groups[0].method).toBe('mesh');
@@ -475,6 +484,39 @@ describe('sfuLatchSeeds', () => {
     );
     const second = computeProximityGroups(shrunk, { sfuEnabled: true, prevSfuMemberSets: seeds });
     expect(second[0].method).toBe('sfu');
+  });
+});
+
+describe('normalizeSfuPromoteAt', () => {
+  test('unset or empty falls back to the default threshold', () => {
+    expect(normalizeSfuPromoteAt(undefined)).toBe(SFU_PROMOTE_AT);
+    expect(normalizeSfuPromoteAt('')).toBe(SFU_PROMOTE_AT);
+    expect(normalizeSfuPromoteAt('   ')).toBe(SFU_PROMOTE_AT);
+  });
+
+  test('unparseable values fall back to the default threshold', () => {
+    expect(normalizeSfuPromoteAt('four')).toBe(SFU_PROMOTE_AT);
+    expect(normalizeSfuPromoteAt('NaN')).toBe(SFU_PROMOTE_AT);
+  });
+
+  test('a valid value passes through', () => {
+    expect(normalizeSfuPromoteAt('4')).toBe(4);
+    expect(normalizeSfuPromoteAt(' 6 ')).toBe(6);
+  });
+
+  test('clamps to the supported range', () => {
+    // Below the floor a solo group would promote, which only opens an idle SFU
+    // session; above the ceiling mesh would never be the right transport anyway.
+    expect(normalizeSfuPromoteAt('0')).toBe(SFU_PROMOTE_AT_MIN);
+    expect(normalizeSfuPromoteAt('1')).toBe(SFU_PROMOTE_AT_MIN);
+    expect(normalizeSfuPromoteAt('-5')).toBe(SFU_PROMOTE_AT_MIN);
+    expect(normalizeSfuPromoteAt('999')).toBe(SFU_PROMOTE_AT_MAX);
+    expect(normalizeSfuPromoteAt('Infinity')).toBe(SFU_PROMOTE_AT);
+  });
+
+  test('rounds a fractional value to a whole member count', () => {
+    expect(normalizeSfuPromoteAt('4.4')).toBe(4);
+    expect(normalizeSfuPromoteAt('4.6')).toBe(5);
   });
 });
 
