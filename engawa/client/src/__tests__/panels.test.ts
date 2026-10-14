@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   clampFilmstripWidth,
+  computeFilmstripColumns,
   computeFocusLayout,
   computeGridLayout,
   computeMeetingGallery,
@@ -8,11 +9,15 @@ import {
   computePresentationLayout,
   computeSidebarLayout,
   filmstripTileHeight,
+  filmstripTileWidth,
   type LayoutItem,
+  MEETING_FILMSTRIP_2COL_MIN_W,
+  MEETING_FILMSTRIP_MAX_COLS,
   MEETING_FILMSTRIP_MAX_FRAC,
   MEETING_FILMSTRIP_MIN_W,
   MEETING_FILMSTRIP_TILE_H,
   MEETING_FILMSTRIP_TILE_W,
+  MEETING_GAP,
   meetingFilmstripColWidth,
   PANEL_BOTTOM_RESERVED,
   PANEL_GAP,
@@ -341,6 +346,8 @@ describe('computeMeetingPresentation', () => {
       expect(s.w).toBe(MEETING_FILMSTRIP_TILE_W);
       expect(s.h).toBe(MEETING_FILMSTRIP_TILE_H);
     }
+    // One column at the default width: every tile flush-left, stacked down.
+    for (const s of strip) expect(s.x).toBe(0);
     // Stacked without overlapping.
     for (let i = 0; i < strip.length; i++)
       for (let j = i + 1; j < strip.length; j++)
@@ -379,12 +386,14 @@ describe('computeMeetingPresentation', () => {
   });
 
   // #288: the filmstrip : share ratio is user-draggable; the layout takes the
-  // column width as a parameter and scales the tiles with it.
-  it('a wider filmstrip width scales the tiles (same aspect) and pushes the share right', () => {
-    const wide = 300;
+  // rail width as a parameter and scales the tiles with it. Still one column
+  // while the rail is too narrow to split (#304).
+  it('a wider one-column rail scales the tiles (same aspect) and pushes the share right', () => {
+    const wide = MEETING_FILMSTRIP_2COL_MIN_W - 1;
     const geos = computeMeetingPresentation([screen(), cam(), cam()], VW, VH, wide);
     const main = meetBox(geos[0]);
     const strip = geos.slice(1).map(meetBox);
+    expect(computeFilmstripColumns(wide)).toBe(1);
     for (const s of strip) {
       expect(s.w).toBe(wide);
       expect(s.h).toBe(filmstripTileHeight(wide));
@@ -398,11 +407,88 @@ describe('computeMeetingPresentation', () => {
     expect(main.x + main.w).toBeGreaterThanOrEqual(VW - PANEL_GAP - 1);
   });
 
+  // ===== #304: a rail wide enough for two default tiles splits into 2 columns =====
+
+  it('splits into two columns once the rail can hold two default tiles', () => {
+    const railW = MEETING_FILMSTRIP_2COL_MIN_W;
+    const geos = computeMeetingPresentation([screen(), cam(), cam(), cam(), cam()], VW, VH, railW);
+    const strip = geos.slice(1).map(meetBox);
+    expect(computeFilmstripColumns(railW)).toBe(2);
+    // Row-major: 1st and 2nd share a row, 3rd and 4th the next one down.
+    expect(strip[0].y).toBe(strip[1].y);
+    expect(strip[2].y).toBe(strip[3].y);
+    expect(strip[2].y).toBeGreaterThan(strip[0].y);
+    // Left column flush-left, right column one tile + gap over.
+    expect(strip[0].x).toBe(0);
+    expect(strip[2].x).toBe(0);
+    expect(strip[1].x).toBe(strip[0].x + strip[0].w + MEETING_GAP);
+    expect(strip[3].x).toBe(strip[1].x);
+    // Two tiles plus the gap use the whole rail, and none overlap.
+    for (const s of strip) expect(s.x + s.w).toBeLessThanOrEqual(railW);
+    for (let i = 0; i < strip.length; i++)
+      for (let j = i + 1; j < strip.length; j++)
+        expect(overlaps({ ...strip[i] }, { ...strip[j] })).toBe(false);
+  });
+
+  it('keeps the share clear of the whole rail, not just one column', () => {
+    const railW = 400;
+    const geos = computeMeetingPresentation([screen(), cam(), cam(), cam()], VW, VH, railW);
+    const main = meetBox(geos[0]);
+    const strip = geos.slice(1).map(meetBox);
+    for (const s of strip) expect(s.x + s.w).toBeLessThanOrEqual(main.x);
+    expect(main.x).toBeGreaterThanOrEqual(railW);
+    expect(main.x + main.w).toBeGreaterThanOrEqual(VW - PANEL_GAP - 1);
+  });
+
+  it('two columns halve the rows, so tiles stay bigger than a single column would', () => {
+    const railW = 320;
+    const items = [screen(), ...Array.from({ length: 8 }, () => cam())];
+    const two = computeMeetingPresentation(items, 1000, 500, railW).slice(1).map(meetBox);
+    const one = computeMeetingPresentation(items, 1000, 500, MEETING_FILMSTRIP_TILE_W)
+      .slice(1)
+      .map(meetBox);
+    // 8 tiles over 4 rows instead of 8 → taller tiles, still on screen.
+    expect(two[0].h).toBeGreaterThan(one[0].h);
+    for (const s of two) {
+      expect(s.y + s.h).toBeLessThanOrEqual(500 - PANEL_BOTTOM_RESERVED + 1);
+      expect(s.x + s.w).toBeLessThanOrEqual(railW);
+    }
+  });
+
+  it('places an odd last tile in the left column', () => {
+    const railW = MEETING_FILMSTRIP_2COL_MIN_W;
+    const geos = computeMeetingPresentation([screen(), cam(), cam(), cam()], VW, VH, railW);
+    const strip = geos.slice(1).map(meetBox);
+    expect(strip[2].x).toBe(0);
+    expect(strip[2].y).toBeGreaterThan(strip[0].y);
+  });
+
   it('defaults the filmstrip width to the fixed tile width when none is given', () => {
     const a = computeMeetingPresentation([screen(), cam()], VW, VH);
     const b = computeMeetingPresentation([screen(), cam()], VW, VH, MEETING_FILMSTRIP_TILE_W);
     expect(a).toEqual(b);
     expect(meetingFilmstripColWidth()).toBe(MEETING_FILMSTRIP_TILE_W);
+  });
+});
+
+describe('computeFilmstripColumns', () => {
+  it('stays at one column until two default tiles fit', () => {
+    expect(computeFilmstripColumns(MEETING_FILMSTRIP_MIN_W)).toBe(1);
+    expect(computeFilmstripColumns(MEETING_FILMSTRIP_TILE_W)).toBe(1);
+    expect(computeFilmstripColumns(MEETING_FILMSTRIP_2COL_MIN_W - 1)).toBe(1);
+  });
+
+  it('splits at exactly two default tiles plus the gap, and never goes past two', () => {
+    expect(computeFilmstripColumns(MEETING_FILMSTRIP_2COL_MIN_W)).toBe(2);
+    expect(computeFilmstripColumns(MEETING_FILMSTRIP_2COL_MIN_W + 400)).toBe(2);
+    expect(computeFilmstripColumns(10_000)).toBe(MEETING_FILMSTRIP_MAX_COLS);
+  });
+
+  it('divides the rail evenly between its columns', () => {
+    expect(filmstripTileWidth(MEETING_FILMSTRIP_TILE_W)).toBe(MEETING_FILMSTRIP_TILE_W);
+    const railW = MEETING_FILMSTRIP_2COL_MIN_W;
+    expect(filmstripTileWidth(railW)).toBe(MEETING_FILMSTRIP_TILE_W);
+    expect(filmstripTileWidth(railW) * 2 + MEETING_GAP).toBeLessThanOrEqual(railW);
   });
 });
 

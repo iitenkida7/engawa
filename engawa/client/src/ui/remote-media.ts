@@ -13,6 +13,7 @@ import {
   applyPanelGeometry,
   CAM_ASPECT,
   clampFilmstripWidth,
+  computeFilmstripColumns,
   computeFocusLayout,
   computeGridLayout,
   computeMeetingGallery,
@@ -22,7 +23,7 @@ import {
   computeSidebarLayout,
   type LayoutItem,
   type LayoutMode,
-  MEETING_FILMSTRIP_MAX_VISIBLE,
+  MEETING_FILMSTRIP_MAX_VISIBLE_ROWS,
   MEETING_FILMSTRIP_SEP,
   MEETING_FILMSTRIP_TILE_W,
   MINIMIZED_SIDEBAR_MAX_VISIBLE,
@@ -966,16 +967,20 @@ export class RemoteMediaView {
     // the visible (collapsed/expanded) set so a big meeting doesn't stack 20
     // thumbnails down the edge.
     const stripIdxs = panels.map((_, i) => i).filter((i) => i !== mainIdx);
-    const needToggle = stripIdxs.length > MEETING_FILMSTRIP_MAX_VISIBLE;
+    // Re-clamp every reflow so a viewport shrink pulls an over-wide rail back.
+    // Done before the cap because the rail's width decides its column count,
+    // and the cap is counted in rows (#304): five rows is ten faces in two.
+    this.filmstripWidth = clampFilmstripWidth(this.filmstripWidth, vw);
+    const cols = computeFilmstripColumns(this.filmstripWidth);
+    const maxVisible = MEETING_FILMSTRIP_MAX_VISIBLE_ROWS * cols;
+    const needToggle = stripIdxs.length > maxVisible;
     const visibleCount = this.filmstripExpanded
       ? stripIdxs.length
-      : Math.min(MEETING_FILMSTRIP_MAX_VISIBLE, stripIdxs.length);
+      : Math.min(maxVisible, stripIdxs.length);
     const visible = stripIdxs.slice(0, visibleCount);
     for (const i of stripIdxs.slice(visibleCount)) panels[i].el.classList.add('meeting-hidden');
 
     const order = [mainIdx, ...visible];
-    // Re-clamp every reflow so a viewport shrink pulls an over-wide column back.
-    this.filmstripWidth = clampFilmstripWidth(this.filmstripWidth, vw);
     const geos = computeMeetingPresentation(
       order.map((i) => panels[i].item),
       vw,
@@ -986,19 +991,19 @@ export class RemoteMediaView {
       applyPanelGeometry(panels[pi].el, geos[k]);
     });
 
-    const colW = meetingFilmstripColWidth(this.filmstripWidth);
-    if (needToggle) this.placeToggle(colW / 2, vh);
+    const railW = meetingFilmstripColWidth(this.filmstripWidth);
+    if (needToggle) this.placeToggle(railW / 2, vh);
     else this.hideFilmstripToggle();
-    // Nothing to resize when the share is alone (no filmstrip column).
-    if (visible.length > 0) this.placeFilmstripResizer(colW, vh);
+    // Nothing to resize when the share is alone (no filmstrip rail).
+    if (visible.length > 0) this.placeFilmstripResizer(railW, vh);
   }
 
   // Parks the drag handle on the seam between the filmstrip and the share (#288):
   // a thin full-height strip centered on the seam, above the tiles.
-  private placeFilmstripResizer(colW: number, vh: number) {
+  private placeFilmstripResizer(railW: number, vh: number) {
     const el = this.filmstripResizerEl;
     el.style.display = 'block';
-    el.style.left = `${Math.round(colW + MEETING_FILMSTRIP_SEP / 2)}px`;
+    el.style.left = `${Math.round(railW + MEETING_FILMSTRIP_SEP / 2)}px`;
     el.style.top = '0px';
     el.style.height = `${Math.max(1, vh - PANEL_BOTTOM_RESERVED)}px`;
   }
@@ -1025,7 +1030,7 @@ export class RemoteMediaView {
     });
     el.addEventListener('pointermove', (e) => {
       if (!dragging) return;
-      // The handle is centered on the seam, so the pointer x IS the column width.
+      // The handle is centered on the seam, so the pointer x IS the rail width.
       this.filmstripWidth = clampFilmstripWidth(e.clientX, window.innerWidth);
       this.reflowLayout();
     });
