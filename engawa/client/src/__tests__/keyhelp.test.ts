@@ -51,6 +51,19 @@ describe('KeyHelpPanel', () => {
     expect(el.classList.contains('hidden')).toBe(true);
   });
 
+  test('ignores Esc while a text field has focus', () => {
+    const panel = new KeyHelpPanel();
+    const el = document.getElementById('keyhelp') as HTMLElement;
+    panel.toggle();
+
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    input.remove();
+
+    expect(el.classList.contains('hidden')).toBe(false);
+  });
+
   test('the close button closes it', () => {
     const panel = new KeyHelpPanel();
     const el = document.getElementById('keyhelp') as HTMLElement;

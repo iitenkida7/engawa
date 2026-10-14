@@ -513,8 +513,8 @@ export class App {
     this.canvas.addEventListener('click', this.onCanvasClick);
 
     // Keyboard shortcuts: reactions on 1–6 (issue #23) plus the media/view
-    // toggles (issue #297). Ignored while typing in a field, and key-repeat is
-    // dropped so holding a key doesn't spam.
+    // toggles (issue #297, re-laid-out in #302). Ignored while typing in a
+    // field, and key-repeat is dropped so holding a key doesn't spam.
     window.addEventListener('keydown', this.onShortcutKey);
   }
 
@@ -525,7 +525,7 @@ export class App {
     // Only once we're on the map: before that the join overlay owns the keyboard.
     if (!this.me) return;
     // Skipped while typing, same guard as world/input.ts and the Esc handler in
-    // ui/remote-media.ts — 'm' in a message is an 'm', not "show map".
+    // ui/remote-media.ts — 'm' in a message is an 'm', not "mute".
     const t = e.target;
     if (
       t instanceof HTMLElement &&
@@ -559,6 +559,9 @@ export class App {
         break;
       case 'roster':
         this.roster.toggle();
+        break;
+      case 'help':
+        this.keyHelp.toggle();
         break;
     }
   }

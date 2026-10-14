@@ -4,6 +4,12 @@ import { SHORTCUT_HELP } from '@/core/shortcuts';
 // The keyboard-shortcut reference behind the ⋯ menu (issue #297). Rows come
 // from SHORTCUT_HELP so the printed list can't drift from the resolver. Built
 // once on construction — the table is static.
+function isTextInput(target: EventTarget | null): boolean {
+  if (!target || !(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable;
+}
+
 export class KeyHelpPanel {
   private panel: HTMLDivElement;
 
@@ -36,11 +42,12 @@ export class KeyHelpPanel {
 
     document.getElementById('keyhelp-close')?.addEventListener('click', () => this.close());
     // Esc closes it, like every other overlay. Guarded the same way as the other
-    // key handlers so it doesn't eat an IME conversion cancel.
+    // key handlers (core/app.ts, ui/remote-media.ts) so it doesn't eat an IME
+    // conversion cancel or an Esc meant for the field the user is typing in.
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !e.isComposing && !this.panel.classList.contains('hidden')) {
-        this.close();
-      }
+      if (e.key !== 'Escape' || e.isComposing) return;
+      if (isTextInput(e.target)) return;
+      if (!this.panel.classList.contains('hidden')) this.close();
     });
   }
 

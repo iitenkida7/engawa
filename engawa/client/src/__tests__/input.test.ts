@@ -44,12 +44,41 @@ describe('InputManager.getDirection', () => {
     release('h');
   });
 
-  it('no longer walks on WASD — those keys are action shortcuts now (#297)', () => {
+  it('walks on WASD too (#302) — all three dialects move', () => {
+    const cases: [string, { dx: number; dy: number }][] = [
+      ['w', { dx: 0, dy: -1 }],
+      ['a', { dx: -1, dy: 0 }],
+      ['s', { dx: 0, dy: 1 }],
+      ['d', { dx: 1, dy: 0 }],
+    ];
+    for (const [key, expected] of cases) {
+      const im = new InputManager();
+      press(key);
+      expect(im.getDirection()).toEqual(expected);
+      expect(im.getStepDirection()).toEqual(expected);
+      release(key);
+    }
+  });
+
+  it('cancels opposite keys across dialects (WASD vs vim vs arrows)', () => {
     const im = new InputManager();
-    for (const key of ['w', 'a', 's', 'd']) press(key);
+    press('a'); // left
+    press('l'); // right
+    expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
+    release('a');
+    release('l');
+
+    press('w'); // up
+    press('ArrowDown');
+    expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
+  });
+
+  it('does not walk while Shift is held, so Shift+S stays the screen-share key', () => {
+    const im = new InputManager();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', shiftKey: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', shiftKey: true }));
     expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
     expect(im.getStepDirection()).toEqual({ dx: 0, dy: 0 });
-    for (const key of ['w', 'a', 's', 'd']) release(key);
   });
 
   it('cancels opposite keys', () => {
@@ -57,6 +86,16 @@ describe('InputManager.getDirection', () => {
     press('ArrowLeft');
     press('ArrowRight');
     expect(im.getDirection()).toEqual({ dx: 0, dy: 0 });
+  });
+
+  it('treats the same direction pressed in two dialects as one', () => {
+    const im = new InputManager();
+    press('h'); // left
+    press('a'); // also left
+    expect(im.getDirection()).toEqual({ dx: -1, dy: 0 });
+    release('h');
+    // Still held in the other dialect → keep walking left.
+    expect(im.getDirection()).toEqual({ dx: -1, dy: 0 });
   });
 
   it('normalizes diagonal movement to unit length', () => {
