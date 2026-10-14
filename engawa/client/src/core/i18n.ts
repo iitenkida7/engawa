@@ -302,6 +302,10 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: '音声のみモードをオフにしました。',
     en: 'Audio-only mode off.',
   },
+  'app.zoneLeftMediaOff': {
+    ja: '部屋を出たので、マイク・カメラ・画面共有をオフにしました。',
+    en: 'Left the room — mic, camera and screen share turned off.',
+  },
 
   // -- connection quality dots (issue #188) ----------------------------------
   'quality.q0': { ja: '回線: 良好', en: 'Connection: good' },
