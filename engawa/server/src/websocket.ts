@@ -13,6 +13,7 @@ import {
   normalizeName,
   normalizePlayerStatus,
   normalizeResumeToken,
+  normalizeSfuPromoteAt,
   normalizeSfuTracks,
   normalizeStreamId,
   normalizeVelocity,
@@ -118,6 +119,11 @@ function broadcastGroups(
     prevSfuMemberSets: state.prevSfuMemberSets,
     prevGroupMemberSets: state.prevGroupMemberSets,
     disconnectRadius: PROXIMITY_DISCONNECT_RADIUS,
+    // Open-floor cluster size that switches a group from mesh to SFU. Read from
+    // env per recompute (like isSfuEnabled) rather than cached at module load,
+    // so the setting is testable; unset keeps the default of 2, i.e. every
+    // multi-person group uses the SFU.
+    promoteAt: normalizeSfuPromoteAt(process.env.SFU_PROMOTE_AT),
   });
 
   const byUser = new Map<string, ProximityGroup>();

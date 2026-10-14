@@ -816,6 +816,7 @@ describe('createWebSocketHandler — SFU grouping', () => {
   afterEach(() => {
     delete process.env.CLOUDFLARE_REALTIME_APP_ID;
     delete process.env.CLOUDFLARE_REALTIME_APP_TOKEN;
+    delete process.env.SFU_PROMOTE_AT;
   });
 
   // Join a client into ws1 and move it to (x, y[, zone]) so the server has a
@@ -843,16 +844,26 @@ describe('createWebSocketHandler — SFU grouping', () => {
     }
   });
 
-  test('an open-floor pair is told method=mesh with both members', () => {
+  test('an open-floor pair is told method=sfu with both members', () => {
     const a = joinAt(100, 100);
-    const b = joinAt(140, 100); // within CONNECT_RADIUS, but only 2 people
+    const b = joinAt(140, 100); // within CONNECT_RADIUS
+    const ga = lastGroupUpdate(a);
+    const gb = lastGroupUpdate(b);
+    expect(ga?.type === 'group-update' && ga.method).toBe('sfu');
+    expect(gb?.type === 'group-update' && gb.method).toBe('sfu');
+    const both = [a.data.userId, b.data.userId].sort();
+    if (ga?.type === 'group-update') expect(ga.members).toEqual(both);
+    if (gb?.type === 'group-update') expect(gb.members).toEqual(both);
+  });
+
+  test('SFU_PROMOTE_AT=4 keeps an open-floor pair on mesh', () => {
+    process.env.SFU_PROMOTE_AT = '4';
+    const a = joinAt(100, 100);
+    const b = joinAt(140, 100);
     const ga = lastGroupUpdate(a);
     const gb = lastGroupUpdate(b);
     expect(ga?.type === 'group-update' && ga.method).toBe('mesh');
     expect(gb?.type === 'group-update' && gb.method).toBe('mesh');
-    const both = [a.data.userId, b.data.userId].sort();
-    if (ga?.type === 'group-update') expect(ga.members).toEqual(both);
-    if (gb?.type === 'group-update') expect(gb.members).toEqual(both);
   });
 
   test('a far-apart open-floor pair are each their own single-member mesh group', () => {
@@ -863,7 +874,7 @@ describe('createWebSocketHandler — SFU grouping', () => {
     if (ga?.type === 'group-update') expect(ga.members).toEqual([a.data.userId]);
   });
 
-  test('an open-floor cluster promotes to sfu at the 5th member', () => {
+  test('an open-floor cluster is sfu', () => {
     const ws: FakeWs[] = [];
     for (let i = 0; i < 5; i++) ws.push(joinAt(100 + i * 10, 100));
     for (const w of ws) {
@@ -932,6 +943,10 @@ describe('createWebSocketHandler — SFU grouping', () => {
   };
 
   test("an emptied workspace's SFU latch is discarded, so a later small group is mesh", async () => {
+    // A pair is mesh only below the promote threshold, so pin it above the
+    // default of 2 — otherwise the rejoining pair would be SFU either way and
+    // the test could not tell a discarded latch from a surviving one.
+    process.env.SFU_PROMOTE_AT = '4';
     // 5-member open-floor cluster promotes to SFU and seeds the one-way latch.
     const first: FakeWs[] = [];
     for (let i = 0; i < 5; i++) first.push(joinIdAt(`u${i}`, 100 + i * 10, 100));

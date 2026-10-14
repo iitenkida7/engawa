@@ -75,9 +75,9 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 新しい検証手順を足すときも Makefile 経由にする。
 
 ## アーキテクチャ（全体像）
-メディア（音声・映像・画面共有）は **engawa のサーバーを絶対に経由しない**。屋外の少人数近接は
-P2P メッシュ（最大 3 人）、会議室ゾーンと 4 人以上の屋外クラスタは Cloudflare Realtime SFU 経由（#77/#78）。
-どちらでもメディアは自前サーバーを通らない。サーバーは「出会いの仲介」「位置同期」「グループ方式
+メディア（音声・映像・画面共有）は **engawa のサーバーを絶対に経由しない**。既定では 2 人以上の
+グループはすべて Cloudflare Realtime SFU 経由（#77/#78/#309。`SFU_PROMOTE_AT` で閾値を上げると
+少人数は P2P メッシュ）。SFU 未設定なら全グループが P2P メッシュ。どちらでもメディアは自前サーバーを通らない。サーバーは「出会いの仲介」「位置同期」「グループ方式
 （mesh/SFU）の判定・配信」「SFU 制御のプロキシ」を行う。
 
 ```
@@ -88,8 +88,8 @@ P2P メッシュ（最大 3 人）、会議室ゾーンと 4 人以上の屋外�
    │                       ├ /api/turn-credentials             │
    │                       └ /api/sfu/*（SFU 制御をプロキシ）   │
    │                                                           │
-   ├─ 屋外・少人数: WebRTC P2P メッシュ ───────────────────────┤
-   └─ 会議室 / 4 人以上: Cloudflare Realtime SFU 経由 ──────────┘
+   ├─ 2 人以上の通話（既定）: Cloudflare Realtime SFU 経由 ────┤
+   └─ SFU 未設定 / 閾値未満: WebRTC P2P メッシュ ──────────────┘
         ※ メディアは engawa を経由しない（P2P / Cloudflare のみ）
 ```
 
@@ -103,7 +103,8 @@ P2P メッシュ（最大 3 人）、会議室ゾーンと 4 人以上の屋外�
   → `sfu-peer-tracks`）** をさばく。`broadcast` は**同一 workspace かつ join 済み**のみ配信。
 - `logic.ts` — **副作用のない純粋関数**（座標クランプ、スポーン生成、名前/workspace 正規化、
   パスワード検証/パース、**近接グループ判定 `computeProximityGroups`**）。グループ判定は位置＋zone
-  から連結成分を求め、会議室=常時 SFU・屋外は 4 人で SFU 昇格（一方向ラッチ）を割り当てる純粋関数。
+  から連結成分を求め、会議室=常時 SFU・屋外は `SFU_PROMOTE_AT` 人で SFU 昇格（既定 2＝実質すべて SFU。
+  一方向ラッチ）を割り当てる純粋関数。閾値の正規化も純粋関数 `normalizeSfuPromoteAt`。
 - `turn.ts` — Cloudflare API を叩いて短期 ICE クレデンシャルを発行。**API キーはサーバーのみ保持**。
 - `sfu.ts` — Cloudflare Realtime SFU の制御プレーン（セッション/トラック）を**プロキシ**する。
   App ID/Token はサーバーのみ保持しブラウザに渡さない（turn.ts と同じ作法）。転送先パスはホワイト
@@ -169,6 +170,10 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
 - `CLOUDFLARE_TURN_TOKEN_ID` / `CLOUDFLARE_TURN_TOKEN_SECRET` — 未設定なら STUN のみで動作。
 - `CLOUDFLARE_REALTIME_APP_ID` / `CLOUDFLARE_REALTIME_APP_TOKEN` — Cloudflare Realtime SFU。
   未設定なら SFU 無効＝全グループがメッシュ（SFU 導入前と同一挙動）。`sfu.ts` がサーバー側のみで保持。
+- `SFU_PROMOTE_AT` — 屋外グループが mesh から SFU に切り替わる人数（既定 **2**＝2 人の会話も SFU 経由。
+  mesh はピアごとの ICE 交渉で片側だけ失敗しうるのに対し SFU は PeerConnection 1 本で安定するため #309 で
+  既定化）。`4` にすると 2〜3 人は P2P のままで遅延 1 ホップぶん有利・SFU 帯域も使わない。2〜32 にクランプ、
+  不正値は既定。会議室ゾーンは人数によらず常に SFU。SFU 未設定時は無視。
 - `ACCESS_PASSWORD` — 単一の入室パスワード（任意）。未設定なら**オープン**で、ログイン時に
   パスワードは一切求めない。設定すると、クライアントは `GET /api/config` で要否を知り、
   **名前入力の前**にパスワードゲートを表示（`POST /api/verify-password` で照合）。join でも

@@ -39,7 +39,7 @@ Slack のハドルや Gather.town のような「ちょっと話しかける」�
 | 🔔 | 近接チャイム | 人が近づいた / 離れたときに軽い効果音 |
 | 🚪 | 退室で自動オフ | 会議室・ラウンジなどの部屋から出ると、マイク・カメラ・画面共有が自動で OFF（録画は継続。戻っても自動では ON にしない） |
 | 🔒 | 入室パスワード | `ACCESS_PASSWORD` を設定すると入室時にパスワードを確認（任意。未設定ならオープン） |
-| 👥 | 大人数対応 | 会議室ゾーンや 4 人以上の集まりは自動で SFU 配信に切り替え（要 Cloudflare Realtime SFU 設定。未設定なら全員 P2P） |
+| 👥 | 安定した通話 | 2 人以上の通話は既定で SFU 配信（大人数でもそのままスケール。要 Cloudflare Realtime SFU 設定。未設定なら全員 P2P） |
 | 📲 | アプリとしてインストール | デスクトップ Chrome / Edge でインストール可能（PWA）。独立ウィンドウで起動でき、Dock / タスクバーに常駐できる |
 
 ---
@@ -159,7 +159,7 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.
 
 ## 🏗 アーキテクチャ
 
-メディア（音声・映像・画面共有）は **engawa のサーバーを経由しません**。屋外の少人数近接は P2P メッシュ（最大 3 人）、会議室ゾーンや 4 人以上の集まりは Cloudflare Realtime SFU 経由——どちらでもメディアは自前サーバーを通りません。サーバーがやるのは、出会いの仲介・位置同期・グループ方式の判定だけです。
+メディア（音声・映像・画面共有）は **engawa のサーバーを経由しません**。2 人以上の通話は既定で Cloudflare Realtime SFU 経由（`SFU_PROMOTE_AT` で閾値を変えると少人数は P2P メッシュ）、SFU 未設定ならすべて P2P メッシュ——どちらでもメディアは自前サーバーを通りません。サーバーがやるのは、出会いの仲介・位置同期・グループ方式の判定だけです。
 
 ```
 [ブラウザA]                 [サーバー (Bun)]                 [ブラウザB]
@@ -169,8 +169,8 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.
    │                        ├ /api/turn-credentials             │
    │                        └ /api/sfu/*（SFU 制御のプロキシ）    │
    │                                                            │
-   ├── 屋外・少人数: WebRTC P2P メッシュ ───────────────────────┤
-   └── 会議室 / 4 人以上: Cloudflare Realtime SFU 経由 ──────────┘
+   ├── 2 人以上の通話（既定）: Cloudflare Realtime SFU 経由 ────┤
+   └── SFU 未設定 / 閾値未満: WebRTC P2P メッシュ ──────────────┘
             ※ メディアは engawa を経由しない（P2P / Cloudflare のみ）
 ```
 
@@ -229,9 +229,12 @@ PORT=3000
 CLOUDFLARE_TURN_TOKEN_ID=
 CLOUDFLARE_TURN_TOKEN_SECRET=
 
-# Cloudflare Realtime SFU（任意 — 大人数・会議室の通話。未設定なら全員 P2P メッシュ）
+# Cloudflare Realtime SFU（任意 — 通話の配信。未設定なら全員 P2P メッシュ）
 CLOUDFLARE_REALTIME_APP_ID=
 CLOUDFLARE_REALTIME_APP_TOKEN=
+
+# SFU に切り替わる人数（任意 — 既定 2 = 2 人以上の通話はすべて SFU 経由）
+SFU_PROMOTE_AT=
 
 # 入室パスワード（任意 — 設定すると入室時にパスワードを求める。未設定ならオープン）
 ACCESS_PASSWORD=
@@ -239,6 +242,7 @@ ACCESS_PASSWORD=
 
 - **TURN** を使う場合は Cloudflare Dashboard → Realtime → TURN で Token を作成して設定します。
 - **SFU** を使う場合は Cloudflare Dashboard → Realtime → SFU で App を作成し、App ID と Token を設定します。未設定でも全機能はメッシュで動作します（大人数時のスケールのみ制限されます）。
+- **SFU_PROMOTE_AT** は屋外グループが SFU に切り替わる人数です（既定 `2` = 2 人の会話も SFU 経由。接続の安定性を優先した既定値）。`4` にすると 2〜3 人は P2P メッシュのままになり、遅延が 1 ホップぶん減って SFU の帯域も使いません。会議室ゾーンは人数によらず常に SFU です。SFU 未設定ならこの値は無視されます。
 - **ACCESS_PASSWORD** を設定すると、入室時にパスワードが必要になります（名前入力の前に確認）。未設定ならパスワードは求めません。
 
 ---
