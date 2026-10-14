@@ -163,26 +163,45 @@ export function computeSidebarLayout(items: LayoutItem[], vw: number, vh: number
 export const MEETING_GAP = 4;
 
 // Filmstrip (presentation mode): FIXED-SIZE camera tiles — a touch smaller than a
-// hallway tile — stacked in the left column. At most MAX_VISIBLE show at once;
-// more than that reveals the ⬇️ "show more" toggle. When they fit they are
+// hallway tile — filling the left rail. At most MAX_VISIBLE_ROWS rows show at
+// once; more than that reveals the ⬇️ "show more" toggle. When they fit they are
 // vertically centered beside the share; when there are too many (expanded) they
-// shrink to divide the column so everyone still fits without scrolling.
-export const MEETING_FILMSTRIP_MAX_VISIBLE = 5;
-// Default (and aspect-defining) filmstrip tile size. The column width is user-
+// shrink to divide the rail so everyone still fits without scrolling.
+// The rail holds one column by default and two once dragged wide (#304), so the
+// visible cap counts ROWS — five rows is five faces in one column, ten in two.
+export const MEETING_FILMSTRIP_MAX_VISIBLE_ROWS = 5;
+// Default (and aspect-defining) filmstrip tile size. The rail width is user-
 // adjustable by dragging the seam (#288); tiles keep this W:H aspect as they
 // scale, and the width snaps back to this default when the meeting ends.
 export const MEETING_FILMSTRIP_TILE_W = 148;
 export const MEETING_FILMSTRIP_TILE_H = 108;
-// Drag bounds for the filmstrip width: never thinner than a readable thumbnail,
+// Drag bounds for the filmstrip rail: never thinner than a readable thumbnail,
 // never wider than half the viewport (the share must stay the main event).
 export const MEETING_FILMSTRIP_MIN_W = 96;
 export const MEETING_FILMSTRIP_MAX_FRAC = 0.5;
 // Near-zero separation between the filmstrip and the share, so they read as one
 // surface (the tiles sit flush to the left edge; this is just the seam).
 export const MEETING_FILMSTRIP_SEP = 2;
-// The gutter the main share must avoid = the tile width (tiles are flush-left).
-export function meetingFilmstripColWidth(stripW: number = MEETING_FILMSTRIP_TILE_W): number {
-  return stripW;
+// Two columns start paying off once the rail can hold two default-width tiles.
+// Below that a second column would only make both of them smaller.
+export const MEETING_FILMSTRIP_2COL_MIN_W = MEETING_FILMSTRIP_TILE_W * 2 + MEETING_GAP;
+export const MEETING_FILMSTRIP_MAX_COLS = 2;
+
+// Pure: how many columns a rail of this width is worth. Widening past two
+// default tiles splits the rail instead of growing one tile further (#304).
+export function computeFilmstripColumns(railW: number): number {
+  return railW >= MEETING_FILMSTRIP_2COL_MIN_W ? MEETING_FILMSTRIP_MAX_COLS : 1;
+}
+
+// Pure: the tile width inside a rail of this width, once its columns are split.
+export function filmstripTileWidth(railW: number): number {
+  const cols = computeFilmstripColumns(railW);
+  return Math.max(1, Math.floor((railW - MEETING_GAP * (cols - 1)) / cols));
+}
+
+// The gutter the main share must avoid = the whole rail (tiles are flush-left).
+export function meetingFilmstripColWidth(railW: number = MEETING_FILMSTRIP_TILE_W): number {
+  return railW;
 }
 
 // Pure: clamps a requested filmstrip width into the draggable range for this
@@ -237,11 +256,12 @@ export function computeMeetingGallery(
 }
 
 // Pure: presentation — items[0] is the featured screenshare (fills the main area
-// on the right); every other item stacks in the LEFT filmstrip gutter. The
-// caller has already trimmed the filmstrip to the visible (collapsed ≤ MAX /
-// expanded) set, so this just places what it is given: `stripW`-wide tiles
-// (default MEETING_FILMSTRIP_TILE_W; user-dragged, #288) centered in the column
-// when they fit, shrunk to divide the column when there are too many.
+// on the right); every other item fills the LEFT filmstrip rail. The caller has
+// already trimmed the filmstrip to the visible (collapsed ≤ MAX / expanded) set,
+// so this just places what it is given inside a rail `stripW` wide (default
+// MEETING_FILMSTRIP_TILE_W; user-dragged, #288). The rail runs one column, or
+// two once it is wide enough to hold two default tiles (#304); tiles are
+// centered in the rail when they fit and shrink to divide it when they don't.
 export function computeMeetingPresentation(
   items: LayoutItem[],
   vw: number,
@@ -257,31 +277,36 @@ export function computeMeetingPresentation(
     return result;
   }
   const strip = n - 1;
-  const tileW = stripW;
-  const tileH = filmstripTileHeight(stripW);
-  // Main share abuts the strip with only the thin seam between them, and runs
-  // full-bleed on the other three edges.
-  const mainX = area.x + tileW + MEETING_FILMSTRIP_SEP;
+  const cols = computeFilmstripColumns(stripW);
+  const tileW = filmstripTileWidth(stripW);
+  const tileH = filmstripTileHeight(tileW);
+  // Row-major fill: left to right, then down — reading order, so a newcomer
+  // lands where the eye expects rather than extending a column.
+  const rows = Math.ceil(strip / cols);
+  const colX = (k: number) => area.x + ((k - 1) % cols) * (tileW + MEETING_GAP);
+  // Main share abuts the whole rail with only the thin seam between them, and
+  // runs full-bleed on the other three edges.
+  const mainX = area.x + stripW + MEETING_FILMSTRIP_SEP;
   result[0] = { left: mainX, top: area.y, width: Math.max(1, area.w - mainX), height: area.h };
 
-  const fixedTotalH = strip * tileH + (strip - 1) * MEETING_GAP;
+  const fixedTotalH = rows * tileH + (rows - 1) * MEETING_GAP;
   if (fixedTotalH <= area.h) {
     // Fits: fixed-size tiles, flush-left and vertically centered beside the share.
     const startY = area.y + (area.h - fixedTotalH) / 2;
     for (let k = 1; k < n; k++) {
       result[k] = {
-        left: area.x,
-        top: Math.round(startY + (k - 1) * (tileH + MEETING_GAP)),
+        left: Math.round(colX(k)),
+        top: Math.round(startY + Math.floor((k - 1) / cols) * (tileH + MEETING_GAP)),
         width: tileW,
         height: tileH,
       };
     }
   } else {
     // Too many at the current size (the expanded view on a short viewport, or a
-    // column dragged wide): divide the column height so all fit, shrinking the
+    // rail dragged wide): divide the rail height so all rows fit, shrinking the
     // width along with it so tiles keep their aspect instead of cropping to a
-    // letterbox, centered in the column.
-    const cellH = area.h / strip;
+    // letterbox, centered in their column.
+    const cellH = area.h / rows;
     const h = Math.max(1, Math.round(cellH - MEETING_GAP));
     const w = Math.max(
       1,
@@ -289,8 +314,8 @@ export function computeMeetingPresentation(
     );
     for (let k = 1; k < n; k++) {
       result[k] = {
-        left: Math.round(area.x + (tileW - w) / 2),
-        top: Math.round(area.y + (k - 1) * cellH),
+        left: Math.round(colX(k) + (tileW - w) / 2),
+        top: Math.round(area.y + Math.floor((k - 1) / cols) * cellH),
         width: w,
         height: h,
       };

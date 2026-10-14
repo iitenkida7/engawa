@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 import type { MediaManager } from '@/media/media';
 import type { RecorderManager } from '@/media/recorder';
-import { MEETING_FILMSTRIP_MIN_W, MEETING_FILMSTRIP_TILE_W } from '@/ui/panels';
+import {
+  MEETING_FILMSTRIP_2COL_MIN_W,
+  MEETING_FILMSTRIP_MIN_W,
+  MEETING_FILMSTRIP_TILE_W,
+} from '@/ui/panels';
 import { RemoteMediaView } from '@/ui/remote-media';
 import type { PlayerState } from '@/world/player';
 
@@ -254,12 +258,15 @@ describe('filmstrip / share seam resizer', () => {
 
   it('dragging the seam resizes the filmstrip tiles, clamped to the allowed range', () => {
     view.attachRemoteStream('b', new MediaStream(), 'screen');
+    // A one-column rail (below the 2-column threshold) puts the whole width
+    // into the tile.
+    const oneCol = MEETING_FILMSTRIP_2COL_MIN_W - 50;
     pointer('pointerdown', MEETING_FILMSTRIP_TILE_W);
-    pointer('pointermove', 300);
-    expect(tileWidth()).toBe(300);
-    // Way past the cap → the column clamps to half the viewport (the seam handle
-    // sits at the column edge; the tiles themselves may shrink to fit the
-    // column height). Way left → the minimum.
+    pointer('pointermove', oneCol);
+    expect(tileWidth()).toBe(oneCol);
+    // Way past the cap → the rail clamps to half the viewport (the seam handle
+    // sits at the rail edge; the tiles themselves may shrink to fit the rail
+    // height). Way left → the minimum.
     pointer('pointermove', 100_000);
     const cap = Math.floor(window.innerWidth / 2);
     expect(Number.parseFloat(resizer().style.left)).toBeGreaterThanOrEqual(cap);
@@ -268,23 +275,70 @@ describe('filmstrip / share seam resizer', () => {
     expect(tileWidth()).toBe(MEETING_FILMSTRIP_MIN_W);
     pointer('pointerup', 1);
     // After the drag ends, moves no longer resize.
-    pointer('pointermove', 300);
+    pointer('pointermove', oneCol);
     expect(tileWidth()).toBe(MEETING_FILMSTRIP_MIN_W);
+  });
+
+  // #304: past the threshold the rail splits rather than growing one fat tile.
+  it('splits the rail into two columns once dragged wide enough', () => {
+    addCam(view, 'b');
+    view.attachRemoteStream('c', new MediaStream(), 'screen');
+    const tileB = () => document.querySelector<HTMLElement>('.panel[data-focus-key="cam:b"]')!;
+    pointer('pointerdown', MEETING_FILMSTRIP_TILE_W);
+
+    // Just under the threshold: one column, both tiles flush-left and full width.
+    pointer('pointermove', MEETING_FILMSTRIP_2COL_MIN_W - 1);
+    expect(tileWidth()).toBe(MEETING_FILMSTRIP_2COL_MIN_W - 1);
+    expect(Number.parseFloat(camTile().style.left)).toBe(0);
+    expect(Number.parseFloat(tileB().style.left)).toBe(0);
+
+    // At the threshold: two columns — half the width each, side by side.
+    pointer('pointermove', MEETING_FILMSTRIP_2COL_MIN_W);
+    expect(tileWidth()).toBe(MEETING_FILMSTRIP_TILE_W);
+    expect(Number.parseFloat(camTile().style.left)).toBe(0);
+    expect(Number.parseFloat(tileB().style.left)).toBeGreaterThan(0);
+    expect(Number.parseFloat(camTile().style.top)).toBe(Number.parseFloat(tileB().style.top));
+    // The seam still parks at the far edge of the whole rail.
+    expect(Number.parseFloat(resizer().style.left)).toBeGreaterThanOrEqual(
+      MEETING_FILMSTRIP_2COL_MIN_W,
+    );
+    pointer('pointerup', MEETING_FILMSTRIP_2COL_MIN_W);
+  });
+
+  it('doubles the chevron threshold in two columns (5 rows = 10 faces)', () => {
+    for (const id of ['b', 'c', 'd', 'e', 'f']) addCam(view, id);
+    view.attachRemoteStream('share', new MediaStream(), 'screen');
+    const laidOut = () =>
+      [...document.querySelectorAll<HTMLElement>('.panel')].filter(
+        (p) => !p.classList.contains('meeting-hidden') && !p.classList.contains('hidden'),
+      ).length;
+    const chevron = document.getElementById('filmstrip-toggle') as HTMLElement;
+    // 6 cams + self + share = 8 windows → 7 in the rail, past the 5-row cap.
+    expect(chevron.style.display).not.toBe('none');
+    const oneColShown = laidOut();
+
+    // Two columns fit 10, so all 7 show and the chevron goes away.
+    pointer('pointerdown', MEETING_FILMSTRIP_TILE_W);
+    pointer('pointermove', MEETING_FILMSTRIP_2COL_MIN_W);
+    pointer('pointerup', MEETING_FILMSTRIP_2COL_MIN_W);
+    expect(laidOut()).toBeGreaterThan(oneColShown);
+    expect(chevron.style.display).toBe('none');
   });
 
   it('double-click snaps back to the default width; leaving the meeting resets it', () => {
     view.attachRemoteStream('b', new MediaStream(), 'screen');
+    const oneCol = MEETING_FILMSTRIP_2COL_MIN_W - 50;
     pointer('pointerdown', MEETING_FILMSTRIP_TILE_W);
-    pointer('pointermove', 300);
-    pointer('pointerup', 300);
-    expect(tileWidth()).toBe(300);
+    pointer('pointermove', oneCol);
+    pointer('pointerup', oneCol);
+    expect(tileWidth()).toBe(oneCol);
     resizer().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     expect(tileWidth()).toBe(MEETING_FILMSTRIP_TILE_W);
     // Drag again, then leave + re-enter: not persisted across meetings.
     pointer('pointerdown', MEETING_FILMSTRIP_TILE_W);
-    pointer('pointermove', 300);
-    pointer('pointerup', 300);
-    expect(tileWidth()).toBe(300);
+    pointer('pointermove', oneCol);
+    pointer('pointerup', oneCol);
+    expect(tileWidth()).toBe(oneCol);
     view.setMeetingMode(false);
     expect(shown()).toBe(false);
     view.setMeetingMode(true);
