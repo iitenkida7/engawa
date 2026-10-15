@@ -176,18 +176,40 @@ export class RecorderManager {
     this.emit();
   }
 
+  // Emergency save while the page is being closed (issue #315). Recording is
+  // in-browser, so a tab closed without pressing stop used to lose everything.
+  // Called from the beforeunload handler: the chunks collected so far (one per
+  // second) are already in memory, so a file can be built and the download
+  // started SYNCHRONOUSLY there, which Chromium honours (a download started
+  // from pagehide/unload is not). Nothing is stopped or cleared: if the user
+  // cancels the "leave site?" prompt the recording simply continues and stop
+  // later saves the full file; the partial one is a harmless extra. Returns
+  // whether a file was written.
+  saveSnapshot(): boolean {
+    if (!this.recording || this.chunks.length === 0) return false;
+    this.download(this.chunks, '-autosave');
+    return true;
+  }
+
   private save() {
     if (this.chunks.length === 0) return;
-    const blob = new Blob(this.chunks, { type: this.mimeType });
+    this.download(this.chunks);
+    this.chunks = [];
+  }
+
+  // Build one file from `chunks` and trigger a browser download of it.
+  // Concatenating MediaRecorder timeslice chunks yields a valid file, so both
+  // the final save and a mid-recording snapshot go through here.
+  private download(chunks: Blob[], suffix = '') {
+    const blob = new Blob(chunks, { type: this.mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     a.href = url;
-    a.download = `recording-${ts}.${fileExtension(this.mimeType)}`;
+    a.download = `recording-${ts}${suffix}.${fileExtension(this.mimeType)}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    this.chunks = [];
   }
 }

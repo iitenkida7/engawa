@@ -131,13 +131,13 @@ const STR: Record<string, Record<Lang, string>> = {
   // Our own recording (#315): it runs inside this browser and is only saved when
   // stopped, so say so at start and keep a persistent indicator on screen.
   'rec.selfStartedHint': {
-    ja: '録画を開始しました。録画はこの PC 上で行われ、■ 停止を押したときにダウンロードされます。停止せずにタブを閉じると失われます。',
-    en: 'Recording started. It runs on this PC and is downloaded when you press ■ Stop. Closing the tab without stopping loses it.',
+    ja: '録画を開始しました。録画はこの PC 上で行われ、■ 停止を押したときにダウンロードされます。停止せずにタブを閉じた場合は、その時点までの録画を自動でダウンロードします。',
+    en: 'Recording started. It runs on this PC and is downloaded when you press ■ Stop. If you close the tab without stopping, what was recorded so far is downloaded automatically.',
   },
   'rec.indicator': { ja: '録画中', en: 'REC' },
   'rec.indicatorHint': {
-    ja: '■ 停止で保存 / 閉じると失われます',
-    en: '■ Stop to save / closing loses it',
+    ja: '■ 停止で保存 / 閉じるとそこまでを自動保存',
+    en: '■ Stop to save / closing auto-saves so far',
   },
   'toolbar.reactions': { ja: 'リアクション', en: 'Reactions' },
   'toolbar.more': { ja: 'その他', en: 'More' },

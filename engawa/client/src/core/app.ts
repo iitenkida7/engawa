@@ -284,6 +284,10 @@ export class App {
   private avatarMenuEl = document.getElementById('avatar-menu') as HTMLDivElement;
   private onShortcutKey = (e: KeyboardEvent) => this.handleShortcutKey(e);
   private onBeforeUnload = (e: BeforeUnloadEvent) => {
+    // Closing the tab mid-recording: download what has been recorded so far
+    // right now, synchronously (#315). This is the only unload-time hook from
+    // which Chromium still lets a download start; see RecorderManager.
+    this.recorder.saveSnapshot();
     if (!shouldConfirmUnload(this.me !== null)) return;
     // Setting returnValue is what triggers the browser's native confirm dialog;
     // the text is ignored by modern browsers but assignment is still required.
