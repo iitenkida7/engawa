@@ -213,7 +213,8 @@ engawa は **host 非依存の OSS**。リリースとは「**バージョンタ
 - `scripts/release.sh vX.Y.Z "subject"` = ガード（clean / origin/main 一致 / CI green / タグ未存在）→
   annotated タグ `vX.Y.Z` を push → `release.yml` が `ghcr.io/<owner>/engawa:vX.Y.Z` を build & push → 完了まで待機。
 
-**新機能はマイナー（vX.Y+1.0）、バグ修正はパッチ（vX.Y.Z+1）**。バージョンはユーザーに確認してから打つ。
+**新機能はマイナー（vX.Y+1.0）、バグ修正はパッチ（vX.Y.Z+1）**。**小さな変更（バグ修正・軽微な修正＝パッチ）は
+ユーザーに確認せず、次のパッチ版を自動で打つ**。確認するのは新機能（マイナー）・メジャー・判断に迷うときだけ。
 通常どおりフィーチャーブランチ→PR で進める。GHCR publish 後の本番反映は OSS の外（デプロイ専用の別環境）が GHCR の成果物を引いて行う。
 
 ## ランディングページ（LP / GitHub Pages）
