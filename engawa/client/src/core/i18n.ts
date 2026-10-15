@@ -168,6 +168,22 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
   'toolbar.audioOnly': { ja: '🔉 音声のみモード', en: '🔉 Audio-only mode' },
   'toolbar.shortcuts': { ja: '⌨ キーバインド一覧', en: '⌨ Keyboard shortcuts' },
+  // "⋯" menu: experimental features master switch (#323). Opt-in, off by
+  // default; the per-feature toggles appear beneath it once ticked.
+  'toolbar.experimental': { ja: '🧪 実験的機能を使う', en: '🧪 Use experimental features' },
+  'toolbar.facePip': {
+    ja: '🪟 画面共有中に顔を小窓に出す（Chrome / Edge）',
+    en: '🪟 Faces in a floating window while sharing (Chrome / Edge)',
+  },
+  'toolbar.facePipHint': {
+    ja: '顔の小窓を開きました。画面全体を共有している場合は小窓も相手に見えます',
+    en: 'Opened the faces window. If you share your entire screen, it shows up for others too.',
+  },
+  'toolbar.facePipRetry': {
+    ja: '顔の小窓を自動で開けませんでした',
+    en: 'Could not open the faces window automatically',
+  },
+  'toolbar.facePipOpen': { ja: '小窓を開く', en: 'Open it' },
   'toolbar.closeDebug': { ja: '🐛 デバッグを閉じる', en: '🐛 Close debug' },
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
 
@@ -232,6 +248,7 @@ const STR: Record<string, Record<Lang, string>> = {
   },
   'media.focus': { ja: '拡大表示', en: 'Maximize' },
   'media.reconnecting': { ja: '再接続中…', en: 'Reconnecting…' },
+  'facePip.empty': { ja: '通話相手がいません', en: 'No one in the call' },
   // Why a camera tile is dark (issue #312): stall overlays and placeholder notes.
   'media.stall.layer-switch': { ja: '画質を切り替え中…', en: 'Switching quality…' },
   'media.stall.my-network': {
