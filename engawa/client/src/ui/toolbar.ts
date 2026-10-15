@@ -597,7 +597,7 @@ export class ToolbarController {
 
   private async switchMic(deviceId: string) {
     if (this.media.selectedMicId === deviceId) return;
-    this.media.selectedMicId = deviceId;
+    this.media.setSelectedDevice('mic', deviceId);
     if (!this.media.micOn) return;
     await this.reacquire('mic');
     this.broadcastStatus();
@@ -605,7 +605,7 @@ export class ToolbarController {
 
   private async switchCam(deviceId: string) {
     if (this.media.selectedCamId === deviceId) return;
-    this.media.selectedCamId = deviceId;
+    this.media.setSelectedDevice('cam', deviceId);
     if (!this.media.camOn) return;
     await this.reacquire('cam');
     this.broadcastStatus();
