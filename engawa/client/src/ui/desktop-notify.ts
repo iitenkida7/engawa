@@ -1,9 +1,10 @@
-// Background-tab alerts for knocks (issue #140). While the tab is hidden a knock
-// toast is easy to miss (it auto-dismisses after KNOCK_COOLDOWN_MS), so we also
-// raise an OS notification and badge the tab title. Plain Notification API only:
-// no Service Worker / Web Push, which would need server-side subscription state
-// (invariant #2). Notifications only fire while the page is alive, which matches
-// engawa's "keep the tab open to be present" model.
+// Background alerts for knocks (issues #140, #321). Whenever engawa is not the
+// window you are looking at, a knock toast is easy to miss (it auto-dismisses
+// after KNOCK_COOLDOWN_MS), so we also raise an OS notification and badge the tab
+// title. Plain Notification API only: no Service Worker / Web Push, which would
+// need server-side subscription state (invariant #2). Notifications only fire
+// while the page is alive, which matches engawa's "keep the tab open to be
+// present" model.
 
 import type { PlayerStatus } from '@/core/types';
 
@@ -14,17 +15,29 @@ const STORAGE_KEY = 'engawa-desktop-notify';
 const ICON = '/icons/engawa-logo-192.png';
 
 /**
- * How loudly to surface a knock (pure, unit-tested). Visible tab: the existing
+ * Whether engawa is out of sight right now. `document.hidden` alone only covers
+ * a background tab / minimized window: with engawa visible on a second monitor
+ * (or beside the window you're actually working in) it stays false, which used
+ * to suppress every knock alert (#321). Being unfocused is the condition that
+ * actually matters, so it drives the alert too.
+ */
+export function isBackgrounded(): boolean {
+  return document.hidden || !document.hasFocus();
+}
+
+/**
+ * How loudly to surface a knock (pure, unit-tested). Focused window: the existing
  * toast + chime are enough. Away: we've soft-left, stay quiet. Busy, opted out,
  * or no permission: title badge only. Otherwise an OS notification + badge.
+ * `backgrounded` comes from isBackgrounded().
  */
 export function knockAlertLevel(opts: {
-  hidden: boolean;
+  backgrounded: boolean;
   status: PlayerStatus;
   enabled: boolean;
   permission: NotifyPermission;
 }): AlertLevel {
-  if (!opts.hidden || opts.status === 'away') return 'none';
+  if (!opts.backgrounded || opts.status === 'away') return 'none';
   if (opts.status === 'busy' || !opts.enabled || opts.permission !== 'granted') return 'badge';
   return 'desktop';
 }
@@ -46,7 +59,10 @@ export class DesktopNotifier {
     } catch {
       /* ignore private-mode storage errors */
     }
-    this.enabled = stored === '1';
+    // Default ON (#321): only an explicit opt-out ('0') disables it, so a knock
+    // reaches you without first hunting down the toggle. Nothing is shown until
+    // the browser permission is granted — see ensurePermission().
+    this.enabled = stored !== '0';
   }
 
   permission(): NotifyPermission {
@@ -56,6 +72,19 @@ export class DesktopNotifier {
   // The toggle reads as ON only when it will actually notify.
   isEnabled(): boolean {
     return this.enabled && this.permission() === 'granted';
+  }
+
+  // Called once per join, from the click that enters the room (#321): a user
+  // gesture, which is what browsers require to show the permission prompt. Only
+  // asks while the permission is still 'default' — an earlier grant or denial is
+  // final until the user changes it in site settings, and re-asking is a no-op.
+  async ensurePermission(): Promise<NotifyPermission> {
+    const perm = this.permission();
+    if (perm !== 'default') return perm;
+    const granted = await Notification.requestPermission();
+    // A denial leaves the toggle on but inert (isEnabled() checks permission);
+    // don't persist it as an opt-out, so re-allowing in site settings is enough.
+    return granted;
   }
 
   // Flip the toggle. Turning it on asks for permission the first time (only

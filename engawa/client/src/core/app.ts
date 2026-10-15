@@ -69,7 +69,7 @@ import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
 import { DebugConsole } from '@/ui/debug-console';
-import { DesktopNotifier, knockAlertLevel } from '@/ui/desktop-notify';
+import { DesktopNotifier, isBackgrounded, knockAlertLevel } from '@/ui/desktop-notify';
 import { KeyHelpPanel } from '@/ui/keyhelp';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
@@ -106,6 +106,17 @@ const JOIN_CHIME_GRACE_MS = 2500;
 // often to keep localStorage writes cheap.
 const POS_STORAGE_KEY = 'engawa-pos';
 const POS_SAVE_INTERVAL_MS = 3000;
+
+// Persist the ⋯-menu audio-only choice (#321): someone who works audio-only
+// shouldn't have to re-pick it every login. Only an explicit '1' enables it.
+const AUDIO_ONLY_STORAGE_KEY = 'engawa-audio-only';
+function readAudioOnlyPref(): boolean {
+  try {
+    return localStorage.getItem(AUDIO_ONLY_STORAGE_KEY) === '1';
+  } catch {
+    return false; /* private-mode storage errors: full video, as before */
+  }
+}
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
@@ -250,7 +261,7 @@ export class App {
   // Receive-side degradation (#188): `manualAudioOnly` is the user's ⋯-menu
   // toggle (stops our own cam/screen and, on SFU, pauses video pulls);
   // `autoRecvAudioOnly` is the tier-3 automatic variant, cleared on recovery.
-  private manualAudioOnly = false;
+  private manualAudioOnly = readAudioOnlyPref();
   private autoRecvAudioOnly = false;
 
   // Mesh-peer recovery state (issue #184), all keyed by peer userId and driven
@@ -314,6 +325,11 @@ export class App {
       this.desktopNotifier.clearBadge();
       this.knocks.onVisible();
     }
+  };
+  // Back in front without a visibility change (we were visible but unfocused —
+  // another window had focus): the knock badge has been seen, so drop it (#321).
+  private onWindowFocus = () => {
+    this.desktopNotifier.clearBadge();
   };
   // The OS reported connectivity is back: reconnect a dropped socket right away
   // (the backoff may still be waiting out a long delay), or probe a socket that
@@ -689,6 +705,10 @@ export class App {
   start(name: string, password: string) {
     this.joinedName = name;
     this.joinedPassword = password;
+    // Entering the room is a user gesture, the only context in which browsers
+    // show the notification prompt — so ask here, once, rather than hoping the
+    // user finds the status-menu toggle (#321). No-op once decided either way.
+    void this.desktopNotifier.ensurePermission();
     this.net.connect();
     // Guard like startBackgroundTicker/setupLifecycle: an auth-error retry calls
     // start() again on the same App, and a second rAF chain would double-drive
@@ -699,6 +719,9 @@ export class App {
     }
     this.startBackgroundTicker();
     this.setupLifecycle();
+    // A restored audio-only preference has to reach the SFU / view before the
+    // first pulls are set up.
+    if (this.manualAudioOnly) this.updateVideoPullPause();
   }
 
   // Keep the simulation alive in a hidden tab. While visible, requestAnimationFrame
@@ -723,6 +746,7 @@ export class App {
     this.lifecycleReady = true;
     window.addEventListener('beforeunload', this.onBeforeUnload);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
+    window.addEventListener('focus', this.onWindowFocus);
     window.addEventListener('online', this.onOnline);
     window.addEventListener('offline', this.onOffline);
   }
@@ -813,6 +837,7 @@ export class App {
     window.removeEventListener('keydown', this.onShortcutKey);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    window.removeEventListener('focus', this.onWindowFocus);
     window.removeEventListener('online', this.onOnline);
     window.removeEventListener('offline', this.onOffline);
     this.rtc.closeAll();
@@ -931,6 +956,11 @@ export class App {
     if (this.manualAudioOnly === on) return;
     this.manualAudioOnly = on;
     logNet('audio-only-mode', { on });
+    try {
+      localStorage.setItem(AUDIO_ONLY_STORAGE_KEY, on ? '1' : '0');
+    } catch {
+      /* ignore private-mode storage errors */
+    }
     if (on) {
       this.autoCamOff = false; // manual mode supersedes the automation
       await this.toolbar.setCamEnabled(false);
@@ -1386,7 +1416,7 @@ export class App {
       case 'knock': {
         this.knocks.received(msg.from, msg.name);
         const level = knockAlertLevel({
-          hidden: document.hidden,
+          backgrounded: isBackgrounded(),
           status: this.myStatus,
           enabled: this.desktopNotifier.isEnabled(),
           permission: this.desktopNotifier.permission(),
