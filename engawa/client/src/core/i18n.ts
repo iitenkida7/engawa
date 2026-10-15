@@ -168,9 +168,12 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
   'toolbar.audioOnly': { ja: '🔉 音声のみモード', en: '🔉 Audio-only mode' },
   'toolbar.shortcuts': { ja: '⌨ キーバインド一覧', en: '⌨ Keyboard shortcuts' },
+  // "⋯" menu: experimental features master switch (#323). Opt-in, off by
+  // default; the per-feature toggles appear beneath it once ticked.
+  'toolbar.experimental': { ja: '🧪 実験的機能を使う', en: '🧪 Use experimental features' },
   'toolbar.facePip': {
-    ja: '🪟 画面共有中に顔を小窓に出す',
-    en: '🪟 Faces in a floating window while sharing',
+    ja: '🪟 画面共有中に顔を小窓に出す（Chrome / Edge）',
+    en: '🪟 Faces in a floating window while sharing (Chrome / Edge)',
   },
   'toolbar.facePipHint': {
     ja: '顔の小窓を開きました。画面全体を共有している場合は小窓も相手に見えます',

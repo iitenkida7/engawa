@@ -17,9 +17,10 @@ import { t } from '@/core/i18n';
 
 export const FACE_PIP_STORAGE_KEY = 'engawa-face-pip';
 
-// Default on: only an explicit '0' disables it (same convention as the noise
-// setting), so single-display users get the window without hunting for a
-// setting; multi-display users switch it off once from the "⋯" menu.
+// Per-feature switch, default on: only an explicit '0' disables it (same
+// convention as the noise setting). It only matters once the user has opted
+// into experimental features as a whole (ui/experimental.ts, #323): the window
+// opens only when BOTH the master switch and this one are on.
 export function parseFacePipSetting(stored: string | null): boolean {
   return stored !== '0';
 }
