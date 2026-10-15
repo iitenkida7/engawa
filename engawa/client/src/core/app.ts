@@ -69,11 +69,12 @@ import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
 import { DebugConsole } from '@/ui/debug-console';
-import { DesktopNotifier, knockAlertLevel } from '@/ui/desktop-notify';
+import { DesktopNotifier, isBackgrounded, knockAlertLevel } from '@/ui/desktop-notify';
 import { KeyHelpPanel } from '@/ui/keyhelp';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
 import { ReactionToasts } from '@/ui/reaction-toast';
+import { RecIndicator } from '@/ui/rec-indicator';
 import { RemoteMediaView } from '@/ui/remote-media';
 import { RosterPanel } from '@/ui/roster';
 import { SoundManager } from '@/ui/sounds';
@@ -106,6 +107,17 @@ const JOIN_CHIME_GRACE_MS = 2500;
 const POS_STORAGE_KEY = 'engawa-pos';
 const POS_SAVE_INTERVAL_MS = 3000;
 
+// Persist the ⋯-menu audio-only choice (#321): someone who works audio-only
+// shouldn't have to re-pick it every login. Only an explicit '1' enables it.
+const AUDIO_ONLY_STORAGE_KEY = 'engawa-audio-only';
+function readAudioOnlyPref(): boolean {
+  try {
+    return localStorage.getItem(AUDIO_ONLY_STORAGE_KEY) === '1';
+  } catch {
+    return false; /* private-mode storage errors: full video, as before */
+  }
+}
+
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
 // media panels live in RemoteMediaView and the toolbar in ToolbarController;
@@ -120,6 +132,7 @@ export class App {
   private sfu: SfuManager;
   private mediaSink: MediaSink;
   private recorder: RecorderManager;
+  private recIndicator = new RecIndicator();
   private compositor: SceneCompositor;
   private view: RemoteMediaView;
   private toolbar: ToolbarController;
@@ -233,6 +246,8 @@ export class App {
 
   // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
   private lastLayerUpdate = 0;
+  // Throttle for the remote-video stall check (#312, see RemoteMediaView.tickStalls).
+  private lastStallTick = 0;
 
   // Call-quality sampling (issue #182): every QUALITY_SAMPLE_INTERVAL_MS the
   // active transport's stats are folded into one QualitySample and appended to
@@ -246,7 +261,7 @@ export class App {
   // Receive-side degradation (#188): `manualAudioOnly` is the user's ⋯-menu
   // toggle (stops our own cam/screen and, on SFU, pauses video pulls);
   // `autoRecvAudioOnly` is the tier-3 automatic variant, cleared on recovery.
-  private manualAudioOnly = false;
+  private manualAudioOnly = readAudioOnlyPref();
   private autoRecvAudioOnly = false;
 
   // Mesh-peer recovery state (issue #184), all keyed by peer userId and driven
@@ -282,6 +297,10 @@ export class App {
   private avatarMenuEl = document.getElementById('avatar-menu') as HTMLDivElement;
   private onShortcutKey = (e: KeyboardEvent) => this.handleShortcutKey(e);
   private onBeforeUnload = (e: BeforeUnloadEvent) => {
+    // Closing the tab mid-recording: download what has been recorded so far
+    // right now, synchronously (#315). This is the only unload-time hook from
+    // which Chromium still lets a download start; see RecorderManager.
+    this.recorder.saveSnapshot();
     if (!shouldConfirmUnload(this.me !== null)) return;
     // Setting returnValue is what triggers the browser's native confirm dialog;
     // the text is ignored by modern browsers but assignment is still required.
@@ -306,6 +325,11 @@ export class App {
       this.desktopNotifier.clearBadge();
       this.knocks.onVisible();
     }
+  };
+  // Back in front without a visibility change (we were visible but unfocused —
+  // another window had focus): the knock badge has been seen, so drop it (#321).
+  private onWindowFocus = () => {
+    this.desktopNotifier.clearBadge();
   };
   // The OS reported connectivity is back: reconnect a dropped socket right away
   // (the backoff may still be waiting out a long delay), or probe a socket that
@@ -505,7 +529,13 @@ export class App {
       this.toolbar.refresh();
       this.view.refreshSelfPreview();
     });
-    this.recorder.on(() => this.toolbar.refresh());
+    // Recorder changes also drive the persistent "recording" pill + tab title
+    // (#315), so a forgotten stop is visible before the tab gets closed.
+    this.recorder.on(() => {
+      this.toolbar.refresh();
+      if (this.recorder.recording) this.recIndicator.show(this.recorder.startedAt);
+      else this.recIndicator.hide();
+    });
     this.view.refreshSelfPreview();
 
     // Double-click the map to walk to that point (A* around walls, boosted speed).
@@ -675,6 +705,10 @@ export class App {
   start(name: string, password: string) {
     this.joinedName = name;
     this.joinedPassword = password;
+    // Entering the room is a user gesture, the only context in which browsers
+    // show the notification prompt — so ask here, once, rather than hoping the
+    // user finds the status-menu toggle (#321). No-op once decided either way.
+    void this.desktopNotifier.ensurePermission();
     this.net.connect();
     // Guard like startBackgroundTicker/setupLifecycle: an auth-error retry calls
     // start() again on the same App, and a second rAF chain would double-drive
@@ -685,6 +719,9 @@ export class App {
     }
     this.startBackgroundTicker();
     this.setupLifecycle();
+    // A restored audio-only preference has to reach the SFU / view before the
+    // first pulls are set up.
+    if (this.manualAudioOnly) this.updateVideoPullPause();
   }
 
   // Keep the simulation alive in a hidden tab. While visible, requestAnimationFrame
@@ -709,6 +746,7 @@ export class App {
     this.lifecycleReady = true;
     window.addEventListener('beforeunload', this.onBeforeUnload);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
+    window.addEventListener('focus', this.onWindowFocus);
     window.addEventListener('online', this.onOnline);
     window.addEventListener('offline', this.onOffline);
   }
@@ -799,6 +837,7 @@ export class App {
     window.removeEventListener('keydown', this.onShortcutKey);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    window.removeEventListener('focus', this.onWindowFocus);
     window.removeEventListener('online', this.onOnline);
     window.removeEventListener('offline', this.onOffline);
     this.rtc.closeAll();
@@ -904,6 +943,7 @@ export class App {
   private updateVideoPullPause() {
     const paused = this.manualAudioOnly || this.autoRecvAudioOnly;
     this.sfu.setVideoPullPaused(paused);
+    this.view.setRecvVideoPaused(paused && this.currentMethod === 'sfu');
     if (paused || this.currentMethod !== 'sfu') return;
     this.refeedSfuDirectories();
   }
@@ -916,6 +956,11 @@ export class App {
     if (this.manualAudioOnly === on) return;
     this.manualAudioOnly = on;
     logNet('audio-only-mode', { on });
+    try {
+      localStorage.setItem(AUDIO_ONLY_STORAGE_KEY, on ? '1' : '0');
+    } catch {
+      /* ignore private-mode storage errors */
+    }
     if (on) {
       this.autoCamOff = false; // manual mode supersedes the automation
       await this.toolbar.setCamEnabled(false);
@@ -1285,7 +1330,9 @@ export class App {
           p.status = msg.status;
           p.isMuted = msg.isMuted;
           p.isVideoOn = msg.isVideoOn;
+          p.camAutoOff = msg.camAutoOff;
           this.view.setTileMuted(msg.userId, msg.isMuted);
+          this.view.refreshTileReason(msg.userId);
         }
         break;
       }
@@ -1369,7 +1416,7 @@ export class App {
       case 'knock': {
         this.knocks.received(msg.from, msg.name);
         const level = knockAlertLevel({
-          hidden: document.hidden,
+          backgrounded: isBackgrounded(),
           status: this.myStatus,
           enabled: this.desktopNotifier.isEnabled(),
           permission: this.desktopNotifier.permission(),
@@ -1567,6 +1614,13 @@ export class App {
     // (and screen) ceilings while we are not the (recent) speaker.
     this.updateSendPolicy(now);
 
+    // Why a dark camera tile is dark (#312): ~2Hz is quick enough to label a
+    // stall before the user wonders, cheap enough to run from the loop.
+    if (now - this.lastStallTick > 500) {
+      this.lastStallTick = now;
+      this.view.tickStalls(now, this.netTierState.tier);
+    }
+
     // SFU simulcast: re-pick each remote camera's layer by tile size (~1s cadence).
     if (now - this.lastLayerUpdate > 1000) {
       this.lastLayerUpdate = now;
@@ -1650,7 +1704,7 @@ export class App {
     if (!me) return;
     // SFU sends a single upstream regardless of headcount, so it skips the mesh
     // peer-count throttle entirely — SfuManager publishes a fixed simulcast
-    // ladder (the quality floor) and the SFU / receiver pick the layer instead.
+    // ladder (deliberately lean, #314) and the SFU / receiver pick the layer instead.
     if (this.currentMethod === 'sfu') return;
     if (me.isSpeaking) this.lastLoudAtMs = nowMs;
     const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
@@ -1777,6 +1831,7 @@ export class App {
       status: this.myStatus,
       isMuted: !this.media.micOn,
       isVideoOn: this.media.camOn,
+      camAutoOff: this.autoCamOff && !this.media.camOn,
     });
   }
 
@@ -1984,8 +2039,12 @@ export class App {
       const rid = computeSfuCamRid(width, {
         pageHidden: document.hidden,
         congested: this.netTierState.tier >= 2,
+        // Feed the current layer back so the width→layer choice is hysteretic: a
+        // tile hovering on a threshold stays put instead of flapping layers, each
+        // of which blacks the tile out until the next keyframe (issue #311).
+        currentRid: this.sfu.preferredLayer(userId, 'cam'),
       });
-      this.sfu.setPreferredLayer(userId, 'cam', rid);
+      if (this.sfu.setPreferredLayer(userId, 'cam', rid)) this.view.noteLayerSwitch(userId);
     }
   }
 }

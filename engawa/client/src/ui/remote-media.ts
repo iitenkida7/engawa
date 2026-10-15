@@ -1,4 +1,5 @@
 import { t } from '@/core/i18n';
+import { logNet } from '@/core/netlog';
 import type { StreamKind } from '@/core/types';
 import type { MediaManager } from '@/media/media';
 import type { RecorderManager } from '@/media/recorder';
@@ -32,15 +33,39 @@ import {
   minimizedSidebarWidth,
   PANEL_BOTTOM_RESERVED,
 } from '@/ui/panels';
+import {
+  classifyStall,
+  STALL_ATTACH_GRACE_MS,
+  type StallReason,
+  stallLabelKey,
+} from '@/ui/video-stall';
 import type { PlayerState } from '@/world/player';
 
 type RemoteTile = {
   container: HTMLDivElement;
   video: HTMLVideoElement;
   placeholder: HTMLDivElement;
+  // The one-line note under the initials when the tile has no video (#312).
+  reason: HTMLSpanElement;
   label: HTMLSpanElement;
   camStreamId?: string;
   hasCam: boolean;
+  // Stall tracking for the live camera (#312): performance.now() of the last
+  // rendered frame (+grace right after attach), whether the receive track is
+  // muted (no RTP), when we last requested another SFU layer, the reason on
+  // show (null = none), and the watcher's abort handle.
+  lastFrameAt: number;
+  trackMuted: boolean;
+  layerSwitchAt: number | null;
+  stallReason: StallReason | null;
+  frameWatch?: AbortController;
+};
+
+// requestVideoFrameCallback is not in lib.dom for every TS target; the view
+// feature-detects it and falls back to the track's mute events alone.
+type VideoWithFrameCallback = HTMLVideoElement & {
+  requestVideoFrameCallback?: (cb: () => void) => number;
+  cancelVideoFrameCallback?: (handle: number) => void;
 };
 
 type RemoteAudio = {
@@ -159,6 +184,9 @@ export class RemoteMediaView {
   // True while the SFU transport is being rebuilt (issue #254): remote panels
   // stay up, frozen, under a "reconnecting" overlay until the re-pull lands.
   private reconnecting = false;
+  // True while we are not pulling remote video (manual audio-only or tier 3,
+  // #188): video-less tiles say so instead of looking like a camera-off (#312).
+  private recvVideoPaused = false;
 
   // Immersive meeting mode (issue #263): on only while the local user stands in a
   // zone — room, booth or café (the App drives it via setMeetingMode). When on, the media
@@ -327,10 +355,7 @@ export class RemoteMediaView {
     if (kind === 'mic') {
       this.attachRemoteMic(userId, stream);
       // Create a tile for mic-only users (no-video placeholder)
-      if (!this.remoteTiles.has(userId)) {
-        const tile = this.createRemoteTile(userId);
-        this.remoteTiles.set(userId, tile);
-      }
+      if (!this.remoteTiles.has(userId)) this.createRemoteTile(userId);
       // Set up speaking detector for this remote user
       const oldDet = this.remoteSpeakingDetectors.get(userId);
       if (oldDet) destroySpeakingDetector(oldDet);
@@ -340,20 +365,127 @@ export class RemoteMediaView {
       return;
     }
     // cam → tile with <video>
-    let tile = this.remoteTiles.get(userId);
-    if (!tile) {
-      tile = this.createRemoteTile(userId);
-      this.remoteTiles.set(userId, tile);
-    }
+    const tile = this.remoteTiles.get(userId) ?? this.createRemoteTile(userId);
     tile.hasCam = true;
     tile.camStreamId = stream.id;
     tile.video.srcObject = stream;
     tile.video.style.display = '';
     tile.placeholder.style.display = 'none';
     this.autoplay.play(tile.video);
+    this.watchVideoFrames(userId, tile, stream);
     const p = this.players.get(userId);
     tile.label.textContent = p?.name || userId.slice(0, 6);
     this.reflowLayout();
+  }
+
+  // ============= Video stall detection (issue #312) =============
+  // Follow the live camera's frames and its track's mute state so tickStalls
+  // can say WHY the tile is dark instead of leaving a silent black box.
+  private watchVideoFrames(userId: string, tile: RemoteTile, stream: MediaStream) {
+    tile.frameWatch?.abort();
+    const watch = new AbortController();
+    tile.frameWatch = watch;
+    tile.layerSwitchAt = null;
+    const track = stream.getVideoTracks()[0];
+    tile.trackMuted = track?.muted ?? false;
+    if (track) {
+      track.addEventListener('mute', () => this.setTrackMuted(userId, true), {
+        signal: watch.signal,
+      });
+      track.addEventListener('unmute', () => this.setTrackMuted(userId, false), {
+        signal: watch.signal,
+      });
+    }
+    const video = tile.video as VideoWithFrameCallback;
+    if (!video.requestVideoFrameCallback) {
+      // No frame clock: only a muted track can flag a stall (see StallInput).
+      tile.lastFrameAt = Number.POSITIVE_INFINITY;
+      return;
+    }
+    tile.lastFrameAt = performance.now() + STALL_ATTACH_GRACE_MS;
+    const onFrame = () => {
+      if (watch.signal.aborted) return;
+      tile.lastFrameAt = performance.now();
+      handle = video.requestVideoFrameCallback!(onFrame);
+    };
+    let handle = video.requestVideoFrameCallback(onFrame);
+    watch.signal.addEventListener('abort', () => video.cancelVideoFrameCallback?.(handle));
+  }
+
+  private setTrackMuted(userId: string, muted: boolean) {
+    const tile = this.remoteTiles.get(userId);
+    if (!tile) return;
+    tile.trackMuted = muted;
+    // A track that comes back is delivering again, whatever the frame clock
+    // last saw.
+    if (!muted && tile.lastFrameAt !== Number.POSITIVE_INFINITY) {
+      tile.lastFrameAt = performance.now();
+    }
+  }
+
+  private unwatchVideoFrames(userId: string, tile: RemoteTile) {
+    tile.frameWatch?.abort();
+    tile.frameWatch = undefined;
+    tile.trackMuted = false;
+    tile.layerSwitchAt = null;
+    this.applyStall(userId, tile, null);
+  }
+
+  // We asked the SFU for another simulcast layer of this camera: a stall in the
+  // next few seconds is the keyframe wait, not a network problem.
+  noteLayerSwitch(userId: string) {
+    const tile = this.remoteTiles.get(userId);
+    if (tile?.hasCam) tile.layerSwitchAt = performance.now();
+  }
+
+  // Called on a slow cadence from the App loop with our own network tier.
+  tickStalls(now: number, myTier: number) {
+    // Hidden tabs render no frames: keep the clocks fresh so coming back does
+    // not flash a stall that never was.
+    const hidden = document.hidden;
+    for (const [userId, tile] of this.remoteTiles) {
+      if (!tile.hasCam) continue;
+      if (hidden) {
+        if (tile.lastFrameAt !== Number.POSITIVE_INFINITY) tile.lastFrameAt = now;
+        continue;
+      }
+      const stalledMs = tile.trackMuted ? Number.POSITIVE_INFINITY : now - tile.lastFrameAt;
+      const reason = classifyStall({
+        stalledMs,
+        sinceLayerSwitchMs: tile.layerSwitchAt === null ? null : now - tile.layerSwitchAt,
+        myTier,
+      });
+      this.applyStall(userId, tile, reason);
+    }
+  }
+
+  private applyStall(userId: string, tile: RemoteTile, reason: StallReason | null) {
+    if (tile.stallReason === reason) return;
+    tile.stallReason = reason;
+    logNet('video-stall', { peer: userId, reason });
+    const body = tile.placeholder.parentElement;
+    if (body) body.dataset.stallLabel = reason ? t(stallLabelKey(reason)) : '';
+    tile.container.classList.toggle('stalled', reason !== null);
+  }
+
+  // The reason on a video-less tile (#312): their camera was paused by their
+  // network ladder, or we stopped pulling video to save our own bandwidth.
+  // Blank when the camera is simply off.
+  refreshTileReason(userId: string) {
+    const tile = this.remoteTiles.get(userId);
+    if (!tile) return;
+    const p = this.players.get(userId);
+    let text = '';
+    if (p?.camAutoOff) text = t('media.peerCamAutoOff');
+    else if (this.recvVideoPaused && p?.isVideoOn) text = t('media.recvVideoPaused');
+    tile.reason.textContent = text;
+  }
+
+  // Whether we are (manually or automatically) not pulling remote video.
+  setRecvVideoPaused(paused: boolean) {
+    if (this.recvVideoPaused === paused) return;
+    this.recvVideoPaused = paused;
+    for (const userId of this.remoteTiles.keys()) this.refreshTileReason(userId);
   }
 
   detachRemoteStream(userId: string, streamId: string) {
@@ -387,6 +519,7 @@ export class RemoteMediaView {
     if (tile && tile.camStreamId === streamId) {
       tile.hasCam = false;
       tile.camStreamId = undefined;
+      this.unwatchVideoFrames(userId, tile);
       try {
         tile.video.srcObject = null;
       } catch {
@@ -397,6 +530,7 @@ export class RemoteMediaView {
       if (this.remoteAudios.has(userId) || this.conversationMembers.has(userId)) {
         tile.video.style.display = 'none';
         tile.placeholder.style.display = '';
+        this.refreshTileReason(userId);
       } else {
         tile.container.remove();
         this.remoteTiles.delete(userId);
@@ -449,7 +583,7 @@ export class RemoteMediaView {
     let changed = false;
     for (const id of set) {
       if (!this.players.has(id) || this.remoteTiles.has(id)) continue;
-      this.remoteTiles.set(id, this.createRemoteTile(id));
+      this.createRemoteTile(id);
       changed = true;
     }
     for (const [id, tile] of this.remoteTiles) {
@@ -512,18 +646,37 @@ export class RemoteMediaView {
     const placeholder = document.createElement('div');
     placeholder.className = 'no-video';
     placeholder.innerHTML = `<span class="no-video-initials">${initials}</span><span class="no-video-name">${name}</span>`;
+    const reason = document.createElement('span');
+    reason.className = 'no-video-reason';
+    placeholder.appendChild(reason);
     body.appendChild(placeholder);
 
     // Position/size come from reflowLayout (called by the caller right after);
-    // the tile just needs to be in the DOM to be laid out.
+    // the tile just needs to be in the DOM to be laid out. The tile registers
+    // itself so the reason note can read the peer's state right away.
     this.remoteVideosEl.appendChild(container);
-    return { container, video, placeholder, label, hasCam: false };
+    const tile: RemoteTile = {
+      container,
+      video,
+      placeholder,
+      reason,
+      label,
+      hasCam: false,
+      lastFrameAt: Number.POSITIVE_INFINITY,
+      trackMuted: false,
+      layerSwitchAt: null,
+      stallReason: null,
+    };
+    this.remoteTiles.set(userId, tile);
+    this.refreshTileReason(userId);
+    return tile;
   }
 
   // Tears down every DOM artifact for a peer (tile, audio, speaking detector).
   removePeer(userId: string) {
     const t = this.remoteTiles.get(userId);
     if (t) {
+      t.frameWatch?.abort();
       try {
         t.video.srcObject = null;
       } catch {

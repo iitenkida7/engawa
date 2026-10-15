@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { isMissingDeviceError, MediaManager, parseNoiseSetting } from '@/media/media';
+import {
+  CAM_DEVICE_STORAGE_KEY,
+  isMissingDeviceError,
+  MediaManager,
+  MIC_DEVICE_STORAGE_KEY,
+  parseNoiseSetting,
+} from '@/media/media';
 
 // Fake MediaStreamTrack that records stop() and supports an 'ended' listener.
 function makeTrack(kind: 'audio' | 'video') {
@@ -368,6 +374,42 @@ describe('MediaManager device loss (issue #200)', () => {
     await expect(m.enableCam()).rejects.toThrow('denied');
     expect(getUserMedia).toHaveBeenCalledTimes(1);
     expect(m.selectedCamId).toBe('cam-1');
+  });
+});
+
+describe('device selection persistence (#321)', () => {
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('remembers the picked devices for the next session', () => {
+    const m = new MediaManager();
+    m.setSelectedDevice('mic', 'headset-1');
+    m.setSelectedDevice('cam', 'webcam-2');
+
+    const next = new MediaManager();
+    expect(next.selectedMicId).toBe('headset-1');
+    expect(next.selectedCamId).toBe('webcam-2');
+  });
+
+  it('forgets a device when the selection goes back to the browser default', () => {
+    const m = new MediaManager();
+    m.setSelectedDevice('mic', 'headset-1');
+    m.setSelectedDevice('mic', null);
+
+    expect(localStorage.getItem(MIC_DEVICE_STORAGE_KEY)).toBeNull();
+    expect(new MediaManager().selectedMicId).toBeNull();
+  });
+
+  it('forgets a pinned device that has vanished', async () => {
+    localStorage.setItem(CAM_DEVICE_STORAGE_KEY, 'cam-gone');
+    getUserMedia
+      .mockRejectedValueOnce(Object.assign(new Error('gone'), { name: 'NotFoundError' }))
+      .mockResolvedValueOnce(makeStream([makeTrack('video')]));
+
+    await new MediaManager().enableCam();
+
+    expect(localStorage.getItem(CAM_DEVICE_STORAGE_KEY)).toBeNull();
   });
 });
 

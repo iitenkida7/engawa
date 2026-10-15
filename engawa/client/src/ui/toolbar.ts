@@ -426,6 +426,9 @@ export class ToolbarController {
     // or we stopped), so others get the privacy notice.
     if (this.recorder.recording !== wasRecording) {
       this.onRecordingChange(this.recorder.recording);
+      // The file only exists once ■ Stop is pressed (recording is in-browser),
+      // so say so up front (#315). Kept up longer than a plain info toast.
+      if (this.recorder.recording) this.toasts.info(t('rec.selfStartedHint'), 10000);
     }
     this.refresh();
   }
@@ -685,7 +688,7 @@ export class ToolbarController {
 
   private async switchMic(deviceId: string) {
     if (this.media.selectedMicId === deviceId) return;
-    this.media.selectedMicId = deviceId;
+    this.media.setSelectedDevice('mic', deviceId);
     if (!this.media.micOn) return;
     await this.reacquire('mic');
     this.broadcastStatus();
@@ -693,7 +696,7 @@ export class ToolbarController {
 
   private async switchCam(deviceId: string) {
     if (this.media.selectedCamId === deviceId) return;
-    this.media.selectedCamId = deviceId;
+    this.media.setSelectedDevice('cam', deviceId);
     if (!this.media.camOn) return;
     await this.reacquire('cam');
     this.broadcastStatus();

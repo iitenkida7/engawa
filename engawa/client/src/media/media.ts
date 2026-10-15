@@ -23,6 +23,21 @@ export function parseNoiseSetting(stored: string | null): boolean {
   return stored !== '0';
 }
 
+// localStorage keys for the picked input devices (#321). A deviceId is stable
+// per browser profile, so remembering it keeps "my USB headset / external cam"
+// selected across logins. A device that has since vanished is dropped on the
+// first acquisition (getUserMediaFor) and forgotten here too.
+export const MIC_DEVICE_STORAGE_KEY = 'engawa-mic-device';
+export const CAM_DEVICE_STORAGE_KEY = 'engawa-cam-device';
+
+function readStoredDevice(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null; /* private-mode storage errors: fall back to the default device */
+  }
+}
+
 // Whether a getUserMedia rejection means the pinned device is gone (unplugged
 // headset / camera): `deviceId: { exact }` then fails with OverconstrainedError,
 // or NotFoundError on some browsers. Such a failure is retried on the browser
@@ -36,9 +51,11 @@ export class MediaManager {
   micStream: MediaStream | null = null;
   camStream: MediaStream | null = null;
   screenStream: MediaStream | null = null;
-  // Currently selected input devices (null = browser default).
-  selectedMicId: string | null = null;
-  selectedCamId: string | null = null;
+  // Currently selected input devices (null = browser default), restored from the
+  // last session. Always change them through setSelectedDevice so the choice is
+  // persisted.
+  selectedMicId: string | null = readStoredDevice(MIC_DEVICE_STORAGE_KEY);
+  selectedCamId: string | null = readStoredDevice(CAM_DEVICE_STORAGE_KEY);
   // Virtual background: the active choice ('off'/'blur'/preset id/'custom') and
   // the user-uploaded image (dataURL + decoded element) for the 'custom' choice.
   bgChoice: string = VBG_OFF;
@@ -74,6 +91,19 @@ export class MediaManager {
   // and the just-stopped stream, so the owner can run the button's OFF teardown.
   private deviceEndedHandler: ((kind: 'mic' | 'cam', old: MediaStream) => void) | null = null;
 
+  // Pick an input device (null = browser default) and remember it for next login.
+  setSelectedDevice(kind: 'mic' | 'cam', deviceId: string | null) {
+    if (kind === 'mic') this.selectedMicId = deviceId;
+    else this.selectedCamId = deviceId;
+    const key = kind === 'mic' ? MIC_DEVICE_STORAGE_KEY : CAM_DEVICE_STORAGE_KEY;
+    try {
+      if (deviceId) localStorage.setItem(key, deviceId);
+      else localStorage.removeItem(key);
+    } catch {
+      /* ignore private-mode storage errors */
+    }
+  }
+
   on(fn: MediaListener) {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
@@ -105,8 +135,7 @@ export class MediaManager {
     } catch (e) {
       if (!selected || !isMissingDeviceError(e)) throw e;
       console.warn(`[media] selected ${kind} device unavailable, using the default`, e);
-      if (kind === 'mic') this.selectedMicId = null;
-      else this.selectedCamId = null;
+      this.setSelectedDevice(kind, null);
       return navigator.mediaDevices.getUserMedia(build(null));
     }
   }

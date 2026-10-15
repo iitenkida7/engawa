@@ -128,6 +128,17 @@ const STR: Record<string, Record<Lang, string>> = {
   'rec.started': { ja: '{name} さんが録画を開始しました', en: '{name} started recording' },
   'rec.stopped': { ja: '{name} さんが録画を終了しました', en: '{name} stopped recording' },
   'rec.othersTip': { ja: '録画中: {names}', en: 'Recording: {names}' },
+  // Our own recording (#315): it runs inside this browser and is only saved when
+  // stopped, so say so at start and keep a persistent indicator on screen.
+  'rec.selfStartedHint': {
+    ja: '録画を開始しました。録画はこの PC 上で行われ、■ 停止を押したときにダウンロードされます。停止せずにタブを閉じた場合は、その時点までの録画を自動でダウンロードします。',
+    en: 'Recording started. It runs on this PC and is downloaded when you press ■ Stop. If you close the tab without stopping, what was recorded so far is downloaded automatically.',
+  },
+  'rec.indicator': { ja: '録画中', en: 'REC' },
+  'rec.indicatorHint': {
+    ja: '■ 停止で保存 / 閉じるとそこまでを自動保存',
+    en: '■ Stop to save / closing auto-saves so far',
+  },
   'toolbar.reactions': { ja: 'リアクション', en: 'Reactions' },
   'toolbar.more': { ja: 'その他', en: 'More' },
   // -- toolbar menus & toasts -----------------------------------------------
@@ -235,6 +246,24 @@ const STR: Record<string, Record<Lang, string>> = {
   'media.focus': { ja: '拡大表示', en: 'Maximize' },
   'media.reconnecting': { ja: '再接続中…', en: 'Reconnecting…' },
   'facePip.empty': { ja: '通話相手がいません', en: 'No one in the call' },
+  // Why a camera tile is dark (issue #312): stall overlays and placeholder notes.
+  'media.stall.layer-switch': { ja: '画質を切り替え中…', en: 'Switching quality…' },
+  'media.stall.my-network': {
+    ja: 'あなたの回線が不安定です',
+    en: 'Your connection is unstable',
+  },
+  'media.stall.peer-network': {
+    ja: '相手の映像が届いていません（相手側の回線）',
+    en: 'Not receiving their video (their connection)',
+  },
+  'media.recvVideoPaused': {
+    ja: '回線節約のため映像受信を停止中',
+    en: 'Video receiving paused to save bandwidth',
+  },
+  'media.peerCamAutoOff': {
+    ja: '相手の回線が不安定なためカメラ停止中',
+    en: 'Camera paused: their connection is unstable',
+  },
   'media.unfocus': { ja: '拡大を解除（Esc）', en: 'Exit maximize (Esc)' },
   'media.filmstripMore': { ja: '他の参加者も表示', en: 'Show more participants' },
   'media.filmstripLess': { ja: '表示を減らす', en: 'Show fewer' },

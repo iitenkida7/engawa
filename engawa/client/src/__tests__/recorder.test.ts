@@ -104,6 +104,54 @@ afterEach(() => {
   (globalThis as any).MediaStream = origMS;
 });
 
+describe('RecorderManager.saveSnapshot (emergency save on tab close)', () => {
+  // happy-dom has no blob URLs; capture the anchor the download goes through.
+  let downloads: string[] = [];
+  let origCreate: unknown;
+  let origRevoke: unknown;
+  let origClick: unknown;
+  beforeEach(() => {
+    downloads = [];
+    origCreate = URL.createObjectURL;
+    origRevoke = URL.revokeObjectURL;
+    origClick = HTMLAnchorElement.prototype.click;
+    URL.createObjectURL = () => 'blob:fake';
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    };
+  });
+  afterEach(() => {
+    URL.createObjectURL = origCreate as typeof URL.createObjectURL;
+    URL.revokeObjectURL = origRevoke as typeof URL.revokeObjectURL;
+    HTMLAnchorElement.prototype.click = origClick as () => void;
+  });
+
+  it('downloads the chunks collected so far and keeps recording', () => {
+    const rec = new RecorderManager();
+    rec.start([makeStream([makeTrack('audio')])]);
+    recorders[0].ondataavailable?.({ data: { size: 10 } });
+    recorders[0].ondataavailable?.({ data: { size: 10 } });
+
+    expect(rec.saveSnapshot()).toBe(true);
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0]).toMatch(/^recording-.*-autosave\.(mp4|webm)$/);
+    // Not stopped, not cleared: a later stop() still saves the full file.
+    expect(rec.recording).toBe(true);
+    rec.stop();
+    expect(downloads).toHaveLength(2);
+    expect(downloads[1]).not.toContain('autosave');
+  });
+
+  it('is a no-op when not recording or when nothing has been collected yet', () => {
+    const rec = new RecorderManager();
+    expect(rec.saveSnapshot()).toBe(false);
+    rec.start([makeStream([makeTrack('audio')])]);
+    expect(rec.saveSnapshot()).toBe(false);
+    expect(downloads).toHaveLength(0);
+  });
+});
+
 describe('RecorderManager teardown', () => {
   it('recovers from a spontaneous stop so recording can be restarted', () => {
     const rec = new RecorderManager();

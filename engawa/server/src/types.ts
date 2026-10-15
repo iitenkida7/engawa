@@ -69,6 +69,10 @@ export type ClientMessage =
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
+      // The camera was paused by the sender's network ladder (tier 3), not by
+      // hand — peers show why the tile went dark (issue #312). Optional so
+      // older clients still validate.
+      camAutoOff?: boolean;
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
@@ -124,6 +128,7 @@ export type ServerMessage =
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
+      camAutoOff: boolean;
     }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }

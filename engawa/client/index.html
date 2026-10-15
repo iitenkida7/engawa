@@ -776,8 +776,11 @@
       }
 
       /* SFU transport rebuild (issue #254): the panel keeps its last frame,
-         dimmed, under a "reconnecting" label instead of disappearing. */
-      .panel.reconnecting .panel-body::after {
+         dimmed, under a "reconnecting" label instead of disappearing. A stalled
+         camera (#312) gets the same box with the stall's reason; a rebuild in
+         progress is the better explanation, so it wins. */
+      .panel.reconnecting .panel-body::after,
+      .panel.stalled .panel-body::after {
         content: attr(data-reconnecting-label);
         position: absolute;
         inset: 0;
@@ -788,6 +791,10 @@
         color: #fff;
         font-size: 13px;
         pointer-events: none;
+      }
+
+      .panel.stalled:not(.reconnecting) .panel-body::after {
+        content: attr(data-stall-label);
       }
 
       .remote-tile.speaking {
@@ -857,6 +864,19 @@
         margin-top: 8px;
         font-size: 12px;
         color: #9da3b0;
+      }
+
+      /* Why there is no video (#312): blank when the camera is simply off. */
+      .panel-body .no-video-reason {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #d9a441;
+        text-align: center;
+        padding: 0 8px;
+      }
+
+      .panel-body .no-video-reason:empty {
+        display: none;
       }
 
       /* Screenshare stages: one panel per sharing user, created dynamically in
@@ -1303,6 +1323,49 @@
 
       .toast-actions button.primary:hover {
         background: #3a78f0;
+      }
+
+      /* ===== Recording indicator (#315): a red pill under the toasts while WE
+         are recording. The file is only saved on ■ Stop (in-browser recording),
+         so the pill keeps that fact, plus the elapsed time, in view. Clicks pass
+         through: it is status only, the toolbar button does the stopping. ===== */
+      #rec-indicator {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: rgba(220, 53, 69, 0.96);
+        color: white;
+        font-size: 12px;
+        font-weight: 600;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        /* Below the reload banner (z2000) and toasts (z1500), above the toolbar. */
+        z-index: 1400;
+        pointer-events: none;
+      }
+
+      .rec-indicator-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: white;
+        animation: rec-pulse 1.5s ease-in-out infinite;
+      }
+
+      .rec-indicator-time {
+        font-variant-numeric: tabular-nums;
+        font-weight: 400;
+      }
+
+      .rec-indicator-hint {
+        font-weight: 400;
+        opacity: 0.9;
+        border-left: 1px solid rgba(255, 255, 255, 0.45);
+        padding-left: 8px;
       }
 
       /* ===== Server-update reload banner (top center, above everything) ===== */
