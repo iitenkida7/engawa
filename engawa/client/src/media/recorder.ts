@@ -36,6 +36,9 @@ export class RecorderManager {
   private sources: Map<string, MediaStreamAudioSourceNode> = new Map();
   private combinedStream: MediaStream | null = null;
   private mimeType = '';
+  // Wall-clock start of the current recording (0 when idle), for the on-screen
+  // elapsed-time indicator (issue #315).
+  private startedAtMs = 0;
 
   private listeners = new Set<RecorderListener>();
   on(fn: RecorderListener) {
@@ -48,6 +51,11 @@ export class RecorderManager {
 
   get recording() {
     return this.recorder?.state === 'recording';
+  }
+
+  // When the current recording started (Date.now() ms), or 0 when not recording.
+  get startedAt() {
+    return this.recording ? this.startedAtMs : 0;
   }
 
   get format() {
@@ -112,6 +120,7 @@ export class RecorderManager {
       this.teardown();
     };
     this.recorder.start(1000); // collect data every second
+    this.startedAtMs = Date.now();
     this.emit();
   }
 
@@ -163,6 +172,7 @@ export class RecorderManager {
     }
     this.combinedStream = null;
     this.recorder = null;
+    this.startedAtMs = 0;
     this.emit();
   }
 

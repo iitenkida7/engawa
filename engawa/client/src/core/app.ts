@@ -74,6 +74,7 @@ import { KeyHelpPanel } from '@/ui/keyhelp';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
 import { ReactionToasts } from '@/ui/reaction-toast';
+import { RecIndicator } from '@/ui/rec-indicator';
 import { RemoteMediaView } from '@/ui/remote-media';
 import { RosterPanel } from '@/ui/roster';
 import { SoundManager } from '@/ui/sounds';
@@ -120,6 +121,7 @@ export class App {
   private sfu: SfuManager;
   private mediaSink: MediaSink;
   private recorder: RecorderManager;
+  private recIndicator = new RecIndicator();
   private compositor: SceneCompositor;
   private view: RemoteMediaView;
   private toolbar: ToolbarController;
@@ -505,7 +507,13 @@ export class App {
       this.toolbar.refresh();
       this.view.refreshSelfPreview();
     });
-    this.recorder.on(() => this.toolbar.refresh());
+    // Recorder changes also drive the persistent "recording" pill + tab title
+    // (#315), so a forgotten stop is visible before the tab gets closed.
+    this.recorder.on(() => {
+      this.toolbar.refresh();
+      if (this.recorder.recording) this.recIndicator.show(this.recorder.startedAt);
+      else this.recIndicator.hide();
+    });
     this.view.refreshSelfPreview();
 
     // Double-click the map to walk to that point (A* around walls, boosted speed).

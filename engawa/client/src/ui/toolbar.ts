@@ -340,6 +340,9 @@ export class ToolbarController {
     // or we stopped), so others get the privacy notice.
     if (this.recorder.recording !== wasRecording) {
       this.onRecordingChange(this.recorder.recording);
+      // The file only exists once ■ Stop is pressed (recording is in-browser),
+      // so say so up front (#315). Kept up longer than a plain info toast.
+      if (this.recorder.recording) this.toasts.info(t('rec.selfStartedHint'), 10000);
     }
     this.refresh();
   }
