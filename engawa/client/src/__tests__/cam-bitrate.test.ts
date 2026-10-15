@@ -9,6 +9,7 @@ import {
   CAM_THROTTLE_MIN_PEERS,
   computeCamEncoding,
   computePreferredRid,
+  computePreferredRidHysteretic,
   computeScreenEncoding,
   computeScreenScale,
   computeSfuCamRid,
@@ -26,6 +27,7 @@ import {
   SFU_CAM_QUARTER_RID,
   SIMULCAST_FULL_MIN_WIDTH,
   SIMULCAST_HALF_MIN_WIDTH,
+  SIMULCAST_HYSTERESIS_PX,
   SPEAKER_HOLD_MS,
   sfuCamSimulcast,
 } from '@/rtc/cam-bitrate';
@@ -55,9 +57,28 @@ describe('computeCamEncoding', () => {
     expect(computeCamEncoding(19, false)).toEqual(QUIET);
   });
 
-  it('keeps speakers at the high encoding even in a large group', () => {
-    expect(computeCamEncoding(CAM_THROTTLE_MIN_PEERS, true)).toEqual(HIGH);
-    expect(computeCamEncoding(19, true)).toEqual(HIGH);
+  it('gives a large-group speaker the high bitrate/fps but keeps the half resolution', () => {
+    // Issue #311: resolution follows the (rarely-changing) peer count only, so
+    // toggling speech never flips scaleResolutionDownBy (which would black out
+    // the receiver until the next keyframe). A big-group speaker gets the high
+    // bitrate/fps at half resolution.
+    const SPEAKING_BIG = {
+      maxBitrate: CAM_BITRATE_SPEAKING,
+      maxFramerate: CAM_FPS_SPEAKING,
+      scaleResolutionDownBy: CAM_SCALE_QUIET,
+    };
+    expect(computeCamEncoding(CAM_THROTTLE_MIN_PEERS, true)).toEqual(SPEAKING_BIG);
+    expect(computeCamEncoding(19, true)).toEqual(SPEAKING_BIG);
+  });
+
+  it('never changes resolution on a speaker toggle within the same group size', () => {
+    // The whole point of #311: only bitrate/fps may differ between speaking and
+    // quiet; the resolution must be identical so no keyframe-blackout occurs.
+    for (const n of [0, 2, CAM_THROTTLE_MIN_PEERS, 5, 19]) {
+      expect(computeCamEncoding(n, true).scaleResolutionDownBy).toBe(
+        computeCamEncoding(n, false).scaleResolutionDownBy,
+      );
+    }
   });
 
   it('the quiet encoding is meaningfully lighter than the speaking one', () => {
@@ -196,6 +217,46 @@ describe('computePreferredRid (SFU simulcast layer selection)', () => {
   });
 });
 
+describe('computePreferredRidHysteretic (issue #311)', () => {
+  it('matches the plain thresholds when not already on the neighbouring layer', () => {
+    // Stepping UP: coming from a lower layer needs width past threshold+margin.
+    expect(computePreferredRidHysteretic(SIMULCAST_FULL_MIN_WIDTH, 'h')).toBe('h');
+    expect(
+      computePreferredRidHysteretic(SIMULCAST_FULL_MIN_WIDTH + SIMULCAST_HYSTERESIS_PX, 'h'),
+    ).toBe('f');
+    expect(computePreferredRidHysteretic(SIMULCAST_HALF_MIN_WIDTH, 'q')).toBe('q');
+    expect(
+      computePreferredRidHysteretic(SIMULCAST_HALF_MIN_WIDTH + SIMULCAST_HYSTERESIS_PX, 'q'),
+    ).toBe('h');
+  });
+
+  it('sticks to the current layer across the raw threshold (no flapping)', () => {
+    // On full now: stay full until width drops a full margin below the threshold.
+    expect(computePreferredRidHysteretic(SIMULCAST_FULL_MIN_WIDTH - 1, 'f')).toBe('f');
+    expect(
+      computePreferredRidHysteretic(SIMULCAST_FULL_MIN_WIDTH - SIMULCAST_HYSTERESIS_PX, 'f'),
+    ).toBe('f');
+    expect(
+      computePreferredRidHysteretic(SIMULCAST_FULL_MIN_WIDTH - SIMULCAST_HYSTERESIS_PX - 1, 'f'),
+    ).toBe('h');
+    // On half now: stay half until width drops a margin below the half threshold.
+    expect(computePreferredRidHysteretic(SIMULCAST_HALF_MIN_WIDTH - 1, 'h')).toBe('h');
+    expect(
+      computePreferredRidHysteretic(SIMULCAST_HALF_MIN_WIDTH - SIMULCAST_HYSTERESIS_PX - 1, 'h'),
+    ).toBe('q');
+  });
+
+  it('is stable: re-feeding its own output at a boundary never oscillates', () => {
+    // A tile parked exactly on the full threshold: once it settles on a layer it
+    // stays there when we feed that layer back in (the flapping #311 fixes).
+    const w = SIMULCAST_FULL_MIN_WIDTH;
+    let rid = computePreferredRidHysteretic(w, 'f');
+    expect(rid).toBe('f');
+    rid = computePreferredRidHysteretic(w, rid);
+    expect(rid).toBe('f');
+  });
+});
+
 describe('computeSfuCamRid (issue #269)', () => {
   const visible = { pageHidden: false, congested: false };
 
@@ -216,6 +277,26 @@ describe('computeSfuCamRid (issue #269)', () => {
     const congested = { pageHidden: false, congested: true };
     expect(computeSfuCamRid(640, congested)).toBe('h');
     expect(computeSfuCamRid(148, congested)).toBe('q');
+  });
+
+  it('uses the plain threshold on first selection (no current layer) — issue #311', () => {
+    // Without a currentRid there is nothing to be sticky about.
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH - 1, visible)).toBe('h');
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH, visible)).toBe('f');
+  });
+
+  it('sticks to the current layer across the raw threshold once one is set — issue #311', () => {
+    // On full now, a width just below the threshold stays full (no flap/blackout).
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH - 1, { ...visible, currentRid: 'f' })).toBe(
+      'f',
+    );
+    // Only once it clears the far edge of the band does it step down.
+    expect(
+      computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH - SIMULCAST_HYSTERESIS_PX - 1, {
+        ...visible,
+        currentRid: 'f',
+      }),
+    ).toBe('h');
   });
 });
 
