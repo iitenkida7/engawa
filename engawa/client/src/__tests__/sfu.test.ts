@@ -832,3 +832,19 @@ describe('SfuManager closeAll keepTiles (issue #254)', () => {
     expect(events.onRemoteStreamRemoved).not.toHaveBeenCalled();
   });
 });
+
+describe('SfuManager setPreferredLayer reports a real change (issue #312)', () => {
+  it('returns true only when the rid of a pulled camera changes', async () => {
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+    sfu.setPeerTracks('peer-1', 'sess-A', [{ kind: 'cam', trackName: 'cam' }]);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+
+    expect(sfu.setPreferredLayer('nobody', 'cam', 'h')).toBe(false);
+    expect(sfu.setPreferredLayer('peer-1', 'cam', 'h')).toBe(true);
+    expect(sfu.setPreferredLayer('peer-1', 'cam', 'h')).toBe(false);
+    expect(sfu.setPreferredLayer('peer-1', 'cam', 'q')).toBe(true);
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+});
