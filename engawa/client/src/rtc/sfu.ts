@@ -344,6 +344,13 @@ export class SfuManager {
     for (const r of this.pc.getReceivers()) tuneReceiver(r, targetMs);
   }
 
+  // The simulcast layer currently requested for one remote track, or undefined
+  // if we have no track for it yet. The App feeds this back into computeSfuCamRid
+  // so the width→layer choice is hysteretic (issue #311: avoid layer flapping).
+  preferredLayer(userId: string, kind: StreamKind): string | undefined {
+    return this.remoteTracks.get(remoteKey(userId, kind))?.preferredRid ?? undefined;
+  }
+
   // Ask the SFU to deliver a specific simulcast layer for one remote camera
   // (issue #78: small tiles take the half layer to save downlink). No-op unless
   // the rid actually changes; returns whether it did, so the UI can blame the

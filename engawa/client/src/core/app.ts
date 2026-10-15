@@ -1997,6 +1997,10 @@ export class App {
       const rid = computeSfuCamRid(width, {
         pageHidden: document.hidden,
         congested: this.netTierState.tier >= 2,
+        // Feed the current layer back so the width→layer choice is hysteretic: a
+        // tile hovering on a threshold stays put instead of flapping layers, each
+        // of which blacks the tile out until the next keyframe (issue #311).
+        currentRid: this.sfu.preferredLayer(userId, 'cam'),
       });
       if (this.sfu.setPreferredLayer(userId, 'cam', rid)) this.view.noteLayerSwitch(userId);
     }
