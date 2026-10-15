@@ -25,6 +25,8 @@ export class PlayerState implements Player {
   isSpeaking = false;
   isMuted = false;
   isVideoOn = false;
+  // Their camera is off because their network ladder paused it (#312).
+  camAutoOff = false;
   isSharingScreen = false;
 
   // Modular avatar configuration (#141) and the facing it last moved in. The

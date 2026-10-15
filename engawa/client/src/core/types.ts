@@ -61,6 +61,8 @@ export type ClientMessage =
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
+      // Our camera is paused by the tier-3 network ladder, not by hand (#312).
+      camAutoOff: boolean;
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
@@ -118,6 +120,7 @@ export type ServerMessage =
       status: PlayerStatus;
       isMuted: boolean;
       isVideoOn: boolean;
+      camAutoOff: boolean;
     }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }

@@ -344,12 +344,20 @@ export class SfuManager {
     for (const r of this.pc.getReceivers()) tuneReceiver(r, targetMs);
   }
 
+  // The simulcast layer currently requested for one remote track, or undefined
+  // if we have no track for it yet. The App feeds this back into computeSfuCamRid
+  // so the width→layer choice is hysteretic (issue #311: avoid layer flapping).
+  preferredLayer(userId: string, kind: StreamKind): string | undefined {
+    return this.remoteTracks.get(remoteKey(userId, kind))?.preferredRid ?? undefined;
+  }
+
   // Ask the SFU to deliver a specific simulcast layer for one remote camera
   // (issue #78: small tiles take the half layer to save downlink). No-op unless
-  // the rid actually changes.
-  setPreferredLayer(userId: string, kind: StreamKind, rid: string) {
+  // the rid actually changes; returns whether it did, so the UI can blame the
+  // next moment's frozen picture on the switch (#312).
+  setPreferredLayer(userId: string, kind: StreamKind, rid: string): boolean {
     const entry = this.remoteTracks.get(remoteKey(userId, kind));
-    if (!entry || entry.preferredRid === rid) return;
+    if (!entry || entry.preferredRid === rid) return false;
     entry.preferredRid = rid;
     this.enqueue(async () => {
       if (!this.sessionId || !entry.mid) return;
@@ -364,6 +372,7 @@ export class SfuManager {
         console.warn('[sfu] preferred layer update failed', err);
       }
     });
+    return true;
   }
 
   // Tear the transport down. Normally emits the same closure events the mesh

@@ -9,6 +9,7 @@ import {
   CAM_THROTTLE_MIN_PEERS,
   computeCamEncoding,
   computePreferredRid,
+  computePreferredRidHysteretic,
   computeScreenEncoding,
   computeScreenScale,
   computeSfuCamRid,
@@ -21,11 +22,14 @@ import {
   SCREEN_LONG_EDGE_DEFAULT,
   SCREEN_LONG_EDGE_LARGE,
   SFU_CAM_DEFAULT_RID,
+  SFU_CAM_FULL_BITRATE,
   SFU_CAM_HALF_RID,
   SFU_CAM_LAYERS,
   SFU_CAM_QUARTER_RID,
+  SFU_SCREEN_MAX_BITRATE,
   SIMULCAST_FULL_MIN_WIDTH,
   SIMULCAST_HALF_MIN_WIDTH,
+  SIMULCAST_HYSTERESIS_PX,
   SPEAKER_HOLD_MS,
   sfuCamSimulcast,
 } from '@/rtc/cam-bitrate';
@@ -55,9 +59,28 @@ describe('computeCamEncoding', () => {
     expect(computeCamEncoding(19, false)).toEqual(QUIET);
   });
 
-  it('keeps speakers at the high encoding even in a large group', () => {
-    expect(computeCamEncoding(CAM_THROTTLE_MIN_PEERS, true)).toEqual(HIGH);
-    expect(computeCamEncoding(19, true)).toEqual(HIGH);
+  it('gives a large-group speaker the high bitrate/fps but keeps the half resolution', () => {
+    // Issue #311: resolution follows the (rarely-changing) peer count only, so
+    // toggling speech never flips scaleResolutionDownBy (which would black out
+    // the receiver until the next keyframe). A big-group speaker gets the high
+    // bitrate/fps at half resolution.
+    const SPEAKING_BIG = {
+      maxBitrate: CAM_BITRATE_SPEAKING,
+      maxFramerate: CAM_FPS_SPEAKING,
+      scaleResolutionDownBy: CAM_SCALE_QUIET,
+    };
+    expect(computeCamEncoding(CAM_THROTTLE_MIN_PEERS, true)).toEqual(SPEAKING_BIG);
+    expect(computeCamEncoding(19, true)).toEqual(SPEAKING_BIG);
+  });
+
+  it('never changes resolution on a speaker toggle within the same group size', () => {
+    // The whole point of #311: only bitrate/fps may differ between speaking and
+    // quiet; the resolution must be identical so no keyframe-blackout occurs.
+    for (const n of [0, 2, CAM_THROTTLE_MIN_PEERS, 5, 19]) {
+      expect(computeCamEncoding(n, true).scaleResolutionDownBy).toBe(
+        computeCamEncoding(n, false).scaleResolutionDownBy,
+      );
+    }
   });
 
   it('the quiet encoding is meaningfully lighter than the speaking one', () => {
@@ -180,19 +203,63 @@ describe('computePreferredRid (SFU simulcast layer selection)', () => {
   it('requests the full layer at or above the tile-width threshold', () => {
     expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH)).toBe('f');
     expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH + 200)).toBe('f');
-    expect(computePreferredRid(640)).toBe('f');
+    // A maximized window / a 2-person gallery on a 1920 screen.
+    expect(computePreferredRid(900)).toBe('f');
   });
 
-  it('requests the half layer for mid-size tiles (e.g. a big gallery)', () => {
+  it('requests the half layer for ordinary gallery cells (#314)', () => {
     expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH - 1)).toBe('h');
     expect(computePreferredRid(SIMULCAST_HALF_MIN_WIDTH)).toBe('h');
-    expect(computePreferredRid(280)).toBe('h');
+    // A 3-column gallery cell on a 1920 screen (~600px) no longer pulls full.
+    expect(computePreferredRid(600)).toBe('h');
+    expect(computePreferredRid(400)).toBe('h');
   });
 
-  it('requests the quarter layer for thumbnails (saves downlink)', () => {
+  it('requests the quarter layer for thumbnails and dense galleries', () => {
     expect(computePreferredRid(SIMULCAST_HALF_MIN_WIDTH - 1)).toBe('q');
+    expect(computePreferredRid(280)).toBe('q');
     expect(computePreferredRid(148)).toBe('q');
     expect(computePreferredRid(0)).toBe('q');
+  });
+});
+
+describe('computePreferredRidHysteretic (issue #311)', () => {
+  it('matches the plain thresholds when not already on the neighbouring layer', () => {
+    // Stepping UP: coming from a lower layer needs width past threshold+margin.
+    expect(computePreferredRidHysteretic(SIMULCAST_FULL_MIN_WIDTH, 'h')).toBe('h');
+    expect(
+      computePreferredRidHysteretic(SIMULCAST_FULL_MIN_WIDTH + SIMULCAST_HYSTERESIS_PX, 'h'),
+    ).toBe('f');
+    expect(computePreferredRidHysteretic(SIMULCAST_HALF_MIN_WIDTH, 'q')).toBe('q');
+    expect(
+      computePreferredRidHysteretic(SIMULCAST_HALF_MIN_WIDTH + SIMULCAST_HYSTERESIS_PX, 'q'),
+    ).toBe('h');
+  });
+
+  it('sticks to the current layer across the raw threshold (no flapping)', () => {
+    // On full now: stay full until width drops a full margin below the threshold.
+    expect(computePreferredRidHysteretic(SIMULCAST_FULL_MIN_WIDTH - 1, 'f')).toBe('f');
+    expect(
+      computePreferredRidHysteretic(SIMULCAST_FULL_MIN_WIDTH - SIMULCAST_HYSTERESIS_PX, 'f'),
+    ).toBe('f');
+    expect(
+      computePreferredRidHysteretic(SIMULCAST_FULL_MIN_WIDTH - SIMULCAST_HYSTERESIS_PX - 1, 'f'),
+    ).toBe('h');
+    // On half now: stay half until width drops a margin below the half threshold.
+    expect(computePreferredRidHysteretic(SIMULCAST_HALF_MIN_WIDTH - 1, 'h')).toBe('h');
+    expect(
+      computePreferredRidHysteretic(SIMULCAST_HALF_MIN_WIDTH - SIMULCAST_HYSTERESIS_PX - 1, 'h'),
+    ).toBe('q');
+  });
+
+  it('is stable: re-feeding its own output at a boundary never oscillates', () => {
+    // A tile parked exactly on the full threshold: once it settles on a layer it
+    // stays there when we feed that layer back in (the flapping #311 fixes).
+    const w = SIMULCAST_FULL_MIN_WIDTH;
+    let rid = computePreferredRidHysteretic(w, 'f');
+    expect(rid).toBe('f');
+    rid = computePreferredRidHysteretic(w, rid);
+    expect(rid).toBe('f');
   });
 });
 
@@ -200,7 +267,7 @@ describe('computeSfuCamRid (issue #269)', () => {
   const visible = { pageHidden: false, congested: false };
 
   it('follows the tile width while the tab is visible and the downlink is fine', () => {
-    expect(computeSfuCamRid(640, visible)).toBe('f');
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH, visible)).toBe('f');
     expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH - 1, visible)).toBe('h');
   });
 
@@ -209,13 +276,35 @@ describe('computeSfuCamRid (issue #269)', () => {
   });
 
   it('drops every camera to the quarter layer in a hidden tab', () => {
-    expect(computeSfuCamRid(640, { pageHidden: true, congested: false })).toBe('q');
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH, { pageHidden: true, congested: false })).toBe(
+      'q',
+    );
   });
 
   it('caps every camera at the half layer on a congested downlink', () => {
     const congested = { pageHidden: false, congested: true };
-    expect(computeSfuCamRid(640, congested)).toBe('h');
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH, congested)).toBe('h');
     expect(computeSfuCamRid(148, congested)).toBe('q');
+  });
+
+  it('uses the plain threshold on first selection (no current layer) — issue #311', () => {
+    // Without a currentRid there is nothing to be sticky about.
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH - 1, visible)).toBe('h');
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH, visible)).toBe('f');
+  });
+
+  it('sticks to the current layer across the raw threshold once one is set — issue #311', () => {
+    // On full now, a width just below the threshold stays full (no flap/blackout).
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH - 1, { ...visible, currentRid: 'f' })).toBe(
+      'f',
+    );
+    // Only once it clears the far edge of the band does it step down.
+    expect(
+      computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH - SIMULCAST_HYSTERESIS_PX - 1, {
+        ...visible,
+        currentRid: 'f',
+      }),
+    ).toBe('h');
   });
 });
 
@@ -247,10 +336,16 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
     }
   });
 
-  it('pins the full layer to the mesh speaking ceiling (quality floor)', () => {
+  it('keeps the full layer at the capture resolution but under the mesh ceiling (#314)', () => {
     const full = SFU_CAM_LAYERS.find((l) => l.rid === 'f');
-    expect(full?.maxBitrate).toBe(CAM_BITRATE_SPEAKING);
     expect(full?.scaleResolutionDownBy).toBe(1);
+    expect(full?.maxBitrate).toBe(SFU_CAM_FULL_BITRATE);
+    expect(full?.maxBitrate).toBeLessThan(CAM_BITRATE_SPEAKING);
+    expect(full?.maxFramerate).toBeLessThan(CAM_FPS_SPEAKING);
+  });
+
+  it('leaves the screen share ceiling untouched (#314: cameras only)', () => {
+    expect(SFU_SCREEN_MAX_BITRATE).toBe(SCREEN_BITRATE_HIGH);
   });
 
   it('contains every rid computePreferredRid can return', () => {
