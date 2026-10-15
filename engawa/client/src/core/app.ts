@@ -233,6 +233,8 @@ export class App {
 
   // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
   private lastLayerUpdate = 0;
+  // Throttle for the remote-video stall check (#312, see RemoteMediaView.tickStalls).
+  private lastStallTick = 0;
 
   // Call-quality sampling (issue #182): every QUALITY_SAMPLE_INTERVAL_MS the
   // active transport's stats are folded into one QualitySample and appended to
@@ -904,6 +906,7 @@ export class App {
   private updateVideoPullPause() {
     const paused = this.manualAudioOnly || this.autoRecvAudioOnly;
     this.sfu.setVideoPullPaused(paused);
+    this.view.setRecvVideoPaused(paused && this.currentMethod === 'sfu');
     if (paused || this.currentMethod !== 'sfu') return;
     this.refeedSfuDirectories();
   }
@@ -1285,7 +1288,9 @@ export class App {
           p.status = msg.status;
           p.isMuted = msg.isMuted;
           p.isVideoOn = msg.isVideoOn;
+          p.camAutoOff = msg.camAutoOff;
           this.view.setTileMuted(msg.userId, msg.isMuted);
+          this.view.refreshTileReason(msg.userId);
         }
         break;
       }
@@ -1567,6 +1572,13 @@ export class App {
     // (and screen) ceilings while we are not the (recent) speaker.
     this.updateSendPolicy(now);
 
+    // Why a dark camera tile is dark (#312): ~2Hz is quick enough to label a
+    // stall before the user wonders, cheap enough to run from the loop.
+    if (now - this.lastStallTick > 500) {
+      this.lastStallTick = now;
+      this.view.tickStalls(now, this.netTierState.tier);
+    }
+
     // SFU simulcast: re-pick each remote camera's layer by tile size (~1s cadence).
     if (now - this.lastLayerUpdate > 1000) {
       this.lastLayerUpdate = now;
@@ -1650,7 +1662,7 @@ export class App {
     if (!me) return;
     // SFU sends a single upstream regardless of headcount, so it skips the mesh
     // peer-count throttle entirely — SfuManager publishes a fixed simulcast
-    // ladder (the quality floor) and the SFU / receiver pick the layer instead.
+    // ladder (deliberately lean, #314) and the SFU / receiver pick the layer instead.
     if (this.currentMethod === 'sfu') return;
     if (me.isSpeaking) this.lastLoudAtMs = nowMs;
     const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
@@ -1777,6 +1789,7 @@ export class App {
       status: this.myStatus,
       isMuted: !this.media.micOn,
       isVideoOn: this.media.camOn,
+      camAutoOff: this.autoCamOff && !this.media.camOn,
     });
   }
 
@@ -1985,7 +1998,7 @@ export class App {
         pageHidden: document.hidden,
         congested: this.netTierState.tier >= 2,
       });
-      this.sfu.setPreferredLayer(userId, 'cam', rid);
+      if (this.sfu.setPreferredLayer(userId, 'cam', rid)) this.view.noteLayerSwitch(userId);
     }
   }
 }

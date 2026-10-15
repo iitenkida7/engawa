@@ -143,14 +143,18 @@ export function isHeldSpeaking(
   return nowMs - lastLoudAtMs < holdMs;
 }
 
-// ─── SFU mode: simulcast layers + quality floor (issues #77/#78) ────────────
+// ─── SFU mode: simulcast layers (issues #77/#78/#314) ───────────────────────
 //
 // Over the SFU each client sends ONE upstream regardless of how many receivers
 // there are, so the mesh's peer-count throttle does not apply. Instead we
-// guarantee a quality floor and publish the camera as a simulcast ladder, so the
-// SFU can give each receiver the layer that fits its downlink and tile size
-// (issue #78): a weak receiver pulls the low layer without dragging everyone
-// else down to it.
+// publish the camera as a simulcast ladder, so the SFU can give each receiver
+// the layer that fits its downlink and tile size (issue #78): a weak receiver
+// pulls the low layer without dragging everyone else down to it.
+//
+// The ladder is deliberately lean (#314): a talking head at 135p on a filmstrip
+// thumbnail was judged plenty in real meetings, and what the cameras don't use
+// stays with the screen share (which keeps its single crisp layer below) and
+// with the decoders of everyone in a big room.
 
 // One simulcast encoding of the camera ladder. `rid` is the layer id carried in
 // the SDP; `scaleResolutionDownBy` divides the captured resolution; `maxBitrate`
@@ -163,23 +167,27 @@ export type SimulcastLayer = {
 };
 
 // Camera simulcast ladder for SFU mode: f = full capture (540p), h = half
-// (270p), q = quarter (135p). The full layer matches the mesh "speaking"
-// ceiling, so SFU camera quality never drops below what a small mesh group
-// already gets (the issue #77 quality floor) no matter the headcount. The
-// smaller layers feed thumbnails, big galleries and unwatched tiles, where
-// 15fps (the mesh "quiet" rate) is plenty and halves decode cost (issue #269).
-export const SFU_CAM_QUARTER_BITRATE = 100_000;
+// (270p), q = quarter (135p). The full layer is only pulled for a big tile (a
+// maximized window, a 2-3 person gallery), so it is capped well under the mesh
+// "speaking" ceiling: 500kbps at 20fps still reads as a sharp 540p face, at
+// half the uplink (#314). The smaller layers feed galleries, filmstrips and
+// unwatched tiles, where 15fps (the mesh "quiet" rate) is plenty and halves
+// decode cost (issue #269). Per sender the whole ladder is ~0.73Mbps up.
+export const SFU_CAM_FULL_BITRATE = 500_000;
+export const SFU_CAM_FULL_FPS = 20;
+export const SFU_CAM_HALF_BITRATE = 150_000;
+export const SFU_CAM_QUARTER_BITRATE = 80_000;
 export const SFU_CAM_LAYERS: SimulcastLayer[] = [
   {
     rid: 'f',
     scaleResolutionDownBy: 1,
-    maxBitrate: CAM_BITRATE_SPEAKING,
-    maxFramerate: CAM_FPS_SPEAKING,
+    maxBitrate: SFU_CAM_FULL_BITRATE,
+    maxFramerate: SFU_CAM_FULL_FPS,
   },
   {
     rid: 'h',
     scaleResolutionDownBy: 2,
-    maxBitrate: CAM_BITRATE_QUIET,
+    maxBitrate: SFU_CAM_HALF_BITRATE,
     maxFramerate: CAM_FPS_QUIET,
   },
   {
@@ -207,15 +215,15 @@ export const SFU_CAM_HALF_RID = 'h';
 export const SFU_CAM_QUARTER_RID = 'q';
 
 // Below this rendered tile width (CSS px) a receiver requests the half layer
-// instead of full, so small thumbnails don't waste downlink (issue #78: don't
-// waste bandwidth on small tiles). 400 sends every cell of a 5-column gallery
-// (16+ people, ≤ ~380px even on a 1920 screen) to the 480-wide half layer instead
-// of pulling ~19 full 540p streams, while 3-column layouts (≤ 9 people) keep the
-// full layer (issue #269).
-export const SIMULCAST_FULL_MIN_WIDTH = 400;
-// Below this width a tile is a thumbnail (e.g. the 148px meeting filmstrip) and
-// takes the 240-wide quarter layer (issue #269).
-export const SIMULCAST_HALF_MIN_WIDTH = 200;
+// instead of full, so small tiles don't waste downlink (issue #78). 640 keeps
+// the full 960-wide layer for a maximized window or a 2-3 person gallery on a
+// wide screen; every denser gallery (≤ ~600px cells on a 1920 screen) takes
+// the 480-wide half layer, which upscales cleanly to a cell that size (#314).
+export const SIMULCAST_FULL_MIN_WIDTH = 640;
+// Below this width a tile is small enough (the 148px meeting filmstrip, a
+// 5+-column gallery cell) that the 240-wide quarter layer still fills it
+// without visible softness (#269, #314).
+export const SIMULCAST_HALF_MIN_WIDTH = 320;
 
 // Pure: the simulcast layer (rid) a receiver should request for a tile of the
 // given rendered width. Larger tiles / the screenshare-sized stage take the full

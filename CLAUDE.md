@@ -119,7 +119,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 - **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`
 - **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`
 - **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`
-- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `debug-console.ts`, `sounds.ts`
+- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `debug-console.ts`, `sounds.ts`, `video-stall.ts`（映像停止の理由判定。純粋関数）
 
 `core/app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・移動・近接判定・
 サーバーメッセージのルーティング・各サブシステムの配線を担う。サブシステム同士は直接参照せず
@@ -132,8 +132,10 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   simulcast 多レイヤ）＋他者を pull。`rtc/webrtc.ts` と同じイベント面（`onRemoteStream` 等）に乗せるので
   下流（`ui/remote-media`・録画）は無変更。App が mesh と排他的に切り替える（`/api/sfu/*` プロキシ経由）。
   SFU が失敗しても**メッシュには落とさず**、タイルを残したままバックオフ付きで SFU セッションを作り直し続ける（#254）。
-- `rtc/cam-bitrate.ts` — mesh のピア数連動ビットレート throttle に加え、**SFU の画質フロア／simulcast
-  レイヤ構成 `SFU_CAM_LAYERS`・受信タイルサイズ→レイヤ選択 `computePreferredRid`**（純粋関数）。
+- `rtc/cam-bitrate.ts` — mesh のピア数連動ビットレート throttle に加え、**SFU の simulcast
+  レイヤ構成 `SFU_CAM_LAYERS`（カメラは意図的に軽め: f 500kbps/20fps・h 150kbps・q 80kbps #314）・
+  受信タイルサイズ→レイヤ選択 `computePreferredRid`（640px 以上で f・320px 以上で h）**（純粋関数）。
+  画面共有は SFU でも単一の高画質レイヤ（3Mbps / 長辺 1920px）で絞らない。
 - `rtc/sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=20, in-band FEC など）。
 - `media/media.ts` — マイク/カメラ/画面共有ストリーム管理。`media/recorder.ts` — ブラウザ内録画。
 - `core/proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、

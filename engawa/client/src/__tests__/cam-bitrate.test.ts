@@ -21,9 +21,11 @@ import {
   SCREEN_LONG_EDGE_DEFAULT,
   SCREEN_LONG_EDGE_LARGE,
   SFU_CAM_DEFAULT_RID,
+  SFU_CAM_FULL_BITRATE,
   SFU_CAM_HALF_RID,
   SFU_CAM_LAYERS,
   SFU_CAM_QUARTER_RID,
+  SFU_SCREEN_MAX_BITRATE,
   SIMULCAST_FULL_MIN_WIDTH,
   SIMULCAST_HALF_MIN_WIDTH,
   SPEAKER_HOLD_MS,
@@ -180,17 +182,21 @@ describe('computePreferredRid (SFU simulcast layer selection)', () => {
   it('requests the full layer at or above the tile-width threshold', () => {
     expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH)).toBe('f');
     expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH + 200)).toBe('f');
-    expect(computePreferredRid(640)).toBe('f');
+    // A maximized window / a 2-person gallery on a 1920 screen.
+    expect(computePreferredRid(900)).toBe('f');
   });
 
-  it('requests the half layer for mid-size tiles (e.g. a big gallery)', () => {
+  it('requests the half layer for ordinary gallery cells (#314)', () => {
     expect(computePreferredRid(SIMULCAST_FULL_MIN_WIDTH - 1)).toBe('h');
     expect(computePreferredRid(SIMULCAST_HALF_MIN_WIDTH)).toBe('h');
-    expect(computePreferredRid(280)).toBe('h');
+    // A 3-column gallery cell on a 1920 screen (~600px) no longer pulls full.
+    expect(computePreferredRid(600)).toBe('h');
+    expect(computePreferredRid(400)).toBe('h');
   });
 
-  it('requests the quarter layer for thumbnails (saves downlink)', () => {
+  it('requests the quarter layer for thumbnails and dense galleries', () => {
     expect(computePreferredRid(SIMULCAST_HALF_MIN_WIDTH - 1)).toBe('q');
+    expect(computePreferredRid(280)).toBe('q');
     expect(computePreferredRid(148)).toBe('q');
     expect(computePreferredRid(0)).toBe('q');
   });
@@ -200,7 +206,7 @@ describe('computeSfuCamRid (issue #269)', () => {
   const visible = { pageHidden: false, congested: false };
 
   it('follows the tile width while the tab is visible and the downlink is fine', () => {
-    expect(computeSfuCamRid(640, visible)).toBe('f');
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH, visible)).toBe('f');
     expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH - 1, visible)).toBe('h');
   });
 
@@ -209,12 +215,14 @@ describe('computeSfuCamRid (issue #269)', () => {
   });
 
   it('drops every camera to the quarter layer in a hidden tab', () => {
-    expect(computeSfuCamRid(640, { pageHidden: true, congested: false })).toBe('q');
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH, { pageHidden: true, congested: false })).toBe(
+      'q',
+    );
   });
 
   it('caps every camera at the half layer on a congested downlink', () => {
     const congested = { pageHidden: false, congested: true };
-    expect(computeSfuCamRid(640, congested)).toBe('h');
+    expect(computeSfuCamRid(SIMULCAST_FULL_MIN_WIDTH, congested)).toBe('h');
     expect(computeSfuCamRid(148, congested)).toBe('q');
   });
 });
@@ -247,10 +255,16 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
     }
   });
 
-  it('pins the full layer to the mesh speaking ceiling (quality floor)', () => {
+  it('keeps the full layer at the capture resolution but under the mesh ceiling (#314)', () => {
     const full = SFU_CAM_LAYERS.find((l) => l.rid === 'f');
-    expect(full?.maxBitrate).toBe(CAM_BITRATE_SPEAKING);
     expect(full?.scaleResolutionDownBy).toBe(1);
+    expect(full?.maxBitrate).toBe(SFU_CAM_FULL_BITRATE);
+    expect(full?.maxBitrate).toBeLessThan(CAM_BITRATE_SPEAKING);
+    expect(full?.maxFramerate).toBeLessThan(CAM_FPS_SPEAKING);
+  });
+
+  it('leaves the screen share ceiling untouched (#314: cameras only)', () => {
+    expect(SFU_SCREEN_MAX_BITRATE).toBe(SCREEN_BITRATE_HIGH);
   });
 
   it('contains every rid computePreferredRid can return', () => {
