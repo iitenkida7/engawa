@@ -9,6 +9,7 @@ import {
   type SpeakingDetector,
 } from '@/media/speaking';
 import { AutoplayGate } from '@/ui/autoplay';
+import { type FaceEntry, FacePipView, isFacePipSupported } from '@/ui/face-pip';
 import {
   applyPanelGeometry,
   CAM_ASPECT,
@@ -185,6 +186,11 @@ export class RemoteMediaView {
   // Replays remote media the autoplay policy refused on the next user gesture
   // (issue #201); the App shows / hides the "enable audio" prompt.
   private autoplay: AutoplayGate;
+
+  // Always-on-top mirror of the remote tiles while the local user shares their
+  // screen (issue #318). Opened / closed by the toolbar around the share; kept
+  // in step here because every tile change already funnels through reflowLayout.
+  private facePip = new FacePipView();
 
   constructor(opts: {
     players: Map<string, PlayerState>;
@@ -721,6 +727,47 @@ export class RemoteMediaView {
   setTileMuted(userId: string, muted: boolean) {
     const tile = this.remoteTiles.get(userId);
     if (tile) tile.container.classList.toggle('muted', muted);
+    this.facePip.setMuted(userId, muted);
+  }
+
+  // ============= Face window (issue #318) =============
+  // The toolbar opens this right after a screen share starts (inside the same
+  // user activation) and closes it when the share stops. Mirrors the remote
+  // tiles — see ui/face-pip.ts for why it mirrors rather than moves them.
+  facePipSupported(): boolean {
+    return isFacePipSupported();
+  }
+
+  facePipOpen(): boolean {
+    return this.facePip.isOpen();
+  }
+
+  openFacePip(): Promise<boolean> {
+    return this.facePip.open(this.faceEntries());
+  }
+
+  closeFacePip() {
+    this.facePip.close();
+  }
+
+  // Snapshot of every remote tile as the face window shows it. Tiles are the
+  // source of truth (a cam-off conversation member has a placeholder tile, a
+  // peer who left has none), so the window always matches the main view.
+  private faceEntries(): FaceEntry[] {
+    const entries: FaceEntry[] = [];
+    for (const [userId, tile] of this.remoteTiles) {
+      const p = this.players.get(userId);
+      const name = tile.label.textContent || userId.slice(0, 6);
+      entries.push({
+        userId,
+        name,
+        initials: p ? p.initials() : name.slice(0, 2).toUpperCase(),
+        stream: tile.hasCam ? (tile.video.srcObject as MediaStream | null) : null,
+        muted: tile.container.classList.contains('muted'),
+        speaking: p?.isSpeaking ?? false,
+      });
+    }
+    return entries;
   }
 
   // ============= Speaking detection =============
@@ -752,6 +799,7 @@ export class RemoteMediaView {
       if (p) p.isSpeaking = isSpeaking(det);
       const tile = this.remoteTiles.get(userId);
       if (tile) tile.container.classList.toggle('speaking', p?.isSpeaking ?? false);
+      if (this.facePip.isOpen()) this.facePip.setSpeaking(userId, p?.isSpeaking ?? false);
     }
   }
 
@@ -842,6 +890,9 @@ export class RemoteMediaView {
   // viewport resize and whenever the set of windows changes (peer join/leave,
   // screenshare start/stop) so the fixed arrangement stays tidy.
   private reflowLayout() {
+    // Every tile add / remove / cam change lands here, so this is the one
+    // place the face window needs to re-sync (issue #318).
+    if (this.facePip.isOpen()) this.facePip.sync(this.faceEntries());
     const panels = this.collectPanels();
     // Drop a focus whose window is gone (peer left, camera off, share stopped)
     // so the layout can never be stranded on a panel that no longer exists.

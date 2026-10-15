@@ -157,6 +157,19 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
   'toolbar.audioOnly': { ja: '🔉 音声のみモード', en: '🔉 Audio-only mode' },
   'toolbar.shortcuts': { ja: '⌨ キーバインド一覧', en: '⌨ Keyboard shortcuts' },
+  'toolbar.facePip': {
+    ja: '🪟 画面共有中に顔を小窓に出す',
+    en: '🪟 Faces in a floating window while sharing',
+  },
+  'toolbar.facePipHint': {
+    ja: '顔の小窓を開きました。画面全体を共有している場合は小窓も相手に見えます',
+    en: 'Opened the faces window. If you share your entire screen, it shows up for others too.',
+  },
+  'toolbar.facePipRetry': {
+    ja: '顔の小窓を自動で開けませんでした',
+    en: 'Could not open the faces window automatically',
+  },
+  'toolbar.facePipOpen': { ja: '小窓を開く', en: 'Open it' },
   'toolbar.closeDebug': { ja: '🐛 デバッグを閉じる', en: '🐛 Close debug' },
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
 
@@ -221,6 +234,7 @@ const STR: Record<string, Record<Lang, string>> = {
   },
   'media.focus': { ja: '拡大表示', en: 'Maximize' },
   'media.reconnecting': { ja: '再接続中…', en: 'Reconnecting…' },
+  'facePip.empty': { ja: '通話相手がいません', en: 'No one in the call' },
   'media.unfocus': { ja: '拡大を解除（Esc）', en: 'Exit maximize (Esc)' },
   'media.filmstripMore': { ja: '他の参加者も表示', en: 'Show more participants' },
   'media.filmstripLess': { ja: '表示を減らす', en: 'Show fewer' },

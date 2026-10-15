@@ -15,6 +15,7 @@ import {
   VBG_OFF,
   VBG_STORAGE_KEY,
 } from '@/media/vbg';
+import { FACE_PIP_STORAGE_KEY, parseFacePipSetting } from '@/ui/face-pip';
 import type { Toasts } from '@/ui/notify';
 import type { LayoutMode } from '@/ui/panels';
 import type { RemoteMediaView } from '@/ui/remote-media';
@@ -60,6 +61,12 @@ export class ToolbarController {
   private onUserCamToggle: () => void;
   private isAudioOnly: () => boolean;
   private onToggleAudioOnly: () => void;
+
+  // Face window while sharing (issue #318): the persisted opt-in/out, the
+  // once-per-session hint, and the dismisser of the "open it" fallback toast.
+  private facePipEnabled = true;
+  private facePipHintShown = false;
+  private facePipToastDismiss: (() => void) | null = null;
 
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
@@ -138,6 +145,7 @@ export class ToolbarController {
 
     this.loadBgSettings();
     this.loadNoiseSetting();
+    this.loadFacePipSetting();
     this.setup();
     this.refresh();
   }
@@ -299,9 +307,86 @@ export class ToolbarController {
         const me = this.getMe();
         if (me) me.isSharingScreen = true;
         this.view.showScreenshare(me?.userId ?? '', stream);
+        await this.maybeOpenFacePip();
       } catch (e) {
         this.toasts.error(t('toolbar.errScreen', { msg: (e as Error).message }));
       }
+    }
+  }
+
+  // Face window (issue #318): after the share starts, mirror the remote tiles
+  // into an always-on-top window so a single-display sharer still sees faces.
+  // Ordered AFTER getDisplayMedia on purpose: requestWindow() consumes the
+  // click's user activation while getDisplayMedia only checks it, so the other
+  // order could break the share itself. The cost is that a slow pick in the
+  // share dialog can outlive the activation — then the window can't open
+  // silently and a toast offers a button (a fresh gesture) instead.
+  private async maybeOpenFacePip() {
+    if (!this.facePipEnabled || !this.view.facePipSupported()) return;
+    if (await this.view.openFacePip()) {
+      this.showFacePipHint();
+      return;
+    }
+    this.facePipToastDismiss?.();
+    this.facePipToastDismiss = this.toasts.action(
+      t('toolbar.facePipRetry'),
+      [
+        {
+          label: t('toolbar.facePipOpen'),
+          primary: true,
+          onClick: () => {
+            this.facePipToastDismiss = null;
+            // The share may have ended while the toast sat there.
+            if (!this.media.screenOn) return;
+            void this.view.openFacePip().then((ok) => {
+              if (ok) this.showFacePipHint();
+            });
+          },
+        },
+      ],
+      0,
+    );
+  }
+
+  // Entire-screen shares capture the face window too (Chrome has no exclusion),
+  // so say so once per session when the window first opens.
+  private showFacePipHint() {
+    if (this.facePipHintShown) return;
+    this.facePipHintShown = true;
+    this.toasts.info(t('toolbar.facePipHint'), 7000);
+  }
+
+  // The "⋯" menu toggle. Takes effect immediately on a running share: enabling
+  // opens the window (the menu click is a user activation), disabling closes it.
+  private toggleFacePip() {
+    this.facePipEnabled = !this.facePipEnabled;
+    this.persistFacePipSetting();
+    if (!this.media.screenOn) return;
+    if (this.facePipEnabled) void this.maybeOpenFacePip();
+    else this.closeFacePip();
+  }
+
+  private closeFacePip() {
+    this.view.closeFacePip();
+    this.facePipToastDismiss?.();
+    this.facePipToastDismiss = null;
+  }
+
+  private loadFacePipSetting() {
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(FACE_PIP_STORAGE_KEY);
+    } catch {
+      /* ignore private-mode storage errors */
+    }
+    this.facePipEnabled = parseFacePipSetting(stored);
+  }
+
+  private persistFacePipSetting() {
+    try {
+      localStorage.setItem(FACE_PIP_STORAGE_KEY, this.facePipEnabled ? '1' : '0');
+    } catch {
+      /* ignore private-mode storage errors */
     }
   }
 
@@ -317,6 +402,7 @@ export class ToolbarController {
     const me = this.getMe();
     if (me) me.isSharingScreen = false;
     this.view.removeScreenshare(me?.userId ?? '');
+    this.closeFacePip();
   }
 
   toggleRecord() {
@@ -583,6 +669,11 @@ export class ToolbarController {
     addItem((this.isAudioOnly() ? '✓ ' : '') + t('toolbar.audioOnly'), () =>
       this.onToggleAudioOnly(),
     );
+    // Face window while sharing (#318): only where Document PiP exists, so the
+    // menu never offers a switch that does nothing.
+    if (this.view.facePipSupported()) {
+      addItem((this.facePipEnabled ? '✓ ' : '') + t('toolbar.facePip'), () => this.toggleFacePip());
+    }
     addItem(this.isDebugOpen() ? t('toolbar.closeDebug') : t('toolbar.openDebug'), () =>
       this.toggleDebug(),
     );
