@@ -1662,7 +1662,7 @@ export class App {
     if (!me) return;
     // SFU sends a single upstream regardless of headcount, so it skips the mesh
     // peer-count throttle entirely — SfuManager publishes a fixed simulcast
-    // ladder (the quality floor) and the SFU / receiver pick the layer instead.
+    // ladder (deliberately lean, #314) and the SFU / receiver pick the layer instead.
     if (this.currentMethod === 'sfu') return;
     if (me.isSpeaking) this.lastLoudAtMs = nowMs;
     const speaking = isHeldSpeaking(me.isSpeaking, this.lastLoudAtMs, nowMs);
