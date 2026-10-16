@@ -168,8 +168,8 @@ export class SfuManager {
 
   // While true, video (cam/screen) tracks are neither pulled nor kept — only
   // mic audio flows downlink (issue #188: audio-only receive on a starved
-  // downlink, or the manual audio-only mode). Existing video pulls are dropped
-  // on entry; on exit the App re-feeds the cached directories to re-pull.
+  // downlink). Existing video pulls are dropped on entry; on exit the App
+  // re-feeds the cached directories to re-pull.
   private videoPullPaused = false;
 
   constructor(events: SfuEvents) {
