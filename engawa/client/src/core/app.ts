@@ -1303,7 +1303,9 @@ export class App {
           p.isMuted = msg.isMuted;
           p.isVideoOn = msg.isVideoOn;
           p.camAutoOff = msg.camAutoOff;
+          p.ptt = msg.ptt;
           this.view.setTileMuted(msg.userId, msg.isMuted);
+          this.view.setTilePtt(msg.userId, msg.ptt);
           this.view.refreshTileReason(msg.userId);
         }
         break;
@@ -1804,6 +1806,7 @@ export class App {
       isMuted: !this.media.micOn,
       isVideoOn: this.media.camOn,
       camAutoOff: this.autoCamOff && !this.media.camOn,
+      ptt: this.toolbar.pttActive(),
     });
   }
 

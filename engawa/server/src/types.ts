@@ -73,6 +73,9 @@ export type ClientMessage =
       // hand — peers show why the tile went dark (issue #312). Optional so
       // older clients still validate.
       camAutoOff?: boolean;
+      // The sender has push-to-talk on: peers mark the tile so a silent mic
+      // reads as "holding to talk", not as broken. Optional for older clients.
+      ptt?: boolean;
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
@@ -129,6 +132,7 @@ export type ServerMessage =
       isMuted: boolean;
       isVideoOn: boolean;
       camAutoOff: boolean;
+      ptt: boolean;
     }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }

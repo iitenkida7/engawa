@@ -843,6 +843,20 @@
         display: block;
       }
 
+      /* Push-to-talk badge on a peer's tile (hidden while their mic is off,
+         where the red mic-off indicator already says enough). */
+      .panel-header .ptt-indicator {
+        display: none;
+        flex: none;
+        margin-right: 6px;
+        font-size: 15px;
+        line-height: 18px;
+      }
+
+      .remote-tile.ptt:not(.muted) .panel-header .ptt-indicator {
+        display: block;
+      }
+
       .panel-body .no-video {
         position: absolute;
         inset: 0;
