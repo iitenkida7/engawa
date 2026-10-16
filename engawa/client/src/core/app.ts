@@ -298,7 +298,10 @@ export class App {
   private avatarMenuEl = document.getElementById('avatar-menu') as HTMLDivElement;
   private onShortcutKey = (e: KeyboardEvent) => this.handleShortcutKey(e);
   private onPttKeyUp = (e: KeyboardEvent) => {
-    if (e.key.toLowerCase() === PTT_KEY) this.toolbar.setPttHeld(false);
+    if (e.key !== PTT_KEY) return;
+    // A focused button "clicks" on Space keyup; don't let releasing PTT press it.
+    if (this.toolbar.pttActive() && !isTypingTarget(e.target)) e.preventDefault();
+    this.toolbar.setPttHeld(false);
   };
   private onPttRelease = () => this.toolbar.setPttHeld(false);
   private onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -566,16 +569,12 @@ export class App {
     if (!this.me) return;
     // Skipped while typing, same guard as world/input.ts and the Esc handler in
     // ui/remote-media.ts — 'm' in a message is an 'm', not "mute".
-    const t = e.target;
-    if (
-      t instanceof HTMLElement &&
-      (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-    ) {
-      return;
-    }
-    // Push-to-talk owns its key while active: hold = transmit (the keyup / blur
-    // handlers release it). Auto-repeat keydowns are swallowed too.
+    if (isTypingTarget(e.target)) return;
+    // Push-to-talk: hold Space = transmit (the keyup / blur handlers release
+    // it). preventDefault stops Space scrolling the page or pressing a focused
+    // button; auto-repeat keydowns are swallowed too.
     if (this.toolbar.pttActive() && isPttKey(e)) {
+      e.preventDefault();
       if (!e.repeat) this.toolbar.setPttHeld(true);
       return;
     }
@@ -2069,4 +2068,13 @@ export class App {
 
 function clamp(v: number, lo: number, hi: number) {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+// Whether a key event lands in a text field (where keys are typing, not
+// shortcuts) — same guard as world/input.ts and ui/remote-media.ts.
+function isTypingTarget(t: EventTarget | null): boolean {
+  return (
+    t instanceof HTMLElement &&
+    (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+  );
 }

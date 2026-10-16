@@ -1,31 +1,31 @@
 import { describe, expect, it } from 'bun:test';
 import { isPttKey, parsePttSetting } from '@/ui/ptt';
 
-// Push-to-talk (experimental).
+// Push-to-talk.
 
 describe('parsePttSetting', () => {
-  it('is on unless explicitly disabled with "0"', () => {
-    expect(parsePttSetting(null)).toBe(true);
-    expect(parsePttSetting('1')).toBe(true);
+  it('is off unless explicitly enabled with "1"', () => {
+    expect(parsePttSetting(null)).toBe(false);
     expect(parsePttSetting('0')).toBe(false);
+    expect(parsePttSetting('1')).toBe(true);
   });
 });
 
 describe('isPttKey', () => {
-  it('matches the bare V key, either case', () => {
-    expect(isPttKey({ key: 'v' })).toBe(true);
-    expect(isPttKey({ key: 'V' })).toBe(true);
+  it('matches the bare Space key', () => {
+    expect(isPttKey({ key: ' ' })).toBe(true);
   });
 
   it('ignores other keys', () => {
+    expect(isPttKey({ key: 'v' })).toBe(false);
     expect(isPttKey({ key: 'm' })).toBe(false);
   });
 
   it('ignores modifier combos and IME composition', () => {
-    expect(isPttKey({ key: 'v', metaKey: true })).toBe(false);
-    expect(isPttKey({ key: 'v', ctrlKey: true })).toBe(false);
-    expect(isPttKey({ key: 'v', altKey: true })).toBe(false);
-    expect(isPttKey({ key: 'V', shiftKey: true })).toBe(false);
-    expect(isPttKey({ key: 'v', isComposing: true })).toBe(false);
+    expect(isPttKey({ key: ' ', metaKey: true })).toBe(false);
+    expect(isPttKey({ key: ' ', ctrlKey: true })).toBe(false);
+    expect(isPttKey({ key: ' ', altKey: true })).toBe(false);
+    expect(isPttKey({ key: ' ', shiftKey: true })).toBe(false);
+    expect(isPttKey({ key: ' ', isComposing: true })).toBe(false);
   });
 });

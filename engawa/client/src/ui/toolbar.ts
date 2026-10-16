@@ -79,9 +79,9 @@ export class ToolbarController {
   private facePipHintShown = false;
   private facePipToastDismiss: (() => void) | null = null;
 
-  // Push-to-talk (experimental): persisted per-feature toggle (default on, gated
-  // by experimentalEnabled) and whether the PTT key is currently held.
-  private pttEnabled = true;
+  // Push-to-talk: persisted toggle (default off) and whether the PTT key is
+  // currently held.
+  private pttEnabled = false;
   private pttHeld = false;
 
   private btnMic: HTMLButtonElement;
@@ -397,12 +397,10 @@ export class ToolbarController {
     this.experimentalEnabled = !this.experimentalEnabled;
     this.persistExperimentalSetting();
     this.applyFacePipNow();
-    this.applyPtt();
   }
 
-  // Push-to-talk is in effect only when experiments are on AND its own toggle is on.
   pttActive(): boolean {
-    return isExperimentActive(this.experimentalEnabled, this.pttEnabled);
+    return this.pttEnabled;
   }
 
   // Key down/up of the PTT key (called by the App's keyboard handlers). Does
@@ -775,6 +773,8 @@ export class ToolbarController {
     addItem((this.isAudioOnly() ? '✓ ' : '') + t('toolbar.audioOnly'), () =>
       this.onToggleAudioOnly(),
     );
+    // Push-to-talk: while ticked, a live mic only transmits while Space is held.
+    addItem((this.pttEnabled ? '✓ ' : '') + t('toolbar.ptt'), () => this.togglePtt());
     addItem(this.isDebugOpen() ? t('toolbar.closeDebug') : t('toolbar.openDebug'), () =>
       this.toggleDebug(),
     );
@@ -795,7 +795,6 @@ export class ToolbarController {
       this.toggleExperimental(),
     );
     if (this.experimentalEnabled) {
-      addItem(`　${this.pttEnabled ? '✓ ' : ''}${t('toolbar.ptt')}`, () => this.togglePtt());
       // Face window while sharing (#318): Document PiP, Chrome / Edge desktop only.
       if (this.view.facePipSupported()) {
         addItem(`　${this.facePipEnabled ? '✓ ' : ''}${t('toolbar.facePip')}`, () =>
