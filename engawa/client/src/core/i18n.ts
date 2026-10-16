@@ -243,8 +243,8 @@ const STR: Record<string, Record<Lang, string>> = {
   'media.yourScreen': { ja: 'あなたの画面', en: 'Your screen' },
   'media.screenOf': { ja: '{name} の画面', en: "{name}'s screen" },
   'media.dblClickMain': {
-    ja: 'ダブルクリックでメイン表示に切り替え',
-    en: 'Double-click to make this the main view',
+    ja: 'クリックでメイン表示に切り替え',
+    en: 'Click to make this the main view',
   },
   'media.focus': { ja: '拡大表示', en: 'Maximize' },
   'media.reconnecting': { ja: '再接続中…', en: 'Reconnecting…' },

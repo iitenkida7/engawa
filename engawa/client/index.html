@@ -903,7 +903,12 @@
          remote-media.ts (so no display:none here — presence in the DOM means
          it's on screen). Position/size come from reflowLayout. The "main"
          (featured) share — the oldest one, or whichever was promoted by
-         double-click — gets a blue accent. */
+         click — gets a blue accent. */
+      /* A non-main share is clickable: clicking makes it the main one. */
+      .screenshare-stage:not(.main) {
+        cursor: pointer;
+      }
+
       .screenshare-stage {
         z-index: 6;
         /* Initial frame only; reflowLayout overrides left/top/width/height. */
