@@ -460,6 +460,7 @@ export function createWebSocketHandler(
               isMuted: normalizeBool(msg.isMuted),
               isVideoOn: normalizeBool(msg.isVideoOn),
               camAutoOff: normalizeBool(msg.camAutoOff),
+              ptt: normalizeBool(msg.ptt),
             },
             ws.data.userId,
           );

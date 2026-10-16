@@ -613,6 +613,7 @@ export class RemoteMediaView {
     // Reflect the current mute state right away (a placeholder tile may be
     // created between status broadcasts, which only fire on change).
     if (p?.isMuted) container.classList.add('muted');
+    if (p?.ptt) container.classList.add('ptt');
     if (this.reconnecting) container.classList.add('reconnecting');
 
     const header = document.createElement('div');
@@ -626,7 +627,13 @@ export class RemoteMediaView {
     const label = document.createElement('span');
     label.className = 'label';
     label.textContent = name;
+    // Push-to-talk badge: shown (by CSS) while the peer has PTT on and mic live.
+    const ptt = document.createElement('span');
+    ptt.className = 'ptt-indicator';
+    ptt.textContent = '🎙';
+    ptt.title = t('media.peerPtt');
     left.appendChild(mic);
+    left.appendChild(ptt);
     left.appendChild(label);
     header.appendChild(left);
     header.appendChild(createFocusButton());
@@ -881,6 +888,10 @@ export class RemoteMediaView {
     const tile = this.remoteTiles.get(userId);
     if (tile) tile.container.classList.toggle('muted', muted);
     this.facePip.setMuted(userId, muted);
+  }
+
+  setTilePtt(userId: string, ptt: boolean) {
+    this.remoteTiles.get(userId)?.container.classList.toggle('ptt', ptt);
   }
 
   // ============= Face window (issue #318) =============

@@ -555,7 +555,27 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       isMuted: true,
       isVideoOn: false,
       camAutoOff: false,
+      ptt: false,
     });
+  });
+
+  test('relays the push-to-talk flag', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(peer);
+
+    deliver(handler, sender, {
+      type: 'status',
+      status: 'online',
+      isMuted: false,
+      isVideoOn: false,
+      ptt: true,
+    });
+
+    const status = peer.sent.find((m) => m.type === 'player-status');
+    if (status?.type !== 'player-status') throw new Error('expected player-status');
+    expect(status.ptt).toBe(true);
   });
 
   test('relays the network-paused camera flag (#312)', () => {
@@ -632,6 +652,7 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     expect(status.isVideoOn).toBe(false);
     // An older client sends no camAutoOff at all: a plain false.
     expect(status.camAutoOff).toBe(false);
+    expect(status.ptt).toBe(false);
   });
 
   test('going away broadcasts player-left and hides the sender from grouping (#220)', () => {
@@ -672,6 +693,7 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       isMuted: false,
       isVideoOn: false,
       camAutoOff: false,
+      ptt: false,
     });
   });
 

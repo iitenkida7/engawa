@@ -442,6 +442,8 @@ export class ToolbarController {
     this.pttEnabled = !this.pttEnabled;
     this.persistPttSetting();
     this.applyPtt();
+    // Peers show a badge on our tile while push-to-talk is on.
+    this.broadcastStatus();
   }
 
   private loadPttSetting() {
