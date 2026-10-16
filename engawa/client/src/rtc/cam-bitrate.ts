@@ -208,6 +208,11 @@ export const SFU_CAM_LAYERS: SimulcastLayer[] = [
 // ceiling so SFU screen quality never drops below it (the issue #77 floor); the
 // SFU encodes it once, so there is no mesh ×N reason to go lower.
 export const SFU_SCREEN_MAX_BITRATE = SCREEN_BITRATE_HIGH;
+// The SFU share also takes the mesh small-group resolution/framerate caps
+// (#324): without them a 4K/5K display was encoded at native size, costing the
+// sharer and every receiver encode/decode CPU for text that FHD keeps legible.
+export const SFU_SCREEN_MAX_FRAMERATE = SCREEN_FPS_DEFAULT;
+export const SFU_SCREEN_MAX_LONG_EDGE = SCREEN_LONG_EDGE_DEFAULT;
 
 // The full-quality rid; the SFU's default pull layer before a tile size is known.
 export const SFU_CAM_DEFAULT_RID = 'f';

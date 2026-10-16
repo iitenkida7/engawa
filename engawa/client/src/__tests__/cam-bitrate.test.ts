@@ -27,6 +27,8 @@ import {
   SFU_CAM_LAYERS,
   SFU_CAM_QUARTER_RID,
   SFU_SCREEN_MAX_BITRATE,
+  SFU_SCREEN_MAX_FRAMERATE,
+  SFU_SCREEN_MAX_LONG_EDGE,
   SIMULCAST_FULL_MIN_WIDTH,
   SIMULCAST_HALF_MIN_WIDTH,
   SIMULCAST_HYSTERESIS_PX,
@@ -346,6 +348,12 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
 
   it('leaves the screen share ceiling untouched (#314: cameras only)', () => {
     expect(SFU_SCREEN_MAX_BITRATE).toBe(SCREEN_BITRATE_HIGH);
+  });
+
+  it('caps the SFU screen share like the mesh small group (#324)', () => {
+    const mesh = computeScreenEncoding(1);
+    expect(SFU_SCREEN_MAX_FRAMERATE).toBe(mesh.maxFramerate);
+    expect(SFU_SCREEN_MAX_LONG_EDGE).toBe(mesh.maxLongEdge);
   });
 
   it('contains every rid computePreferredRid can return', () => {
