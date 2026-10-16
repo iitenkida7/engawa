@@ -305,9 +305,10 @@ export class SfuManager {
     for (const userId of new Set(rejected.map((r) => r.userId))) {
       const dir = dirs.get(userId)!;
       logNet('sfu-pull-rejected', { retry: dir.retry });
-      const delay = sfuPullRetryDelayMs(dir.retry + 1);
-      // Still rejected against an unchanged directory after every retry: the
-      // fault may be our own session after all, so take the normal failure path.
+      const delay = sfuPullRetryDelayMs(dir.retry + 1, this.hasLiveRemoteExcept(userId));
+      // Still rejected against an unchanged directory after every retry, with no
+      // other peer's media flowing either: the fault may be our own session
+      // after all, so take the normal failure path.
       if (delay === null) {
         exhausted = new Error(`sfu pull: rejected after ${dir.retry} retries`);
         continue;
@@ -320,6 +321,15 @@ export class SfuManager {
       }, delay);
     }
     if (exhausted) throw exhausted;
+  }
+
+  // Whether media pulled from some other peer is arriving over our transport —
+  // proof our own session works, so a peer's persistent rejection is theirs.
+  private hasLiveRemoteExcept(userId: string): boolean {
+    for (const r of this.remoteTracks.values()) {
+      if (r.userId !== userId && r.streamId !== null) return true;
+    }
+    return false;
   }
 
   // A peer left the group entirely: drop all of their pulled tracks.
