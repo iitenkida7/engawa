@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   clampFilmstripWidth,
+  clampMeetingSplit,
   computeFilmstripColumns,
   computeFocusLayout,
   computeGridLayout,
@@ -18,6 +19,9 @@ import {
   MEETING_FILMSTRIP_TILE_H,
   MEETING_FILMSTRIP_TILE_W,
   MEETING_GAP,
+  MEETING_SPLIT_DEFAULT,
+  MEETING_SPLIT_MAX,
+  MEETING_SPLIT_MIN,
   meetingFilmstripColWidth,
   PANEL_BOTTOM_RESERVED,
   PANEL_GAP,
@@ -325,6 +329,47 @@ describe('computeMeetingGallery', () => {
 });
 
 describe('computeMeetingPresentation', () => {
+  // A clicked filmstrip tile (items[1]) pins under the share: the main area
+  // splits top/bottom by the ratio and the rail keeps only the rest.
+  it('splits the main area top (share) / bottom (pinned) by the ratio', () => {
+    const geos = computeMeetingPresentation([screen(), cam(), cam()], VW, VH, undefined, 0.6);
+    const top = meetBox(geos[0]);
+    const bottom = meetBox(geos[1]);
+    const rail = meetBox(geos[2]);
+    // Same column, share above the pinned window, no overlap.
+    expect(bottom.x).toBe(top.x);
+    expect(bottom.w).toBe(top.w);
+    expect(top.y).toBe(0);
+    expect(bottom.y).toBeGreaterThan(top.y + top.h - 1);
+    expect(bottom.y + bottom.h).toBe(MEET_BOTTOM);
+    expect(top.h / (top.h + bottom.h)).toBeCloseTo(0.6, 1);
+    // Right of the rail, which now holds just the remaining camera.
+    expect(top.x).toBeGreaterThanOrEqual(meetingFilmstripColWidth());
+    expect(rail.x).toBe(0);
+    expect(rail.w).toBe(MEETING_FILMSTRIP_TILE_W);
+  });
+
+  it('spans the full width when the pinned window was the only filmstrip tile', () => {
+    const geos = computeMeetingPresentation([screen(), cam()], VW, VH, undefined, 0.5);
+    const top = meetBox(geos[0]);
+    const bottom = meetBox(geos[1]);
+    expect(top.x).toBe(0);
+    expect(top.w).toBe(VW);
+    expect(bottom.w).toBe(VW);
+    expect(Math.abs(top.h - bottom.h)).toBeLessThanOrEqual(1);
+  });
+
+  it('clamps the split ratio so neither pane collapses', () => {
+    expect(clampMeetingSplit(0)).toBe(MEETING_SPLIT_MIN);
+    expect(clampMeetingSplit(1)).toBe(MEETING_SPLIT_MAX);
+    expect(clampMeetingSplit(0.42)).toBe(0.42);
+    expect(clampMeetingSplit(Number.NaN)).toBe(MEETING_SPLIT_DEFAULT);
+    const geos = computeMeetingPresentation([screen(), cam()], VW, VH, undefined, 0.01);
+    expect(meetBox(geos[0]).h).toBeGreaterThanOrEqual(
+      Math.floor(MEET_BOTTOM * MEETING_SPLIT_MIN) - 2,
+    );
+  });
+
   it('a lone screenshare fills the whole area', () => {
     const [g] = computeMeetingPresentation([screen()], VW, VH);
     const b = meetBox(g);

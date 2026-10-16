@@ -5,6 +5,7 @@ import {
   MEETING_FILMSTRIP_2COL_MIN_W,
   MEETING_FILMSTRIP_MIN_W,
   MEETING_FILMSTRIP_TILE_W,
+  PANEL_BOTTOM_RESERVED,
 } from '@/ui/panels';
 import { RemoteMediaView } from '@/ui/remote-media';
 import type { PlayerState } from '@/world/player';
@@ -343,5 +344,102 @@ describe('filmstrip / share seam resizer', () => {
     expect(shown()).toBe(false);
     view.setMeetingMode(true);
     expect(tileWidth()).toBe(MEETING_FILMSTRIP_TILE_W);
+  });
+});
+
+// Clicking a filmstrip tile in the meeting presentation layout pins it under the
+// share: the main area splits top (share) / bottom (pinned), with a draggable
+// horizontal seam between them.
+describe('meeting split view (pin a filmstrip tile under the share)', () => {
+  let view: RemoteMediaView;
+  const panelOf = (key: string) =>
+    document.querySelector<HTMLElement>(`.panel[data-focus-key="${key}"]`)!;
+  const box = (key: string) => {
+    const el = panelOf(key);
+    return {
+      x: Number.parseFloat(el.style.left),
+      y: Number.parseFloat(el.style.top),
+      w: Number.parseFloat(el.style.width),
+      h: Number.parseFloat(el.style.height),
+    };
+  };
+  const click = (el: HTMLElement, detail = 1) =>
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail }));
+  const seam = () => document.getElementById('meeting-split-resizer') as HTMLElement;
+  const seamShown = () => seam().style.display !== 'none';
+  const pointer = (type: string, clientY: number) =>
+    seam().dispatchEvent(
+      new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientY }),
+    );
+
+  beforeEach(() => {
+    view = setup();
+    view.setMeetingMode(true);
+    addCam(view, 'a');
+    addCam(view, 'b');
+    view.attachRemoteStream('s', new MediaStream(), 'screen');
+  });
+
+  it('starts unsplit: the share fills the main area, no seam', () => {
+    expect(seamShown()).toBe(false);
+    expect(box('cam:a').w).toBe(MEETING_FILMSTRIP_TILE_W);
+  });
+
+  it('clicking a filmstrip tile pins it below the share; clicking it again unpins', () => {
+    const fullH = box('screen:s').h;
+    click(panelOf('cam:a'));
+    const top = box('screen:s');
+    const bottom = box('cam:a');
+    expect(top.h).toBeLessThan(fullH);
+    expect(bottom.x).toBe(top.x);
+    expect(bottom.w).toBe(top.w);
+    expect(bottom.y).toBeGreaterThan(top.y + top.h - 1);
+    expect(seamShown()).toBe(true);
+    // The other camera stays in the rail.
+    expect(box('cam:b').w).toBe(MEETING_FILMSTRIP_TILE_W);
+
+    click(panelOf('cam:a'));
+    expect(box('cam:a').w).toBe(MEETING_FILMSTRIP_TILE_W);
+    expect(box('screen:s').h).toBe(fullH);
+    expect(seamShown()).toBe(false);
+  });
+
+  it('clicking another filmstrip tile swaps the pinned one', () => {
+    click(panelOf('cam:a'));
+    click(panelOf('cam:b'));
+    expect(box('cam:a').w).toBe(MEETING_FILMSTRIP_TILE_W);
+    expect(box('cam:b').w).toBe(box('screen:s').w);
+  });
+
+  it('clicking the main share does nothing; the 2nd click of a double-click is ignored', () => {
+    click(panelOf('screen:s'));
+    expect(seamShown()).toBe(false);
+    click(panelOf('cam:a'), 1);
+    click(panelOf('cam:a'), 2);
+    expect(seamShown()).toBe(true);
+  });
+
+  it('dragging the seam resizes top/bottom; double-click evens it out', () => {
+    click(panelOf('cam:a'));
+    const areaH = window.innerHeight - PANEL_BOTTOM_RESERVED;
+    pointer('pointerdown', areaH / 2);
+    pointer('pointermove', areaH * 0.7);
+    pointer('pointerup', areaH * 0.7);
+    const top = box('screen:s');
+    const bottom = box('cam:a');
+    expect(top.h / (top.h + bottom.h)).toBeCloseTo(0.7, 1);
+    seam().dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    expect(Math.abs(box('screen:s').h - box('cam:a').h)).toBeLessThanOrEqual(1);
+  });
+
+  it('drops the pin when that window goes away or the meeting ends', () => {
+    click(panelOf('cam:a'));
+    view.setMeetingMode(false);
+    view.setMeetingMode(true);
+    expect(seamShown()).toBe(false);
+    click(panelOf('cam:b'));
+    view.removeScreenshare('s');
+    view.attachRemoteStream('s', new MediaStream(), 'screen');
+    expect(seamShown()).toBe(false);
   });
 });
