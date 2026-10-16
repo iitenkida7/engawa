@@ -119,7 +119,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 - **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`, `diag.ts`（デバッグコンソールの接続判定・原因推定・Claude 用診断レポート。純粋関数）
 - **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`
 - **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`
-- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `rec-indicator.ts`, `debug-console.ts`, `sounds.ts`, `video-stall.ts`（映像停止の理由判定。純粋関数）, `face-pip.ts`, `experimental.ts`
+- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `rec-indicator.ts`, `debug-console.ts`, `sounds.ts`, `video-stall.ts`（映像停止の理由判定。純粋関数）, `face-pip.ts`, `experimental.ts`, `camera-lab.ts`（⋯メニューから別タブで開く `camera-lab.html` のロジック。`SFU_CAM_LAYERS` をループバック接続で実エンコードして見比べる画質ラボ）
 
 `core/app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・移動・近接判定・
 サーバーメッセージのルーティング・各サブシステムの配線を担う。サブシステム同士は直接参照せず

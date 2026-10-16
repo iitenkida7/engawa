@@ -798,6 +798,8 @@ export class ToolbarController {
     addItem(this.isDebugOpen() ? t('toolbar.closeDebug') : t('toolbar.openDebug'), () =>
       this.toggleDebug(),
     );
+    // Camera quality lab: a standalone page comparing the SFU simulcast layers.
+    addItem(t('toolbar.cameraLab'), () => window.open('/camera-lab.html', '_blank'));
     // Language switch (issue #172): label shows the language you'd switch TO;
     // setLang persists the choice and reloads.
     const other: Lang = getLang() === 'ja' ? 'en' : 'ja';
