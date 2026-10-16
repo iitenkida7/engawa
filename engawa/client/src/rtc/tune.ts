@@ -5,6 +5,11 @@
 // which is exactly the kind of latency regression this module prevents (#146).
 
 import type { StreamKind } from '@/core/types';
+import {
+  computeScreenScale,
+  SFU_SCREEN_MAX_FRAMERATE,
+  SFU_SCREEN_MAX_LONG_EDGE,
+} from '@/rtc/cam-bitrate';
 
 // Receiver playout/jitter buffer floor. Lower = less perceived lag, but small
 // jitter bursts cause clicks. The low-latency recommendation is to start around
@@ -60,10 +65,16 @@ export function tuneReceivers(pc: RTCPeerConnection, targetMs: number = JITTER_B
 //     congestion (audio latency is what wrecks a conversation first).
 //   - cam: 'balanced' — drop both resolution and framerate as needed.
 //   - screen: 'maintain-resolution' — contentHint='detail' wants crisp text, so
-//     under congestion shed framerate, not resolution.
+//     under congestion shed framerate, not resolution. It also gets the mesh's
+//     longest-edge / framerate caps (#324); the scale needs the live capture
+//     size, which is why this is applied here and not via sendEncodings.
 // Seamless (no renegotiation), and every field is best-effort: a setParameters
 // failure must not tear the SFU transport down, so the caller swallows errors.
-export async function tuneSfuSender(sender: RTCRtpSender, kind: StreamKind) {
+export async function tuneSfuSender(
+  sender: RTCRtpSender,
+  kind: StreamKind,
+  track?: MediaStreamTrack,
+) {
   const params = sender.getParameters();
   if (!params.encodings || params.encodings.length === 0) return;
   if (kind === 'mic') {
@@ -77,6 +88,14 @@ export async function tuneSfuSender(sender: RTCRtpSender, kind: StreamKind) {
     params.degradationPreference = 'balanced';
   } else {
     params.degradationPreference = 'maintain-resolution';
+    const s = track?.getSettings?.() ?? {};
+    const enc = params.encodings[0];
+    enc.scaleResolutionDownBy = computeScreenScale(
+      s.width ?? 0,
+      s.height ?? 0,
+      SFU_SCREEN_MAX_LONG_EDGE,
+    );
+    enc.maxFramerate = SFU_SCREEN_MAX_FRAMERATE;
   }
   await sender.setParameters(params);
 }

@@ -673,6 +673,13 @@ export class SfuManager {
       await existing.sender.replaceTrack(track);
       existing.streamId = streamId;
       existing.published = true;
+      // A re-share may come from a different display size, so re-derive the
+      // screen scale for the new track (#324). Best-effort, as below.
+      try {
+        await tuneSfuSender(existing.sender, kind, track);
+      } catch (err) {
+        console.warn('[sfu] sender tune failed', err);
+      }
       this.announcePublished();
       return;
     }
@@ -710,7 +717,7 @@ export class SfuManager {
     // bitrate ceilings already went in via sendEncodings above. Best-effort: a
     // setParameters failure must not fail the push and trip the mesh fallback.
     try {
-      await tuneSfuSender(tx.sender, kind);
+      await tuneSfuSender(tx.sender, kind, track);
     } catch (err) {
       console.warn('[sfu] sender tune failed', err);
     }

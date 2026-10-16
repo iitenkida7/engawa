@@ -73,9 +73,17 @@ class FakeRTCPeerConnection {
 // Fake local stream carrying one track of the requested kind. `suffix`
 // distinguishes two streams of the same kind (e.g. the before/after of a
 // device switch or a screen re-share) by giving them distinct ids.
-function makeStream(kind: 'mic' | 'cam' | 'screen', suffix = '') {
+function makeStream(
+  kind: 'mic' | 'cam' | 'screen',
+  suffix = '',
+  settings?: { width: number; height: number },
+) {
   const isAudio = kind === 'mic';
-  const track = { kind: isAudio ? 'audio' : 'video', id: `trk-${kind}${suffix}` };
+  const track = {
+    kind: isAudio ? 'audio' : 'video',
+    id: `trk-${kind}${suffix}`,
+    getSettings: () => settings ?? {},
+  };
   return {
     id: `stream-${kind}${suffix}`,
     getAudioTracks: () => (isAudio ? [track] : []),
@@ -221,6 +229,43 @@ describe('SfuManager sender tuning (issue #146)', () => {
     const params = createdPcs[0].lastSender!._params();
     expect(params.degradationPreference).toBe('balanced');
     expect(events.onFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe('SfuManager screen-share caps (issue #324)', () => {
+  it('caps a 5K share to a 1920px longest edge at 15fps', async () => {
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+    const published = waitPublish();
+    sfu.addLocalStream(makeStream('screen', '', { width: 5120, height: 2880 }), 'screen');
+    await published;
+    const params = createdPcs[0].lastSender!._params();
+    const enc = params.encodings[0] as { scaleResolutionDownBy?: number; maxFramerate?: number };
+    expect(enc.scaleResolutionDownBy).toBeCloseTo(5120 / 1920);
+    expect(enc.maxFramerate).toBe(15);
+    expect(params.degradationPreference).toBe('maintain-resolution');
+  });
+
+  it('re-derives the scale when a re-share reuses the transceiver', async () => {
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+    let published = waitPublish();
+    const screenA = makeStream('screen', '-a', { width: 5120, height: 2880 });
+    sfu.addLocalStream(screenA, 'screen');
+    await published;
+    published = waitPublish();
+    sfu.removeLocalStream(screenA);
+    await published;
+
+    // Re-share from an FHD display: no downscale needed any more.
+    published = waitPublish();
+    sfu.addLocalStream(makeStream('screen', '-b', { width: 1920, height: 1080 }), 'screen');
+    await published;
+    const enc = createdPcs[0].lastSender!._params().encodings[0] as {
+      scaleResolutionDownBy?: number;
+    };
+    expect(enc.scaleResolutionDownBy).toBe(1);
+    expect(createdPcs[0].transceiverCount).toBe(1);
   });
 });
 

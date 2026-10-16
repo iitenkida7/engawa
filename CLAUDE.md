@@ -135,7 +135,7 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
 - `rtc/cam-bitrate.ts` — mesh のピア数連動ビットレート throttle に加え、**SFU の simulcast
   レイヤ構成 `SFU_CAM_LAYERS`（カメラは意図的に軽め: f 500kbps/20fps・h 150kbps・q 80kbps #314）・
   受信タイルサイズ→レイヤ選択 `computePreferredRid`（640px 以上で f・320px 以上で h）**（純粋関数）。
-  画面共有は SFU でも単一の高画質レイヤ（3Mbps / 長辺 1920px）で絞らない。
+  画面共有は SFU でも単一レイヤ（2Mbps / 長辺 1920px / 15fps #324）で simulcast しない。
 - `rtc/sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=20, in-band FEC など）。
 - `media/media.ts` — マイク/カメラ/画面共有ストリーム管理。`media/recorder.ts` — ブラウザ内録画。
 - `core/proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、
