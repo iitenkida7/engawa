@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Camera Layer Lab</title>
+    <style>
+      :root {
+        --bg: #1c1a18;
+        --fg: #eee8df;
+        --mut: #9a9086;
+        --card: #26231f;
+        --line: #3a352f;
+        --acc: #f0a050;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.5 system-ui, sans-serif;
+        padding: 16px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 4px;
+      }
+      .lead,
+      .note {
+        color: var(--mut);
+        margin: 0 0 16px;
+        font-size: 13px;
+      }
+      .note {
+        margin-top: 16px;
+      }
+      .bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      button,
+      select,
+      input {
+        font: inherit;
+        color: inherit;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 10px;
+      }
+      #start {
+        background: var(--acc);
+        color: #1c1a18;
+        border-color: var(--acc);
+        cursor: pointer;
+        font-weight: 600;
+      }
+      #grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-items: flex-start;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .card h2 {
+        font-size: 14px;
+        margin: 0 0 6px;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .card h2 span {
+        color: var(--acc);
+      }
+      video {
+        display: block;
+        background: #000;
+        border-radius: 6px;
+        aspect-ratio: 16 / 9;
+        object-fit: cover;
+        max-width: 100%;
+      }
+      .stats {
+        font: 12px/1.4 ui-monospace, Menlo, monospace;
+        color: var(--mut);
+        margin-top: 6px;
+        white-space: pre;
+      }
+      .ctl {
+        display: grid;
+        grid-template-columns: auto 1fr 3em;
+        gap: 4px 8px;
+        align-items: center;
+        margin-top: 8px;
+        font-size: 12px;
+      }
+      .ctl input {
+        padding: 0;
+      }
+      .error {
+        color: #ff8a80;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🎥 カメラ画質ラボ（SFU simulcast レイヤ比較）</h1>
+    <p class="lead">
+      ブラウザ内のループバック接続で実際にエンコード → デコードし、各レイヤの見え方を確かめる。通信は外に出ない。
+    </p>
+    <div class="bar">
+      <button id="start">開始</button>
+      <label
+        >入力
+        <select id="src">
+          <option value="cam">カメラ</option>
+          <option value="pattern">テストパターン</option>
+        </select></label
+      >
+      <label
+        >コーデック
+        <select id="codec">
+          <option>VP8</option>
+          <option>VP9</option>
+          <option>H264</option>
+          <option>AV1</option>
+        </select></label
+      >
+      <label
+        >表示タイル幅
+        <select id="tile">
+          <option value="148">148px（会議室フィルムストリップ）</option>
+          <option value="240">240px</option>
+          <option value="320" selected>320px</option>
+          <option value="480">480px</option>
+          <option value="640">640px</option>
+          <option value="native">実寸（エンコード解像度）</option>
+        </select></label
+      >
+      <span id="err" class="error"></span>
+    </div>
+    <div id="grid"></div>
+    <p class="note" id="note"></p>
+    <script type="module" src="/src/ui/camera-lab.ts"></script>
+  </body>
+</html>

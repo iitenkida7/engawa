@@ -186,6 +186,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.ptt': { ja: '🎙 プッシュトーク(SPACEキー)', en: '🎙 Push-to-talk (Space key)' },
   'toolbar.closeDebug': { ja: '🐛 デバッグを閉じる', en: '🐛 Close debug' },
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
+  'toolbar.cameraLab': { ja: '🎥 カメラ画質ラボ', en: '🎥 Camera quality lab' },
 
   // -- virtual background presets & button ----------------------------------
   'vbg.office': { ja: '⬛ ダーク', en: '⬛ Dark' },
