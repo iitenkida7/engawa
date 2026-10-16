@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { resetIceCache } from '@/rtc/ice';
 import { SfuManager } from '@/rtc/sfu';
-import { SFU_API_TIMEOUT_MS } from '@/rtc/sfu-logic';
+import { SFU_API_TIMEOUT_MS, SFU_PULL_SLOW_RETRY_MS } from '@/rtc/sfu-logic';
 
 // A sender whose getParameters/setParameters round-trip so tuneSfuSender's
 // priority / degradationPreference writes can be observed (issue #146). Each
@@ -946,6 +946,88 @@ describe('SfuManager rejected pull is isolated to that peer (issue #250)', () =>
     await flush();
 
     expect(pulls()).toBe(4); // first try + 3 retries
+    expect(events.onFailed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SfuManager keeps a healthy transport when one peer stays rejected', () => {
+  // Hold every backoff timer so the test steps through retries explicitly
+  // (with a healthy transport they never run out).
+  let timeoutSpy: ReturnType<typeof spyOn>;
+  let pending: { fn: () => void; ms: number }[];
+  beforeEach(() => {
+    pending = [];
+    timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      if (ms) pending.push({ fn, ms });
+      else queueMicrotask(fn);
+      return 0;
+    }) as unknown as typeof setTimeout);
+  });
+  afterEach(() => timeoutSpy.mockRestore());
+
+  const flush = async () => {
+    for (let i = 0; i < 50; i++) await new Promise<void>((r) => queueMicrotask(r));
+  };
+  const fireNext = async () => {
+    pending.shift()!.fn();
+    await flush();
+  };
+
+  // tracks/new rejects every pull from the 'stale' session and accepts the rest.
+  function rejectStaleSession() {
+    let mids = 0;
+    fetchMock = mock(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/api/turn-credentials')) return jsonRes([]);
+      if (u.includes('/sessions/new')) return jsonRes({ sessionId: 'sess-1' });
+      if (u.includes('/tracks/new')) {
+        return jsonRes({
+          sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
+          tracks: requestedTracks(init).map((t) =>
+            t.sessionId === 'stale' ? { errorCode: 'not_found' } : { mid: String(mids++) },
+          ),
+        });
+      }
+      return jsonRes({});
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    return () =>
+      fetchMock.mock.calls
+        .filter((c) => String(c[0]).includes('/tracks/new'))
+        .filter((c) => requestedTracks(c[1] as RequestInit)[0]?.sessionId === 'stale').length;
+  }
+
+  it('retries the stale peer slowly instead of rebuilding while others play', async () => {
+    const stalePulls = rejectStaleSession();
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-ok', 'good', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+    createdPcs[createdPcs.length - 1]!.emitTrack('0', 'trk-ok'); // its media arrives
+    sfu.setPeerTracks('peer-stale', 'stale', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+
+    for (let i = 0; i < 5; i++) await fireNext();
+
+    expect(stalePulls()).toBe(6); // first try + 3 backoff retries + 2 slow retries
+    expect(pending[0]?.ms).toBe(SFU_PULL_SLOW_RETRY_MS);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('still takes the failure path when no other peer media is flowing', async () => {
+    const stalePulls = rejectStaleSession();
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-stale', 'stale', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+    for (let i = 0; i < 3; i++) await fireNext();
+
+    expect(stalePulls()).toBe(4);
     expect(events.onFailed).toHaveBeenCalledTimes(1);
   });
 });

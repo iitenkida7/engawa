@@ -100,12 +100,19 @@ export function isRetryableSfuHttp(status: number | 'network'): boolean {
 // not that our transport is broken. Failing the whole transport on it made one
 // peer's race rebuild everyone (each rebuild changes our session id, racing the
 // others' pulls in turn) until the group fell back to mesh. Returns the delay
-// before retry N (1-based): 1s, 2s, 4s; null once retries are exhausted.
+// before retry N (1-based): 1s, 2s, 4s; then null (escalate to the transport
+// failure path) — unless `transportHealthy`: media from another peer is flowing
+// over our transport, which proves our own session is fine and the rejection is
+// that one peer's stale entry. Rebuilding then only blacks out every healthy
+// tile and is rejected again, so keep retrying that peer slowly instead, until a
+// fresh directory from them (or their leaving) supersedes the retry.
 export const SFU_PULL_MAX_RETRIES = 3;
+export const SFU_PULL_SLOW_RETRY_MS = 10_000;
 
-export function sfuPullRetryDelayMs(retry: number): number | null {
-  if (retry < 1 || retry > SFU_PULL_MAX_RETRIES) return null;
-  return 1000 * 2 ** (retry - 1);
+export function sfuPullRetryDelayMs(retry: number, transportHealthy = false): number | null {
+  if (retry < 1) return null;
+  if (retry <= SFU_PULL_MAX_RETRIES) return 1000 * 2 ** (retry - 1);
+  return transportHealthy ? SFU_PULL_SLOW_RETRY_MS : null;
 }
 
 // Delay before the Nth consecutive SFU transport rebuild (issue #254). The
