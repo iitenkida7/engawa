@@ -45,6 +45,7 @@ import {
   computeSfuCamRid,
   isHeldSpeaking,
 } from '@/rtc/cam-bitrate';
+import { diagnoseConns, peerQualityRows } from '@/rtc/diag';
 import {
   applyNetTierToCam,
   applyNetTierToScreen,
@@ -56,7 +57,7 @@ import {
 } from '@/rtc/netquality';
 import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
 import { setPreferRedAudio } from '@/rtc/sdp';
-import { SfuManager } from '@/rtc/sfu';
+import { SFU_UPSTREAM_ID, SfuManager } from '@/rtc/sfu';
 import {
   localPublishRoute,
   partitionMembers,
@@ -871,7 +872,10 @@ export class App {
       return;
     }
     const q = summarizeConnQuality(conns);
-    logNet('quality', { method, ...q });
+    // Per-peer rows let the debug console's diagnosis report say *who* was bad
+    // over the last minutes, not just that the worst link was bad.
+    const diags = diagnoseConns(conns, (id) => this.players.get(id)?.name ?? '', SFU_UPSTREAM_ID);
+    logNet('quality', { method, ...q, peers: peerQualityRows(diags) });
 
     const prevTier = this.netTierState.tier;
     this.netTierState = updateTierState(this.netTierState, classifySample(q));
