@@ -179,22 +179,44 @@ export class ToolbarController {
   // The four media toggles, public so the keyboard shortcuts (issue #297) run
   // exactly what the buttons run — one path, no drift between mouse and key.
   async toggleMic() {
-    if (this.media.micOn) {
-      this.stopMic();
-    } else {
+    // Flip the icon the instant it's clicked: enableMic() awaits getUserMedia,
+    // which can take a beat (permission prompt, device spin-up), and the real
+    // refresh only fires on the media event afterwards. The optimistic toggle
+    // below is reconciled to the true state by refresh() at the end, so a
+    // failed/denied acquisition reverts the icon on its own.
+    const target = !this.media.micOn;
+    this.setMicVisual(target);
+    if (target) {
       await this.startMic();
+    } else {
+      this.stopMic();
     }
+    this.refresh();
     this.broadcastStatus();
   }
 
   async toggleCam() {
     this.onUserCamToggle();
-    if (this.media.camOn) {
-      this.stopCam();
-    } else {
+    const target = !this.media.camOn;
+    this.setCamVisual(target);
+    if (target) {
       await this.startCam();
+    } else {
+      this.stopCam();
     }
+    this.refresh();
     this.broadcastStatus();
+  }
+
+  // Paint the mic/cam button for a given on/off state without touching any
+  // device — used for the optimistic flip on click (reconciled by refresh()).
+  private setMicVisual(on: boolean) {
+    this.btnMic.classList.toggle('on', on);
+    this.btnMic.classList.toggle('off', !on);
+  }
+  private setCamVisual(on: boolean) {
+    this.btnCam.classList.toggle('on', on);
+    this.btnCam.classList.toggle('off', !on);
   }
 
   // Wire the icon-only layout-mode buttons (▦ グリッド / ▤ サイドバー). They live
@@ -232,10 +254,8 @@ export class ToolbarController {
 
   refresh() {
     // Mic/cam are icon-only toggles: green when on, red + strike when off.
-    this.btnMic.classList.toggle('on', this.media.micOn);
-    this.btnMic.classList.toggle('off', !this.media.micOn);
-    this.btnCam.classList.toggle('on', this.media.camOn);
-    this.btnCam.classList.toggle('off', !this.media.camOn);
+    this.setMicVisual(this.media.micOn);
+    this.setCamVisual(this.media.camOn);
     // Screen share goes blue (.active) while sharing; record goes red (.recording)
     // and swaps its dot for a stop square. Both are icon-only.
     this.btnScreen.classList.toggle('active', this.media.screenOn);
