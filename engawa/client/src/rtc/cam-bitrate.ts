@@ -64,6 +64,18 @@ export const SCREEN_FPS_LARGE = 10;
 export const SCREEN_LONG_EDGE_DEFAULT = 1920;
 export const SCREEN_LONG_EDGE_LARGE = 1280;
 
+// getDisplayMedia video constraints: capture no larger / faster than any send
+// path ever encodes (the small-group tier above is the ceiling for both mesh and
+// SFU). Capturing a Retina/5K display natively at up to 60fps and downscaling
+// every frame in the encoder cost CPU for pixels and frames nobody receives;
+// the browser scales at capture time far more cheaply. Both edges are capped at
+// the long-edge limit so the aspect ratio (portrait, ultrawide) is preserved.
+export const SCREEN_CAPTURE_CONSTRAINTS: MediaTrackConstraints = {
+  width: { max: SCREEN_LONG_EDGE_DEFAULT },
+  height: { max: SCREEN_LONG_EDGE_DEFAULT },
+  frameRate: { ideal: SCREEN_FPS_DEFAULT, max: SCREEN_FPS_DEFAULT },
+};
+
 // The full per-sender encoding ceiling for a screen-share track. Mirrors
 // CamEncoding, except the resolution is expressed as a longest-edge cap
 // (maxLongEdge) that webrtc.ts turns into scaleResolutionDownBy using the live

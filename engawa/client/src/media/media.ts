@@ -12,6 +12,7 @@ import {
   VBG_OFF,
   VirtualBackground,
 } from '@/media/vbg';
+import { SCREEN_CAPTURE_CONSTRAINTS } from '@/rtc/cam-bitrate';
 
 type MediaListener = () => void;
 
@@ -418,7 +419,7 @@ export class MediaManager {
     if (this.screenPending) return this.screenPending;
     this.screenPending = (async () => {
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: 30, max: 60 } },
+        video: SCREEN_CAPTURE_CONSTRAINTS,
         audio: false,
       });
       const track = stream.getVideoTracks()[0];
