@@ -171,6 +171,9 @@ export class SfuManager {
   // downlink). Existing video pulls are dropped on entry; on exit the App
   // re-feeds the cached directories to re-pull.
   private videoPullPaused = false;
+  // The simulcast layer new camera pulls start on (see initialSfuCamRid); the
+  // App sets it from the zone we stand in.
+  private initialCamRid = SFU_CAM_DEFAULT_RID;
 
   constructor(events: SfuEvents) {
     this.events = events;
@@ -335,6 +338,10 @@ export class SfuManager {
   // Pause / resume video pulling (issue #188). Pausing drops every non-mic
   // remote track immediately (freeing the downlink); resuming only clears the
   // flag — the App re-feeds the cached peer directories to re-pull video.
+  setInitialCamRid(rid: string) {
+    this.initialCamRid = rid;
+  }
+
   setVideoPullPaused(paused: boolean) {
     if (this.videoPullPaused === paused) return;
     this.videoPullPaused = paused;
@@ -765,6 +772,7 @@ export class SfuManager {
     if (todo.length === 0) return [];
     const pc = await this.ensurePc();
     const sid = await this.ensureSession();
+    const camRid = this.initialCamRid;
 
     const resp = await this.api<TracksResponse>(`/${sid}/tracks/new`, 'POST', {
       tracks: todo.map((i) => ({
@@ -773,7 +781,7 @@ export class SfuManager {
         trackName: i.trackName,
         // Only the camera is simulcast; let the SFU adapt its layer to our
         // downlink from the first frame (issue #269).
-        ...(i.kind === 'cam' ? { simulcast: sfuCamSimulcast(SFU_CAM_DEFAULT_RID) } : {}),
+        ...(i.kind === 'cam' ? { simulcast: sfuCamSimulcast(camRid) } : {}),
       })),
     });
     const reqErr = sfuErrorMessage(resp);
@@ -811,7 +819,7 @@ export class SfuManager {
         streamId: null,
         trackId: null,
         // What the pull above asked for, so re-requesting it is a no-op.
-        preferredRid: item.kind === 'cam' ? SFU_CAM_DEFAULT_RID : null,
+        preferredRid: item.kind === 'cam' ? camRid : null,
       });
       this.midToRemote.set(r.mid, key);
       accepted.push({ item, key, mid: r.mid });

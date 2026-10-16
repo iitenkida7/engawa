@@ -223,6 +223,16 @@ export const SFU_CAM_HALF_RID = 'h';
 // three rids must exist in SFU_CAM_LAYERS (asserted in the tests).
 export const SFU_CAM_QUARTER_RID = 'q';
 
+// Pure: the layer a new camera pull starts on, before the ~1s layer tick has
+// measured its tile. In a meeting room (up to ~20 people) the tiles are small,
+// so starting on full would pull every camera at 500kbps/540p at once on entry
+// and then black each tile out again while it steps down; starting on quarter
+// keeps entry light and only the few big tiles step up. Elsewhere (1-on-1s,
+// booths, hallway chats) tiles are big, so full avoids a blurry first second.
+export function initialSfuCamRid(inMeetingRoom: boolean): string {
+  return inMeetingRoom ? SFU_CAM_QUARTER_RID : SFU_CAM_DEFAULT_RID;
+}
+
 // Below this rendered tile width (CSS px) a receiver requests the half layer
 // instead of full, so small tiles don't waste downlink (issue #78). 640 keeps
 // the full 960-wide layer for a maximized window or a 2-3 person gallery on a

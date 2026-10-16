@@ -327,11 +327,15 @@ export const ROOM_FURNITURE: RoomFurniture[] = ROOMS.map((room) => {
   };
 });
 
-// Interior pixel rects of the meeting rooms (all-hands + meeting-N), for the
-// renderer to add a wall whiteboard and a filing cabinet.
-export const MEETING_ROOM_RECTS = ROOMS.filter(
-  (room) => room.id === 'all-hands' || room.id.startsWith('meeting'),
-).map((room) => ({
+// The meeting rooms proper (all-hands + meeting-N): the big rooms, as opposed
+// to 1-on-1 rooms, booths and cafés.
+export function isMeetingRoom(zoneId: string | null | undefined): boolean {
+  return !!zoneId && (zoneId === 'all-hands' || zoneId.startsWith('meeting'));
+}
+
+// Interior pixel rects of the meeting rooms, for the renderer to add a wall
+// whiteboard and a filing cabinet.
+export const MEETING_ROOM_RECTS = ROOMS.filter((room) => isMeetingRoom(room.id)).map((room) => ({
   x: room.c * TILE_SIZE + OFF_X,
   y: room.r * TILE_SIZE + OFF_Y,
   w: room.w * TILE_SIZE,

@@ -43,6 +43,7 @@ import {
   computeCamEncoding,
   computeScreenEncoding,
   computeSfuCamRid,
+  initialSfuCamRid,
   isHeldSpeaking,
 } from '@/rtc/cam-bitrate';
 import {
@@ -93,6 +94,7 @@ import {
   findAdjacentSpawn,
   findWalkableSpawn,
   isDeskSeat,
+  isMeetingRoom,
   isMeetingZone,
   zoneAt,
 } from '@/world/tilemap';
@@ -1564,6 +1566,8 @@ export class App {
     // zone (any room, booth or café — #287); a hallway bump keeps the small
     // floating tiles. No-ops when unchanged.
     this.view.setMeetingMode(this.myStatus !== 'away' && isMeetingZone(zoneId));
+    // Meeting rooms seat up to ~20: start new camera pulls on the light layer.
+    this.sfu.setInitialCamRid(initialSfuCamRid(isMeetingRoom(zoneId)));
 
     // Walking out of a zone cuts mic, camera and screen share (#306). The flag
     // `autoCamOff` is deliberately NOT set: that one belongs to the tier-3
