@@ -25,6 +25,7 @@ import {
   remoteKey,
   SFU_API_MAX_ATTEMPTS,
   SFU_API_TIMEOUT_MS,
+  SFU_STALE_STREAM_GRACE_MS,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
   sfuPullRetryDelayMs,
@@ -264,8 +265,17 @@ export class SfuManager {
       }
       const prevSession = this.peerSessions.get(userId);
       if (prevSession !== undefined && prevSession !== dir.sessionId) {
+        // The peer rebuilt their transport: everything we pulled from the old
+        // session is dead and gets re-pulled from the new one just below. Drop it
+        // WITHOUT tearing the tile down now — otherwise one flaky peer's repeated
+        // rebuilds blink their tile for everyone each time. `keepTile` keeps the
+        // frozen frame up; the re-pull replaces it in place (detachRemoteStream is
+        // streamId-matched), and any kind the peer didn't bring back is swept after
+        // a grace. Mirrors the self-rebuild keepTiles path (#254).
         for (const key of [...this.remoteTracks.keys()]) {
-          if (this.remoteTracks.get(key)!.userId === userId) await this.dropRemote(key);
+          if (this.remoteTracks.get(key)!.userId === userId) {
+            await this.dropRemote(key, { keepTile: true });
+          }
         }
       }
       this.peerSessions.set(userId, dir.sessionId);
@@ -784,6 +794,7 @@ export class SfuManager {
     // transceiver in the 'track' event, so we route ontrack by it.
     const results = matchPullResults(todo, resp.tracks);
     const rejected: PullItem[] = [];
+    const accepted: { item: PullItem; key: string; mid: string }[] = [];
     todo.forEach((item, idx) => {
       const r = results[idx];
       if ('error' in r) {
@@ -803,31 +814,59 @@ export class SfuManager {
         preferredRid: item.kind === 'cam' ? SFU_CAM_DEFAULT_RID : null,
       });
       this.midToRemote.set(r.mid, key);
+      accepted.push({ item, key, mid: r.mid });
     });
 
     if (resp.requiresImmediateRenegotiation && resp.sessionDescription) {
-      await pc.setRemoteDescription(resp.sessionDescription);
-      const answer = await pc.createAnswer();
-      // Same low-latency Opus tuning the mesh applies to every answer. Video
-      // codec order is left to the browser: the camera publish is simulcast, for
-      // which VP8 is the reliable path — forcing VP9/SVC can break the rids.
-      await pc.setLocalDescription({
-        type: 'answer',
-        sdp: transformSdpForLowLatency(answer.sdp ?? ''),
-      });
-      const reneg = await this.api<TracksResponse>(`/${sid}/renegotiate`, 'PUT', {
-        sessionDescription: { type: 'answer', sdp: pc.localDescription?.sdp ?? '' },
-      });
-      const renegErr = sfuErrorMessage(reneg);
-      if (renegErr) throw new Error(`sfu renegotiate: ${renegErr}`);
+      try {
+        await pc.setRemoteDescription(resp.sessionDescription);
+        const answer = await pc.createAnswer();
+        // Same low-latency Opus tuning the mesh applies to every answer. Video
+        // codec order is left to the browser: the camera publish is simulcast, for
+        // which VP8 is the reliable path — forcing VP9/SVC can break the rids.
+        await pc.setLocalDescription({
+          type: 'answer',
+          sdp: transformSdpForLowLatency(answer.sdp ?? ''),
+        });
+        const reneg = await this.api<TracksResponse>(`/${sid}/renegotiate`, 'PUT', {
+          sessionDescription: { type: 'answer', sdp: pc.localDescription?.sdp ?? '' },
+        });
+        const renegErr = sfuErrorMessage(reneg);
+        if (renegErr) throw new Error(`sfu renegotiate: ${renegErr}`);
+      } catch (err) {
+        // A failed pull renegotiation is (like a rejected pull, #250) the pulled
+        // peers' problem, not our transport's: the SFU offer we tried to answer
+        // described tracks that may have just died under a peer's own rebuild.
+        // Throwing here reached the op-chain fallback and rebuilt OUR whole
+        // session — which changes our session id and forces every other member to
+        // re-pull us, so one flaky peer's rebuild rippled a reconnect across the
+        // group (the #250 cascade the per-track path already avoids, but the
+        // renegotiation step did not). Instead roll the batch's freshly-registered
+        // tracks back and hand them to the per-peer retry, escalating to the
+        // transport failure path only once those retries are exhausted.
+        if (err instanceof StaleSfuOpError) throw err;
+        this.assertCurrentOp(); // closeAll ran mid-await: bail as a stale op
+        logNet('sfu-pull-reneg-failed', {
+          err: err instanceof Error ? err.message : String(err),
+        });
+        console.warn('[sfu] pull renegotiation failed; retrying per peer', err);
+        for (const a of accepted) {
+          this.remoteTracks.delete(a.key);
+          this.midToRemote.delete(a.mid);
+          rejected.push(a.item);
+        }
+      }
     }
     return rejected;
   }
 
-  private async dropRemote(key: string) {
+  private async dropRemote(key: string, opts: { keepTile?: boolean } = {}) {
     const entry = this.remoteTracks.get(key);
     if (!entry) return;
-    if (entry.streamId) this.events.onRemoteStreamRemoved(entry.userId, entry.streamId);
+    if (entry.streamId) {
+      if (opts.keepTile) this.deferStreamRemoval(key, entry.userId, entry.streamId);
+      else this.events.onRemoteStreamRemoved(entry.userId, entry.streamId);
+    }
     if (entry.mid) this.midToRemote.delete(entry.mid);
     this.remoteTracks.delete(key);
     // Tell Cloudflare to stop delivering this pulled track and free the local
@@ -858,6 +897,23 @@ export class SfuManager {
         }
       }
     }
+  }
+
+  // Keep a dropped peer track's frozen tile up and remove it only if the re-pull
+  // (from the peer's new session) hasn't brought that (peer, kind) back within the
+  // grace. A re-pull stores a fresh entry under the same key, so `has(key)` means
+  // the tile was replaced in place — leave it. Only a key that stayed empty (the
+  // peer dropped that kind while rebuilding) gets the deferred removal. Used by
+  // dropRemote({ keepTile }) on a peer session change so one flaky peer's rebuild
+  // doesn't blink their tile across the whole group (companion to the #254
+  // self-rebuild keepTiles sweep).
+  private deferStreamRemoval(key: string, userId: string, streamId: string) {
+    const gen = this.generation;
+    setTimeout(() => {
+      if (this.closed || gen !== this.generation) return;
+      if (this.remoteTracks.has(key)) return; // re-pulled in place → keep the tile
+      this.events.onRemoteStreamRemoved(userId, streamId);
+    }, SFU_STALE_STREAM_GRACE_MS);
   }
 
   private announcePublished() {
