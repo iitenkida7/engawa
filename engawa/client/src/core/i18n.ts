@@ -184,10 +184,7 @@ const STR: Record<string, Record<Lang, string>> = {
     en: 'Could not open the faces window automatically',
   },
   'toolbar.facePipOpen': { ja: '小窓を開く', en: 'Open it' },
-  'toolbar.ptt': {
-    ja: '🎙 プッシュトゥトーク（スペースを押している間だけ話せる）',
-    en: '🎙 Push-to-talk (speak only while holding Space)',
-  },
+  'toolbar.ptt': { ja: '🎙 プッシュトーク(SPACEキー)', en: '🎙 Push-to-talk (Space key)' },
   'toolbar.closeDebug': { ja: '🐛 デバッグを閉じる', en: '🐛 Close debug' },
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
 
@@ -271,6 +268,7 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: '相手の回線が不安定なためカメラ停止中',
     en: 'Camera paused: their connection is unstable',
   },
+  'media.peerPtt': { ja: 'プッシュトーク使用中', en: 'Using push-to-talk' },
   'media.unfocus': { ja: '拡大を解除（Esc）', en: 'Exit maximize (Esc)' },
   'media.filmstripMore': { ja: '他の参加者も表示', en: 'Show more participants' },
   'media.filmstripLess': { ja: '表示を減らす', en: 'Show fewer' },
@@ -294,7 +292,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'keys.zoom': { ja: '自分にズーム ⇄ 全体表示', en: 'Zoom to me ⇄ fit map' },
   'keys.mic': { ja: 'マイク ON/OFF', en: 'Mic on/off' },
   'keys.ptt': {
-    ja: '押している間だけ話す（プッシュトゥトーク有効時）',
+    ja: '押している間だけ話す（プッシュトーク有効時）',
     en: 'Hold to talk (when push-to-talk is on)',
   },
   'keys.cam': { ja: 'カメラ ON/OFF', en: 'Camera on/off' },

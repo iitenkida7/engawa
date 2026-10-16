@@ -27,6 +27,8 @@ export class PlayerState implements Player {
   isVideoOn = false;
   // Their camera is off because their network ladder paused it (#312).
   camAutoOff = false;
+  // They have push-to-talk on (a live mic that only sends while a key is held).
+  ptt = false;
   isSharingScreen = false;
 
   // Modular avatar configuration (#141) and the facing it last moved in. The

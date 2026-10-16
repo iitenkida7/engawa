@@ -442,6 +442,8 @@ export class ToolbarController {
     this.pttEnabled = !this.pttEnabled;
     this.persistPttSetting();
     this.applyPtt();
+    // Peers show a badge on our tile while push-to-talk is on.
+    this.broadcastStatus();
   }
 
   private loadPttSetting() {
@@ -693,7 +695,8 @@ export class ToolbarController {
   // The mic caret menu: microphone device list, then a separated noise-
   // suppression toggle (issue #180). Noise suppression lives here since it's a
   // mic setting — its standalone toolbar button was removed. The toggle shows a
-  // ✓ when on; the setting is persisted and defaults to on.
+  // ✓ when on; the setting is persisted and defaults to on. Push-to-talk sits
+  // right after it for the same reason.
   private async populateMicMenu(menu: HTMLDivElement) {
     await this.populateDeviceMenu(
       menu,
@@ -717,6 +720,18 @@ export class ToolbarController {
       void this.toggleNoise();
     });
     menu.appendChild(item);
+
+    // Push-to-talk: while ticked, a live mic only transmits while Space is held.
+    const ptt = document.createElement('button');
+    ptt.className = 'device-item';
+    if (this.pttEnabled) ptt.classList.add('selected');
+    ptt.textContent = (this.pttEnabled ? '✓ ' : '') + t('toolbar.ptt');
+    ptt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.classList.add('hidden');
+      this.togglePtt();
+    });
+    menu.appendChild(ptt);
   }
 
   // The cam caret menu: camera device list, then a labelled virtual-background
@@ -793,8 +808,6 @@ export class ToolbarController {
     addItem((this.isAudioOnly() ? '✓ ' : '') + t('toolbar.audioOnly'), () =>
       this.onToggleAudioOnly(),
     );
-    // Push-to-talk: while ticked, a live mic only transmits while Space is held.
-    addItem((this.pttEnabled ? '✓ ' : '') + t('toolbar.ptt'), () => this.togglePtt());
     addItem(this.isDebugOpen() ? t('toolbar.closeDebug') : t('toolbar.openDebug'), () =>
       this.toggleDebug(),
     );
