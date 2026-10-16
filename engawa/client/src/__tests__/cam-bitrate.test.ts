@@ -366,6 +366,12 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
     expect(rids).toContain(SFU_CAM_QUARTER_RID);
   });
 
+  it('runs every camera layer at the 15fps quiet rate', () => {
+    for (const layer of SFU_CAM_LAYERS) {
+      expect(layer.maxFramerate).toBe(CAM_FPS_QUIET);
+    }
+  });
+
   it('steps bitrate down with each smaller layer', () => {
     for (let i = 1; i < SFU_CAM_LAYERS.length; i++) {
       expect(SFU_CAM_LAYERS[i].maxBitrate).toBeLessThan(SFU_CAM_LAYERS[i - 1].maxBitrate);
