@@ -476,6 +476,81 @@
         stroke-linejoin: round;
       }
 
+      /* Whiteboard overlay (ui/whiteboard.ts). Sits below the toolbar (z 1000)
+         and leaves room for it at the bottom. */
+      #whiteboard {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(96vw, calc((100vh - 160px) * 16 / 9));
+        z-index: 500;
+        background: rgba(20, 23, 30, 0.96);
+        border-radius: 12px;
+        padding: 8px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+      }
+      #whiteboard .wb-bar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+      #whiteboard .wb-btn {
+        background: #2a2f3a;
+        color: #e8eaf0;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      #whiteboard .wb-btn.active {
+        border-color: #46d17f;
+      }
+      #whiteboard .wb-colors {
+        display: flex;
+        gap: 6px;
+        margin-left: 6px;
+      }
+      #whiteboard .wb-swatch {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        cursor: pointer;
+        padding: 0;
+      }
+      #whiteboard .wb-swatch.active {
+        border-color: #fff;
+      }
+      #whiteboard .wb-spacer {
+        flex: 1;
+      }
+      #whiteboard .wb-stage {
+        position: relative;
+        line-height: 0;
+      }
+      #whiteboard canvas {
+        width: 100%;
+        height: auto;
+        aspect-ratio: 16 / 9;
+        background: #fff;
+        border-radius: 6px;
+        touch-action: none;
+      }
+      #whiteboard .wb-text-input {
+        position: absolute;
+        margin: 0;
+        padding: 0;
+        border: 1px dashed #888;
+        background: transparent;
+        outline: none;
+        font-family: sans-serif;
+        min-width: 80px;
+        line-height: 1.2;
+      }
+
       #toolbar button.icon-toggle.on {
         color: #46d17f;
       }
@@ -1910,6 +1985,14 @@
             <rect x="3" y="4" width="18" height="13" rx="2" />
             <path d="M12 14V8" />
             <path d="M9 11l3-3 3 3" />
+            <line x1="8" y1="20" x2="16" y2="20" />
+          </svg>
+        </button>
+        <button id="btn-whiteboard" class="icon-toggle" data-i18n-tip="toolbar.whiteboardTitle" data-tip="ホワイトボード" aria-label="ホワイトボード">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="13" rx="2" />
+            <path d="M7 13l3-4 3 3 3-5" />
+            <line x1="12" y1="17" x2="12" y2="20" />
             <line x1="8" y1="20" x2="16" y2="20" />
           </svg>
         </button>

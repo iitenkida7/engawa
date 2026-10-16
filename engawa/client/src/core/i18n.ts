@@ -152,6 +152,16 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: 'カメラが切断されたため、オフにしました',
     en: 'Your camera was disconnected, so it was turned off',
   },
+  'toolbar.whiteboardTitle': { ja: 'ホワイトボード', en: 'Whiteboard' },
+  'toolbar.whiteboardBusy': {
+    ja: '画面共有を止めてからホワイトボードを開いてください',
+    en: 'Stop the screen share before opening the whiteboard',
+  },
+  'wb.pen': { ja: '✏️ ペン', en: '✏️ Pen' },
+  'wb.marker': { ja: '🖍 マーカー', en: '🖍 Marker' },
+  'wb.text': { ja: '🔤 文字', en: '🔤 Text' },
+  'wb.clear': { ja: '全消去', en: 'Clear' },
+  'wb.export': { ja: '📥 PNG', en: '📥 PNG' },
   'toolbar.errScreen': {
     ja: '画面共有を開始できません: {msg}',
     en: "Couldn't start screen sharing: {msg}",
