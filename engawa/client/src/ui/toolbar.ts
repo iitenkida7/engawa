@@ -23,6 +23,7 @@ import {
 import { FACE_PIP_STORAGE_KEY, parseFacePipSetting } from '@/ui/face-pip';
 import type { Toasts } from '@/ui/notify';
 import type { LayoutMode } from '@/ui/panels';
+import { PTT_STORAGE_KEY, parsePttSetting } from '@/ui/ptt';
 import type { RemoteMediaView } from '@/ui/remote-media';
 import type { PlayerState } from '@/world/player';
 
@@ -77,6 +78,11 @@ export class ToolbarController {
   private facePipEnabled = true;
   private facePipHintShown = false;
   private facePipToastDismiss: (() => void) | null = null;
+
+  // Push-to-talk (experimental): persisted per-feature toggle (default on, gated
+  // by experimentalEnabled) and whether the PTT key is currently held.
+  private pttEnabled = true;
+  private pttHeld = false;
 
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
@@ -157,6 +163,7 @@ export class ToolbarController {
     this.loadNoiseSetting();
     this.loadExperimentalSetting();
     this.loadFacePipSetting();
+    this.loadPttSetting();
     this.setup();
     this.refresh();
   }
@@ -234,6 +241,8 @@ export class ToolbarController {
     // Mic/cam are icon-only toggles: green when on, red + strike when off.
     this.btnMic.classList.toggle('on', this.media.micOn);
     this.btnMic.classList.toggle('off', !this.media.micOn);
+    // Push-to-talk: a live mic that is waiting for the key reads as dimmed.
+    this.btnMic.classList.toggle('ptt-idle', this.media.micOn && !this.media.micTransmitting);
     this.btnCam.classList.toggle('on', this.media.camOn);
     this.btnCam.classList.toggle('off', !this.media.camOn);
     // Screen share goes blue (.active) while sharing; record goes red (.recording)
@@ -388,6 +397,52 @@ export class ToolbarController {
     this.experimentalEnabled = !this.experimentalEnabled;
     this.persistExperimentalSetting();
     this.applyFacePipNow();
+    this.applyPtt();
+  }
+
+  // Push-to-talk is in effect only when experiments are on AND its own toggle is on.
+  pttActive(): boolean {
+    return isExperimentActive(this.experimentalEnabled, this.pttEnabled);
+  }
+
+  // Key down/up of the PTT key (called by the App's keyboard handlers). Does
+  // nothing unless PTT is active; the mic must already be on — PTT gates a live
+  // mic rather than turning it on.
+  setPttHeld(held: boolean) {
+    this.pttHeld = held;
+    this.applyPtt();
+  }
+
+  // Sync the media gate with the settings and key state: open when PTT is off
+  // (normal mic) or the key is held, closed otherwise.
+  private applyPtt() {
+    this.media.setMicTransmit(!this.pttActive() || this.pttHeld);
+    this.refresh();
+  }
+
+  private togglePtt() {
+    this.pttEnabled = !this.pttEnabled;
+    this.persistPttSetting();
+    this.applyPtt();
+  }
+
+  private loadPttSetting() {
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(PTT_STORAGE_KEY);
+    } catch {
+      /* ignore private-mode storage errors */
+    }
+    this.pttEnabled = parsePttSetting(stored);
+    this.applyPtt();
+  }
+
+  private persistPttSetting() {
+    try {
+      localStorage.setItem(PTT_STORAGE_KEY, this.pttEnabled ? '1' : '0');
+    } catch {
+      /* ignore private-mode storage errors */
+    }
   }
 
   private applyFacePipNow() {
@@ -740,6 +795,7 @@ export class ToolbarController {
       this.toggleExperimental(),
     );
     if (this.experimentalEnabled) {
+      addItem(`　${this.pttEnabled ? '✓ ' : ''}${t('toolbar.ptt')}`, () => this.togglePtt());
       // Face window while sharing (#318): Document PiP, Chrome / Edge desktop only.
       if (this.view.facePipSupported()) {
         addItem(`　${this.facePipEnabled ? '✓ ' : ''}${t('toolbar.facePip')}`, () =>

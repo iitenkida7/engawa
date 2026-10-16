@@ -109,7 +109,26 @@ export class MediaManager {
     return () => this.listeners.delete(fn);
   }
   private emit() {
+    // Re-apply the push-to-talk gate: every path that (re)creates micStream
+    // ends here, so a fresh capture never leaks audio while the gate is closed.
+    this.applyMicGate();
     for (const fn of this.listeners) fn();
+  }
+
+  // Push-to-talk gate. false keeps the mic capture alive but silent (tracks
+  // disabled — no getUserMedia round trip when the key is pressed); true is the
+  // normal always-transmitting state.
+  private micTransmit = true;
+  setMicTransmit(on: boolean) {
+    this.micTransmit = on;
+    this.applyMicGate();
+  }
+  get micTransmitting() {
+    return this.micTransmit;
+  }
+  private applyMicGate() {
+    if (!this.micStream) return;
+    for (const track of this.micStream.getAudioTracks()) track.enabled = this.micTransmit;
   }
 
   // Register the handler for an externally-ended screen share (see above).

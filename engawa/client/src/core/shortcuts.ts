@@ -81,6 +81,7 @@ export const SHORTCUT_HELP: { keys: string[]; labelKey: string }[] = [
   { keys: ['H', 'J', 'K', 'L'], labelKey: 'keys.move' },
   { keys: ['W', 'A', 'S', 'D'], labelKey: 'keys.moveWasd' },
   { keys: ['M'], labelKey: 'keys.mic' },
+  { keys: ['V (hold)'], labelKey: 'keys.ptt' },
   { keys: ['C'], labelKey: 'keys.cam' },
   { keys: ['V'], labelKey: 'keys.meetingView' },
   { keys: ['Z'], labelKey: 'keys.zoom' },

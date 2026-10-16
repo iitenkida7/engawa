@@ -73,6 +73,7 @@ import { DesktopNotifier, isBackgrounded, knockAlertLevel } from '@/ui/desktop-n
 import { KeyHelpPanel } from '@/ui/keyhelp';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
+import { isPttKey, PTT_KEY } from '@/ui/ptt';
 import { ReactionToasts } from '@/ui/reaction-toast';
 import { RecIndicator } from '@/ui/rec-indicator';
 import { RemoteMediaView } from '@/ui/remote-media';
@@ -296,6 +297,10 @@ export class App {
   private onCanvasClick = (e: MouseEvent) => this.handleCanvasClick(e);
   private avatarMenuEl = document.getElementById('avatar-menu') as HTMLDivElement;
   private onShortcutKey = (e: KeyboardEvent) => this.handleShortcutKey(e);
+  private onPttKeyUp = (e: KeyboardEvent) => {
+    if (e.key.toLowerCase() === PTT_KEY) this.toolbar.setPttHeld(false);
+  };
+  private onPttRelease = () => this.toolbar.setPttHeld(false);
   private onBeforeUnload = (e: BeforeUnloadEvent) => {
     // Closing the tab mid-recording: download what has been recorded so far
     // right now, synchronously (#315). This is the only unload-time hook from
@@ -546,6 +551,11 @@ export class App {
     // toggles (issue #297, re-laid-out in #302). Ignored while typing in a
     // field, and key-repeat is dropped so holding a key doesn't spam.
     window.addEventListener('keydown', this.onShortcutKey);
+    // Push-to-talk release. Unconditional (like world/input.ts): the key may be
+    // let go after focus moved into a text field, and a missed keyup would leave
+    // the mic open. Losing window focus releases it too.
+    window.addEventListener('keyup', this.onPttKeyUp);
+    window.addEventListener('blur', this.onPttRelease);
   }
 
   // Run a keyboard shortcut. The key → action table lives in core/shortcuts.ts
@@ -561,6 +571,12 @@ export class App {
       t instanceof HTMLElement &&
       (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
     ) {
+      return;
+    }
+    // Push-to-talk owns its key while active: hold = transmit (the keyup / blur
+    // handlers release it). Auto-repeat keydowns are swallowed too.
+    if (this.toolbar.pttActive() && isPttKey(e)) {
+      if (!e.repeat) this.toolbar.setPttHeld(true);
       return;
     }
     const hit = resolveShortcut(e);
@@ -835,6 +851,8 @@ export class App {
     this.canvas.removeEventListener('dblclick', this.onCanvasDblClick);
     this.canvas.removeEventListener('click', this.onCanvasClick);
     window.removeEventListener('keydown', this.onShortcutKey);
+    window.removeEventListener('keyup', this.onPttKeyUp);
+    window.removeEventListener('blur', this.onPttRelease);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('focus', this.onWindowFocus);
