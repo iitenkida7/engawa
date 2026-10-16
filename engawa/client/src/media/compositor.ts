@@ -9,7 +9,7 @@
 // dragging panels or resizing the window never changes the recording. The
 // content (video/audio/avatars) is still live; only the framing is fixed.
 // It reuses the already-rendered floor canvas (no second world render) and
-// throttles its own draw loop to 30fps so it never starves the main game loop.
+// throttles its own draw loop to 15fps so it never starves the main game loop.
 
 import { FrameDriver } from '@/media/frame-driver';
 
@@ -122,7 +122,11 @@ function hasFrame(v: HTMLVideoElement | null): v is HTMLVideoElement {
   return !!v && v.readyState >= 2 && v.videoWidth > 0;
 }
 
-const FPS = 30;
+// 15fps: every source it composites already arrives at ≤15fps (SFU camera
+// layers, screen share), so 30fps only redrew and re-encoded duplicate frames
+// of a 2560×1440 canvas — roughly doubling the recording's CPU cost for nothing
+// but smoother avatar walking on the map inset.
+const FPS = 15;
 const FRAME_INTERVAL_MS = 1000 / FPS;
 const FLOOR_BG = '#1a1d24';
 
@@ -143,7 +147,7 @@ export class SceneCompositor {
   // rAF while visible, timer while hidden — so a backgrounded tab doesn't freeze
   // the recording's video track (the audio keeps recording, so a frozen composite
   // is worse than none).
-  private driver = new FrameDriver((now) => this.loop(now));
+  private driver = new FrameDriver((now) => this.loop(now), FRAME_INTERVAL_MS);
   private running = false;
   private lastDrawMs = 0;
   private width = REC_WIDTH;
@@ -159,7 +163,7 @@ export class SceneCompositor {
     return this.running;
   }
 
-  // Begin compositing and return a 30fps capture stream of the scene. The
+  // Begin compositing and return a 15fps capture stream of the scene. The
   // output is a fixed 16:9 frame for the whole recording, independent of the
   // window size, so resizing never distorts the recording's aspect ratio.
   start(): MediaStream {
@@ -192,7 +196,7 @@ export class SceneCompositor {
 
   private loop = (now: number) => {
     if (!this.running) return;
-    // Throttle to 30fps so the composite never doubles the main loop's cost.
+    // Throttle to FPS so the composite never doubles the main loop's cost.
     if (now - this.lastDrawMs < FRAME_INTERVAL_MS) return;
     this.lastDrawMs = now;
     this.drawFrame();
