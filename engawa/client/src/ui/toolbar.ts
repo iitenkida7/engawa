@@ -25,6 +25,7 @@ import type { Toasts } from '@/ui/notify';
 import type { LayoutMode } from '@/ui/panels';
 import { PTT_STORAGE_KEY, parsePttSetting } from '@/ui/ptt';
 import type { RemoteMediaView } from '@/ui/remote-media';
+import { Whiteboard } from '@/ui/whiteboard';
 import type { PlayerState } from '@/world/player';
 
 // The slice of the media transport the toolbar drives: publishing and
@@ -83,6 +84,10 @@ export class ToolbarController {
   private pttEnabled = false;
   private pttHeld = false;
 
+  // Whiteboard shared like a screen share (rides the 'screen' slot).
+  private whiteboard = new Whiteboard(() => this.stopScreenShare());
+  private btnWhiteboard: HTMLButtonElement;
+
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
@@ -135,6 +140,7 @@ export class ToolbarController {
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
+    this.btnWhiteboard = document.getElementById('btn-whiteboard') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
     this.btnReaction = document.getElementById('btn-reaction') as HTMLButtonElement;
     this.reactionMenu = document.getElementById('reaction-menu') as HTMLDivElement;
@@ -174,6 +180,7 @@ export class ToolbarController {
       if (file) void this.onBgFile(file);
     });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
+    this.btnWhiteboard.addEventListener('click', () => this.toggleWhiteboard());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
     this.setupLayoutControls();
   }
@@ -262,7 +269,8 @@ export class ToolbarController {
     this.setCamVisual(this.media.camOn);
     // Screen share goes blue (.active) while sharing; record goes red (.recording)
     // and swaps its dot for a stop square. Both are icon-only.
-    this.btnScreen.classList.toggle('active', this.media.screenOn);
+    this.btnScreen.classList.toggle('active', this.media.screenOn && !this.whiteboard.isOpen);
+    this.btnWhiteboard.classList.toggle('active', this.whiteboard.isOpen);
     this.btnRec.classList.toggle('recording', this.recorder.recording);
   }
 
@@ -347,6 +355,25 @@ export class ToolbarController {
         this.toasts.error(t('toolbar.errScreen', { msg: (e as Error).message }));
       }
     }
+  }
+
+  // Whiteboard: the same flow as a screen share (one 'screen' slot, same peers
+  // and stage on the viewer side), but the stream is the board's canvas. The
+  // presenter draws in the board overlay instead of seeing a local stage.
+  toggleWhiteboard() {
+    if (this.whiteboard.isOpen) {
+      this.stopScreenShare();
+      return;
+    }
+    if (this.media.screenOn) {
+      this.toasts.error(t('toolbar.whiteboardBusy'));
+      return;
+    }
+    const stream = this.whiteboard.open();
+    this.media.attachScreen(stream);
+    this.rtc.addLocalStream(stream, 'screen');
+    const me = this.getMe();
+    if (me) me.isSharingScreen = true;
   }
 
   // Face window (issue #318): after the share starts, mirror the remote tiles
@@ -516,6 +543,7 @@ export class ToolbarController {
   // just-stopped stream. The generic media `emit()` already refreshed the
   // button label, so this only does the cross-subsystem cleanup.
   private afterScreenStopped(old: MediaStream) {
+    this.whiteboard.close();
     this.rtc.removeLocalStream(old);
     const me = this.getMe();
     if (me) me.isSharingScreen = false;
