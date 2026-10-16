@@ -423,6 +423,13 @@ export class MediaManager {
     });
     return this.screenPending;
   }
+  // Publish an app-made video stream (the whiteboard canvas) through the screen
+  // slot, so it takes the same path as a real screen share: peers, stage and
+  // stop teardown. The caller must check screenOn first.
+  attachScreen(stream: MediaStream) {
+    this.screenStream = stream;
+    this.emit();
+  }
   disableScreen() {
     const old = this.screenStream;
     if (old) {
