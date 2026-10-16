@@ -65,8 +65,6 @@ export class ToolbarController {
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
   private onUserCamToggle: () => void;
-  private isAudioOnly: () => boolean;
-  private onToggleAudioOnly: () => void;
 
   // Experimental features master switch (#323): persisted, off by default. The
   // per-feature toggles below only take effect while this is on.
@@ -114,10 +112,6 @@ export class ToolbarController {
     // Fired on a MANUAL camera-button toggle (not setCamEnabled), so the App's
     // bandwidth automation (#185) can stand down when the user takes over.
     onUserCamToggle: () => void;
-    // Audio-only mode (#188): current state + toggle, both owned by the App
-    // (it also pauses SFU video pulls). Rendered as a ✓ item in the "⋯" menu.
-    isAudioOnly: () => boolean;
-    onToggleAudioOnly: () => void;
   }) {
     this.media = opts.media;
     this.rtc = opts.rtc;
@@ -134,8 +128,6 @@ export class ToolbarController {
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
     this.onUserCamToggle = opts.onUserCamToggle;
-    this.isAudioOnly = opts.isAudioOnly;
-    this.onToggleAudioOnly = opts.onToggleAudioOnly;
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
@@ -328,8 +320,8 @@ export class ToolbarController {
     this.broadcastStatus();
   }
 
-  // Programmatic screen-share stop for audio-only mode (#188): same teardown as
-  // the button / the OS "stop sharing" bar.
+  // Programmatic screen-share stop: same teardown as the button / the OS
+  // "stop sharing" bar.
   stopScreenShare() {
     if (!this.media.screenOn) return;
     const old = this.media.disableScreen();
@@ -788,11 +780,6 @@ export class ToolbarController {
     };
     addItem(t('toolbar.editAvatar'), () => this.onOpenAvatar());
     addItem(t('toolbar.shortcuts'), () => this.onOpenShortcuts());
-    // Audio-only mode (#188): stops sending cam/screen and (on SFU) receiving
-    // video, for rock-bottom bandwidth. ✓ reflects the current state.
-    addItem((this.isAudioOnly() ? '✓ ' : '') + t('toolbar.audioOnly'), () =>
-      this.onToggleAudioOnly(),
-    );
     // Push-to-talk: while ticked, a live mic only transmits while Space is held.
     addItem((this.pttEnabled ? '✓ ' : '') + t('toolbar.ptt'), () => this.togglePtt());
     addItem(this.isDebugOpen() ? t('toolbar.closeDebug') : t('toolbar.openDebug'), () =>

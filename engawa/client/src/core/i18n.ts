@@ -166,7 +166,6 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.bgCustom': { ja: '🖼 カスタム画像', en: '🖼 Custom image' },
   'toolbar.bgUpload': { ja: '📁 画像をアップロード…', en: '📁 Upload image…' },
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
-  'toolbar.audioOnly': { ja: '🔉 音声のみモード', en: '🔉 Audio-only mode' },
   'toolbar.shortcuts': { ja: '⌨ キーバインド一覧', en: '⌨ Keyboard shortcuts' },
   // "⋯" menu: experimental features master switch (#323). Opt-in, off by
   // default; the per-feature toggles appear beneath it once ticked.
@@ -349,14 +348,6 @@ const STR: Record<string, Record<Lang, string>> = {
   'app.netRecvVideoRestore': {
     ja: '回線が回復したため、映像の受信を再開しました。',
     en: 'Network recovered — incoming video resumed.',
-  },
-  'app.audioOnlyOn': {
-    ja: '音声のみモードをオンにしました(カメラ・画面共有を停止)。',
-    en: 'Audio-only mode on (camera and screen share stopped).',
-  },
-  'app.audioOnlyOff': {
-    ja: '音声のみモードをオフにしました。',
-    en: 'Audio-only mode off.',
   },
   'app.zoneLeftMediaOff': {
     ja: '部屋を出たので、マイク・カメラ・画面共有をオフにしました。',

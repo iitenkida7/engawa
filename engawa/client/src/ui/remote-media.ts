@@ -184,7 +184,7 @@ export class RemoteMediaView {
   // True while the SFU transport is being rebuilt (issue #254): remote panels
   // stay up, frozen, under a "reconnecting" overlay until the re-pull lands.
   private reconnecting = false;
-  // True while we are not pulling remote video (manual audio-only or tier 3,
+  // True while we are not pulling remote video (tier 3 on a starved downlink,
   // #188): video-less tiles say so instead of looking like a camera-off (#312).
   private recvVideoPaused = false;
 
