@@ -1424,7 +1424,7 @@
         position: fixed;
         top: 16px;
         right: 16px;
-        width: 360px;
+        width: 420px;
         max-width: calc(100vw - 32px);
         max-height: calc(100vh - 120px);
         display: flex;
@@ -1451,6 +1451,10 @@
         flex-shrink: 0;
         cursor: grab;
         user-select: none;
+      }
+
+      #debug-header > span {
+        flex: 1;
       }
 
       #debug-header button {
@@ -1508,6 +1512,63 @@
         margin-bottom: 8px;
         background: rgba(0, 0, 0, 0.2);
       }
+
+      /* Verdict colors share the tile quality-dot palette (q0 good … q3 bad). */
+      .debug-conn.q0 { border-left: 3px solid #34c759; }
+      .debug-conn.q1 { border-left: 3px solid #f5c542; }
+      .debug-conn.q2 { border-left: 3px solid #f08c3c; }
+      .debug-conn.q3 { border-left: 3px solid #e5484d; }
+
+      .debug-verdict {
+        flex-shrink: 0;
+        padding: 1px 7px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #0e1014;
+      }
+      .debug-verdict.q0 { background: #34c759; }
+      .debug-verdict.q1 { background: #f5c542; }
+      .debug-verdict.q2 { background: #f08c3c; }
+      .debug-verdict.q3 { background: #e5484d; color: #fff; }
+
+      .debug-blame {
+        border-radius: 8px;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+        line-height: 1.5;
+        color: #e6e8ee;
+        background: rgba(52, 199, 89, 0.12);
+      }
+      .debug-blame.q1 { background: rgba(245, 197, 66, 0.14); }
+      .debug-blame.q2 { background: rgba(240, 140, 60, 0.16); }
+      .debug-blame.q3 { background: rgba(229, 72, 77, 0.18); }
+
+      .debug-reasons {
+        color: #f5a35c;
+        line-height: 1.5;
+      }
+
+      .debug-notes {
+        color: #8a91a0;
+        line-height: 1.5;
+      }
+
+      .debug-history {
+        display: flex;
+        gap: 1px;
+        height: 8px;
+        margin: 4px 0;
+      }
+      .debug-history i {
+        flex: 1;
+        border-radius: 1px;
+        background: #2a2f3a;
+      }
+      .debug-history i.q0 { background: #34c759; }
+      .debug-history i.q1 { background: #f5c542; }
+      .debug-history i.q2 { background: #f08c3c; }
+      .debug-history i.q3 { background: #e5484d; }
 
       .debug-conn-head {
         display: flex;

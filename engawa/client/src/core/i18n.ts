@@ -242,6 +242,15 @@ const STR: Record<string, Record<Lang, string>> = {
   },
   'debug.noStreams': { ja: 'ストリームなし', en: 'No streams' },
   'debug.copyLog': { ja: '接続ログをコピー', en: 'Copy connection log' },
+  'debug.copyReport': {
+    ja: '診断レポートをコピー（Claude に貼って分析）',
+    en: 'Copy diagnosis report (paste into Claude to analyze)',
+  },
+  'debug.avail': { ja: '上り推定', en: 'Uplink est.' },
+  'debug.history': {
+    ja: '直近60秒の品質（緑=良好 / 黄=やや注意 / 橙=不良 / 赤=深刻）',
+    en: 'Last 60s quality (green=good / yellow=fair / orange=poor / red=bad)',
+  },
 
   // -- remote media ---------------------------------------------------------
   'media.yourScreen': { ja: 'あなたの画面', en: 'Your screen' },
