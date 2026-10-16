@@ -172,14 +172,17 @@ export type SimulcastLayer = {
 // Camera simulcast ladder for SFU mode: f = full capture (540p), h = half
 // (270p), q = quarter (135p). The full layer is only pulled for a big tile (a
 // maximized window, a 2-3 person gallery), so it is capped well under the mesh
-// "speaking" ceiling: 500kbps at 20fps still reads as a sharp 540p face, at
-// half the uplink (#314). The smaller layers feed galleries, filmstrips and
-// unwatched tiles, where 15fps (the mesh "quiet" rate) is plenty and halves
-// decode cost (issue #269). Per sender the whole ladder is ~0.73Mbps up.
+// "speaking" ceiling: 500kbps still reads as a sharp 540p face, at half the
+// uplink (#314). Every layer runs at 15fps (the mesh "quiet" rate): a talking
+// head looks smooth enough there, and on the full layer the saved frames buy a
+// sharper picture per frame plus lighter encode/decode (issue #269). The quarter
+// layer only feeds tiles under 320px and unwatched video, so 50kbps keeps its
+// 135p picture intact while halving the downlink of a crowded meeting room's
+// filmstrip. Per sender the whole ladder is ~0.7Mbps up.
 export const SFU_CAM_FULL_BITRATE = 500_000;
-export const SFU_CAM_FULL_FPS = 20;
+export const SFU_CAM_FULL_FPS = 15;
 export const SFU_CAM_HALF_BITRATE = 150_000;
-export const SFU_CAM_QUARTER_BITRATE = 80_000;
+export const SFU_CAM_QUARTER_BITRATE = 50_000;
 export const SFU_CAM_LAYERS: SimulcastLayer[] = [
   {
     rid: 'f',
