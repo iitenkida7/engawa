@@ -184,6 +184,10 @@ const STR: Record<string, Record<Lang, string>> = {
     en: 'Could not open the faces window automatically',
   },
   'toolbar.facePipOpen': { ja: '小窓を開く', en: 'Open it' },
+  'toolbar.ptt': {
+    ja: '🎙 プッシュトゥトーク（スペースを押している間だけ話せる）',
+    en: '🎙 Push-to-talk (speak only while holding Space)',
+  },
   'toolbar.closeDebug': { ja: '🐛 デバッグを閉じる', en: '🐛 Close debug' },
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
 
@@ -289,6 +293,10 @@ const STR: Record<string, Record<Lang, string>> = {
   'keys.meetingView': { ja: '会議表示 ⇄ マップ表示', en: 'Meeting view ⇄ map' },
   'keys.zoom': { ja: '自分にズーム ⇄ 全体表示', en: 'Zoom to me ⇄ fit map' },
   'keys.mic': { ja: 'マイク ON/OFF', en: 'Mic on/off' },
+  'keys.ptt': {
+    ja: '押している間だけ話す（プッシュトゥトーク有効時）',
+    en: 'Hold to talk (when push-to-talk is on)',
+  },
   'keys.cam': { ja: 'カメラ ON/OFF', en: 'Camera on/off' },
   'keys.screen': { ja: '画面共有 ON/OFF', en: 'Screen share on/off' },
   'keys.record': { ja: '録画 開始/停止', en: 'Start/stop recording' },
