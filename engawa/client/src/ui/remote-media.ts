@@ -81,7 +81,7 @@ type Screenshare = {
   video: HTMLVideoElement;
   label: HTMLSpanElement;
   streamId: string;
-  // Removes the stage's dblclick handler when the stage is destroyed (it
+  // Removes the stage's click handler when the stage is destroyed (it
   // captures `this`/userId, so it must be detached explicitly rather than
   // relying on the element being GC'd).
   cleanup: () => void;
@@ -817,7 +817,7 @@ export class RemoteMediaView {
     this.reflowLayout();
   }
 
-  // Makes a non-main share the featured (main) one by double-click: re-designate
+  // Makes a non-main share the featured (main) one by click: re-designate
   // the main and let reflowLayout give it the large area. Positions aren't
   // swapped — the auto-arrange handles placement (issue #175).
   private promoteScreenshare(userId: string) {
@@ -834,7 +834,7 @@ export class RemoteMediaView {
 
   // Builds a screenshare stage panel (free aspect, letterboxed video). `isMain`
   // gets the "main" accent + the large area; position/size come from
-  // reflowLayout. Double-click re-designates which share is main.
+  // reflowLayout. Clicking a non-main share makes it the main one.
   private createScreenshareStage(userId: string, isMain: boolean): Screenshare {
     const container = document.createElement('div');
     container.className = isMain ? 'panel screenshare-stage main' : 'panel screenshare-stage';
@@ -862,16 +862,15 @@ export class RemoteMediaView {
     body.appendChild(video);
 
     this.stageLayerEl.appendChild(container);
-    // Double-click anywhere on the stage makes it the featured (main) share —
-    // except on the maximize button, where double-clicking is a natural reflex
-    // (it toggles focus on then off, so nothing seems to happen) and would
-    // otherwise silently swap which share is featured.
-    const onDblClick = (e: Event) => {
+    // A single click anywhere on the stage makes it the featured (main) share
+    // (a double-click was too hidden) — except on the maximize button, which
+    // has its own job and must not also swap which share is featured.
+    const onClick = (e: Event) => {
       if ((e.target as HTMLElement | null)?.closest?.('.panel-focus-btn')) return;
       this.promoteScreenshare(userId);
     };
-    container.addEventListener('dblclick', onDblClick);
-    const cleanup = () => container.removeEventListener('dblclick', onDblClick);
+    container.addEventListener('click', onClick);
+    const cleanup = () => container.removeEventListener('click', onClick);
     return { container, video, label, streamId: '', cleanup };
   }
 

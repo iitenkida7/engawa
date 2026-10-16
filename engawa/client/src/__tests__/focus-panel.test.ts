@@ -186,16 +186,22 @@ describe('maximizing a media window', () => {
     expect(visible()).toHaveLength(4);
   });
 
-  it('does not let a double-click on ⤢ re-designate the main share', () => {
+  it('does not let a click on ⤢ re-designate the main share', () => {
     view.showScreenshare('d', new MediaStream());
     const btn = focusBtn('screen:d');
-    // Double-clicking the button toggles focus on then off — it must not also
-    // reach the stage's dblclick handler and silently swap the featured share.
+    // The button toggles focus — it must not also reach the stage's click
+    // handler and silently swap the featured share.
     click(btn);
     click(btn);
-    btn.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     expect(panelOf('screen:c').classList.contains('main')).toBe(true);
     expect(panelOf('screen:d').classList.contains('main')).toBe(false);
+  });
+
+  it('makes a non-main share the main one on a single click', () => {
+    view.showScreenshare('d', new MediaStream());
+    click(panelOf('screen:d'));
+    expect(panelOf('screen:d').classList.contains('main')).toBe(true);
+    expect(panelOf('screen:c').classList.contains('main')).toBe(false);
   });
 
   it('leaves the maximized view when a new share arrives', () => {
