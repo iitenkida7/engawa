@@ -136,7 +136,8 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   レイヤ構成 `SFU_CAM_LAYERS`（カメラは意図的に軽め: 全レイヤ 15fps で f 500kbps・h 150kbps・q 50kbps #314）・
   受信タイルサイズ→レイヤ選択 `computePreferredRid`（640px 以上で f・320px 以上で h）・
   受信開始時のレイヤ `initialSfuCamRid`（会議室=all-hands/meeting-N は q から、他は f から）**（純粋関数）。
-  画面共有は SFU でも単一レイヤ（2Mbps / 長辺 1920px / 15fps #324）で simulcast しない。
+  画面共有は SFU でも単一レイヤ（2Mbps / 長辺 1920px / 15fps #324）で simulcast しない。取り込み（`getDisplayMedia`）自体も
+  `SCREEN_CAPTURE_CONSTRAINTS` で長辺 1920px・15fps に抑え、高解像度ディスプレイの無駄な取り込み・縮小を避ける。
 - `rtc/sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=20, in-band FEC など）。
 - `media/media.ts` — マイク/カメラ/画面共有ストリーム管理。`media/recorder.ts` — ブラウザ内録画。
 - `core/proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、

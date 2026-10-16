@@ -17,6 +17,7 @@ import {
   isHeldSpeaking,
   SCREEN_BITRATE_HIGH,
   SCREEN_BITRATE_THROTTLED,
+  SCREEN_CAPTURE_CONSTRAINTS,
   SCREEN_FPS_DEFAULT,
   SCREEN_FPS_LARGE,
   SCREEN_LARGE_MIN_PEERS,
@@ -386,5 +387,28 @@ describe('initialSfuCamRid', () => {
 
   it('starts on the full layer everywhere else', () => {
     expect(initialSfuCamRid(false)).toBe(SFU_CAM_DEFAULT_RID);
+  });
+});
+
+describe('SCREEN_CAPTURE_CONSTRAINTS', () => {
+  const c = SCREEN_CAPTURE_CONSTRAINTS as {
+    width: { max: number };
+    height: { max: number };
+    frameRate: { max: number };
+  };
+
+  it('caps both edges at the long-edge limit so any aspect ratio fits', () => {
+    expect(c.width.max).toBe(SCREEN_LONG_EDGE_DEFAULT);
+    expect(c.height.max).toBe(SCREEN_LONG_EDGE_DEFAULT);
+  });
+
+  it('never captures less than any send tier encodes', () => {
+    for (const peers of [1, 3, 8, 20]) {
+      const enc = computeScreenEncoding(peers);
+      expect(c.frameRate.max).toBeGreaterThanOrEqual(enc.maxFramerate);
+      expect(c.width.max).toBeGreaterThanOrEqual(enc.maxLongEdge);
+    }
+    expect(c.frameRate.max).toBeGreaterThanOrEqual(SFU_SCREEN_MAX_FRAMERATE);
+    expect(c.width.max).toBeGreaterThanOrEqual(SFU_SCREEN_MAX_LONG_EDGE);
   });
 });
