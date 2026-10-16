@@ -8,6 +8,7 @@ import {
   floorStyleAt,
   isDeskSeat,
   islandFloorStyle,
+  isMeetingRoom,
   isMeetingZone,
   isSolid,
   LOUNGE_TABLE_RECTS,
@@ -351,5 +352,16 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
   it('returns null outside the map bounds', () => {
     expect(zoneAt(-10, -10)).toBeNull();
     expect(zoneAt(MAP_COLS * TILE_SIZE + 10, 0)).toBeNull();
+  });
+});
+
+describe('isMeetingRoom', () => {
+  it('is true for the all-hands and meeting-N rooms only', () => {
+    expect(isMeetingRoom('all-hands')).toBe(true);
+    expect(isMeetingRoom('meeting-1')).toBe(true);
+    expect(isMeetingRoom('1on1-1')).toBe(false);
+    expect(isMeetingRoom('booth-1')).toBe(false);
+    expect(isMeetingRoom('cafe-left')).toBe(false);
+    expect(isMeetingRoom(null)).toBe(false);
   });
 });

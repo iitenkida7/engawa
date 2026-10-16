@@ -13,6 +13,7 @@ import {
   computeScreenEncoding,
   computeScreenScale,
   computeSfuCamRid,
+  initialSfuCamRid,
   isHeldSpeaking,
   SCREEN_BITRATE_HIGH,
   SCREEN_BITRATE_THROTTLED,
@@ -369,5 +370,15 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
     for (let i = 1; i < SFU_CAM_LAYERS.length; i++) {
       expect(SFU_CAM_LAYERS[i].maxBitrate).toBeLessThan(SFU_CAM_LAYERS[i - 1].maxBitrate);
     }
+  });
+});
+
+describe('initialSfuCamRid', () => {
+  it('starts camera pulls on the quarter layer in a meeting room', () => {
+    expect(initialSfuCamRid(true)).toBe(SFU_CAM_QUARTER_RID);
+  });
+
+  it('starts on the full layer everywhere else', () => {
+    expect(initialSfuCamRid(false)).toBe(SFU_CAM_DEFAULT_RID);
   });
 });
