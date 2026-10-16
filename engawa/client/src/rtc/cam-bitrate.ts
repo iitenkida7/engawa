@@ -204,10 +204,11 @@ export const SFU_CAM_LAYERS: SimulcastLayer[] = [
 // SFU screen share stays a single high-quality layer: screen content is text-
 // heavy so resolution matters more than per-receiver adaptation, and the SFU
 // encodes only the sender's one upstream (no mesh ×N cost). Issue #78 leaves
-// screen out of the layer split on purpose. Pinned to the mesh small-group
-// ceiling so SFU screen quality never drops below it (the issue #77 floor); the
-// SFU encodes it once, so there is no mesh ×N reason to go lower.
-export const SFU_SCREEN_MAX_BITRATE = SCREEN_BITRATE_HIGH;
+// screen out of the layer split on purpose. Set between the mesh throttled and
+// small-group ceilings (#324): a mostly static FHD share sits far below either,
+// so this only trims the peaks while scrolling / switching slides, which recover
+// to full sharpness once the picture settles.
+export const SFU_SCREEN_MAX_BITRATE = 2_000_000;
 // The SFU share also takes the mesh small-group resolution/framerate caps
 // (#324): without them a 4K/5K display was encoded at native size, costing the
 // sharer and every receiver encode/decode CPU for text that FHD keeps legible.

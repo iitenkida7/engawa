@@ -346,8 +346,10 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
     expect(full?.maxFramerate).toBeLessThan(CAM_FPS_SPEAKING);
   });
 
-  it('leaves the screen share ceiling untouched (#314: cameras only)', () => {
-    expect(SFU_SCREEN_MAX_BITRATE).toBe(SCREEN_BITRATE_HIGH);
+  it('keeps the screen share ceiling between the mesh throttled and high tiers (#324)', () => {
+    expect(SFU_SCREEN_MAX_BITRATE).toBe(2_000_000);
+    expect(SFU_SCREEN_MAX_BITRATE).toBeGreaterThan(SCREEN_BITRATE_THROTTLED);
+    expect(SFU_SCREEN_MAX_BITRATE).toBeLessThan(SCREEN_BITRATE_HIGH);
   });
 
   it('caps the SFU screen share like the mesh small group (#324)', () => {
