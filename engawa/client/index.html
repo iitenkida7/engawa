@@ -1041,6 +1041,44 @@
         background: rgba(230, 232, 238, 0.75);
       }
 
+      /* Share / pinned-window seam drag handle: the horizontal twin of the
+         filmstrip seam, between the share (top) and the clicked tile (bottom). */
+      #meeting-split-resizer {
+        position: fixed;
+        z-index: 7;
+        height: 10px;
+        transform: translateY(-50%);
+        cursor: row-resize;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #meeting-split-resizer::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 4px;
+        height: 2px;
+        border-radius: 1px;
+        background: rgba(230, 232, 238, 0);
+        transition: background 0.12s ease;
+      }
+      #meeting-split-resizer:hover::after,
+      #meeting-split-resizer.dragging::after {
+        background: rgba(230, 232, 238, 0.75);
+      }
+      /* Filmstrip tiles pin under the share on click; the pinned one unpins. */
+      #app.meeting .panel.meeting-pinnable,
+      #app.meeting .panel.meeting-pinned {
+        cursor: pointer;
+      }
+      /* A pinned camera gets a big, oddly shaped pane: letterbox it rather than
+         cropping faces off. */
+      #app.meeting .panel.meeting-pinned .panel-body video {
+        object-fit: contain;
+      }
+
       /* Minimize/restore the immersive meeting — top-left, toolbar chrome. */
       #meeting-minimize {
         position: fixed;
