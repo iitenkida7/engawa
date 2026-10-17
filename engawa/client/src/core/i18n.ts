@@ -167,6 +167,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.bgUpload': { ja: '📁 画像をアップロード…', en: '📁 Upload image…' },
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
   'toolbar.shortcuts': { ja: '⌨ キーバインド一覧', en: '⌨ Keyboard shortcuts' },
+  'toolbar.testNotify': { ja: '🔔 通知をテスト', en: '🔔 Test notification' },
   // "⋯" menu: experimental features master switch (#323). Opt-in, off by
   // default; the per-feature toggles appear beneath it once ticked.
   'toolbar.experimental': { ja: '🧪 実験的機能を使う', en: '🧪 Use experimental features' },
@@ -256,8 +257,8 @@ const STR: Record<string, Record<Lang, string>> = {
     en: 'Set "Notifications" to "Allow" (or Site settings → Notifications → Allow)',
   },
   'notify.help.browser3': {
-    ja: 'ページを再読み込みして、もう一度デスクトップ通知を ON にする',
-    en: 'Reload the page and turn desktop notifications on again',
+    ja: 'ページを再読み込みして、⋯ メニューの「通知をテスト」で確認',
+    en: 'Reload the page and check again with ⋯ → Test notification',
   },
   'notify.help.osTitle': {
     ja: '🖥 OS の通知設定を確認してください',

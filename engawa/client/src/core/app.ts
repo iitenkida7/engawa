@@ -136,7 +136,7 @@ export class App {
   private reactionToasts = new ReactionToasts();
   private roster = new RosterPanel({ getPlayers: () => this.players });
   private keyHelp = new KeyHelpPanel();
-  private notifyHelp = new NotifyHelpPanel(() => this.testDesktopNotify());
+  private notifyHelp = new NotifyHelpPanel(() => void this.testDesktopNotify());
   private sounds = new SoundManager();
   private desktopNotifier = new DesktopNotifier();
   private knocks: KnockController;
@@ -475,6 +475,7 @@ export class App {
       // peers (see onOutfitApplied).
       onOpenAvatar: () => this.editor.open({ onApply: (o) => this.onOutfitApplied(o) }),
       onOpenShortcuts: () => this.keyHelp.toggle(),
+      onTestNotify: () => void this.testDesktopNotify(),
       // The 🐛 debug console lives in the toolbar's "⋯" menu (issue #113). These
       // resolve lazily on click, so referencing this.debug (built below) is fine.
       toggleDebug: () => this.debug.toggle(),
@@ -1819,19 +1820,21 @@ export class App {
     });
   }
 
-  // Status-menu toggle for desktop notifications (#140). Turning it on checks
-  // both gates: a browser denial is detected directly; the OS gate can't be
-  // observed, so a test notification goes out and the user tells us if it came.
+  // Status-menu toggle for desktop notifications (#140). A browser denial gets
+  // the site-settings steps; the OS gate is checked from ⋯ → test notification.
   private async toggleDesktopNotify() {
     const result = await this.desktopNotifier.toggle();
     if (result === 'unsupported') this.toasts.error(t('notify.unsupported'));
     else if (result === 'denied') this.notifyHelp.show('browser');
-    else if (result === 'sent') this.askTestArrived();
   }
 
-  private testDesktopNotify() {
-    if (this.desktopNotifier.sendTest()) this.askTestArrived();
-    else this.toasts.error(t('notify.unsupported'));
+  // ⋯ → test notification. The browser gate is detectable; the OS gate isn't,
+  // so after sending we ask the user whether it arrived.
+  private async testDesktopNotify() {
+    const result = await this.desktopNotifier.test();
+    if (result === 'unsupported') this.toasts.error(t('notify.unsupported'));
+    else if (result === 'denied') this.notifyHelp.show('browser');
+    else if (result === 'sent') this.askTestArrived();
   }
 
   private askTestArrived() {

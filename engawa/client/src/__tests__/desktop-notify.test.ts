@@ -139,19 +139,18 @@ describe('DesktopNotifier', () => {
     expect(n.isEnabled()).toBe(true);
   });
 
-  it('turning on asks for permission, then sends a test notification', async () => {
+  it('turning on asks for permission without sending anything', async () => {
     const calls = stubNotification('default', 'granted');
     localStorage.setItem('engawa-desktop-notify', '0');
-    expect(await new DesktopNotifier().toggle()).toBe('sent');
+    expect(await new DesktopNotifier().toggle()).toBe('on');
     expect(calls.requests).toBe(1);
-    expect(calls.shown).toBe(1);
+    expect(calls.shown).toBe(0);
     expect(stored()).toBe('1');
   });
 
   it('reports the browser gate when permission is denied', async () => {
-    const calls = stubNotification('default', 'denied');
+    stubNotification('default', 'denied');
     expect(await new DesktopNotifier().toggle()).toBe('denied');
-    expect(calls.shown).toBe(0);
     expect(stored()).toBe('0');
   });
 
@@ -161,24 +160,35 @@ describe('DesktopNotifier', () => {
     expect(calls.requests).toBe(0);
   });
 
-  it('reports unsupported when the browser refuses page notifications', async () => {
-    stubNotification('granted', 'granted', true);
-    localStorage.setItem('engawa-desktop-notify', '0');
-    expect(await new DesktopNotifier().toggle()).toBe('unsupported');
-    expect(stored()).toBe('0');
-  });
-
   it('reports unsupported without the Notification API', async () => {
     const n = new DesktopNotifier();
     expect(n.permission()).toBe('unsupported');
     expect(await n.toggle()).toBe('unsupported');
+    expect(await n.test()).toBe('unsupported');
   });
 
-  it('turning off needs no test', async () => {
-    const calls = stubNotification('granted');
+  it('turning off is just a switch', async () => {
+    stubNotification('granted');
     expect(await new DesktopNotifier().toggle()).toBe('off');
-    expect(calls.shown).toBe(0);
     expect(stored()).toBe('0');
+  });
+
+  it('test sends a notification once permission is granted', async () => {
+    const calls = stubNotification('default', 'granted');
+    expect(await new DesktopNotifier().test()).toBe('sent');
+    expect(calls.requests).toBe(1);
+    expect(calls.shown).toBe(1);
+  });
+
+  it('test reports the browser gate when denied', async () => {
+    const calls = stubNotification('denied');
+    expect(await new DesktopNotifier().test()).toBe('denied');
+    expect(calls.shown).toBe(0);
+  });
+
+  it('test reports unsupported when the browser refuses page notifications', async () => {
+    stubNotification('granted', 'granted', true);
+    expect(await new DesktopNotifier().test()).toBe('unsupported');
   });
 });
 

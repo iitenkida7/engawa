@@ -11,7 +11,9 @@ import type { PlayerStatus } from '@/core/types';
 
 export type AlertLevel = 'none' | 'badge' | 'desktop';
 export type NotifyPermission = 'default' | 'granted' | 'denied' | 'unsupported';
-export type ToggleResult = 'off' | 'unsupported' | 'denied' | 'sent';
+// 'dismissed': the permission prompt was closed without answering.
+export type ToggleResult = 'on' | 'off' | 'dismissed' | 'unsupported' | 'denied';
+export type TestResult = 'sent' | 'dismissed' | 'unsupported' | 'denied';
 export type HostOs = 'mac' | 'windows' | 'other';
 
 const STORAGE_KEY = 'engawa-desktop-notify';
@@ -87,39 +89,32 @@ export class DesktopNotifier {
 
   // Called once per join (#321 follow-up). We no longer prompt here: unless the
   // browser permission is already granted, the toggle is switched OFF, so the
-  // only way back ON is the status-menu toggle — which runs a test notification
-  // and walks the user through whichever gate (browser or OS) is closed.
+  // only way back ON is the status-menu toggle.
   syncOnJoin() {
     if (this.permission() !== 'granted') this.save(false);
   }
 
   // Flip the toggle. Turning it on asks for permission the first time (only
-  // ever from this user gesture, never unprompted) and then fires a test
-  // notification. 'sent' only means the browser accepted it: whether the OS
-  // actually displayed it can't be observed from the page, so the caller asks.
+  // ever from this user gesture, never unprompted).
   async toggle(): Promise<ToggleResult> {
     if (this.isEnabled()) {
       this.save(false);
       return 'off';
     }
-    let perm = this.permission();
-    if (perm === 'unsupported') return 'unsupported';
-    if (perm === 'default') perm = await Notification.requestPermission();
-    if (perm !== 'granted') {
-      this.save(false);
-      return 'denied';
-    }
-    if (!this.sendTest()) {
-      this.save(false);
-      return 'unsupported';
-    }
-    this.save(true);
-    return 'sent';
+    const perm = await this.requestIfUndecided();
+    this.save(perm === 'granted');
+    if (perm === 'default') return 'dismissed';
+    return perm === 'granted' ? 'on' : perm;
   }
 
-  // Fire the test notification. False when the browser refuses page-level
-  // notifications outright (e.g. Android Chrome only allows SW notifications).
-  sendTest(): boolean {
+  // "Test notification" in the ⋯ menu: checks the browser gate (asking while
+  // undecided) and fires a test notification. 'sent' only means the browser
+  // accepted it: whether the OS displayed it can't be observed from the page,
+  // so the caller asks the user.
+  async test(): Promise<TestResult> {
+    const perm = await this.requestIfUndecided();
+    if (perm === 'default') return 'dismissed';
+    if (perm !== 'granted') return perm;
     try {
       const n = new Notification(t('notify.testTitle'), {
         body: t('notify.testBody'),
@@ -130,10 +125,16 @@ export class DesktopNotifier {
         window.focus();
         n.close();
       };
-      return true;
+      return 'sent';
     } catch {
-      return false;
+      // Some platforms (e.g. Android Chrome) only allow SW notifications.
+      return 'unsupported';
     }
+  }
+
+  private async requestIfUndecided(): Promise<NotifyPermission> {
+    const perm = this.permission();
+    return perm === 'default' ? await Notification.requestPermission() : perm;
   }
 
   // A knock arrived. `level` comes from knockAlertLevel().
