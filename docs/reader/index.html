@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SFU と同時配信の読本 — engawa</title>
+<meta name="description" content="メッシュの限界から SFU、simulcast・帯域推定・損失対策・音声とノイズキャンセル・画面共有・失敗の分離までを、公開ソースと engawa の実装を突き合わせて整理した読み物。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="SFU と同時配信の読本">
+<meta property="og:description" content="メッシュから SFU へ、そして同時配信の技術。公開ソースと engawa の実装を突き合わせて整理した読み物。">
+<meta property="og:image" content="https://iitenkida7.github.io/engawa/assets/veranda.jpg">
+<link rel="icon" type="image/png" href="../assets/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+JP:wght@400;500;700&family=M+PLUS+1:wght@700;800&display=swap">
+<style>
+/* Layout: a reading column with a sticky chapter rail on wide screens; diagrams drawn as signal paths */
+:root {
+  --bg: #edf1f4;
+  --surface: #ffffff;
+  --ink: #15212c;
+  --muted: #586776;
+  --line: #c9d3dc;
+  --accent: #0b737b;
+  --accent-soft: #dcefef;
+  --warm: #b8591a;
+  --warm-soft: #f6e6d9;
+  --code-bg: #e3e9ee;
+  --f-display: "M PLUS 1", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --f-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f161d; --surface: #16202a; --ink: #e2e9ef; --muted: #93a3b1; --line: #2b3a47;
+    --accent: #45c1c8; --accent-soft: #143238; --warm: #f0a062; --warm-soft: #3a2616; --code-bg: #1d2a35;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f161d; --surface: #16202a; --ink: #e2e9ef; --muted: #93a3b1; --line: #2b3a47;
+  --accent: #45c1c8; --accent-soft: #143238; --warm: #f0a062; --warm-soft: #3a2616; --code-bg: #1d2a35;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+.topbar { max-width: 1120px; margin: 0 auto; padding-block: 18px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; }
+.topbar a { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: var(--muted); }
+.topbar a:hover { color: var(--ink); }
+.topbar img { width: 22px; height: 22px; border-radius: 5px; }
+.site-foot { max-width: 1120px; margin: 0 auto; padding-block: 24px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 16px; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--f-body); font-size: 16px; line-height: 1.85;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 64px;
+}
+a { color: var(--accent); text-underline-offset: 3px; }
+a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, .mono { font-family: var(--f-mono); font-size: .88em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+
+.hero { max-width: 1120px; margin: 0 auto; padding-block: 56px 40px; border-bottom: 1px solid var(--line); }
+.hero .eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+.hero h1 { font-family: var(--f-display); font-weight: 800; font-size: clamp(34px, 6vw, 60px); line-height: 1.2; margin: 12px 0 18px; text-wrap: balance; letter-spacing: .01em; }
+.hero h1 .path { color: var(--accent); }
+.hero p.lead { max-width: 40em; font-size: 17px; color: var(--muted); margin: 0; }
+.signal { display: block; width: 100%; max-width: 100%; height: 56px; margin-top: 28px; }
+
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; padding-top: 40px; }
+@media (max-width: 900px) { .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; } .rail { display: none; } }
+.rail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; font-size: 13px; }
+.rail ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.rail a { display: grid; grid-template-columns: 28px 1fr; text-decoration: none; color: var(--muted); padding: 5px 8px; border-radius: 4px; line-height: 1.5; }
+.rail a:hover { color: var(--ink); background: var(--surface); }
+.rail a .n { font-family: var(--f-mono); color: var(--accent); }
+
+article { min-width: 0; max-width: 46em; }
+section { padding-block: 8px 40px; border-bottom: 1px solid var(--line); margin-bottom: 40px; }
+section:last-child { border-bottom: 0; }
+.ch { font-family: var(--f-mono); font-size: 12px; letter-spacing: .14em; color: var(--accent); text-transform: uppercase; }
+h2 { font-family: var(--f-display); font-weight: 800; font-size: clamp(24px, 3.4vw, 32px); line-height: 1.35; margin: 6px 0 18px; text-wrap: balance; }
+h3 { font-family: var(--f-display); font-weight: 700; font-size: 19px; margin: 32px 0 8px; text-wrap: balance; }
+p { margin: 0 0 1em; }
+ul, ol.body { padding-left: 1.3em; margin: 0 0 1em; }
+li { margin-bottom: .35em; }
+.cite { font-family: var(--f-mono); font-size: 11px; color: var(--muted); vertical-align: super; text-decoration: none; margin-left: 1px; }
+.cite:hover { color: var(--accent); }
+
+.takeaway { background: var(--accent-soft); border-radius: 6px; padding: 14px 18px; margin: 20px 0; }
+.takeaway b { color: var(--accent); }
+.engawa { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 14px 18px; margin: 20px 0; font-size: 15px; }
+.engawa .tag { font-family: var(--f-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--warm); display: block; margin-bottom: 4px; }
+.note { font-size: 13px; color: var(--muted); }
+
+.tbl { overflow-x: auto; margin: 18px 0 22px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.6; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 700; font-size: 12px; letter-spacing: .04em; color: var(--muted); background: var(--bg); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.num, .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+figure { margin: 24px 0; }
+figure .fig { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; }
+figure svg { display: block; width: 100%; height: auto; min-width: 520px; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+svg text { font-family: var(--f-body); fill: var(--ink); }
+svg .lbl { font-size: 13px; }
+svg .sm { font-size: 11px; fill: var(--muted); }
+svg .mono { font-family: var(--f-mono); font-size: 11px; }
+
+.calc { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px; margin: 24px 0; }
+.calc h4 { margin: 0 0 12px; font-family: var(--f-display); font-size: 16px; }
+.ctrl { display: grid; grid-template-columns: 10em minmax(0, 1fr) 5em; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 14px; }
+.ctrl output { font-family: var(--f-mono); text-align: right; }
+.ctrl input { width: 100%; accent-color: var(--accent); }
+@media (max-width: 520px) { .ctrl { grid-template-columns: 1fr 4.5em; } .ctrl input { grid-column: 1 / -1; grid-row: 2; } }
+.res { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+@media (max-width: 520px) { .res { grid-template-columns: minmax(0, 1fr); } }
+.res .col { border-top: 3px solid var(--warm); padding-top: 8px; }
+.res .col.sfu { border-top-color: var(--accent); }
+.res .col h5 { margin: 0 0 6px; font-size: 13px; }
+.res dl { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 0; font-size: 13px; }
+.res dt { color: var(--muted); }
+.res dd { margin: 0; font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.res dd.bad { color: var(--warm); font-weight: 600; }
+
+.timeline { display: grid; gap: 0; margin: 18px 0; }
+.timeline div { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 14px; padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
+.timeline .d { font-family: var(--f-mono); color: var(--accent); }
+
+.sources ol { padding-left: 1.4em; font-size: 14px; }
+.sources li { margin-bottom: .6em; }
+.badge { font-family: var(--f-mono); font-size: 10px; letter-spacing: .08em; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); margin-left: 6px; white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) {
+  .signal .pulse { stroke-dasharray: 6 10; animation: flow 2.4s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset: -64; } }
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../"><img src="../assets/icon-192.png" alt="">engawa</a>
+  <a href="https://github.com/iitenkida7/engawa">GitHub</a>
+</div>
+<header class="hero">
+  <div class="eyebrow">Media routing reader · engawa 版</div>
+  <h1>メッシュから SFU へ、<br><span class="path">そして同時配信の技術</span></h1>
+  <p class="lead">近づいたら話せる仮想オフィスでは、誰とつながるかが歩くたびに変わります。この読本は、P2P メッシュでは足りなくなった理由から、SFU がどう 1 人の弱い回線を全員から切り離すのか、双方向の同時配信を支える具体的な技術までを、公開ソースと engawa の実装を突き合わせて整理したものです。</p>
+  <svg class="signal" viewBox="0 0 1000 56" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0 28 H300 C340 28 350 8 390 8 H610 C650 8 660 28 700 28 H1000" fill="none" stroke="var(--line)" stroke-width="2"/>
+    <path class="pulse" d="M0 28 H300 C340 28 350 8 390 8 H610 C650 8 660 28 700 28 H1000" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    <path d="M300 28 C340 28 350 48 390 48 H610 C650 48 660 28 700 28" fill="none" stroke="var(--line)" stroke-width="2"/>
+    <circle cx="500" cy="28" r="9" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
+  </svg>
+</header>
+
+<div class="wrap">
+  <nav class="rail" aria-label="目次">
+    <ol>
+      <li><a href="#basics"><span class="n">01</span>WebRTC の前提</a></li>
+      <li><a href="#mesh"><span class="n">02</span>メッシュの限界</a></li>
+      <li><a href="#mcu"><span class="n">03</span>MCU という回り道</a></li>
+      <li><a href="#sfu"><span class="n">04</span>SFU の仕組み</a></li>
+      <li><a href="#simulcast"><span class="n">05</span>Simulcast と SVC</a></li>
+      <li><a href="#bwe"><span class="n">06</span>帯域推定と輻輳制御</a></li>
+      <li><a href="#loss"><span class="n">07</span>損失と揺らぎ</a></li>
+      <li><a href="#audio"><span class="n">08</span>音声：配信とノイキャン</a></li>
+      <li><a href="#screen"><span class="n">09</span>画面共有</a></li>
+      <li><a href="#select"><span class="n">10</span>受け手が選ぶ</a></li>
+      <li><a href="#resilience"><span class="n">11</span>壊れても戻る</a></li>
+      <li><a href="#scale"><span class="n">12</span>規模別の設計</a></li>
+      <li><a href="#gather"><span class="n">13</span>Gather の事例</a></li>
+      <li><a href="#engawa"><span class="n">14</span>engawa の現在地</a></li>
+      <li><a href="#sources"><span class="n">—</span>出典</a></li>
+    </ol>
+  </nav>
+
+  <article>
+
+    <section id="basics">
+      <div class="ch">Chapter 01</div>
+      <h2>WebRTC の前提：シグナリングと NAT 越え</h2>
+      <p>WebRTC はブラウザ同士で音声と映像を直接やりとりする仕組みですが、相手を見つける方法までは決めていません。どうやって offer と answer（SDP）を交換するかはアプリ側の仕事で、多くは WebSocket で実装します。発信側が offer を作って送り、着信側が answer を返し、経路の候補（ICE candidate）は見つかった順に少しずつ送ります（trickle ICE）。<a class="cite" href="#s3">[3]</a></p>
+      <p>経路の候補は 3 種類あります。LAN 内のアドレス（host）、STUN サーバーに問い合わせて分かった自分の公開アドレス（server-reflexive）、そして TURN サーバーによる中継（relay）です。ICE はすべての組み合わせを試し、つながった経路を使います。経路が決まると DTLS で鍵を交換し、暗号化されたメディアが流れ始めます。<a class="cite" href="#s3">[3]</a></p>
+      <p>TURN は直接つながらないときの最後の手段です。対称型 NAT や UDP を塞ぐ企業ファイアウォールの内側では、TURN 経由になります。その割合はソースによって「約 10〜30%」<a class="cite" href="#s3">[3]</a>、「対称型 NAT やモバイル回線で約 18〜35%」<a class="cite" href="#s2">[2]</a>とされ、中継すると遅延が 50〜150ms 増えます。<a class="cite" href="#s2">[2]</a></p>
+      <div class="takeaway"><b>押さえどころ</b>　サーバーが持つのは「出会いの仲介」だけで、メディアは別の経路を通る、という分業が WebRTC の基本です。SFU を入れてもこの分業は変わらず、メディアの通り道が「相手の端末」から「中継サーバー」に変わるだけです。</div>
+      <div class="engawa"><span class="tag">engawa では</span>Bun の WebSocket がシグナリングを担い、TURN は Cloudflare Realtime TURN の短期クレデンシャルを <code>/api/turn-credentials</code> で発行します。API キーはサーバーだけが持ちます。メディアは engawa のサーバーを一切通りません。</div>
+    </section>
+
+    <section id="mesh">
+      <div class="ch">Chapter 02</div>
+      <h2>メッシュの限界：人数の二乗で膨らむ</h2>
+      <p>いちばん素直な多人数通話は、全員が全員と直接つながるフルメッシュです。サーバー代はかからず、相手との間に何も挟まないので遅延も最小です。問題は本数です。N 人なら接続は N(N−1)/2 本、各自は自分の映像を N−1 回、別々にエンコードして送ります。<a class="cite" href="#s3">[3]</a></p>
+      <p>6 人なら 1 人あたり上り 5 本、10 人なら 9 本で、部屋全体では 10×9＝90 本のストリームが流れます。<a class="cite" href="#s3">[3]</a>家庭の回線は下りより上りがずっと細いので、先に上りが尽きます。各ソースが「メッシュは 4 人程度まで」<a class="cite" href="#s4">[4]</a>、「約 4 人を超えると破綻する」<a class="cite" href="#s2">[2]</a>、「2〜5 人」<a class="cite" href="#s1">[1]</a>と、ほぼ同じ線を引いています。</p>
+
+      <figure>
+        <div class="fig">
+          <svg viewBox="0 0 640 250" role="img" aria-label="6 人のメッシュでは 15 本の接続、SFU では 6 本の接続になる図">
+            <g transform="translate(150,125)">
+              <g stroke="var(--warm)" stroke-width="1.4" opacity=".75">
+                <line x1="0" y1="-90" x2="78" y2="-45"/><line x1="0" y1="-90" x2="78" y2="45"/><line x1="0" y1="-90" x2="0" y2="90"/><line x1="0" y1="-90" x2="-78" y2="45"/><line x1="0" y1="-90" x2="-78" y2="-45"/>
+                <line x1="78" y1="-45" x2="78" y2="45"/><line x1="78" y1="-45" x2="0" y2="90"/><line x1="78" y1="-45" x2="-78" y2="45"/><line x1="78" y1="-45" x2="-78" y2="-45"/>
+                <line x1="78" y1="45" x2="0" y2="90"/><line x1="78" y1="45" x2="-78" y2="45"/><line x1="78" y1="45" x2="-78" y2="-45"/>
+                <line x1="0" y1="90" x2="-78" y2="45"/><line x1="0" y1="90" x2="-78" y2="-45"/>
+                <line x1="-78" y1="45" x2="-78" y2="-45"/>
+              </g>
+              <g fill="var(--surface)" stroke="var(--ink)" stroke-width="1.6">
+                <circle cx="0" cy="-90" r="13"/><circle cx="78" cy="-45" r="13"/><circle cx="78" cy="45" r="13"/><circle cx="0" cy="90" r="13"/><circle cx="-78" cy="45" r="13"/><circle cx="-78" cy="-45" r="13"/>
+              </g>
+            </g>
+            <text x="150" y="245" text-anchor="middle" class="lbl">メッシュ：接続 15 本、各自の上り 5 本</text>
+            <g transform="translate(470,125)">
+              <g stroke="var(--accent)" stroke-width="1.8">
+                <line x1="0" y1="0" x2="0" y2="-90"/><line x1="0" y1="0" x2="78" y2="-45"/><line x1="0" y1="0" x2="78" y2="45"/><line x1="0" y1="0" x2="0" y2="90"/><line x1="0" y1="0" x2="-78" y2="45"/><line x1="0" y1="0" x2="-78" y2="-45"/>
+              </g>
+              <rect x="-26" y="-16" width="52" height="32" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/>
+              <text x="0" y="5" text-anchor="middle" class="mono" style="fill:var(--accent);font-weight:600">SFU</text>
+              <g fill="var(--surface)" stroke="var(--ink)" stroke-width="1.6">
+                <circle cx="0" cy="-90" r="13"/><circle cx="78" cy="-45" r="13"/><circle cx="78" cy="45" r="13"/><circle cx="0" cy="90" r="13"/><circle cx="-78" cy="45" r="13"/><circle cx="-78" cy="-45" r="13"/>
+              </g>
+            </g>
+            <text x="470" y="245" text-anchor="middle" class="lbl">SFU：接続 6 本、各自の上り 1 本</text>
+          </svg>
+        </div>
+        <figcaption>同じ 6 人でも、メッシュは接続が N(N−1)/2 本、SFU は N 本で済みます。</figcaption>
+      </figure>
+
+      <div class="calc" id="calc">
+        <h4>人数と回線の計算機</h4>
+        <div class="ctrl"><label for="n">参加者数</label><input id="n" type="range" min="2" max="20" value="6"><output id="nOut" for="n">6 人</output></div>
+        <div class="ctrl"><label for="b">映像 1 本の帯域</label><input id="b" type="range" min="0.1" max="2" step="0.1" value="0.5"><output id="bOut" for="b">0.5 Mbps</output></div>
+        <div class="res">
+          <div class="col mesh"><h5>メッシュ</h5><dl>
+            <dt>接続数</dt><dd id="mConn"></dd>
+            <dt>1 人の上り</dt><dd id="mUp"></dd>
+            <dt>1 人の下り</dt><dd id="mDown"></dd>
+            <dt>エンコード本数 / 人</dt><dd id="mEnc"></dd>
+          </dl></div>
+          <div class="col sfu"><h5>SFU（simulcast なし）</h5><dl>
+            <dt>接続数</dt><dd id="sConn"></dd>
+            <dt>1 人の上り</dt><dd id="sUp"></dd>
+            <dt>1 人の下り</dt><dd id="sDown"></dd>
+            <dt>SFU の送出合計</dt><dd id="sEg"></dd>
+          </dl></div>
+        </div>
+        <p class="note" style="margin:12px 0 0">上りが 10 Mbps を超えると、オレンジで表示します（家庭回線の上りの目安として置いた値）。下りは SFU でも N−1 本のままなので、受け手側の工夫は第 5 章と第 10 章で扱います。</p>
+      </div>
+
+      <p>本数のほかに、運用で効いてくるのが<b>片側障害</b>です。メッシュはペアごとに ICE で経路を探すので、「A と B、B と C はつながるのに、A と C だけつながらない」ことが起きます。人数が増えるほど組み合わせが増え、どこか 1 組が欠ける確率も上がります。</p>
+      <div class="engawa"><span class="tag">engawa では</span>メッシュ時代は、話していない人のカメラを 150kbps に絞る話者連動の制御（<a href="https://github.com/iitenkida7/engawa/pull/72">#72</a>）で上りの膨張を抑えていました。その後 SFU への切り替え人数を 5 人（<a href="https://github.com/iitenkida7/engawa/pull/79">#79</a>）→ 4 人（<a href="https://github.com/iitenkida7/engawa/pull/205">#205</a>）→ 2 人（<a href="https://github.com/iitenkida7/engawa/pull/310">#310</a>）と下げ、今は 2 人の会話も SFU を通ります。<a href="https://github.com/iitenkida7/engawa/pull/310">#310</a> の決め手は、上記の片側障害でした。</div>
+    </section>
+
+    <section id="mcu">
+      <div class="ch">Chapter 03</div>
+      <h2>MCU という回り道</h2>
+      <p>メッシュの次に考えられるのが MCU（Multipoint Control Unit）です。サーバーが全員の映像をいったんデコードし、1 枚の画面に合成して再エンコードし、各自に 1 本だけ返します。端末から見ると上り 1 本・下り 1 本なので、とても軽くなります。</p>
+      <p>代わりにサーバーが重くなります。N 本をリアルタイムでデコードして再エンコードする計算量は、同じ人数の SFU の 4〜10 倍が目安とされています。<a class="cite" href="#s4">[4]</a>処理の分だけ遅延も増え、レイアウトはサーバーが決めた形で固定されます。<a class="cite" href="#s1">[1]</a>今でも MCU を選ぶのは、録画を 1 本にまとめたい、SIP や電話網とつなぎたい、端末が非力で 1 本しか受けられない、といった場合です。<a class="cite" href="#s4">[4]</a></p>
+
+      <div class="tbl"><table>
+        <thead><tr><th></th><th>メッシュ</th><th>SFU</th><th>MCU</th></tr></thead>
+        <tbody>
+          <tr><td>サーバーの仕事</td><td>なし（シグナリングと TURN だけ）</td><td>復号せずに転送</td><td>復号・合成・再エンコード</td></tr>
+          <tr><td>サーバー費用</td><td>ほぼゼロ</td><td>低〜中</td><td>高い（SFU の 4〜10 倍の計算量）</td></tr>
+          <tr><td>1 人の上り</td><td class="num">N−1 本</td><td class="num">1 本</td><td class="num">1 本</td></tr>
+          <tr><td>1 人の下り</td><td class="num">N−1 本</td><td class="num">N−1 本（選べる）</td><td class="num">1 本</td></tr>
+          <tr><td>遅延</td><td>最小</td><td>低い（転送ぶん）</td><td>高い（処理ぶん）</td></tr>
+          <tr><td>レイアウト</td><td>各端末</td><td>各端末</td><td>サーバーで固定</td></tr>
+          <tr><td>目安の規模</td><td class="num">2〜5 人</td><td>1 台で数百〜数千</td><td>数十人程度</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">表は [1] の比較表と [4] の倍率をもとに再構成したものです。</p>
+      <div class="takeaway"><b>押さえどころ</b>　仮想オフィスでは、各自が自分の画面で相手のタイルを好きな大きさに並べます。レイアウトを各端末に残せることが、MCU ではなく SFU を選ぶ大きな理由になります。</div>
+    </section>
+
+    <section id="sfu">
+      <div class="ch">Chapter 04</div>
+      <h2>SFU の仕組み：送るのは 1 本、選ぶのはサーバー</h2>
+      <p>SFU（Selective Forwarding Unit）は、受け取ったパケットをデコードせずに、必要な相手へ選んで転送する中継サーバーです。仕様書では SFM（Selective Forwarding Middlebox）とも呼ばれます。<a class="cite" href="#s1">[1]</a>参加者は自分のメディアを 1 本だけ送る送り手（publisher）であり、同時に他者のメディアを選んで受け取る受け手（subscriber）でもあります。</p>
+      <p>ここで帯域が非対称になります。上りは人数によらず 1 本で一定、下りは見たい相手の数だけ増えます。<a class="cite" href="#s1">[1]</a>端末から見た上りは O(1)、SFU の送出は O(N) です。具体例として、10 人・720p・3 段の simulcast で、端末の上りが約 3 Mbps、SFU の送出が約 27 Mbps という試算が示されています。<a class="cite" href="#s2">[2]</a>家庭回線で細いのは上りなので、細いほうを一定に保ち、太い下りとデータセンター側の帯域で人数を吸収するのが SFU の考え方です。</p>
+
+      <h3>1 人の弱さを全員から切り離す</h3>
+      <p>メッシュでは相手ごとに別々にエンコードしますが、アプリが画質の上限を全員共通で決めていると、いちばん細い相手に合わせて全員向けの画質を下げることになります。相手ごとに上限を変えれば避けられますが、そのぶん送り手の処理と上りが増えます。SFU では送り手と受け手の間に SFU が挟まるので、送り手は SFU に向けて送るだけで済みます。受け手ごとの事情は SFU と受け手の間で吸収できます。これを具体的に実現するのが、次の章の simulcast です。</p>
+
+      <h3>SFU の配置</h3>
+      <ul>
+        <li><b>単一 SFU</b>：作るのは簡単ですが、遠い参加者の品質が落ち、1 台の上限がそのまま部屋の上限になります。<a class="cite" href="#s1">[1]</a></li>
+        <li><b>カスケード</b>：複数の SFU をつなぎ、各自は近い SFU に接続します。数万人以上にも対応できますが、実装は難しくなります。<a class="cite" href="#s1">[1]</a></li>
+        <li><b>Publisher SFU</b>：送り手は近い SFU に送り、受け手は送り手側の SFU から受け取ります。実装は比較的簡単ですが、監視と制御が難しくなります。<a class="cite" href="#s1">[1]</a></li>
+      </ul>
+
+      <h3>SFU を自分で運用すると何が効くか</h3>
+      <p>オープンソースの SFU である mediasoup のコミュニティでは、ボトルネックは帯域より CPU だと言われています。CPU コアごとに worker を立て、通話を worker に割り振ります。重いのは受信者 1 人分の転送を表す consumer で、公式の目安は worker あたり約 500 です。全員が音声と映像を送受信すると consumer は約 2n(n−1) 本になり、4 人で 24、8 人で 112、16 人で約 480 に達します。<a class="cite" href="#s5">[5]</a>使っていない consumer は破棄せず一時停止しておくと RTP が流れず CPU を節約できる、という実務の知見もあります。<a class="cite" href="#s5">[5]</a></p>
+      <div class="engawa"><span class="tag">engawa では</span>SFU は Cloudflare Realtime SFU を使い、自前では運用していません。worker の割り振りやカスケードは Cloudflare 側の仕事です。engawa のサーバーは <code>/api/sfu/*</code> で制御 API をプロキシするだけで、App ID と Token はサーバーだけが持ちます。転送先のパスはホワイトリストで制限しています（SSRF 対策）。</div>
+    </section>
+
+    <section id="simulcast">
+      <div class="ch">Chapter 05</div>
+      <h2>Simulcast と SVC：同時配信の中心</h2>
+      <p>SFU は転送するだけなので、受け手ごとに画質を作り直すことはできません。そこで<b>送り手が最初から複数の画質を同時に送り</b>、SFU は受け手ごとにどれを渡すかを選びます。これが simulcast です。例として 1080p@4Mbps、720p@2Mbps、360p@500kbps の 3 段が挙げられています。<a class="cite" href="#s3">[3]</a>段は最大 3 本が一般的です。<a class="cite" href="#s1">[1]</a></p>
+
+      <figure>
+        <div class="fig">
+          <svg viewBox="0 0 640 220" role="img" aria-label="送り手が f、h、q の 3 段を SFU に送り、SFU が受け手ごとに 1 段を選んで転送する図">
+            <rect x="12" y="80" width="88" height="56" rx="5" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.6"/>
+            <text x="56" y="104" text-anchor="middle" class="lbl">送り手</text>
+            <text x="56" y="123" text-anchor="middle" class="sm">エンコード 3 段</text>
+            <g stroke-width="2.2" fill="none">
+              <path d="M100 92 H250" stroke="var(--accent)"/>
+              <path d="M100 108 H250" stroke="var(--accent)" stroke-dasharray="7 4"/>
+              <path d="M100 124 H250" stroke="var(--warm)"/>
+            </g>
+            <text x="175" y="86" text-anchor="middle" class="mono" style="fill:var(--accent)">f</text>
+            <text x="175" y="103" text-anchor="middle" class="mono" style="fill:var(--accent)">h</text>
+            <text x="175" y="137" text-anchor="middle" class="mono" style="fill:var(--warm)">q</text>
+            <rect x="250" y="72" width="96" height="72" rx="5" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/>
+            <text x="298" y="104" text-anchor="middle" class="mono" style="fill:var(--accent);font-weight:600">SFU</text>
+            <text x="298" y="124" text-anchor="middle" class="sm">段を選んで転送</text>
+            <g fill="none" stroke-width="2.2">
+              <path d="M346 92 C410 92 420 40 480 40" stroke="var(--accent)"/>
+              <path d="M346 108 H480" stroke="var(--accent)" stroke-dasharray="7 4"/>
+              <path d="M346 124 C410 124 420 176 480 176" stroke="var(--warm)"/>
+            </g>
+            <g fill="var(--surface)" stroke="var(--ink)" stroke-width="1.4">
+              <rect x="480" y="22" width="148" height="36" rx="4"/>
+              <rect x="480" y="90" width="148" height="36" rx="4"/>
+              <rect x="480" y="158" width="148" height="36" rx="4"/>
+            </g>
+            <text x="490" y="45" class="lbl">大きいタイル → f</text>
+            <text x="490" y="113" class="lbl">ギャラリー → h</text>
+            <text x="490" y="181" class="lbl">回線が細い人 → q</text>
+          </svg>
+        </div>
+        <figcaption>送り手の上りは 3 段の合計で一定です。回線の細い受け手が q を受けても、ほかの受け手の画質は下がりません。</figcaption>
+      </figure>
+
+      <h3>SVC：1 本の中に層を重ねる</h3>
+      <p>SVC（Scalable Video Coding）は、1 本のストリームの中に解像度やフレームレートの層を重ねておき、SFU が受け手ごとに不要な層を落とす方式です。VP9、AV1、H.265 が対応しています。<a class="cite" href="#s3">[3]</a>フレームレートの層だけを使う「時間スケーラビリティ」は、細い受け手にフレームを間引いて渡す使い方です。<a class="cite" href="#s1">[1]</a>100〜1,000 人規模では SVC のほうが simulcast より帯域効率が良く、SFU で多数の simulcast 層を扱うと帯域より CPU が先に効いてくる、という指摘もあります。<a class="cite" href="#s2">[2]</a></p>
+
+      <div class="tbl"><table>
+        <thead><tr><th></th><th>Simulcast</th><th>SVC</th></tr></thead>
+        <tbody>
+          <tr><td>送り方</td><td>独立した複数本</td><td>1 本の中に層</td></tr>
+          <tr><td>送り手の負荷</td><td>段の数だけエンコード</td><td>1 回のエンコード</td></tr>
+          <tr><td>対応状況</td><td>VP8 で広く安定</td><td>VP9 / AV1 / H.265</td></tr>
+          <tr><td>向く規模</td><td>10 人を超えたら事実上必須 <a class="cite" href="#s2">[2]</a></td><td>100 人以上で効率が上回る <a class="cite" href="#s2">[2]</a></td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="engawa"><span class="tag">engawa では</span>
+        カメラは VP8 の simulcast で、全段 15fps の 3 段です（<a href="https://github.com/iitenkida7/engawa/pull/270">#270</a> で 3 段化、<a href="https://github.com/iitenkida7/engawa/pull/314">#314</a>・<a href="https://github.com/iitenkida7/engawa/pull/340">#340</a> で軽量化）。
+        <div class="tbl" style="margin:10px 0"><table>
+          <thead><tr><th>段（rid）</th><th>解像度</th><th>上限</th><th>受け手が選ぶ条件</th></tr></thead>
+          <tbody>
+            <tr><td class="num">f</td><td class="num">960×540</td><td class="num">500 kbps</td><td>タイル幅 640px 以上</td></tr>
+            <tr><td class="num">h</td><td class="num">480×270</td><td class="num">150 kbps</td><td>320px 以上</td></tr>
+            <tr><td class="num">q</td><td class="num">240×135</td><td class="num">50 kbps</td><td>それ未満、画面外、裏タブ</td></tr>
+          </tbody>
+        </table></div>
+        VP9 の SVC に寄せないのは、強制すると simulcast の段（rid）が壊れることがあるためです（<code>rtc/sfu.ts</code> のコメント）。画面共有は文字の読みやすさを優先して simulcast せず、1 段（長辺 1920px・15fps・2Mbps）で送ります（<a href="https://github.com/iitenkida7/engawa/pull/325">#325</a>）。
+      </div>
+    </section>
+
+    <section id="bwe">
+      <div class="ch">Chapter 06</div>
+      <h2>帯域推定と輻輳制御：送る量を自分で決める</h2>
+      <p>どの段を送るか、どの段を受けるかを決めるには、回線にどれだけ余裕があるかを知る必要があります。WebRTC の標準的な仕組みは Google Congestion Control（GCC）です。受信側がパケットの到着間隔の変化（遅延勾配）をカルマンフィルタで追い、遅延が伸び始めたら混雑と判断します。結果は REMB や transport-cc（TWCC）で送り手に返されます。<a class="cite" href="#s3">[3]</a></p>
+      <p>送り手は、混雑を検知すると約 8% 減速し、安定していれば約 1.5 秒ごとに約 5% ずつ増やして余裕を探ります。<a class="cite" href="#s3">[3]</a>開始時は約 300kbps と控えめな値から始まるので、通話の最初の数秒は映像が粗くなりがちです。初期ビットレートのヒントを与えて緩和する方法があります。<a class="cite" href="#s2">[2]</a></p>
+      <p>SFU では、この推定が<b>区間ごとに分かれる</b>ことが重要です。送り手と SFU の間、SFU と各受け手の間で、それぞれ別に混雑を測ります。SFU は受け手ごとの推定値を見て、収まる段を選べます。これが「1 人の細い下りが全員に及ばない」仕組みの実体です。</p>
+      <div class="engawa"><span class="tag">engawa では</span>
+        ブラウザ標準の GCC に加えて、アプリ側でも 5 秒ごとに回線を採点し、tier 0〜3 の 4 段階に分けています（<a href="https://github.com/iitenkida7/engawa/pull/189">#189</a>）。判定材料は損失率（2 / 5 / 10%）、RTT（250 / 500 / 800ms）、上り推定（900 / 500 / 250kbps 未満）です。悪化は 2 回連続で 1 段ずつ、回復は 6 回連続で 1 段ずつ動かします（以前は一気に tier 3 へ飛んでいたのを <a href="https://github.com/iitenkida7/engawa/pull/274">#274</a> で直しました）。tier を受けて何をするかは、経路によって違います。
+        <div class="tbl" style="margin:10px 0"><table>
+          <thead><tr><th></th><th>両方の経路</th><th>メッシュだけ</th><th>SFU だけ</th></tr></thead>
+          <tbody>
+            <tr><td class="num">tier 1</td><td>—</td><td>カメラ上限を 60%、画面共有を 70% に</td><td>—</td></tr>
+            <tr><td class="num">tier 2</td><td>音声を冗長化（Opus RED）</td><td>カメラを 120kbps・15fps・半分の解像度に</td><td>受けるカメラの段を h までに</td></tr>
+            <tr><td class="num">tier 3</td><td>カメラを自動停止</td><td>—</td><td>映像の受信を止め、音声だけ受ける</td></tr>
+          </tbody>
+        </table></div>
+        SFU で送信の上限をアプリが下げないのは、simulcast の段がすでに軽く（f でも 500kbps）、送り手と SFU の間の混雑はブラウザの GCC が段ごとに調整するためです。受け手側の混雑は、Cloudflare SFU にカメラの段の優先順位（f→h→q）を渡して、SFU 側でも段を下げられるようにしています（<a href="https://github.com/iitenkida7/engawa/pull/270">#270</a>）。
+      </div>
+    </section>
+
+    <section id="loss">
+      <div class="ch">Chapter 07</div>
+      <h2>損失と揺らぎ：届かなかった分をどう埋めるか</h2>
+      <p>インターネットではパケットが落ちたり、届く間隔が揺れたりします。対策は大きく 3 つです。<a class="cite" href="#s3">[3]</a></p>
+      <div class="tbl"><table>
+        <thead><tr><th>手法</th><th>仕組み</th><th>代償</th><th>向く損失</th></tr></thead>
+        <tbody>
+          <tr><td>FEC</td><td>冗長データを先に送っておき、欠けたら復元する</td><td>帯域が約 5〜10% 増える</td><td>ランダムな損失</td></tr>
+          <tr><td>NACK</td><td>欠けた番号を伝えて再送してもらう</td><td>1 往復分の遅延</td><td>まとまった損失</td></tr>
+          <tr><td>ジッタバッファ</td><td>受け手が少し溜めてから再生する</td><td>溜めた分だけ遅延が増える</td><td>到着間隔の揺れ</td></tr>
+        </tbody>
+      </table></div>
+      <p>音声コーデックの Opus は、自前で FEC（in-band FEC）、欠けた音を推測で埋める PLC、無音時に送信をほぼ止める DTX を持っています。<a class="cite" href="#s3">[3]</a>音声は損失率 2% を超えると聞き取りに影響し始め、5% を超えると FEC では埋めきれなくなるとされています。<a class="cite" href="#s2">[2]</a>ジッタバッファは一般に 150〜200ms 程度<a class="cite" href="#s3">[3]</a>で、ジッタの p95 を 30ms 未満に保つのが目安とされています。<a class="cite" href="#s2">[2]</a></p>
+      <p>映像では、損失への対策が画質の段とつながります。損失が続くなら、細かく再送するより段を下げて送る量自体を減らすほうが効きます。そのため、実際の設計では帯域推定・段の選択・損失対策を一体で調整することになります。</p>
+      <div class="engawa"><span class="tag">engawa では</span>
+        Opus を低遅延寄りに書き換えています（<code>rtc/sdp.ts</code>）。パケット長は 20ms（<code>ptime=20</code>）、in-band FEC を有効に、DTX は無効（話し始めの数フレームが欠けるのを避けるため）です。tier 2 以上では Opus RED で音声を二重に送ります。ジッタバッファは低遅延の 100ms から始め、実測のジッタに応じて 150 / 220 / 300ms まで広げ、落ち着いたら戻します。
+      </div>
+    </section>
+
+    <section id="audio">
+      <div class="ch">Chapter 08</div>
+      <h2>音声：配信とノイズキャンセル</h2>
+      <p>音声は数十 kbps しか使わない小さなストリームですが、会話の体感は音声から先に崩れます。映像が一瞬固まっても話は続けられますが、声が途切れたり遅れたりすると会話そのものが止まります。そのため、音声では帯域よりも<b>遅延と欠けにくさ</b>を優先して設計します。この章では、音声を相手に届ける側（配信）と、届ける前に雑音を消す側（ノイズキャンセル）を順に見ていきます。</p>
+
+      <figure>
+        <div class="fig">
+          <svg viewBox="0 0 760 170" role="img" aria-label="マイクから相手のスピーカーまでの音声の流れ。送り手の端末でエコー除去、ノイズ抑制、ボイスゲート、Opus エンコードを行い、SFU を経由して、受け手の端末でジッタバッファを通して再生する">
+            <text x="10" y="18" class="sm">送り手の端末</text>
+            <text x="560" y="18" class="sm">受け手の端末</text>
+            <g fill="var(--surface)" stroke="var(--ink)" stroke-width="1.4">
+              <rect x="10" y="40" width="72" height="50" rx="4"/>
+              <rect x="100" y="40" width="96" height="50" rx="4"/>
+              <rect x="214" y="40" width="96" height="50" rx="4"/>
+              <rect x="328" y="40" width="96" height="50" rx="4"/>
+              <rect x="560" y="40" width="88" height="50" rx="4"/>
+              <rect x="666" y="40" width="84" height="50" rx="4"/>
+            </g>
+            <rect x="452" y="40" width="80" height="50" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/>
+            <g stroke="var(--accent)" stroke-width="2" fill="none">
+              <path d="M82 65 H100"/><path d="M196 65 H214"/><path d="M310 65 H328"/><path d="M424 65 H452"/><path d="M532 65 H560"/><path d="M648 65 H666"/>
+            </g>
+            <text x="46" y="70" text-anchor="middle" class="lbl">マイク</text>
+            <text x="148" y="62" text-anchor="middle" class="lbl">ブラウザ内蔵</text>
+            <text x="148" y="80" text-anchor="middle" class="sm">AEC・NS・AGC</text>
+            <text x="262" y="62" text-anchor="middle" class="lbl">ノイズ除去</text>
+            <text x="262" y="80" text-anchor="middle" class="sm">RNNoise＋ゲート</text>
+            <text x="376" y="62" text-anchor="middle" class="lbl">Opus</text>
+            <text x="376" y="80" text-anchor="middle" class="sm">20ms・FEC</text>
+            <text x="492" y="70" text-anchor="middle" class="mono" style="fill:var(--accent);font-weight:600">SFU</text>
+            <text x="604" y="62" text-anchor="middle" class="lbl">ジッタ</text>
+            <text x="604" y="80" text-anchor="middle" class="sm">バッファ</text>
+            <text x="708" y="70" text-anchor="middle" class="lbl">再生</text>
+            <text x="148" y="122" text-anchor="middle" class="sm">エコー・雑音・音量</text>
+            <text x="262" y="122" text-anchor="middle" class="sm">+30ms</text>
+            <text x="376" y="122" text-anchor="middle" class="sm">損失に備える</text>
+            <text x="492" y="122" text-anchor="middle" class="sm">混ぜずに転送</text>
+            <text x="604" y="122" text-anchor="middle" class="sm">100〜300ms</text>
+            <path d="M100 145 H424" stroke="var(--warm)" stroke-width="2"/>
+            <text x="262" y="162" text-anchor="middle" class="sm" style="fill:var(--warm)">ノイズキャンセル（送る前）</text>
+            <path d="M424 145 H750" stroke="var(--accent)" stroke-width="2"/>
+            <text x="587" y="162" text-anchor="middle" class="sm" style="fill:var(--accent)">配信（届ける）</text>
+          </svg>
+        </div>
+        <figcaption>engawa の音声の流れ。各段の数値は engawa の設定です。雑音の処理はすべて送り手の端末で済ませるので、受け手が受け取るのは処理済みの音声です。</figcaption>
+      </figure>
+
+      <h3>配信：Opus をどう設定するか</h3>
+      <p>WebRTC の音声は、ほぼ Opus で送ります。Opus は声なら約 6kbps、音楽なら約 64kbps まで可変で、損失に備える仕組みを自分で持っています。<a class="cite" href="#s3">[3]</a></p>
+      <div class="tbl"><table>
+        <thead><tr><th>仕組み</th><th>何をするか</th><th>代償</th></tr></thead>
+        <tbody>
+          <tr><td>in-band FEC</td><td>各パケットに 1 つ前のフレームの低品質な控えを入れる。1 パケット落ちても次で復元できる</td><td>帯域が少し増える</td></tr>
+          <tr><td>RED</td><td>前のパケットそのものを重ねて送る。続けて落ちても耐える</td><td>音声の帯域がほぼ 2 倍</td></tr>
+          <tr><td>PLC</td><td>欠けた区間を前後から推測して埋める</td><td>長く欠けると不自然になる</td></tr>
+          <tr><td>DTX</td><td>無音の間は送信をほぼ止める</td><td>話し始めの数フレームが欠けることがある</td></tr>
+        </tbody>
+      </table></div>
+      <p>パケットの長さ（ptime）は 20ms が標準です。短くすると遅延は減りますが、ヘッダの割合が増えて効率が落ちます。損失への強さは、損失率 2% を超えると聞き取りに影響し、5% を超えると FEC では埋めきれない、というのが目安です。<a class="cite" href="#s2">[2]</a>それより悪い回線では、映像を削ってでも音声に帯域を回すことになります。</p>
+
+      <h3>配信：音声を最優先にする</h3>
+      <ul>
+        <li><b>送信の優先度</b>：混雑したら映像から削り、音声は最後まで守るよう送信の優先度を設定します。</li>
+        <li><b>モノラルで送る</b>：ステレオは帯域が 2 倍になりますが、声の聞き取りやすさは上がりません。</li>
+        <li><b>混ぜずに転送する</b>：MCU と違い、SFU は音声も混ぜずに 1 人ずつ転送し、受け手のブラウザが再生時に重ねます。サーバーの負荷は小さい反面、人数ぶんの音声が下りに来ます。大人数では、話している人の音声だけを受ける設計が勧められています。<a class="cite" href="#s5">[5]</a></li>
+        <li><b>ジッタバッファは短めから</b>：音声は遅延が会話のテンポに直結します。揺れが小さいうちは短く保ち、揺れが大きくなったときだけ広げます。</li>
+      </ul>
+
+      <h3>ノイズキャンセル：従来型とニューラル型</h3>
+      <p>従来のノイズ抑制は、話しているかどうかの判定（VAD）、雑音の成分の推定、その成分の差し引きの 3 段で作られていて、調整が難しいものでした。RNNoise は、この構成の信号処理を残したまま、調整の難しい部分だけを小さなニューラルネットに学習させています。<a class="cite" href="#s7">[7]</a></p>
+      <ul>
+        <li>音を 22 の周波数帯に分け、帯ごとに 0〜1 の減衰量をニューラルネットが出す</li>
+        <li>帯の間に残る雑音は、声の高さ（ピッチ）に合わせたフィルタで落とす</li>
+        <li>モデルは GRU 3 層、8 ビットの重みで約 85kB と小さい</li>
+        <li>最適化していない C 実装でも、x86 の CPU で実時間の約 60 倍の速さで動く</li>
+        <li>副産物として、そのフレームが声である確率（VAD）も出す</li>
+      </ul>
+      <p>商用では Krisp がよく使われます。Gather は Krisp の SDK を別プロセスに分けて動かし、不具合が他に広がらないようにしています。後段には自動ゲイン調整（AGC）を足して、音量のばらつきを抑えています。<a class="cite" href="#s6">[6]</a>ブラウザにも、エコー除去（AEC）、ノイズ抑制（NS）、AGC が標準で入っていて、<code>getUserMedia</code> の設定で有効にできます。</p>
+
+      <h3>ノイズキャンセル：締め切りを守る</h3>
+      <p>音声処理は 10ms ごとのフレームを、次のフレームが来るまでに処理し終える必要があります。1 回でも間に合わなければ、音が途切れたり歪んだりします。Gather が音声処理を JavaScript から C++ に移したのはガベージコレクションによる止まりを避けるためで、Windows でバックグラウンドとして処理を絞られる問題も、締め切りを外す原因でした。<a class="cite" href="#s6">[6]</a>ブラウザでは、メインスレッドとは別の専用スレッドで動く AudioWorklet がこの役割を担います。画面の描画や JavaScript の処理が重くなっても、音声処理は止まりません。</p>
+
+      <h3>ノイズキャンセル：消せない音はゲートで黙らせる</h3>
+      <p>ニューラル型のノイズ除去は、空調やキーボードのように続く雑音は消せます。一方、通り過ぎるバイク、鳥の声、生活音のような突発的な音は残りがちです。そこで、<b>話していない間はマイクを完全に無音にする</b>ボイスゲートを組み合わせます。判定には RNNoise が出す VAD をそのまま使えるので、追加のモデルは要りません。</p>
+
+      <div class="engawa"><span class="tag">engawa では</span>
+        <b>配信</b>：Opus はモノラル・20ms・in-band FEC 有効・DTX 無効で、回線が悪化する（tier 2 以上）と RED を足します。メッシュでは音声の上限を 64kbps にしています。SFU では音声の送信優先度を最も高くし、混雑時は映像から削ります。再接続のときは全員分のマイクを先にまとめて受け、tier 3 では映像の受信を止めて下りを音声だけに使います。
+        <br><br>
+        <b>ノイズキャンセル</b>（既定オン）：まずブラウザ内蔵のエコー除去・ノイズ抑制・AGC を通し、その後ろで RNNoise（WASM）を自前の AudioWorklet で動かします。ボイスゲートの設定は次のとおりです。
+        <ul style="margin:8px 0 6px">
+          <li>VAD が 0.6 以上で開き、0.3 未満で閉じる（2 つのしきい値で、開閉のばたつきを防ぐ）</li>
+          <li>閉じる条件を満たしても 300ms は開いたまま（語尾と文中の短い間を切らない）</li>
+          <li>開くときは 5ms、閉じるときは 60ms かけて音量を変える（クリック音を出さない）</li>
+          <li>2 フレーム先を見てから開閉を決める（語頭を欠かさない）。その分、遅延は合計 30ms</li>
+        </ul>
+        WASM の読み込みが 5 秒で終わらなければ、処理しない生のマイク音声に切り替えます。モデルと音声は端末の外に出ません（CDN も使いません）。
+      </div>
+    </section>
+
+    <section id="screen">
+      <div class="ch">Chapter 09</div>
+      <h2>画面共有：動きより文字を守る</h2>
+      <p>画面共有も映像のストリームですが、カメラとは守るものが逆です。カメラは顔の動きが滑らかなことが大事で、多少ぼやけても気になりません。画面共有で大事なのは、資料の小さな文字やコードの 1 文字が読めることです。動きは少なく、画面の大半は前のフレームと変わりません。ただし、スクロールやページの切り替えでは画面全体が一度に変わり、その瞬間だけ大きな帯域が必要になります。</p>
+
+      <div class="tbl"><table>
+        <thead><tr><th></th><th>カメラ</th><th>画面共有</th></tr></thead>
+        <tbody>
+          <tr><td>守るもの</td><td>動きの滑らかさ</td><td>文字と細い線の鮮明さ</td></tr>
+          <tr><td>混雑時に削るもの</td><td>解像度</td><td>フレームレート</td></tr>
+          <tr><td>帯域の出方</td><td>ほぼ一定</td><td>普段は小さく、切り替え時に急増</td></tr>
+          <tr><td>段を分けて送るか</td><td>simulcast が効く</td><td>低い段では文字が読めず、役に立たない</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>エンコーダに「何を映しているか」を伝える</h3>
+      <p>ブラウザのエンコーダは、何を映しているかを知らなければカメラ向けの判断をします。それを伝えるのが映像トラックの <code>contentHint</code> です。W3C の仕様では、値ごとに次の扱いが推奨されています。<a class="cite" href="#s8">[8]</a></p>
+      <div class="tbl"><table>
+        <thead><tr><th>contentHint</th><th>向く映像</th><th>混雑時の扱い（degradationPreference）</th></tr></thead>
+        <tbody>
+          <tr><td class="num">motion</td><td>カメラ、動画、ゲーム</td><td><code>maintain-framerate</code>：解像度を下げてでも滑らかさを保つ</td></tr>
+          <tr><td class="num">detail</td><td>スライド、文字の多い Web ページ、図</td><td><code>maintain-resolution</code>：コマ落ちしてでも解像度を保つ</td></tr>
+          <tr><td class="num">text</td><td>文字が中心で、境界がはっきりした映像</td><td><code>maintain-resolution</code>。AV1 では文字向けの符号化ツールが使われる</td></tr>
+        </tbody>
+      </table></div>
+      <p>送信パラメータの <code>degradationPreference</code> をアプリが明示的に指定した場合は、そちらが優先されます。<a class="cite" href="#s8">[8]</a>ただし <code>text</code> を指定しても、文字が読めることまでは保証されないと仕様に注記されています。<a class="cite" href="#s8">[8]</a></p>
+
+      <h3>取り込みの段階で絞る</h3>
+      <p>4K や Retina のディスプレイをそのまま取り込むと、送るときに結局縮小するのに、取り込みと縮小の処理を毎フレーム払うことになります。<code>getDisplayMedia</code> の取り込み条件で、最初から解像度とフレームレートに上限をかけておくと、送り手の CPU を節約できます。</p>
+
+      <h3>Simulcast せず 1 本で送る</h3>
+      <p>カメラの q 段のような小さい画面共有は、文字が潰れて読めません。段を分けても受け手に意味のある選択肢にならないので、画面共有は高めのビットレートの 1 本で送り、混雑したらフレームレートを落として解像度を守るのが基本になります。受け手全員が同じ資料を読めないと会議が進まない、という事情もあります。</p>
+
+      <h3>共有の開始と停止を壊さない</h3>
+      <ul>
+        <li><b>やり直しで経路を作り直さない</b>：共有を止めて再開するたびに送信の枠（トランシーバ）を作り直すと、再交渉で失敗しやすくなります。止めるときは枠を残し、再開時は同じ枠にトラックを差し直します。</li>
+        <li><b>ブラウザや OS の「共有を停止」にも対応する</b>：アプリのボタンを使わずに止められることがあるので、トラックの終了イベントで同じ後片付けを走らせます。</li>
+        <li><b>ユーザー操作の順番に気をつける</b>：<code>getDisplayMedia</code> のように、ユーザーのクリック直後にしか呼べない API があります。同じクリックで別の API を先に呼ぶと、共有自体が失敗することがあります。</li>
+      </ul>
+
+      <div class="engawa"><span class="tag">engawa では</span>
+        <ul style="margin:0 0 6px">
+          <li><b>取り込み</b>：長辺 1920px・15fps に制限し、音声は取り込みません。トラックには <code>contentHint = 'detail'</code> を付けます。</li>
+          <li><b>送信</b>：<code>degradationPreference</code> は <code>maintain-resolution</code> で、混雑時はフレームレートから削ります。SFU では simulcast せず、1 本・2Mbps・長辺 1920px・15fps で送ります（<a href="https://github.com/iitenkida7/engawa/pull/325">#325</a>）。メッシュでは相手が 3 人未満なら 3Mbps、それ以上は 1.5Mbps です。8 人以上なら 10fps・長辺 1280px に下げます。メッシュでは回線の段階に応じてさらに下げます（tier 1 で 70%、tier 2 で 800kbps・8fps・1280px、tier 3 で 500kbps・5fps）。SFU ではこの上限調整はせず、ブラウザの帯域推定に任せます。</li>
+          <li><b>開始と停止</b>：共有をオフにしてから再びオンにすると相手に届かない不具合を、SFU のトランシーバを使い回して直しました（<a href="https://github.com/iitenkida7/engawa/pull/151">#151</a>）。OS の「共有を停止」でもツールバーのボタンと同じ後片付けをします。</li>
+          <li><b>見る側</b>：共有中は、相手の顔タイルを常に最前面の小窓（Document Picture-in-Picture）に映せます（<a href="https://github.com/iitenkida7/engawa/pull/318">#318</a>、実験的機能）。小窓を開く API もクリックの権利を使うので、必ず <code>getDisplayMedia</code> の後に開きます。</li>
+          <li><b>録画</b>：録画した画面共有の文字が読めなかった問題を、合成の解像度を固定の 2 倍にし、高品質な縮小を使って直しました（<a href="https://github.com/iitenkida7/engawa/pull/292">#292</a>）。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="select">
+      <div class="ch">Chapter 10</div>
+      <h2>受け手が選ぶ：見ていないものは受けない</h2>
+      <p>SFU でも下りは見たい相手の数だけ増えます。大人数の部屋で下りを抑える一番の方法は、<b>今見ていないものを受けない</b>ことです。mediasoup のコミュニティでも、全員の映像や音声を同時に受ける必要はなく、同時に話す人数を絞って表示をページングする設計が勧められています。<a class="cite" href="#s5">[5]</a>50〜200 人規模なら、話している人（アクティブスピーカー）を中心に受ける構成が推奨されています。<a class="cite" href="#s4">[4]</a></p>
+      <ul>
+        <li><b>タイルの大きさで段を選ぶ</b>：小さく表示するなら高い段は要りません。</li>
+        <li><b>画面外や裏タブは最低段に落とすか止める</b>：見えていないので画質は関係ありません。</li>
+        <li><b>入室直後は低い段から始める</b>：大人数の部屋に入った瞬間、全員分の高い段が一斉に来ると下りが詰まります。</li>
+        <li><b>音声を先に受ける</b>：つながりの体感は音声で決まります。</li>
+      </ul>
+      <div class="engawa"><span class="tag">engawa では</span>上の 4 つをすべて実装しています。タイル幅による段の選択と画面外・裏タブの q 落とし（<a href="https://github.com/iitenkida7/engawa/pull/270">#270</a>）、会議室では q から開始（<a href="https://github.com/iitenkida7/engawa/pull/339">#339</a>）、再接続時は全員分のマイクを 1 回のリクエストでまとめて先に受けてから映像を受ける（<a href="https://github.com/iitenkida7/engawa/pull/256">#256</a>）、の 3 つです。tier 3 では映像の受信を止めて、下りを音声だけに使います。</div>
+    </section>
+
+    <section id="resilience">
+      <div class="ch">Chapter 11</div>
+      <h2>壊れても戻る：障害を 1 人に閉じ込める</h2>
+      <p>帯域と損失の対策をしても、接続そのものが切れることはあります。ソースが挙げている実務上の落とし穴は次のとおりです。<a class="cite" href="#s2">[2]</a></p>
+      <ul>
+        <li>Wi-Fi からモバイル回線に切り替わったときに <code>restartIce()</code> を呼ばないと、約 30 秒後に通話が切れることがある</li>
+        <li>経路の MTU が 1280 バイト未満だと DTLS の握手が何も言わずに失敗することがあるので、1200 バイトに固定する</li>
+        <li>終了時に <code>pc.close()</code> を呼ばないと TURN の割り当てが残って課金が増える</li>
+        <li>TURN は起動に 1.5〜3 秒かかるので、すぐ使える予備を 2〜3 台用意しておく</li>
+      </ul>
+      <p>SFU には特有の弱点もあります。各自が SFU との<b>接続 1 本の上にすべての送受信を載せている</b>ことです。1 本で済むから安定する一方、その 1 本の作り直しは全員との送受信の作り直しになります。誰かの不調をきっかけに自分の接続を作り直すと、それが他の人の受信のやり直しを呼び、連鎖します。</p>
+      <div class="takeaway"><b>押さえどころ</b>　SFU で「1 人の不調が全員に及ばない」と言えるには、帯域の分離（simulcast と段の選択）に加えて、<b>失敗の分離</b>も必要です。相手 1 人分の受信に失敗しても、それを自分の接続全体の故障とは扱わないことです。</div>
+      <div class="engawa"><span class="tag">engawa では</span>
+        この失敗の分離を段階的に入れてきました。1 人分の受信拒否を相手ごとの再試行にした（<a href="https://github.com/iitenkida7/engawa/pull/251">#251</a>）。SFU が失敗してもメッシュに落とさず、0→2→5→10→20→30 秒の間隔で作り直し、その間もタイルを残す（<a href="https://github.com/iitenkida7/engawa/pull/256">#256</a>）。受信のやり直しの失敗を相手ごとの再試行に閉じ込め、全員の再接続の連鎖を止めた（<a href="https://github.com/iitenkida7/engawa/pull/332">#332</a>）。他の人のメディアが届いている間は自分の接続を正常とみなし、作り直さない（<a href="https://github.com/iitenkida7/engawa/pull/342">#342</a>）。接続の外側では、5 秒ごとの ping と 12 秒の無応答検知で半死の WebSocket を見つけ、無期限に再接続します（<a href="https://github.com/iitenkida7/engawa/pull/189">#189</a>）。
+      </div>
+    </section>
+
+    <section id="scale">
+      <div class="ch">Chapter 12</div>
+      <h2>規模別の設計</h2>
+      <p>同じ部屋に同時にいる人数（p95）ごとの推奨は、ソースによって少しずつ違いますが、おおむね次のように重なります。</p>
+      <div class="tbl"><table>
+        <thead><tr><th>人数</th><th>推奨構成</th><th>ソース</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1:1</td><td>P2P ＋ TURN</td><td><a href="#s4">[4]</a></td></tr>
+          <tr><td class="num">3〜8 人</td><td>小規模 SFU（4 人までならメッシュも可）</td><td><a href="#s4">[4]</a></td></tr>
+          <tr><td class="num">9〜50 人</td><td>simulcast 付き SFU</td><td><a href="#s4">[4]</a></td></tr>
+          <tr><td class="num">〜100 人</td><td>単一の SFU ノードで収まる</td><td><a href="#s2">[2]</a></td></tr>
+          <tr><td class="num">50〜200 人</td><td>SFU ＋ アクティブスピーカー ＋ サーバー録画</td><td><a href="#s4">[4]</a></td></tr>
+          <tr><td class="num">100〜1,000 人</td><td>simulcast / SVC。話す人を 5〜20 人に絞り、他は受信専用</td><td><a href="#s2">[2]</a></td></tr>
+          <tr><td class="num">1,000〜10,000 人</td><td>地域をまたぐ SFU のカスケード、または LL-HLS 併用</td><td><a href="#s2">[2]</a></td></tr>
+          <tr><td class="num">10,000 人〜</td><td>WebRTC は話す人だけ。視聴は LL-HLS / MoQ</td><td><a href="#s2">[2]</a></td></tr>
+        </tbody>
+      </table></div>
+      <p>人数で構成を切り替えるハイブリッドもよく使われます。1:1 は P2P、グループは SFU という分け方で、1:1 が多いサービスではサーバー資源の節約になります。<a class="cite" href="#s2">[2]</a>切り替えを後から足すなら、シグナリング・部屋の管理・UI をメディアの経路から切り離しておくと移行しやすくなります。<a class="cite" href="#s4">[4]</a></p>
+      <div class="engawa"><span class="tag">engawa では</span>ハイブリッドとして作り、切り替え人数を <code>SFU_PROMOTE_AT</code>（既定 2、2〜32）で選べます。会議室ゾーンは人数によらず常に SFU です。SFU とメッシュが同じイベント面（<code>onRemoteStream</code> など）に乗っているので、タイルの表示や録画は経路を意識しません。これが上の「切り離し」に当たります。</div>
+    </section>
+
+    <section id="gather">
+      <div class="ch">Chapter 13</div>
+      <h2>Gather の事例：音声パイプラインの作り直し</h2>
+      <p>同じ種類のサービスである Gather は、技術ブログをほとんど公開していません。見つかった技術記事は、Gather 2.0 のリリース後に起きた音声の不具合の振り返り 1 本です。<a class="cite" href="#s6">[6]</a>SFU か P2P かといったメディア経路の話は書かれておらず、扱っているのは端末側の音声処理です。</p>
+      <ul>
+        <li><b>原因</b>：Windows 11 のアップデートで、Gather がバックグラウンド扱いになって処理を絞られ、音声処理が締め切りに間に合わなくなっていた。Windows の音声向け優先度設定（MMCSS）で音声スレッドの優先度を確保して対処した。</li>
+        <li><b>JavaScript から C++ へ</b>：ガベージコレクションによる止まりを避けるため、音声処理を C++ に移し、Electron の別プロセスで動かした。</li>
+        <li><b>ノイズ除去の分離</b>：Krisp SDK を別プロセスに分け、不具合が他に広がらないようにした。後段に自動ゲイン調整（AGC）を追加した。</li>
+        <li><b>測り方</b>：通話後にユーザーが 1〜5 の星で音声を評価し、低評価の割合を追った。リリース以降で 50% 減ったとしている（Gather 自身の発表）。</li>
+        <li><b>注意点</b>：不具合を報告する人と、実際に性能問題を抱えている人が一致しないことがある。例として、Mac の利用者の報告が、実は通話相手の Windows 側の問題だった。</li>
+      </ul>
+      <div class="takeaway"><b>押さえどころ</b>　経路の設計が正しくても、端末側の処理が締め切りを外せば音は崩れます。そして「誰の音が悪いのか」は、聞いている人の体感だけでは分かりません。回線の指標と体感の評価を両方とり、片方だけで判断しないことが Gather の記事の教訓です。</div>
+      <div class="engawa"><span class="tag">engawa では</span>ノイズ除去は自前の AudioWorklet で RNNoise（WASM）を回しており、メインスレッドから切り離すという方向は Gather と同じです。誰の回線が原因かは、タイルに映像停止の理由（「あなたの回線」「相手側の回線」「画質を切り替え中」）を出すことで示しています（<a href="https://github.com/iitenkida7/engawa/pull/313">#313</a>）。体感の評価（星評価）はまだ集めていません。</div>
+    </section>
+
+    <section id="engawa">
+      <div class="ch">Chapter 14</div>
+      <h2>engawa の現在地</h2>
+      <p>ここまでの技術が、engawa にどの順で入ってきたかをまとめます。日付は PR のマージ日（2026 年）です。</p>
+      <div class="timeline">
+        <div><span class="d">05/30</span><span>話者連動のカメラビットレート（<a href="https://github.com/iitenkida7/engawa/pull/72">#72</a>）。SFU と 2 段の simulcast を導入（<a href="https://github.com/iitenkida7/engawa/pull/79">#79</a>）</span></div>
+        <div><span class="d">06/01</span><span>SFU 経路の低遅延チューニング（<a href="https://github.com/iitenkida7/engawa/pull/147">#147</a>）</span></div>
+        <div><span class="d">08/18</span><span>品質の計測、ハートビート、自動回復、tier による帯域適応（<a href="https://github.com/iitenkida7/engawa/pull/189">#189</a>）</span></div>
+        <div><span class="d">10/05</span><span>屋外の SFU 切り替えを 4 人に（<a href="https://github.com/iitenkida7/engawa/pull/205">#205</a>）</span></div>
+        <div><span class="d">10/08</span><span>1 人分の受信失敗を相手ごとの再試行に（<a href="https://github.com/iitenkida7/engawa/pull/251">#251</a>）。メッシュに落とさず作り直し続ける（<a href="https://github.com/iitenkida7/engawa/pull/256">#256</a>）。3 段の simulcast と見ていないものは q（<a href="https://github.com/iitenkida7/engawa/pull/270">#270</a>）</span></div>
+        <div><span class="d">10/09</span><span>tier を 1 段ずつ下げる（<a href="https://github.com/iitenkida7/engawa/pull/274">#274</a>）</span></div>
+        <div><span class="d">10/14</span><span>2 人以上はすべて SFU が既定に（<a href="https://github.com/iitenkida7/engawa/pull/310">#310</a>）</span></div>
+        <div><span class="d">10/15</span><span>映像停止の理由を表示し、SFU のカメラを軽く（<a href="https://github.com/iitenkida7/engawa/pull/313">#313</a>）</span></div>
+        <div><span class="d">10/16</span><span>画面共有を 1920px・15fps・2Mbps に（<a href="https://github.com/iitenkida7/engawa/pull/325">#325</a>）。再接続の連鎖を止める（<a href="https://github.com/iitenkida7/engawa/pull/332">#332</a>）。会議室は q から開始（<a href="https://github.com/iitenkida7/engawa/pull/339">#339</a>）。相手 1 人の失敗で作り直さない（<a href="https://github.com/iitenkida7/engawa/pull/342">#342</a>）</span></div>
+      </div>
+
+      <h3>技術ごとの対応状況</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>技術</th><th>状況</th></tr></thead>
+        <tbody>
+          <tr><td>SFU（メッシュとのハイブリッド）</td><td>あり。既定はすべて SFU</td></tr>
+          <tr><td>Simulcast</td><td>カメラ 3 段。画面共有は 1 段</td></tr>
+          <tr><td>SVC</td><td>なし（simulcast の段が壊れるのを避けて VP8）</td></tr>
+          <tr><td>受け手による段の選択</td><td>タイル幅・画面外・裏タブ・会議室の入室時</td></tr>
+          <tr><td>送り手の適応</td><td>tier 0〜3 の段階的な劣化</td></tr>
+          <tr><td>損失対策</td><td>Opus in-band FEC、tier 2 以上で RED</td></tr>
+          <tr><td>ジッタバッファ</td><td>100〜300ms で自動調整</td></tr>
+          <tr><td>音声の優先</td><td>送信優先度は最高。再接続時はマイクを先に受ける</td></tr>
+          <tr><td>画面共有</td><td>contentHint=detail、解像度優先、1 本・2Mbps・1920px・15fps（SFU）</td></tr>
+          <tr><td>ノイズキャンセル</td><td>ブラウザ内蔵 ＋ RNNoise（AudioWorklet）＋ ボイスゲート。遅延 30ms</td></tr>
+          <tr><td>失敗の分離</td><td>相手ごとの再試行。自分の接続は他者のメディアが届く限り正常とみなす</td></tr>
+          <tr><td>体感の計測</td><td>なし（技術的な指標は netlog にあり）</td></tr>
+          <tr><td>SFU のカスケード・地域分散</td><td>Cloudflare に任せている</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>残っている課題</h3>
+      <p>メッシュ経路では、回線品質を全接続のうち最も悪い 1 本で判定しているため、相手 1 人の回線が悪いと自分の送信全体が下がります。既定の構成（2 人以上は SFU）では表に出ませんが、SFU を設定しない場合や <code>SFU_PROMOTE_AT</code> を上げた場合に起きます。<a href="https://github.com/iitenkida7/engawa/issues/349">iitenkida7/engawa#349</a> で扱っています。</p>
+      <p>次の一手としては、Gather の記事にならって、通話後の短い評価で体感を集めることが考えられます。10/16 の修正が実際に効いているかを、netlog の <code>sfu-rebuild</code> や <code>video-stall</code> の件数と合わせて確かめられます。</p>
+    </section>
+
+    <section id="sources" class="sources">
+      <div class="ch">Sources</div>
+      <h2>出典と信頼度</h2>
+      <p class="note">数値はすべて各ソースの記載によるもので、独自に測ったものではありません。ベンダーの解説記事は自社サービスへの誘導を含むため、実運用に当てはめる前に自分の環境で測ることを勧めます。engawa の記述はリポジトリのコードと PR 本文によります。</p>
+      <ol>
+        <li id="s1"><a href="https://bloggeek.me/webrtcglossary/sfu/">WebRTC SFU Explained: Technology, Pros, Cons &amp; Use Cases</a><span class="badge">BlogGeek.me / 用語集</span></li>
+        <li id="s2"><a href="https://www.forasoft.com/learn/webrtc-architecture-production-systems">A practical guide to WebRTC architecture for production</a><span class="badge">Fora Soft / ベンダー</span></li>
+        <li id="s3"><a href="https://techinterview.org/system-design-webrtc-video-calling/">System Design: WebRTC and Video Calling — Signaling, ICE, STUN/TURN, and SFU Architecture</a><span class="badge">techinterview.org / 解説</span>　10 人で 90 本は、記載の数値からの計算です。</li>
+        <li id="s4"><a href="https://www.forasoft.com/blog/article/webrtc-architecture-guide-for-business-2026">P2P, SFU, MCU, Hybrid: Which WebRTC Architecture Fits Your 2026 Roadmap?</a><span class="badge">Fora Soft / ベンダー</span>　MCU の 4〜10 倍は、記事自身が経験則と断っています。</li>
+        <li id="s5"><a href="https://mediasoup.discourse.group/t/mediasoup-scaling-resource/1866">Mediasoup Scaling resource</a><span class="badge">mediasoup フォーラム</span>　個人の運用報告を含みます。</li>
+        <li id="s6"><a href="https://www.gather.town/blog/behind-the-fix-audio-2026">Behind the fix: Gather 2.0’s audio overhaul</a><span class="badge">Gather 公式 / 2026-06-10</span>　50% 減は自社の指標です。</li>
+        <li id="s7"><a href="https://jmvalin.ca/demo/rnnoise/">RNNoise: Learning Noise Suppression</a><span class="badge">RNNoise 作者の解説</span>　RNNoise を書いた本人による仕組みの説明です。</li>
+        <li id="s8"><a href="https://www.w3.org/TR/mst-content-hint/">MediaStreamTrack Content Hints</a><span class="badge">W3C 仕様</span>　contentHint と degradationPreference の関係を定めた仕様です。</li>
+      </ol>
+    </section>
+
+  </article>
+</div>
+
+<footer class="site-foot">
+  <a href="../">engawa トップへ</a>
+  <a href="https://github.com/iitenkida7/engawa">GitHub リポジトリ</a>
+  <span>数値は各出典の記載と engawa のコード（2026 年 10 月時点）にもとづきます。</span>
+</footer>
+
+<script>
+(function () {
+  var n = document.getElementById('n'), b = document.getElementById('b');
+  function fmt(x) { return (Math.round(x * 10) / 10).toFixed(1) + ' Mbps'; }
+  function set(id, text, bad) { var el = document.getElementById(id); el.textContent = text; el.className = bad ? 'bad' : ''; }
+  function update() {
+    var N = +n.value, B = +b.value;
+    document.getElementById('nOut').textContent = N + ' 人';
+    document.getElementById('bOut').textContent = B.toFixed(1) + ' Mbps';
+    var mUp = (N - 1) * B;
+    set('mConn', (N * (N - 1) / 2) + ' 本');
+    set('mUp', fmt(mUp), mUp > 10);
+    set('mDown', fmt((N - 1) * B));
+    set('mEnc', (N - 1) + ' 本');
+    set('sConn', N + ' 本');
+    set('sUp', fmt(B));
+    set('sDown', fmt((N - 1) * B));
+    set('sEg', fmt(N * (N - 1) * B));
+  }
+  n.addEventListener('input', update);
+  b.addEventListener('input', update);
+  update();
+})();
+</script>
+</body>
+</html>

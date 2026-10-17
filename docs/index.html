@@ -24,7 +24,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+JP:wght@400;500;700&family=M+PLUS+1:wght@700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
@@ -43,6 +43,7 @@
             <a href="#features"><span class="ja">機能</span><span class="en">Features</span></a>
             <a href="#how"><span class="ja">仕組み</span><span class="en">How it works</span></a>
             <a href="#start"><span class="ja">はじめる</span><span class="en">Get started</span></a>
+            <a href="reader/"><span class="ja">技術読本</span><span class="en">Notes</span></a>
           </div>
           <div class="lang-toggle" role="group" aria-label="Language">
             <button type="button" data-lang-btn="ja">日本語</button>
@@ -94,6 +95,12 @@
               <span class="ja">仕組みを知る</span><span class="en">How it works</span>
             </a>
           </div>
+          <svg class="signal" viewBox="0 0 1000 56" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M0 28 H300 C340 28 350 8 390 8 H610 C650 8 660 28 700 28 H1000" fill="none" stroke="var(--line)" stroke-width="2" />
+            <path class="pulse" d="M0 28 H300 C340 28 350 8 390 8 H610 C650 8 660 28 700 28 H1000" fill="none" stroke="var(--accent)" stroke-width="2" />
+            <path d="M300 28 C340 28 350 48 390 48 H610 C650 48 660 28 700 28" fill="none" stroke="var(--line)" stroke-width="2" />
+            <circle cx="500" cy="28" r="9" fill="var(--surface)" stroke="var(--accent)" stroke-width="2" />
+          </svg>
         </div>
 
         <div class="showcase reveal">
@@ -234,10 +241,42 @@
             </div>
             <div class="feature reveal">
               <span class="ico">👥</span>
-              <h3><span class="ja">大人数対応</span><span class="en">Scales up</span></h3>
+              <h3><span class="ja">安定した通話</span><span class="en">Steady calls</span></h3>
               <p>
-                <span class="ja">会議室ゾーンや4人以上の集まりは、自動で SFU 配信に切り替え。</span>
-                <span class="en">Meeting rooms and clusters of 4+ switch to SFU delivery automatically.</span>
+                <span class="ja">2 人以上の通話は既定で SFU 配信。1 人の回線が不安定でも、ほかの人の通話は乱れない。</span>
+                <span class="en">Calls of two or more go through an SFU by default, so one shaky connection doesn't drag everyone else down.</span>
+              </p>
+            </div>
+            <div class="feature reveal">
+              <span class="ico">📶</span>
+              <h3><span class="ja">回線に合わせて調整</span><span class="en">Adapts to your network</span></h3>
+              <p>
+                <span class="ja">回線が悪くなると、画質から順に落として声を守る。切れても自動で再接続。</span>
+                <span class="en">When the network struggles, video steps down first to keep voice clear. Drops reconnect on their own.</span>
+              </p>
+            </div>
+            <div class="feature reveal">
+              <span class="ico">🎧</span>
+              <h3><span class="ja">ノイズ除去</span><span class="en">Noise suppression</span></h3>
+              <p>
+                <span class="ja">キーボードや空調の音をブラウザ内で除去。話していない間はマイクを自動で無音に。</span>
+                <span class="en">Keyboard clatter and fan hum are removed in the browser, and your mic goes silent between sentences.</span>
+              </p>
+            </div>
+            <div class="feature reveal">
+              <span class="ico">🚪</span>
+              <h3><span class="ja">退室で自動オフ</span><span class="en">Auto-off on leaving</span></h3>
+              <p>
+                <span class="ja">会議室を出ると、マイク・カメラ・画面共有が自動でオフに。</span>
+                <span class="en">Step out of a meeting room and your mic, camera and screen share switch off.</span>
+              </p>
+            </div>
+            <div class="feature reveal">
+              <span class="ico">🔒</span>
+              <h3><span class="ja">入室パスワード</span><span class="en">Access password</span></h3>
+              <p>
+                <span class="ja">パスワードを設定すれば、知っている人だけが入れる。未設定ならオープン。</span>
+                <span class="en">Set a password so only your team can get in — or leave it open.</span>
               </p>
             </div>
             <div class="feature reveal">
@@ -306,14 +345,15 @@
                 </h2>
                 <p class="section-lead">
                   <span class="ja"
-                    >音声・映像・画面共有は WebRTC の P2P、または Cloudflare Realtime SFU
-                    で直接つながります。engawa
+                    >音声・映像・画面共有は、2 人以上なら Cloudflare Realtime SFU 経由でつながります（SFU
+                    を設定しなければ WebRTC の P2P）。engawa
                     のサーバーがやるのは「出会いの仲介」と「位置の同期」だけ。だから軽くて、低コスト。</span
                   >
                   <span class="en"
-                    >Voice, video and screen-share connect directly over WebRTC P2P — or via
-                    Cloudflare Realtime SFU for bigger groups. engawa's own server only brokers
-                    introductions and syncs positions. That's what keeps it light and cheap.</span
+                    >Voice, video and screen-share flow through Cloudflare Realtime SFU for any call
+                    of two or more — or straight over WebRTC P2P if you don't configure an SFU.
+                    engawa's own server only brokers introductions and syncs positions. That's what
+                    keeps it light and cheap.</span
                   >
                 </p>
               </div>
@@ -333,8 +373,8 @@
                   <div>
                     <h4><span class="ja">メディアは P2P / SFU</span><span class="en">Media goes P2P / SFU</span></h4>
                     <p>
-                      <span class="ja">実際の音声・映像は端末どうし、または Cloudflare を直接通る。</span>
-                      <span class="en">The actual audio/video flows peer-to-peer, or straight through Cloudflare.</span>
+                      <span class="ja">実際の音声・映像は Cloudflare の SFU（または端末どうし）を直接通る。</span>
+                      <span class="en">The actual audio/video flows straight through Cloudflare's SFU, or peer-to-peer.</span>
                     </p>
                   </div>
                 </li>
@@ -349,6 +389,10 @@
                   </div>
                 </li>
               </ol>
+              <a class="btn btn-ghost reader-link" href="reader/">
+                <span class="ja">技術の読み物を読む：SFU と同時配信の読本</span
+                ><span class="en">Read the engineering notes (Japanese)</span>
+              </a>
             </div>
             <div class="split-media reveal">
               <div class="flow">
@@ -482,6 +526,7 @@ make up
           <a href="https://github.com/iitenkida7/engawa" target="_blank" rel="noopener">GitHub</a>
           <a href="#features"><span class="ja">機能</span><span class="en">Features</span></a>
           <a href="#start"><span class="ja">はじめる</span><span class="en">Get started</span></a>
+          <a href="reader/"><span class="ja">技術読本</span><span class="en">Engineering notes</span></a>
           <span class="tea">Made with 🍵</span>
         </div>
       </div>
