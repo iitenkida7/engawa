@@ -43,6 +43,7 @@
         align-items: center;
         margin-bottom: 16px;
       }
+      a.btn,
       button,
       select,
       input {
@@ -59,6 +60,9 @@
         border-color: var(--acc);
         cursor: pointer;
         font-weight: 600;
+      }
+      a.btn {
+        text-decoration: none;
       }
       #grid {
         display: flex;
@@ -175,6 +179,16 @@
         >
         <button id="sendLater">遅延して通知</button>
         <button id="knockLater">遅延して疑似ノック</button>
+      </div>
+      <div class="bar">
+        <!-- Web pages can't reach OS settings directly; this URL scheme opens macOS
+             System Settings › Notifications after Chrome's "open app?" prompt. -->
+        <a class="btn" href="x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+          >⚙️ macOS の通知設定を開く</a
+        >
+        <span class="lead" style="margin: 0"
+          >Chrome のサイト設定は chrome://settings/content/notifications（ページからは開けないのでアドレスバーに貼る）</span
+        >
       </div>
       <div class="bar">
         <label><input type="checkbox" id="icon" checked /> icon</label>
