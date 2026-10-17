@@ -62,6 +62,7 @@ export class ToolbarController {
   private onRecordingChange: (recording: boolean) => void;
   private onOpenAvatar: () => void;
   private onOpenShortcuts: () => void;
+  private onTestNotify: () => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
   private onUserCamToggle: () => void;
@@ -107,6 +108,7 @@ export class ToolbarController {
     onRecordingChange: (recording: boolean) => void;
     onOpenAvatar: () => void;
     onOpenShortcuts: () => void;
+    onTestNotify: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
     // Fired on a MANUAL camera-button toggle (not setCamEnabled), so the App's
@@ -125,6 +127,7 @@ export class ToolbarController {
     this.onRecordingChange = opts.onRecordingChange;
     this.onOpenAvatar = opts.onOpenAvatar;
     this.onOpenShortcuts = opts.onOpenShortcuts;
+    this.onTestNotify = opts.onTestNotify;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
     this.onUserCamToggle = opts.onUserCamToggle;
@@ -795,6 +798,7 @@ export class ToolbarController {
     };
     addItem(t('toolbar.editAvatar'), () => this.onOpenAvatar());
     addItem(t('toolbar.shortcuts'), () => this.onOpenShortcuts());
+    addItem(t('toolbar.testNotify'), () => this.onTestNotify());
     addItem(this.isDebugOpen() ? t('toolbar.closeDebug') : t('toolbar.openDebug'), () =>
       this.toggleDebug(),
     );

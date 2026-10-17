@@ -1253,6 +1253,58 @@
         font-size: 11px;
       }
 
+      /* ===== Desktop notification fix-it guide ===== */
+      #notify-help {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: min(420px, calc(100% - 32px));
+        max-height: calc(100% - 80px);
+        overflow-y: auto;
+        background: rgba(28, 32, 40, 0.98);
+        border: 1px solid #3a4050;
+        border-radius: 10px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        z-index: 1200;
+        color: #e6e8ee;
+      }
+      #notify-help.hidden {
+        display: none;
+      }
+      #notify-help-lead {
+        margin: 10px 14px 0;
+        color: #b9bfcc;
+        font-size: 13px;
+      }
+      #notify-help-steps {
+        margin: 8px 14px 0;
+        padding-left: 20px;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      #notify-help-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px 14px;
+      }
+      .notify-help-btn {
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 6px;
+        border: 1px solid #454c60;
+        background: #2a3040;
+        color: #e6e8ee;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .notify-help-btn.primary {
+        background: #3d6fd9;
+        border-color: #3d6fd9;
+      }
+
       /* ===== Participant roster (#242) ===== */
       #roster {
         position: absolute;
@@ -1971,6 +2023,16 @@
         </div>
         <div id="keyhelp-list"></div>
         <div id="keyhelp-note"></div>
+      </div>
+      <!-- Desktop notification fix-it guide, filled in by ui/notify-help.ts. -->
+      <div id="notify-help" class="hidden">
+        <div class="roster-head">
+          <span id="notify-help-title"></span>
+          <button id="notify-help-close" class="roster-close" aria-label="閉じる">✕</button>
+        </div>
+        <p id="notify-help-lead"></p>
+        <ol id="notify-help-steps"></ol>
+        <div id="notify-help-actions"></div>
       </div>
       <div id="roster" class="hidden">
         <div class="roster-head">

@@ -75,6 +75,7 @@ import { DesktopNotifier, isBackgrounded, knockAlertLevel } from '@/ui/desktop-n
 import { KeyHelpPanel } from '@/ui/keyhelp';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
+import { NotifyHelpPanel } from '@/ui/notify-help';
 import { isPttKey, PTT_KEY } from '@/ui/ptt';
 import { ReactionToasts } from '@/ui/reaction-toast';
 import { RecIndicator } from '@/ui/rec-indicator';
@@ -135,6 +136,7 @@ export class App {
   private reactionToasts = new ReactionToasts();
   private roster = new RosterPanel({ getPlayers: () => this.players });
   private keyHelp = new KeyHelpPanel();
+  private notifyHelp = new NotifyHelpPanel(() => void this.testDesktopNotify());
   private sounds = new SoundManager();
   private desktopNotifier = new DesktopNotifier();
   private knocks: KnockController;
@@ -473,6 +475,7 @@ export class App {
       // peers (see onOutfitApplied).
       onOpenAvatar: () => this.editor.open({ onApply: (o) => this.onOutfitApplied(o) }),
       onOpenShortcuts: () => this.keyHelp.toggle(),
+      onTestNotify: () => void this.testDesktopNotify(),
       // The 🐛 debug console lives in the toolbar's "⋯" menu (issue #113). These
       // resolve lazily on click, so referencing this.debug (built below) is fine.
       toggleDebug: () => this.debug.toggle(),
@@ -705,10 +708,9 @@ export class App {
   start(name: string, password: string) {
     this.joinedName = name;
     this.joinedPassword = password;
-    // Entering the room is a user gesture, the only context in which browsers
-    // show the notification prompt — so ask here, once, rather than hoping the
-    // user finds the status-menu toggle (#321). No-op once decided either way.
-    void this.desktopNotifier.ensurePermission();
+    // No permission prompt on join: if notifications aren't already allowed the
+    // toggle starts OFF, and turning it on runs the test + fix-it flow.
+    this.desktopNotifier.syncOnJoin();
     this.net.connect();
     // Guard like startBackgroundTicker/setupLifecycle: an auth-error retry calls
     // start() again on the same App, and a second rAF chain would double-drive
@@ -1818,11 +1820,28 @@ export class App {
     });
   }
 
-  // Status-menu toggle for desktop notifications (#140). A denied permission
-  // can only be lifted in the browser's site settings, so say so.
+  // Status-menu toggle for desktop notifications (#140). A browser denial gets
+  // the site-settings steps; the OS gate is checked from ⋯ → test notification.
   private async toggleDesktopNotify() {
-    const perm = await this.desktopNotifier.toggle();
-    if (perm === 'denied') this.toasts.error(t('notify.denied'));
+    const result = await this.desktopNotifier.toggle();
+    if (result === 'unsupported') this.toasts.error(t('notify.unsupported'));
+    else if (result === 'denied') this.notifyHelp.show('browser');
+  }
+
+  // ⋯ → test notification. The browser gate is detectable; the OS gate isn't,
+  // so after sending we ask the user whether it arrived.
+  private async testDesktopNotify() {
+    const result = await this.desktopNotifier.test();
+    if (result === 'unsupported') this.toasts.error(t('notify.unsupported'));
+    else if (result === 'denied') this.notifyHelp.show('browser');
+    else if (result === 'sent') this.askTestArrived();
+  }
+
+  private askTestArrived() {
+    this.toasts.action(t('notify.testAsk'), [
+      { label: t('notify.testYes'), primary: true, onClick: () => {} },
+      { label: t('notify.testNo'), onClick: () => this.notifyHelp.show('os') },
+    ]);
   }
 
   // Set the presence status. No-ops when it already matches. Going away (#220)

@@ -167,6 +167,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.bgUpload': { ja: '📁 画像をアップロード…', en: '📁 Upload image…' },
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
   'toolbar.shortcuts': { ja: '⌨ キーバインド一覧', en: '⌨ Keyboard shortcuts' },
+  'toolbar.testNotify': { ja: '🔔 通知をテスト', en: '🔔 Test notification' },
   // "⋯" menu: experimental features master switch (#323). Opt-in, off by
   // default; the per-feature toggles appear beneath it once ticked.
   'toolbar.experimental': { ja: '🧪 実験的機能を使う', en: '🧪 Use experimental features' },
@@ -224,10 +225,83 @@ const STR: Record<string, Record<Lang, string>> = {
   'notify.knockBody': { ja: '話したがっています', en: 'They would like to talk' },
   'notify.toggleOn': { ja: '🔔 デスクトップ通知: ON', en: '🔔 Desktop notifications: ON' },
   'notify.toggleOff': { ja: '🔕 デスクトップ通知: OFF', en: '🔕 Desktop notifications: OFF' },
-  'notify.denied': {
-    ja: '通知がブロックされています。ブラウザのサイト設定で通知を許可してください',
-    en: 'Notifications are blocked. Allow them in your browser site settings',
+  'notify.testTitle': { ja: '🔔 engawa のテスト通知', en: '🔔 engawa test notification' },
+  'notify.testBody': {
+    ja: 'これが見えていればデスクトップ通知は届きます',
+    en: 'If you can see this, desktop notifications work',
   },
+  'notify.testAsk': {
+    ja: 'テスト通知を送りました。画面の端に届きましたか？',
+    en: 'Sent a test notification. Did it show up?',
+  },
+  'notify.testYes': { ja: '届いた', en: 'Yes' },
+  'notify.testNo': { ja: '届かない', en: 'No' },
+  'notify.unsupported': {
+    ja: 'このブラウザ / 環境ではデスクトップ通知を使えません',
+    en: 'Desktop notifications are not available in this browser',
+  },
+  'notify.help.browserTitle': {
+    ja: '🚫 ブラウザが通知をブロックしています',
+    en: '🚫 Your browser is blocking notifications',
+  },
+  'notify.help.browserLead': {
+    ja: 'engawa のサイトに通知の許可がありません。ブラウザのサイト設定で許可してください。',
+    en: 'engawa is not allowed to notify you. Allow it in the browser site settings.',
+  },
+  'notify.help.browser1': {
+    ja: 'アドレスバー左端のアイコン（🔒 など）をクリック',
+    en: 'Click the icon at the left of the address bar (🔒 etc.)',
+  },
+  'notify.help.browser2': {
+    ja: '「通知」を「許可」に変更（なければ「サイトの設定」→「通知」→「許可」）',
+    en: 'Set "Notifications" to "Allow" (or Site settings → Notifications → Allow)',
+  },
+  'notify.help.browser3': {
+    ja: 'ページを再読み込みして、⋯ メニューの「通知をテスト」で確認',
+    en: 'Reload the page and check again with ⋯ → Test notification',
+  },
+  'notify.help.osTitle': {
+    ja: '🖥 OS の通知設定を確認してください',
+    en: '🖥 Check your OS notification settings',
+  },
+  'notify.help.osLead': {
+    ja: 'ブラウザ側は許可済みです。OS がブラウザの通知を止めている可能性があります。',
+    en: 'The browser allows it, so the OS is probably holding back browser notifications.',
+  },
+  'notify.help.mac1': {
+    ja: '下のボタンで「システム設定 › 通知」を開く',
+    en: 'Open System Settings › Notifications with the button below',
+  },
+  'notify.help.mac2': {
+    ja: '一覧の「Google Chrome」（2 行あれば両方。Edge なら Microsoft Edge）の「通知を許可」をオン',
+    en: 'Turn on "Allow notifications" for Google Chrome (both rows if there are two; Microsoft Edge for Edge)',
+  },
+  'notify.help.mac3': {
+    ja: '集中モード（おやすみモードなど）がオフか確認',
+    en: 'Make sure a Focus mode (e.g. Do Not Disturb) is off',
+  },
+  'notify.help.win1': {
+    ja: '下のボタンで「設定 › システム › 通知」を開く',
+    en: 'Open Settings › System › Notifications with the button below',
+  },
+  'notify.help.win2': {
+    ja: '「通知」をオンにし、アプリ一覧の Google Chrome（または Microsoft Edge）もオン',
+    en: 'Turn on "Notifications", and Google Chrome (or Microsoft Edge) in the app list',
+  },
+  'notify.help.win3': {
+    ja: '「応答不可」（集中モード）がオフか確認',
+    en: 'Make sure "Do not disturb" (Focus) is off',
+  },
+  'notify.help.other1': {
+    ja: 'OS の通知設定で、使っているブラウザの通知を許可',
+    en: "Allow your browser's notifications in the OS notification settings",
+  },
+  'notify.help.other2': {
+    ja: 'おやすみモード / 集中モードがオフか確認',
+    en: 'Make sure Do Not Disturb / Focus is off',
+  },
+  'notify.help.openSettings': { ja: '⚙ 通知設定を開く', en: '⚙ Open notification settings' },
+  'notify.help.retest': { ja: 'もう一度テスト', en: 'Test again' },
 
   // -- debug console --------------------------------------------------------
   'debug.title': { ja: '🐛 デバッグ — RTC 接続', en: '🐛 Debug — RTC connections' },
