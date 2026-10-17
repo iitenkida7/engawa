@@ -234,9 +234,13 @@ engawa は **host 非依存の OSS**。リリースとは「**バージョンタ
 （`index.html` + `styles.css` + 素の `main.js`。フレームワーク・バンドラなし。不変条件 #5 のシンプル志向）。
 - **公開**: `Settings → Pages → Source: Deploy from a branch → main / docs`
   （URL は `https://iitenkida7.github.io/engawa/`）。`docs/.nojekyll` を置き Jekyll を無効化する。
-- **デザイン**: 和モダン。配色は**アプリアイコン（夜明けの陽 × 縁側の板の間）由来**＝アンバーの陽 /
-  生成りの和紙 / 板目の横ライン / 墨色の明朝。日英トグル（localStorage 保存）と IntersectionObserver
-  のスクロール演出（`prefers-reduced-motion` 尊重）を素の JS で実装。
+- **デザイン**: 技術読本（`docs/reader/`）と同じテイストに揃える。青みのグレーの地 / 墨色の文字 /
+  ティールの「信号線」アクセント（＋補助の暖色）、書体は M PLUS 1（見出し）・IBM Plex Sans JP（本文）・
+  IBM Plex Mono（ラベル）。ライト/ダークは `prefers-color-scheme` に追従。日英トグル（localStorage 保存）と
+  IntersectionObserver のスクロール演出（`prefers-reduced-motion` 尊重）を素の JS で実装。
+- **技術読本**: `docs/reader/index.html`（日本語のみ・自己完結の 1 ファイル）。SFU・simulcast・帯域推定・音声・
+  画面共有などを公開ソースと engawa の実装で照合した読み物。実装の数値（レイヤ構成・tier・ノイズ除去の設定など）を
+  変えたら、読本の該当箇所も更新する。
 - **スクショ**は `docs/assets/screens/`。実アプリの撮影は **Caddy 経由 `https://engawa.localhost`** で行う
   （`localhost:5173` は Vite が WS の 101 升級を中継できず入室できない）。MCP ブラウザの自己署名証明書エラーは
   Chrome のエラー画面で `thisisunsafe` とタイプして回避。画像は `sips` で中央クロップ＋縮小。favicon は
