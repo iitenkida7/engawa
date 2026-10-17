@@ -6,10 +6,13 @@
 // while the page is alive, which matches engawa's "keep the tab open to be
 // present" model.
 
+import { t } from '@/core/i18n';
 import type { PlayerStatus } from '@/core/types';
 
 export type AlertLevel = 'none' | 'badge' | 'desktop';
 export type NotifyPermission = 'default' | 'granted' | 'denied' | 'unsupported';
+export type ToggleResult = 'off' | 'unsupported' | 'denied' | 'sent';
+export type HostOs = 'mac' | 'windows' | 'other';
 
 const STORAGE_KEY = 'engawa-desktop-notify';
 const ICON = '/icons/engawa-logo-192.png';
@@ -47,6 +50,14 @@ export function badgedTitle(base: string, count: number): string {
   return count > 0 ? `(${count}) 🔔 ${base}` : base;
 }
 
+/** Which OS's notification settings to point at, from the user agent (pure). */
+export function detectOs(ua: string): HostOs {
+  if (/Windows/i.test(ua)) return 'windows';
+  // iPhone/iPad also say "like Mac OS X"; they have no desktop notifications here.
+  if (/Macintosh|Mac OS X/i.test(ua) && !/iPhone|iPad/i.test(ua)) return 'mac';
+  return 'other';
+}
+
 export class DesktopNotifier {
   private enabled: boolean;
   private badgeCount = 0;
@@ -59,9 +70,9 @@ export class DesktopNotifier {
     } catch {
       /* ignore private-mode storage errors */
     }
-    // Default ON (#321): only an explicit opt-out ('0') disables it, so a knock
-    // reaches you without first hunting down the toggle. Nothing is shown until
-    // the browser permission is granted — see ensurePermission().
+    // Default ON (#321): only an explicit opt-out ('0') disables it. Nothing is
+    // shown until the browser permission is granted, and syncOnJoin() turns it
+    // off at join when it isn't.
     this.enabled = stored !== '0';
   }
 
@@ -74,31 +85,55 @@ export class DesktopNotifier {
     return this.enabled && this.permission() === 'granted';
   }
 
-  // Called once per join, from the click that enters the room (#321): a user
-  // gesture, which is what browsers require to show the permission prompt. Only
-  // asks while the permission is still 'default' — an earlier grant or denial is
-  // final until the user changes it in site settings, and re-asking is a no-op.
-  async ensurePermission(): Promise<NotifyPermission> {
-    const perm = this.permission();
-    if (perm !== 'default') return perm;
-    const granted = await Notification.requestPermission();
-    // A denial leaves the toggle on but inert (isEnabled() checks permission);
-    // don't persist it as an opt-out, so re-allowing in site settings is enough.
-    return granted;
+  // Called once per join (#321 follow-up). We no longer prompt here: unless the
+  // browser permission is already granted, the toggle is switched OFF, so the
+  // only way back ON is the status-menu toggle — which runs a test notification
+  // and walks the user through whichever gate (browser or OS) is closed.
+  syncOnJoin() {
+    if (this.permission() !== 'granted') this.save(false);
   }
 
   // Flip the toggle. Turning it on asks for permission the first time (only
-  // ever from this user gesture, never unprompted). Resolves to the resulting
-  // permission so the caller can explain a denial.
-  async toggle(): Promise<NotifyPermission> {
-    let perm = this.permission();
+  // ever from this user gesture, never unprompted) and then fires a test
+  // notification. 'sent' only means the browser accepted it: whether the OS
+  // actually displayed it can't be observed from the page, so the caller asks.
+  async toggle(): Promise<ToggleResult> {
     if (this.isEnabled()) {
       this.save(false);
-      return perm;
+      return 'off';
     }
+    let perm = this.permission();
+    if (perm === 'unsupported') return 'unsupported';
     if (perm === 'default') perm = await Notification.requestPermission();
-    this.save(perm === 'granted');
-    return perm;
+    if (perm !== 'granted') {
+      this.save(false);
+      return 'denied';
+    }
+    if (!this.sendTest()) {
+      this.save(false);
+      return 'unsupported';
+    }
+    this.save(true);
+    return 'sent';
+  }
+
+  // Fire the test notification. False when the browser refuses page-level
+  // notifications outright (e.g. Android Chrome only allows SW notifications).
+  sendTest(): boolean {
+    try {
+      const n = new Notification(t('notify.testTitle'), {
+        body: t('notify.testBody'),
+        icon: ICON,
+        tag: 'engawa-test',
+      });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // A knock arrived. `level` comes from knockAlertLevel().

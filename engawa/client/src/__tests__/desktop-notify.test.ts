@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import {
   badgedTitle,
   DesktopNotifier,
+  detectOs,
   isBackgrounded,
   knockAlertLevel,
   type NotifyPermission,
@@ -68,19 +69,33 @@ describe('isBackgrounded', () => {
   });
 });
 
-// Minimal Notification stand-in: happy-dom provides none. Returns the number of
-// permission prompts raised so tests can assert we only ask while undecided.
-function stubNotification(permission: NotifyPermission, answer: NotifyPermission = 'granted') {
-  const calls = { requests: 0 };
-  (globalThis as unknown as { Notification: unknown }).Notification = {
-    permission,
-    requestPermission: async () => {
+// Minimal Notification stand-in: happy-dom provides none. Counts permission
+// prompts and constructed notifications; `throws` mimics a browser that refuses
+// page-level notifications (e.g. Android Chrome).
+function stubNotification(
+  permission: NotifyPermission,
+  answer: NotifyPermission = 'granted',
+  throws = false,
+) {
+  const calls = { requests: 0, shown: 0 };
+  class FakeNotification {
+    static permission = permission;
+    static requestPermission = async () => {
       calls.requests++;
       return answer;
-    },
-  };
+    };
+    onclick: (() => void) | null = null;
+    constructor() {
+      if (throws) throw new TypeError('Illegal constructor');
+      calls.shown++;
+    }
+    close() {}
+  }
+  (globalThis as unknown as { Notification: unknown }).Notification = FakeNotification;
   return calls;
 }
+
+const stored = () => localStorage.getItem('engawa-desktop-notify');
 
 describe('DesktopNotifier', () => {
   afterEach(() => {
@@ -104,33 +119,80 @@ describe('DesktopNotifier', () => {
     expect(new DesktopNotifier().isEnabled()).toBe(false);
   });
 
-  it('asks for permission on join while undecided', async () => {
-    const calls = stubNotification('default', 'granted');
-    expect(await new DesktopNotifier().ensurePermission()).toBe('granted');
-    expect(calls.requests).toBe(1);
+  it('switches off on join unless already granted, without prompting', () => {
+    for (const perm of ['default', 'denied', 'unsupported'] as const) {
+      localStorage.clear();
+      const calls = stubNotification(perm);
+      if (perm === 'unsupported')
+        (globalThis as unknown as { Notification?: unknown }).Notification = undefined;
+      new DesktopNotifier().syncOnJoin();
+      expect(stored()).toBe('0');
+      expect(calls.requests).toBe(0);
+    }
   });
 
-  it('never re-asks once the user has decided', async () => {
-    const denied = stubNotification('denied');
-    expect(await new DesktopNotifier().ensurePermission()).toBe('denied');
-    expect(denied.requests).toBe(0);
-    const granted = stubNotification('granted');
-    expect(await new DesktopNotifier().ensurePermission()).toBe('granted');
-    expect(granted.requests).toBe(0);
-  });
-
-  it('does not record a denial as an opt-out, so re-allowing is enough', async () => {
-    stubNotification('default', 'denied');
-    await new DesktopNotifier().ensurePermission();
-    expect(localStorage.getItem('engawa-desktop-notify')).toBeNull();
+  it('keeps the toggle as-is on join when granted', () => {
     stubNotification('granted');
-    expect(new DesktopNotifier().isEnabled()).toBe(true);
+    const n = new DesktopNotifier();
+    n.syncOnJoin();
+    expect(stored()).toBeNull();
+    expect(n.isEnabled()).toBe(true);
   });
 
-  it('reports unsupported (and asks nothing) without the Notification API', async () => {
-    (globalThis as unknown as { Notification?: unknown }).Notification = undefined;
+  it('turning on asks for permission, then sends a test notification', async () => {
+    const calls = stubNotification('default', 'granted');
+    localStorage.setItem('engawa-desktop-notify', '0');
+    expect(await new DesktopNotifier().toggle()).toBe('sent');
+    expect(calls.requests).toBe(1);
+    expect(calls.shown).toBe(1);
+    expect(stored()).toBe('1');
+  });
+
+  it('reports the browser gate when permission is denied', async () => {
+    const calls = stubNotification('default', 'denied');
+    expect(await new DesktopNotifier().toggle()).toBe('denied');
+    expect(calls.shown).toBe(0);
+    expect(stored()).toBe('0');
+  });
+
+  it('does not re-prompt an earlier denial', async () => {
+    const calls = stubNotification('denied');
+    expect(await new DesktopNotifier().toggle()).toBe('denied');
+    expect(calls.requests).toBe(0);
+  });
+
+  it('reports unsupported when the browser refuses page notifications', async () => {
+    stubNotification('granted', 'granted', true);
+    localStorage.setItem('engawa-desktop-notify', '0');
+    expect(await new DesktopNotifier().toggle()).toBe('unsupported');
+    expect(stored()).toBe('0');
+  });
+
+  it('reports unsupported without the Notification API', async () => {
     const n = new DesktopNotifier();
     expect(n.permission()).toBe('unsupported');
-    expect(await n.ensurePermission()).toBe('unsupported');
+    expect(await n.toggle()).toBe('unsupported');
+  });
+
+  it('turning off needs no test', async () => {
+    const calls = stubNotification('granted');
+    expect(await new DesktopNotifier().toggle()).toBe('off');
+    expect(calls.shown).toBe(0);
+    expect(stored()).toBe('0');
+  });
+});
+
+describe('detectOs', () => {
+  it('recognises macOS, Windows and the rest', () => {
+    expect(
+      detectOs('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/155'),
+    ).toBe('mac');
+    expect(
+      detectOs('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/155'),
+    ).toBe('windows');
+    expect(detectOs('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/155')).toBe('other');
+    expect(
+      detectOs('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15'),
+    ).toBe('other');
   });
 });
