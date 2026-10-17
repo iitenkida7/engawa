@@ -61,14 +61,6 @@ body {
   overflow-x: hidden;
 }
 
-/* --- language toggle: show only the active language --- */
-[data-lang='ja'] .en {
-  display: none;
-}
-[data-lang='en'] .ja {
-  display: none;
-}
-
 img {
   max-width: 100%;
   height: auto; /* override intrinsic width/height attrs so ratio is preserved */
@@ -160,10 +152,8 @@ button:focus-visible {
   overflow: hidden;
   font-family: var(--mono);
 }
-.lang-toggle button {
-  appearance: none;
-  border: 0;
-  background: transparent;
+.lang-toggle a {
+  text-decoration: none;
   color: var(--muted);
   font: inherit;
   font-size: 12px;
@@ -172,7 +162,7 @@ button:focus-visible {
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease;
 }
-.lang-toggle button.active {
+.lang-toggle a.active {
   background: var(--accent);
   color: var(--bg);
 }

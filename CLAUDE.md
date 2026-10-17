@@ -230,13 +230,15 @@ engawa は **host 非依存の OSS**。リリースとは「**バージョンタ
 通常どおりフィーチャーブランチ→PR で進める。GHCR publish 後の本番反映は OSS の外（デプロイ専用の別環境）が GHCR の成果物を引いて行う。
 
 ## ランディングページ（LP / GitHub Pages）
-紹介用の LP は **`docs/`（リポジトリ最上位）** に置く。**ビルド不要の自己完結した静的 1 ページ**
-（`index.html` + `styles.css` + 素の `main.js`。フレームワーク・バンドラなし。不変条件 #5 のシンプル志向）。
+紹介用の LP は **`docs/`（リポジトリ最上位）** に置く。**ビルド不要の自己完結した静的ページ**
+（英語 `index.html` と日本語 `ja/index.html` + 共通の `styles.css` + 素の `main.js`。フレームワーク・バンドラなし。
+不変条件 #5 のシンプル志向）。日英は SEO のため**別 URL**（`/engawa/` と `/engawa/ja/`）で、canonical と hreflang で
+対応づける。文言を変えるときは**両方のファイル**を更新する。
 - **公開**: `Settings → Pages → Source: Deploy from a branch → main / docs`
   （URL は `https://iitenkida7.github.io/engawa/`）。`docs/.nojekyll` を置き Jekyll を無効化する。
 - **デザイン**: 技術読本（`docs/reader/`）と同じテイストに揃える。青みのグレーの地 / 墨色の文字 /
   ティールの「信号線」アクセント（＋補助の暖色）、書体は M PLUS 1（見出し）・IBM Plex Sans JP（本文）・
-  IBM Plex Mono（ラベル）。ライト/ダークは `prefers-color-scheme` に追従。日英トグル（localStorage 保存）と
+  IBM Plex Mono（ラベル）。ライト/ダークは `prefers-color-scheme` に追従。日英の切り替えはページ間リンク（選んだ言語を localStorage に保存し、次回は英語ページから `/ja/` へ送る）、
   IntersectionObserver のスクロール演出（`prefers-reduced-motion` 尊重）を素の JS で実装。
 - **技術読本**: `docs/reader/index.html`（日本語）と英語版 `docs/reader/en.html`（どちらも自己完結の 1 ファイル）。SFU・simulcast・帯域推定・音声・
   画面共有などを公開ソースと engawa の実装で照合した読み物。実装の数値（レイヤ構成・tier・ノイズ除去の設定など）を

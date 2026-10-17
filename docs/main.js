@@ -1,39 +1,27 @@
-// engawa landing page — tiny vanilla JS: language toggle, sticky header
+// engawa landing page — tiny vanilla JS: language preference, sticky header
 // state, and on-scroll reveal. No build step, no dependencies.
 (() => {
   'use strict';
 
-  const root = document.documentElement;
-  const STORAGE_KEY = 'engawa-lp-lang';
-
   /* ------------------------------------------------------ language --- */
-  const langButtons = Array.from(document.querySelectorAll('[data-lang-btn]'));
-  const readerLinks = Array.from(document.querySelectorAll('[data-reader-link]'));
-
-  function applyLang(lang) {
-    const next = lang === 'en' ? 'en' : 'ja';
-    root.setAttribute('data-lang', next);
-    root.setAttribute('lang', next);
-    // The engineering notes have a separate English page.
-    for (const link of readerLinks) {
-      link.setAttribute('href', next === 'en' ? 'reader/en.html' : 'reader/');
-    }
-    for (const btn of langButtons) {
-      btn.classList.toggle('active', btn.dataset.langBtn === next);
-      btn.setAttribute('aria-pressed', String(btn.dataset.langBtn === next));
-    }
+  // English (/) and Japanese (/ja/) are separate pages. Remember an explicit
+  // choice, and send returning Japanese readers from the English page to /ja/.
+  const STORAGE_KEY = 'engawa-lp-lang';
+  const pageLang = document.documentElement.lang === 'ja' ? 'ja' : 'en';
+  let stored = null;
+  try {
+    stored = localStorage.getItem(STORAGE_KEY);
+  } catch (_) {
+    /* ignore private-mode storage errors */
   }
-
-  // English is the primary language; a stored choice (e.g. Japanese) wins.
-  const stored = localStorage.getItem(STORAGE_KEY);
-  applyLang(stored || 'en');
-
-  for (const btn of langButtons) {
-    btn.addEventListener('click', () => {
-      const lang = btn.dataset.langBtn;
-      applyLang(lang);
+  if (pageLang === 'en' && stored === 'ja') {
+    location.replace('ja/' + location.hash);
+    return;
+  }
+  for (const link of document.querySelectorAll('[data-lang-link]')) {
+    link.addEventListener('click', () => {
       try {
-        localStorage.setItem(STORAGE_KEY, lang);
+        localStorage.setItem(STORAGE_KEY, link.dataset.langLink);
       } catch (_) {
         /* ignore private-mode storage errors */
       }

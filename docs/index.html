@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-lang="en">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,8 +11,16 @@
     <link rel="icon" type="image/png" href="assets/icon-192.png" />
     <link rel="apple-touch-icon" href="assets/icon-192.png" />
 
+    <link rel="canonical" href="https://iitenkida7.github.io/engawa/" />
+    <link rel="alternate" hreflang="en" href="https://iitenkida7.github.io/engawa/" />
+    <link rel="alternate" hreflang="ja" href="https://iitenkida7.github.io/engawa/ja/" />
+    <link rel="alternate" hreflang="x-default" href="https://iitenkida7.github.io/engawa/" />
+
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://iitenkida7.github.io/engawa/" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="ja_JP" />
     <meta property="og:title" content="engawa — a virtual office that lives in your browser" />
     <meta
       property="og:description"
@@ -40,14 +48,14 @@
         </a>
         <nav class="nav">
           <div class="nav-links">
-            <a href="#features"><span class="ja">機能</span><span class="en">Features</span></a>
-            <a href="#how"><span class="ja">仕組み</span><span class="en">How it works</span></a>
-            <a href="#start"><span class="ja">はじめる</span><span class="en">Get started</span></a>
-            <a href="reader/" data-reader-link><span class="ja">技術読本</span><span class="en">Notes</span></a>
+            <a href="#features">Features</a>
+            <a href="#how">How it works</a>
+            <a href="#start">Get started</a>
+            <a href="reader/en.html">Notes</a>
           </div>
           <div class="lang-toggle" role="group" aria-label="Language">
-            <button type="button" data-lang-btn="ja">日本語</button>
-            <button type="button" data-lang-btn="en">EN</button>
+            <a href="ja/" hreflang="ja" lang="ja" data-lang-link="ja">日本語</a>
+            <a href="./" class="active" aria-current="true" data-lang-link="en">EN</a>
           </div>
           <a
             class="btn btn-ghost header-cta"
@@ -65,22 +73,18 @@
       <section class="hero">
         <div class="container">
           <span class="kicker">
-            <span class="ja">社内向けバーチャルオフィス</span>
-            <span class="en">A virtual office for your team</span>
+            
+            A virtual office for your team
           </span>
           <h1 class="reveal">
-            <span class="ja">ばったり会って、<span class="accent">ちょっと話す</span>。</span>
-            <span class="en">Bump into someone.<br /><span class="accent">Just start talking</span>.</span>
+            
+            Bump into someone.<br /><span class="accent">Just start talking</span>.
           </h1>
           <p class="lead reveal">
-            <span class="ja"
-              >engawa（縁側）は、ブラウザだけで使えるバーチャルオフィス。2Dマップでアバターを動かし、誰かに近づくと音声・ビデオ・画面共有が自動でつながります。離れれば、自然と切れる。</span
-            >
-            <span class="en"
-              >engawa is a virtual office that runs entirely in the browser. Move your avatar
+            
+            engawa is a virtual office that runs entirely in the browser. Move your avatar
               around a 2D map — walk up to a colleague and voice, video, and screen-share connect
-              automatically. Step away and they quietly disconnect.</span
-            >
+              automatically. Step away and they quietly disconnect.
           </p>
           <div class="hero-actions reveal">
             <a
@@ -89,10 +93,10 @@
               target="_blank"
               rel="noopener"
             >
-              <span class="ja">GitHub で見る</span><span class="en">View on GitHub</span>
+              View on GitHub
             </a>
             <a class="btn btn-ghost" href="#how">
-              <span class="ja">仕組みを知る</span><span class="en">How it works</span>
+              How it works
             </a>
           </div>
           <svg class="signal" viewBox="0 0 1000 56" preserveAspectRatio="none" aria-hidden="true">
@@ -107,7 +111,7 @@
           <div class="frame">
             <img
               src="assets/veranda.jpg"
-              alt="縁側と日本庭園のイラスト。障子の和室、縁側に置かれた茶器と丸まって眠る猫、庭に石灯籠と蹲、木塀。"
+              alt="Illustration of an engawa veranda and a Japanese garden: a tatami room behind shoji screens, a tea set and a cat curled up asleep on the veranda, a stone lantern, a water basin and a wooden fence."
               width="1376"
               height="768"
               loading="eager"
@@ -121,15 +125,11 @@
         <div class="container">
           <div class="sun-mark reveal" aria-hidden="true"></div>
           <blockquote class="reveal">
-            <span class="ja"
-              >縁側は、家の内と外のあいだにある板の間。<br />用がなくても腰掛けられて、通りかかった人となんとなく言葉を交わす——そんな場所でした。<br />リモートワークで失われがちな「ばったり会って、ちょっと話す」を、画面の中に取り戻したい。</span
-            >
-            <span class="en"
-              >An <em>engawa</em> is the wooden veranda between the inside and the outside of a
+            
+            An <em>engawa</em> is the wooden veranda between the inside and the outside of a
               traditional Japanese house.<br />A place you could sit without any particular reason,
               and trade a few words with whoever happened to pass by.<br />engawa brings that back
-              to the screen — the casual run-ins that remote work quietly takes away.</span
-            >
+              to the screen — the casual run-ins that remote work quietly takes away.
           </blockquote>
           <cite>ENGAWA · 縁側</cite>
         </div>
@@ -140,26 +140,22 @@
         <div class="container">
           <div class="section-head center reveal">
             <span class="eyebrow"
-              ><span class="ja">画面</span><span class="en">The app</span></span
+              >The app</span
             >
             <h2>
-              <span class="ja">画面は、こんな感じ。</span>
-              <span class="en">Here's the actual app.</span>
+              
+              Here's the actual app.
             </h2>
             <p class="section-lead">
-              <span class="ja"
-                >2D のオフィスフロア。デスクや会議室ゾーンが並び、アバターで自由に歩き回れます。</span
-              >
-              <span class="en"
-                >A 2D office floor — desks and meeting-room zones you roam as your avatar.</span
-              >
+              
+              A 2D office floor — desks and meeting-room zones you roam as your avatar.
             </p>
           </div>
           <div class="showcase reveal">
             <div class="frame frame-dark">
               <img
                 src="assets/screens/office.png"
-                alt="engawa の2Dオフィス。アバターがマップ上を歩き、会議室やデスクが並ぶ。"
+                alt="The engawa 2D office: avatars walk around a map lined with meeting rooms and desks."
                 width="2200"
                 height="1268"
                 loading="lazy"
@@ -174,117 +170,113 @@
         <div class="container">
           <div class="section-head center reveal">
             <span class="eyebrow"
-              ><span class="ja">主な機能</span><span class="en">Features</span></span
+              >Features</span
             >
             <h2>
-              <span class="ja">近づくだけで、つながる。</span>
-              <span class="en">Get closer, and you're connected.</span>
+              
+              Get closer, and you're connected.
             </h2>
             <p class="section-lead">
-              <span class="ja"
-                >Slack のハドルや Gather.town のような「ちょっと話しかける」体験を、軽く。</span
-              >
-              <span class="en"
-                >The "just say hi" feeling of a Slack huddle or Gather.town — made light.</span
-              >
+              
+              The "just say hi" feeling of a Slack huddle or Gather.town — made light.
             </p>
           </div>
 
           <div class="features-grid">
             <div class="feature reveal">
               <span class="ico">🔊</span>
-              <h3><span class="ja">近接音声通話</span><span class="en">Proximity voice</span></h3>
+              <h3>Proximity voice</h3>
               <p>
-                <span class="ja">一定距離まで近づくと自動で音声がつながり、離れると自動で切れる。</span>
-                <span class="en">Voice connects automatically as you approach, and drops as you leave.</span>
+                
+                Voice connects automatically as you approach, and drops as you leave.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">📷</span>
-              <h3><span class="ja">ビデオ通話</span><span class="en">Video</span></h3>
+              <h3>Video</h3>
               <p>
-                <span class="ja">カメラ ON で顔出し。話している人の枠がふわっと光る。</span>
-                <span class="en">Turn on your camera. The active speaker's frame gently glows.</span>
+                
+                Turn on your camera. The active speaker's frame gently glows.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">🖥</span>
-              <h3><span class="ja">画面共有</span><span class="en">Screen share</span></h3>
+              <h3>Screen share</h3>
               <p>
-                <span class="ja">ワンクリックで共有。小窓・サイド・全画面を切り替え。</span>
-                <span class="en">Share in one click. Switch between inset, side panel, and full screen.</span>
+                
+                Share in one click. Switch between inset, side panel, and full screen.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">⏺</span>
-              <h3><span class="ja">録画</span><span class="en">Recording</span></h3>
+              <h3>Recording</h3>
               <p>
-                <span class="ja">フロア＋画面共有＋全カメラ＋全員の音声をブラウザ上で合成して録画。</span>
-                <span class="en">Record the floor, shares, every camera and everyone's audio — composited in the browser.</span>
+                
+                Record the floor, shares, every camera and everyone's audio — composited in the browser.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">🧍</span>
-              <h3><span class="ja">アバター</span><span class="en">Avatars</span></h3>
+              <h3>Avatars</h3>
               <p>
-                <span class="ja">髪型・服・肌の色まで、自分だけのドット絵アバターを作れる。</span>
-                <span class="en">Build your own pixel-art avatar — hair, clothes, skin tone and more.</span>
+                
+                Build your own pixel-art avatar — hair, clothes, skin tone and more.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">🟢</span>
-              <h3><span class="ja">ステータス</span><span class="en">Status</span></h3>
+              <h3>Status</h3>
               <p>
-                <span class="ja">オンライン / 取り込み中 / 離席中 を切り替えて意思表示。</span>
-                <span class="en">Show whether you're online, busy, or away.</span>
+                
+                Show whether you're online, busy, or away.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">👥</span>
-              <h3><span class="ja">安定した通話</span><span class="en">Steady calls</span></h3>
+              <h3>Steady calls</h3>
               <p>
-                <span class="ja">2 人以上の通話は既定で SFU 配信。1 人の回線が不安定でも、ほかの人の通話は乱れない。</span>
-                <span class="en">Calls of two or more go through an SFU by default, so one shaky connection doesn't drag everyone else down.</span>
+                
+                Calls of two or more go through an SFU by default, so one shaky connection doesn't drag everyone else down.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">📶</span>
-              <h3><span class="ja">回線に合わせて調整</span><span class="en">Adapts to your network</span></h3>
+              <h3>Adapts to your network</h3>
               <p>
-                <span class="ja">回線が悪くなると、画質から順に落として声を守る。切れても自動で再接続。</span>
-                <span class="en">When the network struggles, video steps down first to keep voice clear. Drops reconnect on their own.</span>
+                
+                When the network struggles, video steps down first to keep voice clear. Drops reconnect on their own.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">🎧</span>
-              <h3><span class="ja">ノイズ除去</span><span class="en">Noise suppression</span></h3>
+              <h3>Noise suppression</h3>
               <p>
-                <span class="ja">キーボードや空調の音をブラウザ内で除去。話していない間はマイクを自動で無音に。</span>
-                <span class="en">Keyboard clatter and fan hum are removed in the browser, and your mic goes silent between sentences.</span>
+                
+                Keyboard clatter and fan hum are removed in the browser, and your mic goes silent between sentences.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">🚪</span>
-              <h3><span class="ja">退室で自動オフ</span><span class="en">Auto-off on leaving</span></h3>
+              <h3>Auto-off on leaving</h3>
               <p>
-                <span class="ja">会議室を出ると、マイク・カメラ・画面共有が自動でオフに。</span>
-                <span class="en">Step out of a meeting room and your mic, camera and screen share switch off.</span>
+                
+                Step out of a meeting room and your mic, camera and screen share switch off.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">🔒</span>
-              <h3><span class="ja">入室パスワード</span><span class="en">Access password</span></h3>
+              <h3>Access password</h3>
               <p>
-                <span class="ja">パスワードを設定すれば、知っている人だけが入れる。未設定ならオープン。</span>
-                <span class="en">Set a password so only your team can get in — or leave it open.</span>
+                
+                Set a password so only your team can get in — or leave it open.
               </p>
             </div>
             <div class="feature reveal">
               <span class="ico">📲</span>
-              <h3><span class="ja">アプリとして常駐</span><span class="en">Installable (PWA)</span></h3>
+              <h3>Installable (PWA)</h3>
               <p>
-                <span class="ja">Chrome / Edge にインストールして、独立ウィンドウで起動できる。</span>
-                <span class="en">Install on Chrome / Edge and launch it in its own window.</span>
+                
+                Install on Chrome / Edge and launch it in its own window.
               </p>
             </div>
           </div>
@@ -299,7 +291,7 @@
               <div class="frame">
                 <img
                   src="assets/screens/avatar.png"
-                  alt="アバターエディタ。性別・肌・髪型・服などを選べる。"
+                  alt="The avatar editor, where you pick body type, skin, hairstyle, clothes and more."
                   loading="lazy"
                 />
               </div>
@@ -307,22 +299,17 @@
             <div class="split-body reveal">
               <div class="section-head">
                 <span class="eyebrow"
-                  ><span class="ja">キャラメイク</span><span class="en">Make it yours</span></span
+                  >Make it yours</span
                 >
                 <h2>
-                  <span class="ja">アバターは、自分でつくる。</span>
-                  <span class="en">Design your own avatar.</span>
+                  
+                  Design your own avatar.
                 </h2>
                 <p class="section-lead">
-                  <span class="ja"
-                    >性別・肌の色・髪型・服・帽子・メガネまで細かく。ドット絵は
-                    LPC（Liberated&nbsp;Pixel&nbsp;Cup）の素材を使い、思い思いの姿で縁側に座れます。</span
-                  >
-                  <span class="en"
-                    >Tune gender, skin tone, hair, clothes, hats and glasses. The pixel art is built
+                  
+                  Tune gender, skin tone, hair, clothes, hats and glasses. The pixel art is built
                     on LPC (Liberated&nbsp;Pixel&nbsp;Cup) — so everyone shows up as their own
-                    character.</span
-                  >
+                    character.
                 </p>
               </div>
             </div>
@@ -337,84 +324,76 @@
             <div class="split-body reveal">
               <div class="section-head">
                 <span class="eyebrow"
-                  ><span class="ja">仕組み</span><span class="en">How it works</span></span
+                  >How it works</span
                 >
                 <h2>
-                  <span class="ja">メディアは、<br />engawa を経由しない。</span>
-                  <span class="en">Your media never<br />touches our server.</span>
+                  
+                  Your media never<br />touches our server.
                 </h2>
                 <p class="section-lead">
-                  <span class="ja"
-                    >音声・映像・画面共有は、2 人以上なら Cloudflare Realtime SFU 経由でつながります（SFU
-                    を設定しなければ WebRTC の P2P）。engawa
-                    のサーバーがやるのは「出会いの仲介」と「位置の同期」だけ。だから軽くて、低コスト。</span
-                  >
-                  <span class="en"
-                    >Voice, video and screen-share flow through Cloudflare Realtime SFU for any call
+                  
+                  Voice, video and screen-share flow through Cloudflare Realtime SFU for any call
                     of two or more — or straight over WebRTC P2P if you don't configure an SFU.
                     engawa's own server only brokers introductions and syncs positions. That's what
-                    keeps it light and cheap.</span
-                  >
+                    keeps it light and cheap.
                 </p>
               </div>
               <ol class="points">
                 <li>
                   <span class="num">1</span>
                   <div>
-                    <h4><span class="ja">出会いの仲介だけ</span><span class="en">Only the introductions</span></h4>
+                    <h4>Only the introductions</h4>
                     <p>
-                      <span class="ja">誰と誰が近いかを判断し、WebRTC のシグナリングを中継する。</span>
-                      <span class="en">It figures out who's near whom and relays WebRTC signaling.</span>
+                      
+                      It figures out who's near whom and relays WebRTC signaling.
                     </p>
                   </div>
                 </li>
                 <li>
                   <span class="num">2</span>
                   <div>
-                    <h4><span class="ja">メディアは P2P / SFU</span><span class="en">Media goes P2P / SFU</span></h4>
+                    <h4>Media goes P2P / SFU</h4>
                     <p>
-                      <span class="ja">実際の音声・映像は Cloudflare の SFU（または端末どうし）を直接通る。</span>
-                      <span class="en">The actual audio/video flows straight through Cloudflare's SFU, or peer-to-peer.</span>
+                      
+                      The actual audio/video flows straight through Cloudflare's SFU, or peer-to-peer.
                     </p>
                   </div>
                 </li>
                 <li>
                   <span class="num">3</span>
                   <div>
-                    <h4><span class="ja">状態を持たない</span><span class="en">Stateless by design</span></h4>
+                    <h4>Stateless by design</h4>
                     <p>
-                      <span class="ja">DB 不要。再起動すればまっさらに戻る、シンプルなサーバー。</span>
-                      <span class="en">No database. A simple server that resets clean on restart.</span>
+                      
+                      No database. A simple server that resets clean on restart.
                     </p>
                   </div>
                 </li>
               </ol>
-              <a class="btn btn-ghost reader-link" href="reader/" data-reader-link>
-                <span class="ja">技術の読み物を読む：SFU と同時配信の読本</span
-                ><span class="en">Read the engineering notes: mesh, SFU and simulcast</span>
+              <a class="btn btn-ghost reader-link" href="reader/en.html">
+                Read the engineering notes: mesh, SFU and simulcast
               </a>
             </div>
             <div class="split-media reveal">
               <div class="flow">
                 <div class="node">
-                  <div class="t">🧑‍💻 <span class="ja">あなた</span><span class="en">You</span></div>
+                  <div class="t">🧑‍💻 You</div>
                   <div class="d">WebSocket</div>
                 </div>
                 <div class="node">
                   <div class="t">engawa</div>
                   <div class="d">
-                    <span class="ja">位置同期・仲介</span><span class="en">sync & broker</span>
+                    sync & broker
                   </div>
                 </div>
                 <div class="node">
-                  <div class="t">🧑‍💻 <span class="ja">相手</span><span class="en">Peer</span></div>
+                  <div class="t">🧑‍💻 Peer</div>
                   <div class="d">WebSocket</div>
                 </div>
                 <div class="node media">
                   <div class="t">🔊 🎥 🖥</div>
                   <div class="d">
-                    <span class="ja">P2P / Cloudflare SFU で直接</span
-                    ><span class="en">direct via P2P / SFU</span>
+                    direct via P2P / SFU
                   </div>
                 </div>
               </div>
@@ -428,24 +407,19 @@
         <div class="container">
           <div class="section-head center reveal">
             <span class="eyebrow"
-              ><span class="ja">はじめる</span><span class="en">Get started</span></span
+              >Get started</span
             >
             <h2>
-              <span class="ja">すぐに、動かせる。</span>
-              <span class="en">Up and running in minutes.</span>
+              
+              Up and running in minutes.
             </h2>
             <p class="section-lead">
-              <span class="ja"
-                >オープンソース。Docker で起動して、リバースプロキシで HTTPS
-                を終端するだけ。特定ホスティングに縛られません。</span
-              >
-              <span class="en"
-                >Open source. Bring it up with Docker and terminate HTTPS at your own reverse proxy.
-                No hosting lock-in.</span
-              >
+              
+              Open source. Bring it up with Docker and terminate HTTPS at your own reverse proxy.
+                No hosting lock-in.
             </p>
           </div>
-          <pre class="codeblock reveal"><span class="c"># <span class="ja">クローンして</span><span class="en">clone, then</span></span>
+          <pre class="codeblock reveal"><span class="c"># clone, then</span>
 cp .env.example .env
 make up
 <span class="c"># → https://engawa.localhost</span></pre>
@@ -456,7 +430,7 @@ make up
               target="_blank"
               rel="noopener"
             >
-              <span class="ja">リポジトリを見る</span><span class="en">Open the repository</span>
+              Open the repository
             </a>
             <a
               class="btn btn-ghost"
@@ -464,7 +438,7 @@ make up
               target="_blank"
               rel="noopener"
             >
-              <span class="ja">README を読む</span><span class="en">Read the README</span>
+              Read the README
             </a>
           </div>
         </div>
@@ -475,41 +449,32 @@ make up
         <div class="container">
           <div class="section-head center reveal">
             <span class="eyebrow"
-              ><span class="ja">クレジット</span><span class="en">Credits</span></span
+              >Credits</span
             >
-            <h2><span class="ja">素材への感謝</span><span class="en">Built on great art</span></h2>
+            <h2>Built on great art</h2>
           </div>
           <div class="cred-list">
             <div class="cred-card reveal">
               <h4>LPC</h4>
               <p>
-                <span class="ja"
-                  >アバターのドット絵は Liberated Pixel Cup
-                  の素材を使用。作者・出典はリポジトリの CREDITS.csv に個別に記録しています。</span
-                >
-                <span class="en"
-                  >Avatar pixel art from the Liberated Pixel Cup. Each part's author and source is
-                  logged in the repo's CREDITS.csv.</span
-                >
+                
+                Avatar pixel art from the Liberated Pixel Cup. Each part's author and source is
+                  logged in the repo's CREDITS.csv.
               </p>
               <span class="lic">CC-BY-SA 3.0 ほか / et al.</span>
             </div>
             <div class="cred-card reveal">
               <h4>Kenney — Roguelike Indoors</h4>
               <p>
-                <span class="ja">オフィスのマップタイルは Kenney の素材を使用しています。</span>
-                <span class="en">The office map tiles come from Kenney's asset packs.</span>
+                
+                The office map tiles come from Kenney's asset packs.
               </p>
               <span class="lic">CC0</span>
             </div>
           </div>
           <p class="note">
-            <span class="ja"
-              >※ これらの素材ライセンスは、engawa 本体コードのライセンスとは分離して扱います。</span
-            >
-            <span class="en"
-              >Asset licenses are handled separately from the engawa application code.</span
-            >
+            
+            Asset licenses are handled separately from the engawa application code.
           </p>
         </div>
       </section>
@@ -524,9 +489,9 @@ make up
         </a>
         <div class="foot-right">
           <a href="https://github.com/iitenkida7/engawa" target="_blank" rel="noopener">GitHub</a>
-          <a href="#features"><span class="ja">機能</span><span class="en">Features</span></a>
-          <a href="#start"><span class="ja">はじめる</span><span class="en">Get started</span></a>
-          <a href="reader/" data-reader-link><span class="ja">技術読本</span><span class="en">Engineering notes</span></a>
+          <a href="#features">Features</a>
+          <a href="#start">Get started</a>
+          <a href="reader/en.html">Engineering notes</a>
           <span class="tea">Made with 🍵</span>
         </div>
       </div>
