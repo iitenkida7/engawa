@@ -8,11 +8,16 @@
 
   /* ------------------------------------------------------ language --- */
   const langButtons = Array.from(document.querySelectorAll('[data-lang-btn]'));
+  const readerLinks = Array.from(document.querySelectorAll('[data-reader-link]'));
 
   function applyLang(lang) {
     const next = lang === 'en' ? 'en' : 'ja';
     root.setAttribute('data-lang', next);
     root.setAttribute('lang', next);
+    // The engineering notes have a separate English page.
+    for (const link of readerLinks) {
+      link.setAttribute('href', next === 'en' ? 'reader/en.html' : 'reader/');
+    }
     for (const btn of langButtons) {
       btn.classList.toggle('active', btn.dataset.langBtn === next);
       btn.setAttribute('aria-pressed', String(btn.dataset.langBtn === next));

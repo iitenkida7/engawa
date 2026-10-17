@@ -9,6 +9,8 @@
 <meta property="og:title" content="SFU と同時配信の読本">
 <meta property="og:description" content="メッシュから SFU へ、そして同時配信の技術。公開ソースと engawa の実装を突き合わせて整理した読み物。">
 <meta property="og:image" content="https://iitenkida7.github.io/engawa/assets/veranda.jpg">
+<link rel="alternate" hreflang="ja" href="https://iitenkida7.github.io/engawa/reader/">
+<link rel="alternate" hreflang="en" href="https://iitenkida7.github.io/engawa/reader/en.html">
 <link rel="icon" type="image/png" href="../assets/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -48,6 +50,7 @@ html, body { margin: 0; }
 .topbar a { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: var(--muted); }
 .topbar a:hover { color: var(--ink); }
 .topbar img { width: 22px; height: 22px; border-radius: 5px; }
+.topbar .links { display: flex; gap: 16px; }
 .site-foot { max-width: 1120px; margin: 0 auto; padding-block: 24px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 16px; }
 body {
   background: var(--bg); color: var(--ink);
@@ -142,7 +145,10 @@ svg .mono { font-family: var(--f-mono); font-size: 11px; }
 <body>
 <div class="topbar">
   <a href="../"><img src="../assets/icon-192.png" alt="">engawa</a>
-  <a href="https://github.com/iitenkida7/engawa">GitHub</a>
+  <span class="links">
+    <a href="en.html" hreflang="en" lang="en">English</a>
+    <a href="https://github.com/iitenkida7/engawa">GitHub</a>
+  </span>
 </div>
 <header class="hero">
   <div class="eyebrow">Media routing reader · engawa 版</div>
@@ -680,6 +686,7 @@ svg .mono { font-family: var(--f-mono); font-size: 11px; }
 <footer class="site-foot">
   <a href="../">engawa トップへ</a>
   <a href="https://github.com/iitenkida7/engawa">GitHub リポジトリ</a>
+  <a href="en.html" hreflang="en" lang="en">English edition</a>
   <span>数値は各出典の記載と engawa のコード（2026 年 10 月時点）にもとづきます。</span>
 </footer>
 
