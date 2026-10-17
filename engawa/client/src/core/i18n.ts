@@ -131,8 +131,8 @@ const STR: Record<string, Record<Lang, string>> = {
   // Our own recording (#315): a persistent indicator stays on screen while it runs.
   'rec.indicator': { ja: '録画中', en: 'REC' },
   'rec.indicatorHint': {
-    ja: '■ 停止で保存 / 閉じるとそこまでを自動保存',
-    en: '■ Stop to save / closing auto-saves so far',
+    ja: '■ 停止で保存',
+    en: '■ Stop to save',
   },
   'toolbar.reactions': { ja: 'リアクション', en: 'Reactions' },
   'toolbar.more': { ja: 'その他', en: 'More' },
