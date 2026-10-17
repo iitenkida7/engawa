@@ -187,6 +187,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.closeDebug': { ja: '🐛 デバッグを閉じる', en: '🐛 Close debug' },
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
   'toolbar.cameraLab': { ja: '🎥 カメラ画質ラボ', en: '🎥 Camera quality lab' },
+  'toolbar.notifyLab': { ja: '🔔 デスクトップ通知ラボ', en: '🔔 Notification lab' },
 
   // -- virtual background presets & button ----------------------------------
   'vbg.office': { ja: '⬛ ダーク', en: '⬛ Dark' },

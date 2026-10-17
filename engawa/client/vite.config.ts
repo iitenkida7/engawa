@@ -41,6 +41,7 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         cameraLab: fileURLToPath(new URL('./camera-lab.html', import.meta.url)),
+        notifyLab: fileURLToPath(new URL('./notify-lab.html', import.meta.url)),
       },
     },
   },

@@ -800,6 +800,8 @@ export class ToolbarController {
     );
     // Camera quality lab: a standalone page comparing the SFU simulcast layers.
     addItem(t('toolbar.cameraLab'), () => window.open('/camera-lab.html', '_blank'));
+    // Notification lab: a standalone page for checking OS notifications in isolation.
+    addItem(t('toolbar.notifyLab'), () => window.open('/notify-lab.html', '_blank'));
     // Language switch (issue #172): label shows the language you'd switch TO;
     // setLang persists the choice and reloads.
     const other: Lang = getLang() === 'ja' ? 'en' : 'ja';
