@@ -238,9 +238,9 @@ engawa は **host 非依存の OSS**。リリースとは「**バージョンタ
   ティールの「信号線」アクセント（＋補助の暖色）、書体は M PLUS 1（見出し）・IBM Plex Sans JP（本文）・
   IBM Plex Mono（ラベル）。ライト/ダークは `prefers-color-scheme` に追従。日英トグル（localStorage 保存）と
   IntersectionObserver のスクロール演出（`prefers-reduced-motion` 尊重）を素の JS で実装。
-- **技術読本**: `docs/reader/index.html`（日本語のみ・自己完結の 1 ファイル）。SFU・simulcast・帯域推定・音声・
+- **技術読本**: `docs/reader/index.html`（日本語）と英語版 `docs/reader/en.html`（どちらも自己完結の 1 ファイル）。SFU・simulcast・帯域推定・音声・
   画面共有などを公開ソースと engawa の実装で照合した読み物。実装の数値（レイヤ構成・tier・ノイズ除去の設定など）を
-  変えたら、読本の該当箇所も更新する。
+  変えたら、読本の該当箇所も**日英両方**更新する。
 - **スクショ**は `docs/assets/screens/`。実アプリの撮影は **Caddy 経由 `https://engawa.localhost`** で行う
   （`localhost:5173` は Vite が WS の 101 升級を中継できず入室できない）。MCP ブラウザの自己署名証明書エラーは
   Chrome のエラー画面で `thisisunsafe` とタイプして回避。画像は `sips` で中央クロップ＋縮小。favicon は

@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SFU and Simulcast Reader — engawa</title>
+<meta name="description" content="From the limits of mesh to SFUs, simulcast, bandwidth estimation, loss handling, audio and noise suppression, screen sharing and failure isolation, checked against public sources and engawa's implementation.">
+<meta property="og:type" content="article">
+<meta property="og:title" content="SFU and Simulcast Reader">
+<meta property="og:description" content="From mesh to SFU, and the technology of simulcast. A reader checked against public sources and engawa's implementation.">
+<meta property="og:image" content="https://iitenkida7.github.io/engawa/assets/veranda.jpg">
+<link rel="alternate" hreflang="ja" href="https://iitenkida7.github.io/engawa/reader/">
+<link rel="alternate" hreflang="en" href="https://iitenkida7.github.io/engawa/reader/en.html">
+<link rel="icon" type="image/png" href="../assets/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;700&family=IBM+Plex+Sans+JP:wght@400;500;700&family=M+PLUS+1:wght@700;800&display=swap">
+<style>
+/* Layout: a reading column with a sticky chapter rail on wide screens; diagrams drawn as signal paths */
+:root {
+  --bg: #edf1f4;
+  --surface: #ffffff;
+  --ink: #15212c;
+  --muted: #586776;
+  --line: #c9d3dc;
+  --accent: #0b737b;
+  --accent-soft: #dcefef;
+  --warm: #b8591a;
+  --warm-soft: #f6e6d9;
+  --code-bg: #e3e9ee;
+  --f-display: "M PLUS 1", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --f-body: "IBM Plex Sans", "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f161d; --surface: #16202a; --ink: #e2e9ef; --muted: #93a3b1; --line: #2b3a47;
+    --accent: #45c1c8; --accent-soft: #143238; --warm: #f0a062; --warm-soft: #3a2616; --code-bg: #1d2a35;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f161d; --surface: #16202a; --ink: #e2e9ef; --muted: #93a3b1; --line: #2b3a47;
+  --accent: #45c1c8; --accent-soft: #143238; --warm: #f0a062; --warm-soft: #3a2616; --code-bg: #1d2a35;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+.topbar { max-width: 1120px; margin: 0 auto; padding-block: 18px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; }
+.topbar a { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: var(--muted); }
+.topbar a:hover { color: var(--ink); }
+.topbar img { width: 22px; height: 22px; border-radius: 5px; }
+.topbar .links { display: flex; gap: 16px; }
+.site-foot { max-width: 1120px; margin: 0 auto; padding-block: 24px 0; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 16px; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--f-body); font-size: 16px; line-height: 1.7;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 64px;
+}
+a { color: var(--accent); text-underline-offset: 3px; }
+a:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, .mono { font-family: var(--f-mono); font-size: .88em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+
+.hero { max-width: 1120px; margin: 0 auto; padding-block: 56px 40px; border-bottom: 1px solid var(--line); }
+.hero .eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+.hero h1 { font-family: var(--f-display); font-weight: 800; font-size: clamp(34px, 6vw, 60px); line-height: 1.2; margin: 12px 0 18px; text-wrap: balance; letter-spacing: .01em; }
+.hero h1 .path { color: var(--accent); }
+.hero p.lead { max-width: 40em; font-size: 17px; color: var(--muted); margin: 0; }
+.signal { display: block; width: 100%; max-width: 100%; height: 56px; margin-top: 28px; }
+
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 56px; padding-top: 40px; }
+@media (max-width: 900px) { .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; } .rail { display: none; } }
+.rail { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; font-size: 13px; }
+.rail ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.rail a { display: grid; grid-template-columns: 28px 1fr; text-decoration: none; color: var(--muted); padding: 5px 8px; border-radius: 4px; line-height: 1.5; }
+.rail a:hover { color: var(--ink); background: var(--surface); }
+.rail a .n { font-family: var(--f-mono); color: var(--accent); }
+
+article { min-width: 0; max-width: 46em; }
+section { padding-block: 8px 40px; border-bottom: 1px solid var(--line); margin-bottom: 40px; }
+section:last-child { border-bottom: 0; }
+.ch { font-family: var(--f-mono); font-size: 12px; letter-spacing: .14em; color: var(--accent); text-transform: uppercase; }
+h2 { font-family: var(--f-display); font-weight: 800; font-size: clamp(24px, 3.4vw, 32px); line-height: 1.35; margin: 6px 0 18px; text-wrap: balance; }
+h3 { font-family: var(--f-display); font-weight: 700; font-size: 19px; margin: 32px 0 8px; text-wrap: balance; }
+p { margin: 0 0 1em; }
+ul, ol.body { padding-left: 1.3em; margin: 0 0 1em; }
+li { margin-bottom: .35em; }
+.cite { font-family: var(--f-mono); font-size: 11px; color: var(--muted); vertical-align: super; text-decoration: none; margin-left: 1px; }
+.cite:hover { color: var(--accent); }
+
+.takeaway { background: var(--accent-soft); border-radius: 6px; padding: 14px 18px; margin: 20px 0; }
+.takeaway b { color: var(--accent); }
+.engawa { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 14px 18px; margin: 20px 0; font-size: 15px; }
+.engawa .tag { font-family: var(--f-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--warm); display: block; margin-bottom: 4px; }
+.note { font-size: 13px; color: var(--muted); }
+
+.tbl { overflow-x: auto; margin: 18px 0 22px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.6; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 700; font-size: 12px; letter-spacing: .04em; color: var(--muted); background: var(--bg); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.num, .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+figure { margin: 24px 0; }
+figure .fig { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; }
+figure svg { display: block; width: 100%; height: auto; min-width: 520px; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+svg text { font-family: var(--f-body); fill: var(--ink); }
+svg .lbl { font-size: 13px; }
+svg .sm { font-size: 11px; fill: var(--muted); }
+svg .mono { font-family: var(--f-mono); font-size: 11px; }
+
+.calc { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 18px; margin: 24px 0; }
+.calc h4 { margin: 0 0 12px; font-family: var(--f-display); font-size: 16px; }
+.ctrl { display: grid; grid-template-columns: 10em minmax(0, 1fr) 5em; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 14px; }
+.ctrl output { font-family: var(--f-mono); text-align: right; }
+.ctrl input { width: 100%; accent-color: var(--accent); }
+@media (max-width: 520px) { .ctrl { grid-template-columns: 1fr 4.5em; } .ctrl input { grid-column: 1 / -1; grid-row: 2; } }
+.res { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+@media (max-width: 520px) { .res { grid-template-columns: minmax(0, 1fr); } }
+.res .col { border-top: 3px solid var(--warm); padding-top: 8px; }
+.res .col.sfu { border-top-color: var(--accent); }
+.res .col h5 { margin: 0 0 6px; font-size: 13px; }
+.res dl { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 0; font-size: 13px; }
+.res dt { color: var(--muted); }
+.res dd { margin: 0; font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.res dd.bad { color: var(--warm); font-weight: 600; }
+
+.timeline { display: grid; gap: 0; margin: 18px 0; }
+.timeline div { display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 14px; padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
+.timeline .d { font-family: var(--f-mono); color: var(--accent); }
+
+.sources ol { padding-left: 1.4em; font-size: 14px; }
+.sources li { margin-bottom: .6em; }
+.badge { font-family: var(--f-mono); font-size: 10px; letter-spacing: .08em; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--muted); margin-left: 6px; white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) {
+  .signal .pulse { stroke-dasharray: 6 10; animation: flow 2.4s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset: -64; } }
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="../"><img src="../assets/icon-192.png" alt="">engawa</a>
+  <span class="links">
+    <a href="./" hreflang="ja" lang="ja">日本語</a>
+    <a href="https://github.com/iitenkida7/engawa">GitHub</a>
+  </span>
+</div>
+<header class="hero">
+  <div class="eyebrow">Media routing reader · engawa edition</div>
+  <h1>From mesh to SFU,<br><span class="path">and the technology of simulcast</span></h1>
+  <p class="lead">In a virtual office where you can talk to whoever you walk up to, the set of people you are connected to changes with every step. This reader explains why a P2P mesh stops being enough, how an SFU isolates one person's weak connection from everyone else, and the concrete techniques behind two-way simultaneous streaming. Each topic is checked against public sources and against engawa's own implementation.</p>
+  <svg class="signal" viewBox="0 0 1000 56" preserveAspectRatio="none" aria-hidden="true">
+    <path d="M0 28 H300 C340 28 350 8 390 8 H610 C650 8 660 28 700 28 H1000" fill="none" stroke="var(--line)" stroke-width="2"/>
+    <path class="pulse" d="M0 28 H300 C340 28 350 8 390 8 H610 C650 8 660 28 700 28 H1000" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    <path d="M300 28 C340 28 350 48 390 48 H610 C650 48 660 28 700 28" fill="none" stroke="var(--line)" stroke-width="2"/>
+    <circle cx="500" cy="28" r="9" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
+  </svg>
+</header>
+
+<div class="wrap">
+  <nav class="rail" aria-label="Contents">
+    <ol>
+      <li><a href="#basics"><span class="n">01</span>WebRTC basics</a></li>
+      <li><a href="#mesh"><span class="n">02</span>The limits of mesh</a></li>
+      <li><a href="#mcu"><span class="n">03</span>The MCU detour</a></li>
+      <li><a href="#sfu"><span class="n">04</span>How an SFU works</a></li>
+      <li><a href="#simulcast"><span class="n">05</span>Simulcast and SVC</a></li>
+      <li><a href="#bwe"><span class="n">06</span>Bandwidth estimation</a></li>
+      <li><a href="#loss"><span class="n">07</span>Loss and jitter</a></li>
+      <li><a href="#audio"><span class="n">08</span>Audio and noise suppression</a></li>
+      <li><a href="#screen"><span class="n">09</span>Screen sharing</a></li>
+      <li><a href="#select"><span class="n">10</span>Receivers choose</a></li>
+      <li><a href="#resilience"><span class="n">11</span>Recovering from failure</a></li>
+      <li><a href="#scale"><span class="n">12</span>Design by scale</a></li>
+      <li><a href="#gather"><span class="n">13</span>The Gather case</a></li>
+      <li><a href="#engawa"><span class="n">14</span>Where engawa stands</a></li>
+      <li><a href="#sources"><span class="n">—</span>Sources</a></li>
+    </ol>
+  </nav>
+
+  <article>
+
+    <section id="basics">
+      <div class="ch">Chapter 01</div>
+      <h2>WebRTC basics: signaling and NAT traversal</h2>
+      <p>WebRTC lets browsers exchange audio and video directly, but it does not define how they find each other. Exchanging the offer and answer (SDP) is the application's job, and most apps do it over a WebSocket. The caller creates an offer and sends it, the callee replies with an answer, and route candidates (ICE candidates) are sent a few at a time as they are discovered (trickle ICE).<a class="cite" href="#s3">[3]</a></p>
+      <p>There are three kinds of route candidates: a LAN address (host), your public address as reported by a STUN server (server-reflexive), and a relay through a TURN server (relay). ICE tries every combination and uses the one that connects. Once a route is chosen, keys are exchanged over DTLS and encrypted media starts to flow.<a class="cite" href="#s3">[3]</a></p>
+      <p>TURN is the last resort when a direct connection fails. Behind a symmetric NAT or a corporate firewall that blocks UDP, traffic goes through TURN. Sources put the share of such calls at "about 10–30%"<a class="cite" href="#s3">[3]</a> or "about 18–35% on symmetric NATs and mobile networks"<a class="cite" href="#s2">[2]</a>, and relaying adds 50–150 ms of latency.<a class="cite" href="#s2">[2]</a></p>
+      <div class="takeaway"><b>Key point</b> The server only "introduces" peers; media takes a separate path. That division of labour is the foundation of WebRTC. Adding an SFU does not change it. The only difference is that media now passes through a relay server instead of going straight to the other device.</div>
+      <div class="engawa"><span class="tag">In engawa</span>A Bun WebSocket server handles signaling, and <code>/api/turn-credentials</code> issues short-lived Cloudflare Realtime TURN credentials. Only the server holds the API key. Media never passes through engawa's server.</div>
+    </section>
+
+    <section id="mesh">
+      <div class="ch">Chapter 02</div>
+      <h2>The limits of mesh: growth with the square of the headcount</h2>
+      <p>The simplest multi-party call is a full mesh, where everyone connects directly to everyone else. It costs nothing in servers, and with nothing in between, latency is as low as it gets. The problem is the number of streams. With N people there are N(N−1)/2 connections, and each person encodes and sends their video N−1 separate times.<a class="cite" href="#s3">[3]</a></p>
+      <p>With 6 people each person sends 5 streams; with 10 people it is 9, and the room as a whole carries 10×9 = 90 streams.<a class="cite" href="#s3">[3]</a> Home connections have far less upload than download, so the upload runs out first. The sources draw almost the same line: "mesh works up to about 4 people"<a class="cite" href="#s4">[4]</a>, "it breaks down beyond about 4"<a class="cite" href="#s2">[2]</a>, "2–5 people".<a class="cite" href="#s1">[1]</a></p>
+
+      <figure>
+        <div class="fig">
+          <svg viewBox="0 0 640 250" role="img" aria-label="With 6 people, a mesh needs 15 connections while an SFU needs 6">
+            <g transform="translate(150,125)">
+              <g stroke="var(--warm)" stroke-width="1.4" opacity=".75">
+                <line x1="0" y1="-90" x2="78" y2="-45"/><line x1="0" y1="-90" x2="78" y2="45"/><line x1="0" y1="-90" x2="0" y2="90"/><line x1="0" y1="-90" x2="-78" y2="45"/><line x1="0" y1="-90" x2="-78" y2="-45"/>
+                <line x1="78" y1="-45" x2="78" y2="45"/><line x1="78" y1="-45" x2="0" y2="90"/><line x1="78" y1="-45" x2="-78" y2="45"/><line x1="78" y1="-45" x2="-78" y2="-45"/>
+                <line x1="78" y1="45" x2="0" y2="90"/><line x1="78" y1="45" x2="-78" y2="45"/><line x1="78" y1="45" x2="-78" y2="-45"/>
+                <line x1="0" y1="90" x2="-78" y2="45"/><line x1="0" y1="90" x2="-78" y2="-45"/>
+                <line x1="-78" y1="45" x2="-78" y2="-45"/>
+              </g>
+              <g fill="var(--surface)" stroke="var(--ink)" stroke-width="1.6">
+                <circle cx="0" cy="-90" r="13"/><circle cx="78" cy="-45" r="13"/><circle cx="78" cy="45" r="13"/><circle cx="0" cy="90" r="13"/><circle cx="-78" cy="45" r="13"/><circle cx="-78" cy="-45" r="13"/>
+              </g>
+            </g>
+            <text x="150" y="245" text-anchor="middle" class="lbl">Mesh: 15 connections, 5 uplinks each</text>
+            <g transform="translate(470,125)">
+              <g stroke="var(--accent)" stroke-width="1.8">
+                <line x1="0" y1="0" x2="0" y2="-90"/><line x1="0" y1="0" x2="78" y2="-45"/><line x1="0" y1="0" x2="78" y2="45"/><line x1="0" y1="0" x2="0" y2="90"/><line x1="0" y1="0" x2="-78" y2="45"/><line x1="0" y1="0" x2="-78" y2="-45"/>
+              </g>
+              <rect x="-26" y="-16" width="52" height="32" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/>
+              <text x="0" y="5" text-anchor="middle" class="mono" style="fill:var(--accent);font-weight:600">SFU</text>
+              <g fill="var(--surface)" stroke="var(--ink)" stroke-width="1.6">
+                <circle cx="0" cy="-90" r="13"/><circle cx="78" cy="-45" r="13"/><circle cx="78" cy="45" r="13"/><circle cx="0" cy="90" r="13"/><circle cx="-78" cy="45" r="13"/><circle cx="-78" cy="-45" r="13"/>
+              </g>
+            </g>
+            <text x="470" y="245" text-anchor="middle" class="lbl">SFU: 6 connections, 1 uplink each</text>
+          </svg>
+        </div>
+        <figcaption>For the same 6 people, a mesh needs N(N−1)/2 connections and an SFU needs only N.</figcaption>
+      </figure>
+
+      <div class="calc" id="calc">
+        <h4>Headcount and bandwidth calculator</h4>
+        <div class="ctrl"><label for="n">Participants</label><input id="n" type="range" min="2" max="20" value="6"><output id="nOut" for="n">6 people</output></div>
+        <div class="ctrl"><label for="b">Bitrate per video</label><input id="b" type="range" min="0.1" max="2" step="0.1" value="0.5"><output id="bOut" for="b">0.5 Mbps</output></div>
+        <div class="res">
+          <div class="col mesh"><h5>Mesh</h5><dl>
+            <dt>Connections</dt><dd id="mConn"></dd>
+            <dt>Upload per person</dt><dd id="mUp"></dd>
+            <dt>Download per person</dt><dd id="mDown"></dd>
+            <dt>Encodes per person</dt><dd id="mEnc"></dd>
+          </dl></div>
+          <div class="col sfu"><h5>SFU (no simulcast)</h5><dl>
+            <dt>Connections</dt><dd id="sConn"></dd>
+            <dt>Upload per person</dt><dd id="sUp"></dd>
+            <dt>Download per person</dt><dd id="sDown"></dd>
+            <dt>Total SFU egress</dt><dd id="sEg"></dd>
+          </dl></div>
+        </div>
+        <p class="note" style="margin:12px 0 0">Upload above 10 Mbps is shown in orange (a rough figure for a home connection's upload). Download stays at N−1 streams even with an SFU; Chapters 5 and 10 cover what the receiver can do about that.</p>
+      </div>
+
+      <p>Besides the stream count, what bites in practice is <b>one-sided failure</b>. A mesh runs ICE separately for every pair, so "A–B and B–C connect, but A–C does not" can happen. The more people, the more pairs, and the higher the chance that some pair is missing.</p>
+      <div class="engawa"><span class="tag">In engawa</span>In the mesh era, speaker-aware control capped the camera of anyone not talking at 150 kbps (<a href="https://github.com/iitenkida7/engawa/pull/72">#72</a>) to keep uploads in check. The SFU switch-over threshold was later lowered from 5 people (<a href="https://github.com/iitenkida7/engawa/pull/79">#79</a>) to 4 (<a href="https://github.com/iitenkida7/engawa/pull/205">#205</a>) to 2 (<a href="https://github.com/iitenkida7/engawa/pull/310">#310</a>), so today even a two-person conversation goes through the SFU. The deciding factor for <a href="https://github.com/iitenkida7/engawa/pull/310">#310</a> was the one-sided failure described above.</div>
+    </section>
+
+    <section id="mcu">
+      <div class="ch">Chapter 03</div>
+      <h2>The MCU detour</h2>
+      <p>The next idea after mesh is the MCU (Multipoint Control Unit). The server decodes everyone's video, composites it into a single picture, re-encodes it, and sends each person just one stream. From the device's point of view it is one stream up and one down, which is very light.</p>
+      <p>In exchange, the server gets heavy. Decoding and re-encoding N streams in real time is said to take roughly 4–10× the compute of an SFU for the same number of people.<a class="cite" href="#s4">[4]</a> The processing adds latency, and the layout is fixed by the server.<a class="cite" href="#s1">[1]</a> MCUs are still chosen when you want a single combined recording, need to bridge to SIP or the phone network, or have devices too weak to receive more than one stream.<a class="cite" href="#s4">[4]</a></p>
+
+      <div class="tbl"><table>
+        <thead><tr><th></th><th>Mesh</th><th>SFU</th><th>MCU</th></tr></thead>
+        <tbody>
+          <tr><td>Server's job</td><td>None (signaling and TURN only)</td><td>Forward without decoding</td><td>Decode, composite, re-encode</td></tr>
+          <tr><td>Server cost</td><td>Almost zero</td><td>Low to medium</td><td>High (4–10× the compute of an SFU)</td></tr>
+          <tr><td>Upload per person</td><td class="num">N−1 streams</td><td class="num">1 stream</td><td class="num">1 stream</td></tr>
+          <tr><td>Download per person</td><td class="num">N−1 streams</td><td class="num">N−1 (selectable)</td><td class="num">1 stream</td></tr>
+          <tr><td>Latency</td><td>Lowest</td><td>Low (forwarding)</td><td>High (processing)</td></tr>
+          <tr><td>Layout</td><td>Per device</td><td>Per device</td><td>Fixed by server</td></tr>
+          <tr><td>Typical scale</td><td class="num">2–5 people</td><td>Hundreds to thousands per node</td><td>A few dozen</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">Table rebuilt from the comparison table in [1] and the multiplier in [4].</p>
+      <div class="takeaway"><b>Key point</b> In a virtual office, everyone arranges other people's tiles at whatever size they like on their own screen. Keeping the layout on each device is a big reason to choose an SFU over an MCU.</div>
+    </section>
+
+    <section id="sfu">
+      <div class="ch">Chapter 04</div>
+      <h2>How an SFU works: send one stream, let the server choose</h2>
+      <p>An SFU (Selective Forwarding Unit) is a relay server that forwards incoming packets, without decoding them, to the recipients who need them. Specifications also call it an SFM (Selective Forwarding Middlebox).<a class="cite" href="#s1">[1]</a> Each participant is a publisher that sends its own media once, and at the same time a subscriber that picks which other people's media to receive.</p>
+      <p>This makes bandwidth asymmetric. Upload stays at one stream regardless of headcount, while download grows with the number of people you want to see.<a class="cite" href="#s1">[1]</a> Upload per device is O(1); SFU egress is O(N). As a concrete estimate, 10 people at 720p with three simulcast layers come out at about 3 Mbps of upload per device and about 27 Mbps of SFU egress.<a class="cite" href="#s2">[2]</a> On home connections the upload is the thin pipe, so the SFU approach is to keep that thin side constant and absorb headcount with the fatter download and data-centre bandwidth.</p>
+
+      <h3>Isolating one person's weakness from everyone</h3>
+      <p>In a mesh you encode separately for each peer, but if the app sets one quality ceiling for everyone, it ends up lowering everyone's quality to suit the thinnest peer. Per-peer ceilings avoid that, at the cost of more sender processing and upload. With an SFU in between, the sender only sends to the SFU, and each receiver's circumstances can be absorbed between the SFU and that receiver. The technique that makes this concrete is simulcast, covered in the next chapter.</p>
+
+      <h3>SFU topologies</h3>
+      <ul>
+        <li><b>Single SFU</b>: simple to build, but quality drops for distant participants and the limit of one machine becomes the limit of the room.<a class="cite" href="#s1">[1]</a></li>
+        <li><b>Cascading</b>: several SFUs are linked and each person connects to a nearby one. It scales to tens of thousands and beyond, but is harder to build.<a class="cite" href="#s1">[1]</a></li>
+        <li><b>Publisher SFU</b>: senders publish to a nearby SFU and receivers pull from the sender's SFU. Relatively simple to build, but harder to monitor and control.<a class="cite" href="#s1">[1]</a></li>
+      </ul>
+
+      <h3>What matters if you run an SFU yourself</h3>
+      <p>In the community around mediasoup, an open-source SFU, the bottleneck is said to be CPU rather than bandwidth. You start one worker per CPU core and assign calls to workers. The heavy objects are consumers, each representing the forwarding of one stream to one receiver, and the official guideline is about 500 per worker. When everyone sends and receives audio and video, there are about 2n(n−1) consumers: 24 for 4 people, 112 for 8, and about 480 for 16.<a class="cite" href="#s5">[5]</a> Practitioners also report that pausing unused consumers instead of destroying them stops RTP from flowing and saves CPU.<a class="cite" href="#s5">[5]</a></p>
+      <div class="engawa"><span class="tag">In engawa</span>engawa uses Cloudflare Realtime SFU and does not run its own. Worker allocation and cascading are Cloudflare's job. engawa's server only proxies the control API at <code>/api/sfu/*</code>, and only the server holds the App ID and Token. The forwarded paths are restricted by an allowlist (SSRF protection).</div>
+    </section>
+
+    <section id="simulcast">
+      <div class="ch">Chapter 05</div>
+      <h2>Simulcast and SVC: the heart of simultaneous streaming</h2>
+      <p>An SFU only forwards, so it cannot re-create a different quality for each receiver. Instead, <b>the sender sends several qualities at once from the start</b>, and the SFU picks which one each receiver gets. That is simulcast. One example given is three layers: 1080p@4Mbps, 720p@2Mbps and 360p@500kbps.<a class="cite" href="#s3">[3]</a> Up to three layers is typical.<a class="cite" href="#s1">[1]</a></p>
+
+      <figure>
+        <div class="fig">
+          <svg viewBox="0 0 640 220" role="img" aria-label="The sender sends three layers f, h and q to the SFU, which forwards one layer per receiver">
+            <rect x="12" y="80" width="88" height="56" rx="5" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.6"/>
+            <text x="56" y="104" text-anchor="middle" class="lbl">Sender</text>
+            <text x="56" y="123" text-anchor="middle" class="sm">encodes 3 layers</text>
+            <g stroke-width="2.2" fill="none">
+              <path d="M100 92 H250" stroke="var(--accent)"/>
+              <path d="M100 108 H250" stroke="var(--accent)" stroke-dasharray="7 4"/>
+              <path d="M100 124 H250" stroke="var(--warm)"/>
+            </g>
+            <text x="175" y="86" text-anchor="middle" class="mono" style="fill:var(--accent)">f</text>
+            <text x="175" y="103" text-anchor="middle" class="mono" style="fill:var(--accent)">h</text>
+            <text x="175" y="137" text-anchor="middle" class="mono" style="fill:var(--warm)">q</text>
+            <rect x="250" y="72" width="96" height="72" rx="5" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/>
+            <text x="298" y="104" text-anchor="middle" class="mono" style="fill:var(--accent);font-weight:600">SFU</text>
+            <text x="298" y="124" text-anchor="middle" class="sm">picks a layer</text>
+            <g fill="none" stroke-width="2.2">
+              <path d="M346 92 C410 92 420 40 480 40" stroke="var(--accent)"/>
+              <path d="M346 108 H480" stroke="var(--accent)" stroke-dasharray="7 4"/>
+              <path d="M346 124 C410 124 420 176 480 176" stroke="var(--warm)"/>
+            </g>
+            <g fill="var(--surface)" stroke="var(--ink)" stroke-width="1.4">
+              <rect x="480" y="22" width="148" height="36" rx="4"/>
+              <rect x="480" y="90" width="148" height="36" rx="4"/>
+              <rect x="480" y="158" width="148" height="36" rx="4"/>
+            </g>
+            <text x="490" y="45" class="lbl">Large tile → f</text>
+            <text x="490" y="113" class="lbl">Gallery → h</text>
+            <text x="490" y="181" class="lbl">Weak link → q</text>
+          </svg>
+        </div>
+        <figcaption>The sender's upload is the fixed sum of the three layers. When a receiver on a weak link gets q, nobody else's quality drops.</figcaption>
+      </figure>
+
+      <h3>SVC: layers inside a single stream</h3>
+      <p>SVC (Scalable Video Coding) stacks resolution and frame-rate layers inside one stream, and the SFU drops the layers each receiver does not need. VP9, AV1 and H.265 support it.<a class="cite" href="#s3">[3]</a> Using only frame-rate layers, called "temporal scalability", lets the SFU hand a thinned-out frame rate to weak receivers.<a class="cite" href="#s1">[1]</a> One source notes that at 100–1,000 people SVC is more bandwidth-efficient than simulcast, and that handling many simulcast layers on an SFU hits CPU limits before bandwidth.<a class="cite" href="#s2">[2]</a></p>
+
+      <div class="tbl"><table>
+        <thead><tr><th></th><th>Simulcast</th><th>SVC</th></tr></thead>
+        <tbody>
+          <tr><td>How it sends</td><td>Several independent streams</td><td>Layers inside one stream</td></tr>
+          <tr><td>Sender load</td><td>One encode per layer</td><td>A single encode</td></tr>
+          <tr><td>Support</td><td>Widely stable with VP8</td><td>VP9 / AV1 / H.265</td></tr>
+          <tr><td>Best fit</td><td>Effectively required beyond 10 people <a class="cite" href="#s2">[2]</a></td><td>More efficient at 100+ people <a class="cite" href="#s2">[2]</a></td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="engawa"><span class="tag">In engawa</span>
+        The camera uses VP8 simulcast with three layers, all at 15 fps (three layers since <a href="https://github.com/iitenkida7/engawa/pull/270">#270</a>, lightened in <a href="https://github.com/iitenkida7/engawa/pull/314">#314</a> and <a href="https://github.com/iitenkida7/engawa/pull/340">#340</a>).
+        <div class="tbl" style="margin:10px 0"><table>
+          <thead><tr><th>Layer (rid)</th><th>Resolution</th><th>Cap</th><th>When the receiver picks it</th></tr></thead>
+          <tbody>
+            <tr><td class="num">f</td><td class="num">960×540</td><td class="num">500 kbps</td><td>Tile width 640px or more</td></tr>
+            <tr><td class="num">h</td><td class="num">480×270</td><td class="num">150 kbps</td><td>320px or more</td></tr>
+            <tr><td class="num">q</td><td class="num">240×135</td><td class="num">50 kbps</td><td>Smaller, off-screen, or background tab</td></tr>
+          </tbody>
+        </table></div>
+        engawa does not move to VP9 SVC because forcing it can break the simulcast layers (rids), as noted in a comment in <code>rtc/sfu.ts</code>. Screen sharing favours legible text and is not simulcast; it goes out as a single layer (1920px on the long edge, 15 fps, 2 Mbps) (<a href="https://github.com/iitenkida7/engawa/pull/325">#325</a>).
+      </div>
+    </section>
+
+    <section id="bwe">
+      <div class="ch">Chapter 06</div>
+      <h2>Bandwidth estimation and congestion control: deciding how much to send</h2>
+      <p>To decide which layers to send and receive, you need to know how much headroom the connection has. WebRTC's standard mechanism is Google Congestion Control (GCC). The receiver tracks changes in packet inter-arrival time (the delay gradient) with a Kalman filter and treats growing delay as congestion. The result is reported back to the sender via REMB or transport-cc (TWCC).<a class="cite" href="#s3">[3]</a></p>
+      <p>When it detects congestion, the sender slows down by about 8%; when things are stable, it probes for headroom by increasing about 5% every 1.5 seconds or so.<a class="cite" href="#s3">[3]</a> It starts conservatively at around 300 kbps, so video tends to look rough for the first few seconds of a call. Supplying an initial bitrate hint can mitigate this.<a class="cite" href="#s2">[2]</a></p>
+      <p>With an SFU, the important point is that this estimation is <b>split per leg</b>. Congestion is measured separately between the sender and the SFU and between the SFU and each receiver. The SFU can look at each receiver's estimate and pick a layer that fits. This is what actually makes "one person's thin download doesn't affect everyone" true.</p>
+      <div class="engawa"><span class="tag">In engawa</span>
+        On top of the browser's built-in GCC, the app scores the connection every 5 seconds and puts it into one of four tiers, 0–3 (<a href="https://github.com/iitenkida7/engawa/pull/189">#189</a>). The inputs are loss rate (2 / 5 / 10%), RTT (250 / 500 / 800 ms) and estimated upload (below 900 / 500 / 250 kbps). The tier moves down one step after 2 consecutive bad readings and up one step after 6 consecutive good ones (it used to jump straight to tier 3; fixed in <a href="https://github.com/iitenkida7/engawa/pull/274">#274</a>). What each tier does depends on the path.
+        <div class="tbl" style="margin:10px 0"><table>
+          <thead><tr><th></th><th>Both paths</th><th>Mesh only</th><th>SFU only</th></tr></thead>
+          <tbody>
+            <tr><td class="num">tier 1</td><td>—</td><td>Camera cap to 60%, screen share to 70%</td><td>—</td></tr>
+            <tr><td class="num">tier 2</td><td>Redundant audio (Opus RED)</td><td>Camera to 120 kbps, 15 fps, half resolution</td><td>Receive camera layers up to h</td></tr>
+            <tr><td class="num">tier 3</td><td>Camera turned off automatically</td><td>—</td><td>Stop receiving video; audio only</td></tr>
+          </tbody>
+        </table></div>
+        On the SFU path the app does not lower the send cap, because the simulcast layers are already light (f is only 500 kbps) and the browser's GCC adjusts each layer for congestion between the sender and the SFU. For congestion on the receiving side, engawa passes Cloudflare SFU a priority order for camera layers (f→h→q) so the SFU can step layers down too (<a href="https://github.com/iitenkida7/engawa/pull/270">#270</a>).
+      </div>
+    </section>
+
+    <section id="loss">
+      <div class="ch">Chapter 07</div>
+      <h2>Loss and jitter: filling in what didn't arrive</h2>
+      <p>On the internet, packets get dropped and their arrival times wobble. There are three broad countermeasures.<a class="cite" href="#s3">[3]</a></p>
+      <div class="tbl"><table>
+        <thead><tr><th>Technique</th><th>How it works</th><th>Cost</th><th>Suited to</th></tr></thead>
+        <tbody>
+          <tr><td>FEC</td><td>Send redundant data up front and reconstruct anything missing</td><td>About 5–10% more bandwidth</td><td>Random loss</td></tr>
+          <tr><td>NACK</td><td>Report missing sequence numbers and get them resent</td><td>One round trip of delay</td><td>Burst loss</td></tr>
+          <tr><td>Jitter buffer</td><td>The receiver holds a little before playing</td><td>Latency grows by the amount held</td><td>Arrival-time variation</td></tr>
+        </tbody>
+      </table></div>
+      <p>The Opus audio codec has its own FEC (in-band FEC), PLC to fill in missing audio by guesswork, and DTX to nearly stop sending during silence.<a class="cite" href="#s3">[3]</a> Audio intelligibility is said to start suffering above 2% loss, and above 5% FEC can no longer keep up.<a class="cite" href="#s2">[2]</a> Jitter buffers are typically around 150–200 ms<a class="cite" href="#s3">[3]</a>, and a common target is keeping p95 jitter under 30 ms.<a class="cite" href="#s2">[2]</a></p>
+      <p>For video, loss handling ties into the quality layers. If loss persists, sending a lower layer to cut the volume works better than retransmitting piece by piece. In real designs, bandwidth estimation, layer selection and loss handling are therefore tuned together.</p>
+      <div class="engawa"><span class="tag">In engawa</span>
+        Opus is rewritten for low latency (<code>rtc/sdp.ts</code>): 20 ms packets (<code>ptime=20</code>), in-band FEC on, and DTX off (to avoid losing the first few frames when someone starts talking). From tier 2 up, audio is sent twice with Opus RED. The jitter buffer starts at a low-latency 100 ms, widens to 150 / 220 / 300 ms according to measured jitter, and shrinks back once things calm down.
+      </div>
+    </section>
+
+    <section id="audio">
+      <div class="ch">Chapter 08</div>
+      <h2>Audio: delivery and noise suppression</h2>
+      <p>Audio is a small stream of a few dozen kbps, yet it is the first thing to ruin how a conversation feels. You can keep talking through a moment of frozen video, but when voices drop out or lag, the conversation itself stops. Audio design therefore puts <b>latency and resistance to gaps</b> ahead of bandwidth. This chapter looks first at getting audio to the other side (delivery), then at removing noise before it is sent (noise suppression).</p>
+
+      <figure>
+        <div class="fig">
+          <svg viewBox="0 0 760 170" role="img" aria-label="The audio path from microphone to the other person's speaker. The sender's device runs echo cancellation, noise suppression, a voice gate and Opus encoding; audio passes through the SFU; the receiver's device plays it through a jitter buffer">
+            <text x="10" y="18" class="sm">Sender's device</text>
+            <text x="560" y="18" class="sm">Receiver's device</text>
+            <g fill="var(--surface)" stroke="var(--ink)" stroke-width="1.4">
+              <rect x="10" y="40" width="72" height="50" rx="4"/>
+              <rect x="100" y="40" width="96" height="50" rx="4"/>
+              <rect x="214" y="40" width="96" height="50" rx="4"/>
+              <rect x="328" y="40" width="96" height="50" rx="4"/>
+              <rect x="560" y="40" width="88" height="50" rx="4"/>
+              <rect x="666" y="40" width="84" height="50" rx="4"/>
+            </g>
+            <rect x="452" y="40" width="80" height="50" rx="4" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/>
+            <g stroke="var(--accent)" stroke-width="2" fill="none">
+              <path d="M82 65 H100"/><path d="M196 65 H214"/><path d="M310 65 H328"/><path d="M424 65 H452"/><path d="M532 65 H560"/><path d="M648 65 H666"/>
+            </g>
+            <text x="46" y="70" text-anchor="middle" class="lbl">Mic</text>
+            <text x="148" y="62" text-anchor="middle" class="lbl">Browser</text>
+            <text x="148" y="80" text-anchor="middle" class="sm">AEC · NS · AGC</text>
+            <text x="262" y="62" text-anchor="middle" class="lbl">Denoise</text>
+            <text x="262" y="80" text-anchor="middle" class="sm">RNNoise + gate</text>
+            <text x="376" y="62" text-anchor="middle" class="lbl">Opus</text>
+            <text x="376" y="80" text-anchor="middle" class="sm">20ms · FEC</text>
+            <text x="492" y="70" text-anchor="middle" class="mono" style="fill:var(--accent);font-weight:600">SFU</text>
+            <text x="604" y="62" text-anchor="middle" class="lbl">Jitter</text>
+            <text x="604" y="80" text-anchor="middle" class="sm">buffer</text>
+            <text x="708" y="70" text-anchor="middle" class="lbl">Play</text>
+            <text x="148" y="122" text-anchor="middle" class="sm">echo · noise · level</text>
+            <text x="262" y="122" text-anchor="middle" class="sm">+30ms</text>
+            <text x="376" y="122" text-anchor="middle" class="sm">ready for loss</text>
+            <text x="492" y="122" text-anchor="middle" class="sm">forwarded, unmixed</text>
+            <text x="604" y="122" text-anchor="middle" class="sm">100–300ms</text>
+            <path d="M100 145 H424" stroke="var(--warm)" stroke-width="2"/>
+            <text x="262" y="162" text-anchor="middle" class="sm" style="fill:var(--warm)">Noise suppression (before sending)</text>
+            <path d="M424 145 H750" stroke="var(--accent)" stroke-width="2"/>
+            <text x="587" y="162" text-anchor="middle" class="sm" style="fill:var(--accent)">Delivery</text>
+          </svg>
+        </div>
+        <figcaption>engawa's audio path. The figures at each stage are engawa's settings. All noise processing happens on the sender's device, so receivers get audio that is already cleaned.</figcaption>
+      </figure>
+
+      <h3>Delivery: configuring Opus</h3>
+      <p>WebRTC audio is almost always Opus. Opus varies from about 6 kbps for speech to about 64 kbps for music, and has its own mechanisms for coping with loss.<a class="cite" href="#s3">[3]</a></p>
+      <div class="tbl"><table>
+        <thead><tr><th>Mechanism</th><th>What it does</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td>in-band FEC</td><td>Each packet carries a low-quality copy of the previous frame, so a single lost packet can be recovered from the next</td><td>Slightly more bandwidth</td></tr>
+          <tr><td>RED</td><td>Re-sends the previous packet itself alongside the current one; survives consecutive losses</td><td>Roughly double the audio bandwidth</td></tr>
+          <tr><td>PLC</td><td>Fills a missing stretch by extrapolating from what came before and after</td><td>Sounds unnatural if the gap is long</td></tr>
+          <tr><td>DTX</td><td>Nearly stops sending during silence</td><td>The first few frames of speech can be lost</td></tr>
+        </tbody>
+      </table></div>
+      <p>The standard packet length (ptime) is 20 ms. Shorter packets cut latency but raise the share of headers and reduce efficiency. As for loss tolerance, the rule of thumb is that intelligibility suffers above 2% loss and FEC can't keep up above 5%.<a class="cite" href="#s2">[2]</a> On connections worse than that, you give bandwidth to audio even if it means cutting video.</p>
+
+      <h3>Delivery: putting audio first</h3>
+      <ul>
+        <li><b>Send priority</b>: set send priorities so that under congestion video is cut first and audio is protected to the end.</li>
+        <li><b>Send mono</b>: stereo doubles the bandwidth without making speech any easier to understand.</li>
+        <li><b>Forward without mixing</b>: unlike an MCU, an SFU forwards audio one person at a time without mixing, and the receiver's browser overlays them on playback. Server load stays small, but the download carries one audio stream per person. For large rooms, receiving only the people who are speaking is recommended.<a class="cite" href="#s5">[5]</a></li>
+        <li><b>Start with a short jitter buffer</b>: for audio, latency directly sets the rhythm of a conversation. Keep the buffer short while jitter is low and widen it only when jitter grows.</li>
+      </ul>
+
+      <h3>Noise suppression: classic and neural</h3>
+      <p>Classic noise suppression is built from three stages: deciding whether someone is speaking (VAD), estimating the noise spectrum, and subtracting it. It was hard to tune. RNNoise keeps that signal-processing structure but has a small neural network learn only the parts that are hard to tune.<a class="cite" href="#s7">[7]</a></p>
+      <ul>
+        <li>It splits audio into 22 frequency bands, and the network outputs a gain between 0 and 1 for each band</li>
+        <li>Noise left between the bands is removed with a filter tuned to the voice's pitch</li>
+        <li>The model is small: 3 GRU layers, about 85 kB with 8-bit weights</li>
+        <li>Even the unoptimised C implementation runs about 60× faster than real time on an x86 CPU</li>
+        <li>As a by-product it also outputs the probability that the frame is speech (VAD)</li>
+      </ul>
+      <p>On the commercial side, Krisp is widely used. Gather runs the Krisp SDK in a separate process so its failures can't spread, and adds automatic gain control (AGC) afterwards to even out volume.<a class="cite" href="#s6">[6]</a> Browsers also ship echo cancellation (AEC), noise suppression (NS) and AGC, which you can enable through <code>getUserMedia</code> constraints.</p>
+
+      <h3>Noise suppression: meeting the deadline</h3>
+      <p>Audio processing has to finish each 10 ms frame before the next one arrives. Missing the deadline even once causes dropouts or distortion. Gather moved its audio processing from JavaScript to C++ to avoid garbage-collection pauses, and Windows throttling the app as a background process was another cause of missed deadlines.<a class="cite" href="#s6">[6]</a> In the browser, the AudioWorklet, which runs on a dedicated thread separate from the main thread, plays this role. Even when rendering or JavaScript gets heavy, audio processing keeps running.</p>
+
+      <h3>Noise suppression: gating what can't be removed</h3>
+      <p>Neural noise suppression can remove steady noise such as air conditioning or keyboards. Sudden sounds — a passing motorbike, birdsong, household noise — tend to slip through. So it is paired with a voice gate that <b>silences the microphone completely while you are not speaking</b>. The VAD that RNNoise already outputs can drive the decision, so no extra model is needed.</p>
+
+      <div class="engawa"><span class="tag">In engawa</span>
+        <b>Delivery</b>: Opus is mono, 20 ms, with in-band FEC on and DTX off, and RED is added when the connection degrades (tier 2 and up). On the mesh path audio is capped at 64 kbps. On the SFU path audio has the highest send priority, and video is cut first under congestion. On reconnect, everyone's microphones are received first in one batch, and at tier 3 video reception stops so the whole download goes to audio.
+        <br><br>
+        <b>Noise suppression</b> (on by default): audio first goes through the browser's built-in echo cancellation, noise suppression and AGC, then through RNNoise (WASM) running in engawa's own AudioWorklet. The voice gate is configured as follows.
+        <ul style="margin:8px 0 6px">
+          <li>Opens when VAD reaches 0.6 and closes below 0.3 (two thresholds prevent flapping)</li>
+          <li>Stays open for 300 ms after the close condition is met (so word endings and short pauses aren't cut)</li>
+          <li>Fades in over 5 ms when opening and out over 60 ms when closing (no clicks)</li>
+          <li>Looks two frames ahead before deciding to open or close (so word onsets aren't lost). Total latency is 30 ms as a result</li>
+        </ul>
+        If the WASM hasn't loaded within 5 seconds, engawa falls back to the raw, unprocessed microphone. The model and the audio never leave the device (no CDN either).
+      </div>
+    </section>
+
+    <section id="screen">
+      <div class="ch">Chapter 09</div>
+      <h2>Screen sharing: protect the text, not the motion</h2>
+      <p>Screen sharing is also a video stream, but what it needs to protect is the opposite of a camera. For a camera, smooth facial motion matters and a little blur goes unnoticed. For screen sharing, what matters is that small text on a slide or a single character of code stays legible. There is little motion, and most of the screen is unchanged from the previous frame. But scrolling or switching pages changes the whole screen at once, and for that moment a lot of bandwidth is needed.</p>
+
+      <div class="tbl"><table>
+        <thead><tr><th></th><th>Camera</th><th>Screen share</th></tr></thead>
+        <tbody>
+          <tr><td>What to protect</td><td>Smooth motion</td><td>Sharp text and thin lines</td></tr>
+          <tr><td>What to cut under congestion</td><td>Resolution</td><td>Frame rate</td></tr>
+          <tr><td>Bandwidth pattern</td><td>Roughly constant</td><td>Usually small, spikes on changes</td></tr>
+          <tr><td>Send in layers?</td><td>Simulcast helps</td><td>Lower layers make text unreadable, so they're useless</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Telling the encoder what it is looking at</h3>
+      <p>Unless it knows what is being captured, the browser's encoder makes camera-style decisions. The video track's <code>contentHint</code> tells it. The W3C specification recommends the following handling for each value.<a class="cite" href="#s8">[8]</a></p>
+      <div class="tbl"><table>
+        <thead><tr><th>contentHint</th><th>Suited to</th><th>Under congestion (degradationPreference)</th></tr></thead>
+        <tbody>
+          <tr><td class="num">motion</td><td>Cameras, video, games</td><td><code>maintain-framerate</code>: keep it smooth even at lower resolution</td></tr>
+          <tr><td class="num">detail</td><td>Slides, text-heavy web pages, diagrams</td><td><code>maintain-resolution</code>: keep resolution even if frames drop</td></tr>
+          <tr><td class="num">text</td><td>Mostly text, with sharp edges</td><td><code>maintain-resolution</code>. AV1 uses its text-oriented coding tools</td></tr>
+        </tbody>
+      </table></div>
+      <p>If the app explicitly sets the <code>degradationPreference</code> send parameter, that takes precedence.<a class="cite" href="#s8">[8]</a> The specification also notes that even <code>text</code> does not guarantee the text will be readable.<a class="cite" href="#s8">[8]</a></p>
+
+      <h3>Limit at capture time</h3>
+      <p>Capturing a 4K or Retina display as-is means paying for capture and downscaling on every frame, only to shrink it before sending anyway. Capping resolution and frame rate in the <code>getDisplayMedia</code> capture constraints from the start saves the sender's CPU.</p>
+
+      <h3>One stream, no simulcast</h3>
+      <p>A screen share as small as the camera's q layer crushes text into illegibility. Splitting it into layers gives receivers no meaningful choice, so the basic approach is to send screen sharing as a single higher-bitrate stream and, under congestion, drop frame rate to keep resolution. There is also the practical point that a meeting can't move forward unless everyone can read the same document.</p>
+
+      <h3>Don't break starting and stopping</h3>
+      <ul>
+        <li><b>Don't rebuild the path when restarting</b>: recreating the send slot (transceiver) every time sharing stops and restarts makes renegotiation prone to failure. Keep the slot when stopping, and put the new track back into the same slot when restarting.</li>
+        <li><b>Handle the browser's or OS's "Stop sharing"</b>: users can stop sharing without the app's button, so run the same cleanup on the track's ended event.</li>
+        <li><b>Mind the order of user gestures</b>: some APIs, like <code>getDisplayMedia</code>, can only be called right after a user click. Calling another such API first in the same click can make sharing itself fail.</li>
+      </ul>
+
+      <div class="engawa"><span class="tag">In engawa</span>
+        <ul style="margin:0 0 6px">
+          <li><b>Capture</b>: limited to 1920px on the long edge and 15 fps, with no audio captured. The track gets <code>contentHint = 'detail'</code>.</li>
+          <li><b>Sending</b>: <code>degradationPreference</code> is <code>maintain-resolution</code>, so frame rate is cut first under congestion. On the SFU path it is not simulcast and goes out as one stream at 2 Mbps, 1920px on the long edge, 15 fps (<a href="https://github.com/iitenkida7/engawa/pull/325">#325</a>). On the mesh path it is 3 Mbps with fewer than 3 peers and 1.5 Mbps otherwise, dropping to 10 fps and 1280px at 8 or more. The mesh path lowers it further by connection tier (70% at tier 1; 800 kbps, 8 fps, 1280px at tier 2; 500 kbps, 5 fps at tier 3). The SFU path skips these caps and leaves it to the browser's bandwidth estimation.</li>
+          <li><b>Start and stop</b>: a bug where turning sharing off and on again stopped it reaching others was fixed by reusing the SFU transceiver (<a href="https://github.com/iitenkida7/engawa/pull/151">#151</a>). The OS's "Stop sharing" runs the same cleanup as the toolbar button.</li>
+          <li><b>Viewing</b>: while sharing, other people's face tiles can be shown in an always-on-top mini window (Document Picture-in-Picture) (<a href="https://github.com/iitenkida7/engawa/pull/318">#318</a>, experimental). The API that opens that window also consumes the click's permission, so it is always opened after <code>getDisplayMedia</code>.</li>
+          <li><b>Recording</b>: text in recorded screen shares was unreadable; this was fixed by compositing at a fixed 2× resolution with high-quality downscaling (<a href="https://github.com/iitenkida7/engawa/pull/292">#292</a>).</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="select">
+      <div class="ch">Chapter 10</div>
+      <h2>Receivers choose: don't receive what you're not watching</h2>
+      <p>Even with an SFU, download grows with the number of people you want to see. The best way to keep download down in a large room is to <b>not receive what you're not looking at</b>. The mediasoup community also recommends not receiving everyone's audio and video at once, but limiting the number of simultaneous speakers and paging the display.<a class="cite" href="#s5">[5]</a> For 50–200 people, a setup centred on receiving the active speakers is recommended.<a class="cite" href="#s4">[4]</a></p>
+      <ul>
+        <li><b>Pick the layer by tile size</b>: a small tile doesn't need a high layer.</li>
+        <li><b>Drop off-screen and background-tab tiles to the lowest layer, or stop them</b>: quality doesn't matter for what can't be seen.</li>
+        <li><b>Start low right after joining</b>: if high layers from everyone arrive the moment you enter a large room, the download chokes.</li>
+        <li><b>Receive audio first</b>: audio is what makes a connection feel connected.</li>
+      </ul>
+      <div class="engawa"><span class="tag">In engawa</span>All four are implemented: layer selection by tile width and dropping off-screen and background-tab tiles to q (<a href="https://github.com/iitenkida7/engawa/pull/270">#270</a>), starting at q in meeting rooms (<a href="https://github.com/iitenkida7/engawa/pull/339">#339</a>), and on reconnect receiving everyone's microphones first in a single request before video (<a href="https://github.com/iitenkida7/engawa/pull/256">#256</a>). At tier 3 video reception stops and the download is used for audio only.</div>
+    </section>
+
+    <section id="resilience">
+      <div class="ch">Chapter 11</div>
+      <h2>Recovering from failure: confine it to one person</h2>
+      <p>Even with bandwidth and loss handled, connections can still drop. The practical pitfalls the sources list are these.<a class="cite" href="#s2">[2]</a></p>
+      <ul>
+        <li>If you don't call <code>restartIce()</code> when switching from Wi-Fi to mobile data, the call can drop after about 30 seconds</li>
+        <li>If the path MTU is below 1280 bytes, the DTLS handshake can fail silently, so pin it to 1200 bytes</li>
+        <li>If you don't call <code>pc.close()</code> on exit, TURN allocations linger and run up the bill</li>
+        <li>TURN takes 1.5–3 seconds to start, so keep 2–3 warm spares ready</li>
+      </ul>
+      <p>SFUs have a weakness of their own: each person <b>carries all sending and receiving on a single connection</b> to the SFU. One connection makes things stable, but rebuilding that one connection means rebuilding sending and receiving with everyone. If you rebuild your own connection because someone else is having trouble, that triggers others to redo their receiving, and it cascades.</p>
+      <div class="takeaway"><b>Key point</b> For an SFU to truly mean "one person's trouble doesn't affect everyone", you need <b>failure isolation</b> as well as bandwidth isolation (simulcast and layer selection). Failing to receive one peer must not be treated as a failure of your whole connection.</div>
+      <div class="engawa"><span class="tag">In engawa</span>
+        This failure isolation was added step by step. A rejected subscription to one peer became a per-peer retry (<a href="https://github.com/iitenkida7/engawa/pull/251">#251</a>). When the SFU fails, engawa doesn't fall back to mesh; it rebuilds at intervals of 0→2→5→10→20→30 seconds while keeping the tiles on screen (<a href="https://github.com/iitenkida7/engawa/pull/256">#256</a>). Failures when re-receiving were confined to per-peer retries, stopping a cascade of everyone reconnecting (<a href="https://github.com/iitenkida7/engawa/pull/332">#332</a>). While other people's media is still arriving, your own connection is treated as healthy and not rebuilt (<a href="https://github.com/iitenkida7/engawa/pull/342">#342</a>). Outside the media connection, a ping every 5 seconds and a 12-second silence timeout detect half-dead WebSockets, which reconnect indefinitely (<a href="https://github.com/iitenkida7/engawa/pull/189">#189</a>).
+      </div>
+    </section>
+
+    <section id="scale">
+      <div class="ch">Chapter 12</div>
+      <h2>Design by scale</h2>
+      <p>Recommendations by the number of people in the same room at once (p95) differ slightly between sources, but they broadly overlap as follows.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>People</th><th>Recommended setup</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1:1</td><td>P2P + TURN</td><td><a href="#s4">[4]</a></td></tr>
+          <tr><td class="num">3–8</td><td>Small SFU (mesh is fine up to 4)</td><td><a href="#s4">[4]</a></td></tr>
+          <tr><td class="num">9–50</td><td>SFU with simulcast</td><td><a href="#s4">[4]</a></td></tr>
+          <tr><td class="num">up to 100</td><td>Fits on a single SFU node</td><td><a href="#s2">[2]</a></td></tr>
+          <tr><td class="num">50–200</td><td>SFU + active speaker + server-side recording</td><td><a href="#s4">[4]</a></td></tr>
+          <tr><td class="num">100–1,000</td><td>Simulcast / SVC. Limit speakers to 5–20; everyone else receive-only</td><td><a href="#s2">[2]</a></td></tr>
+          <tr><td class="num">1,000–10,000</td><td>SFU cascading across regions, or alongside LL-HLS</td><td><a href="#s2">[2]</a></td></tr>
+          <tr><td class="num">10,000+</td><td>WebRTC for speakers only; viewers on LL-HLS / MoQ</td><td><a href="#s2">[2]</a></td></tr>
+        </tbody>
+      </table></div>
+      <p>Hybrids that switch setup by headcount are also common: P2P for 1:1 and SFU for groups, which saves server resources in services dominated by 1:1 calls.<a class="cite" href="#s2">[2]</a> If you plan to add switching later, keeping signaling, room management and UI separate from the media path makes the migration easier.<a class="cite" href="#s4">[4]</a></p>
+      <div class="engawa"><span class="tag">In engawa</span>engawa is built as a hybrid, and the switch-over headcount is configurable with <code>SFU_PROMOTE_AT</code> (default 2, range 2–32). Meeting-room zones always use the SFU regardless of headcount. Because the SFU and mesh paths expose the same event surface (<code>onRemoteStream</code> and so on), tile rendering and recording don't care which path is in use. That is the "separation" described above.</div>
+    </section>
+
+    <section id="gather">
+      <div class="ch">Chapter 13</div>
+      <h2>The Gather case: rebuilding the audio pipeline</h2>
+      <p>Gather, a service of the same kind, publishes very little on its engineering blog. The one technical article we found is a retrospective on audio problems after the Gather 2.0 release.<a class="cite" href="#s6">[6]</a> It says nothing about media routing such as SFU versus P2P; it is about on-device audio processing.</p>
+      <ul>
+        <li><b>Cause</b>: after a Windows 11 update, Gather was treated as a background app and throttled, so audio processing missed its deadlines. They fixed it by securing audio-thread priority with Windows' audio scheduling service (MMCSS).</li>
+        <li><b>From JavaScript to C++</b>: to avoid garbage-collection pauses, audio processing moved to C++ and runs in a separate Electron process.</li>
+        <li><b>Isolating noise suppression</b>: the Krisp SDK was moved to its own process so its failures can't spread, and automatic gain control (AGC) was added afterwards.</li>
+        <li><b>Measurement</b>: after each call users rate the audio from 1 to 5 stars, and Gather tracked the share of low ratings. It reports a 50% drop since the release (Gather's own figure).</li>
+        <li><b>Caveat</b>: the person reporting a problem isn't always the person with the performance problem. For example, reports from Mac users turned out to be problems on the Windows side of the person they were talking to.</li>
+      </ul>
+      <div class="takeaway"><b>Key point</b> Even with correct routing, audio falls apart if on-device processing misses its deadline. And "whose audio is bad" can't be told from the listener's impression alone. The lesson of Gather's article is to collect both network metrics and perceived-quality ratings, and not to judge from just one of them.</div>
+      <div class="engawa"><span class="tag">In engawa</span>Noise suppression runs RNNoise (WASM) in engawa's own AudioWorklet, which follows the same direction as Gather: keep it off the main thread. To show whose connection is at fault, tiles display why video stalled ("your connection", "their connection", "switching quality") (<a href="https://github.com/iitenkida7/engawa/pull/313">#313</a>). Perceived-quality ratings (stars) are not collected yet.</div>
+    </section>
+
+    <section id="engawa">
+      <div class="ch">Chapter 14</div>
+      <h2>Where engawa stands</h2>
+      <p>Here is the order in which the techniques above arrived in engawa. Dates are PR merge dates (2026).</p>
+      <div class="timeline">
+        <div><span class="d">05/30</span><span>Speaker-aware camera bitrate (<a href="https://github.com/iitenkida7/engawa/pull/72">#72</a>). SFU and two-layer simulcast introduced (<a href="https://github.com/iitenkida7/engawa/pull/79">#79</a>)</span></div>
+        <div><span class="d">06/01</span><span>Low-latency tuning of the SFU path (<a href="https://github.com/iitenkida7/engawa/pull/147">#147</a>)</span></div>
+        <div><span class="d">08/18</span><span>Quality metrics, heartbeat, auto-recovery and tier-based bandwidth adaptation (<a href="https://github.com/iitenkida7/engawa/pull/189">#189</a>)</span></div>
+        <div><span class="d">10/05</span><span>Outdoor SFU switch-over set to 4 people (<a href="https://github.com/iitenkida7/engawa/pull/205">#205</a>)</span></div>
+        <div><span class="d">10/08</span><span>A failed subscription to one peer becomes a per-peer retry (<a href="https://github.com/iitenkida7/engawa/pull/251">#251</a>). Keep rebuilding instead of falling back to mesh (<a href="https://github.com/iitenkida7/engawa/pull/256">#256</a>). Three-layer simulcast, and q for anything not being watched (<a href="https://github.com/iitenkida7/engawa/pull/270">#270</a>)</span></div>
+        <div><span class="d">10/09</span><span>Tiers step down one at a time (<a href="https://github.com/iitenkida7/engawa/pull/274">#274</a>)</span></div>
+        <div><span class="d">10/14</span><span>SFU for every group of 2 or more becomes the default (<a href="https://github.com/iitenkida7/engawa/pull/310">#310</a>)</span></div>
+        <div><span class="d">10/15</span><span>Show why video stalled, and lighten SFU camera layers (<a href="https://github.com/iitenkida7/engawa/pull/313">#313</a>)</span></div>
+        <div><span class="d">10/16</span><span>Screen sharing at 1920px, 15 fps, 2 Mbps (<a href="https://github.com/iitenkida7/engawa/pull/325">#325</a>). Stop reconnect cascades (<a href="https://github.com/iitenkida7/engawa/pull/332">#332</a>). Meeting rooms start at q (<a href="https://github.com/iitenkida7/engawa/pull/339">#339</a>). Don't rebuild because one peer failed (<a href="https://github.com/iitenkida7/engawa/pull/342">#342</a>)</span></div>
+      </div>
+
+      <h3>Status by technique</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>Technique</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>SFU (hybrid with mesh)</td><td>Yes. SFU for everything by default</td></tr>
+          <tr><td>Simulcast</td><td>Three camera layers. Screen share is a single layer</td></tr>
+          <tr><td>SVC</td><td>No (VP8, to avoid breaking simulcast layers)</td></tr>
+          <tr><td>Receiver-side layer selection</td><td>Tile width, off-screen, background tab, joining a meeting room</td></tr>
+          <tr><td>Sender adaptation</td><td>Gradual degradation across tiers 0–3</td></tr>
+          <tr><td>Loss handling</td><td>Opus in-band FEC, RED from tier 2</td></tr>
+          <tr><td>Jitter buffer</td><td>Auto-adjusted between 100 and 300 ms</td></tr>
+          <tr><td>Audio first</td><td>Highest send priority. Microphones received first on reconnect</td></tr>
+          <tr><td>Screen sharing</td><td>contentHint=detail, resolution first, one stream at 2 Mbps, 1920px, 15 fps (SFU)</td></tr>
+          <tr><td>Noise suppression</td><td>Browser built-in + RNNoise (AudioWorklet) + voice gate. 30 ms latency</td></tr>
+          <tr><td>Failure isolation</td><td>Per-peer retries. Your own connection counts as healthy while others' media arrives</td></tr>
+          <tr><td>Perceived-quality measurement</td><td>None (technical metrics are in the netlog)</td></tr>
+          <tr><td>SFU cascading / regional distribution</td><td>Left to Cloudflare</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>Open issues</h3>
+      <p>On the mesh path, connection quality is judged by the worst of all connections, so one peer's bad connection lowers all of your sending. This doesn't show up in the default setup (SFU for 2 or more), but it happens when the SFU isn't configured or <code>SFU_PROMOTE_AT</code> is raised. It is tracked in <a href="https://github.com/iitenkida7/engawa/issues/349">iitenkida7/engawa#349</a>.</p>
+      <p>A possible next step, following Gather's article, is to collect perceived quality with a short post-call rating. Together with the counts of <code>sfu-rebuild</code> and <code>video-stall</code> in the netlog, that would show whether the 10/16 fixes are actually working.</p>
+    </section>
+
+    <section id="sources" class="sources">
+      <div class="ch">Sources</div>
+      <h2>Sources and reliability</h2>
+      <p class="note">All figures come from what each source states; none were measured independently. Vendor articles include promotion of their own services, so measure in your own environment before applying them in production. Statements about engawa are based on the repository's code and PR descriptions.</p>
+      <ol>
+        <li id="s1"><a href="https://bloggeek.me/webrtcglossary/sfu/">WebRTC SFU Explained: Technology, Pros, Cons &amp; Use Cases</a><span class="badge">BlogGeek.me / glossary</span></li>
+        <li id="s2"><a href="https://www.forasoft.com/learn/webrtc-architecture-production-systems">A practical guide to WebRTC architecture for production</a><span class="badge">Fora Soft / vendor</span></li>
+        <li id="s3"><a href="https://techinterview.org/system-design-webrtc-video-calling/">System Design: WebRTC and Video Calling — Signaling, ICE, STUN/TURN, and SFU Architecture</a><span class="badge">techinterview.org / explainer</span> The 90 streams for 10 people is calculated from the stated figures.</li>
+        <li id="s4"><a href="https://www.forasoft.com/blog/article/webrtc-architecture-guide-for-business-2026">P2P, SFU, MCU, Hybrid: Which WebRTC Architecture Fits Your 2026 Roadmap?</a><span class="badge">Fora Soft / vendor</span> The article itself calls the 4–10× MCU figure a rule of thumb.</li>
+        <li id="s5"><a href="https://mediasoup.discourse.group/t/mediasoup-scaling-resource/1866">Mediasoup Scaling resource</a><span class="badge">mediasoup forum</span> Includes individual operators' reports.</li>
+        <li id="s6"><a href="https://www.gather.town/blog/behind-the-fix-audio-2026">Behind the fix: Gather 2.0’s audio overhaul</a><span class="badge">Gather official / 2026-06-10</span> The 50% drop is Gather's own metric.</li>
+        <li id="s7"><a href="https://jmvalin.ca/demo/rnnoise/">RNNoise: Learning Noise Suppression</a><span class="badge">by the RNNoise author</span> An explanation of how it works by the person who wrote RNNoise.</li>
+        <li id="s8"><a href="https://www.w3.org/TR/mst-content-hint/">MediaStreamTrack Content Hints</a><span class="badge">W3C specification</span> The specification defining how contentHint relates to degradationPreference.</li>
+      </ol>
+    </section>
+
+  </article>
+</div>
+
+<footer class="site-foot">
+  <a href="../">Back to engawa</a>
+  <a href="https://github.com/iitenkida7/engawa">GitHub repository</a>
+  <a href="./" hreflang="ja" lang="ja">日本語版</a>
+  <span>Figures are based on each source and on engawa's code as of October 2026.</span>
+</footer>
+
+<script>
+(function () {
+  var n = document.getElementById('n'), b = document.getElementById('b');
+  function fmt(x) { return (Math.round(x * 10) / 10).toFixed(1) + ' Mbps'; }
+  function set(id, text, bad) { var el = document.getElementById(id); el.textContent = text; el.className = bad ? 'bad' : ''; }
+  function update() {
+    var N = +n.value, B = +b.value;
+    document.getElementById('nOut').textContent = N + ' people';
+    document.getElementById('bOut').textContent = B.toFixed(1) + ' Mbps';
+    var mUp = (N - 1) * B;
+    set('mConn', String(N * (N - 1) / 2));
+    set('mUp', fmt(mUp), mUp > 10);
+    set('mDown', fmt((N - 1) * B));
+    set('mEnc', String(N - 1));
+    set('sConn', String(N));
+    set('sUp', fmt(B));
+    set('sDown', fmt((N - 1) * B));
+    set('sEg', fmt(N * (N - 1) * B));
+  }
+  n.addEventListener('input', update);
+  b.addEventListener('input', update);
+  update();
+})();
+</script>
+</body>
+</html>
