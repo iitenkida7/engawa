@@ -82,7 +82,11 @@ async function renderEnv() {
   }
 }
 
-function send(label: string) {
+// `force` overrides the requireInteraction checkbox. On macOS Chrome routes
+// plain notifications through the main app and persistent (requireInteraction)
+// ones through its Alerts helper, which show up as two separate "Google Chrome"
+// rows in System Settings › Notifications — the distinct titles tell them apart.
+function send(label: string, force?: { persistent: boolean; title: string }) {
   if (typeof Notification === 'undefined') {
     log('Notification API がありません', 'ng');
     return;
@@ -90,14 +94,14 @@ function send(label: string) {
   const id = ++seq;
   const opts: NotificationOptions = {
     body: `#${id} ${label} / ${new Date().toLocaleTimeString()}`,
-    requireInteraction: checked('requireInteraction'),
+    requireInteraction: force ? force.persistent : checked('requireInteraction'),
     silent: checked('silent'),
   };
   if (checked('icon')) opts.icon = ICON;
   if (checked('tag')) opts.tag = 'notify-lab';
   log(`#${id} new Notification() permission=${Notification.permission} ${stateNote()}`);
   try {
-    const n = new Notification('engawa 通知テスト', opts);
+    const n = new Notification(force?.title ?? 'engawa 通知テスト', opts);
     n.onshow = () => log(`#${id} show`, 'ok');
     n.onclick = () => {
       log(`#${id} click`, 'ok');
@@ -136,6 +140,12 @@ $('#perm').addEventListener('click', async () => {
   await renderEnv();
 });
 $('#send').addEventListener('click', () => send('即時'));
+$('#sendBanner').addEventListener('click', () =>
+  send('バナー型', { persistent: false, title: '🟦 バナー型（Chrome 本体）' }),
+);
+$('#sendAlert').addEventListener('click', () =>
+  send('アラート型', { persistent: true, title: '🟥 アラート型（Chrome Alerts ヘルパー）' }),
+);
 $('#sendLater').addEventListener('click', () => later(() => send('遅延'), '通知'));
 $('#knockLater').addEventListener('click', () => later(fakeKnock, '疑似ノック'));
 
