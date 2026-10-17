@@ -128,12 +128,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'rec.started': { ja: '{name} さんが録画を開始しました', en: '{name} started recording' },
   'rec.stopped': { ja: '{name} さんが録画を終了しました', en: '{name} stopped recording' },
   'rec.othersTip': { ja: '録画中: {names}', en: 'Recording: {names}' },
-  // Our own recording (#315): it runs inside this browser and is only saved when
-  // stopped, so say so at start and keep a persistent indicator on screen.
-  'rec.selfStartedHint': {
-    ja: '録画を開始しました。録画はこの PC 上で行われ、■ 停止を押したときにダウンロードされます。',
-    en: 'Recording started. It runs on this PC and is downloaded when you press ■ Stop.',
-  },
+  // Our own recording (#315): a persistent indicator stays on screen while it runs.
   'rec.indicator': { ja: '録画中', en: 'REC' },
   'rec.indicatorHint': {
     ja: '■ 停止で保存 / 閉じるとそこまでを自動保存',
