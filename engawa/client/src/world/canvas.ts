@@ -36,7 +36,8 @@ import {
   POND_RECT,
   ROOM_FURNITURE,
   type RoomFurniture,
-  seatFacingAt,
+  type Seat,
+  seatAt,
   TILE_SIZE,
   Tile,
   TREES,
@@ -613,7 +614,7 @@ export class CanvasRenderer {
       // Project the avatar's head (world) to screen; the label sits just above it
       // with a constant pixel gap regardless of zoom.
       const sx = (p.x - this.camX) * zoom + w / 2;
-      const headY = (p.y - PLAYER_RADIUS - this.camY) * zoom + h / 2;
+      const headY = (p.y - PLAYER_RADIUS - (seatOf(p)?.lift ?? 0) - this.camY) * zoom + h / 2;
       if (sx < -150 || sx > w + 150 || headY < -80 || headY > h + 80) continue;
 
       const text = `${STATUS_EMOJI[p.status]} ${p.name}${p.isSharingScreen ? '  🖥' : ''}`;
@@ -1775,15 +1776,14 @@ export class CanvasRenderer {
     // + initials until the sprite layers load.
     // Standing still on a chair (desk chair / café armchair) draws the seated
     // pose, facing the way the chair faces; walking off stands back up.
-    const col = p.walkCol();
-    const seat = col === 0 ? seatFacingAt(p.x, p.y) : null;
+    const seat = seatOf(p);
     const drewSprite = this.characters.draw(
       ctx,
       p.outfit,
-      seat ?? p.facing,
-      col,
+      seat?.facing ?? p.facing,
+      p.walkCol(),
       p.x,
-      footY,
+      footY - (seat?.lift ?? 0),
       SPRITE_SCALE,
       seat !== null,
     );
@@ -1835,6 +1835,14 @@ export class CanvasRenderer {
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
   }
+}
+
+// The seat an avatar is sitting in, or null when it is standing or moving. Walking
+// (any frame but the standing one) stands you back up, so this is also what drives
+// the seated pose. Everything anchored to the avatar — sprite, name label, speech
+// bubble — shifts by the seat's `lift` together, so they stay as one figure.
+function seatOf(p: PlayerState): Seat | null {
+  return p.walkCol() === 0 ? seatAt(p.x, p.y) : null;
 }
 
 // Dev only: the baked map image is cached on the Renderer instance, which

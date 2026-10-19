@@ -48,9 +48,9 @@ const manifest = manifestJson as unknown as Manifest;
 const P = manifest.parts;
 
 const FRAME = manifest.frame; // 64
-// Seated pose (see CharacterRenderer.draw `sit`): how many source rows of the
-// 64px frame to keep (down to the upper thighs) and how far to sink it.
-const SIT_CUT = 46;
+// Seated pose (see CharacterRenderer.draw `sit`): how far to sink the standing
+// frame. The whole sprite is still drawn — cropping it at the thighs read as a
+// cut-off avatar rather than as someone sitting down.
 const SIT_DROP = 8;
 /** Frames per walk row (col 0 = standing; 1–8 = the walk cycle). */
 export const COLS = manifest.cols; // 9
@@ -347,9 +347,8 @@ export class CharacterSheet {
    * until the composite is ready. `imageSmoothingEnabled` is forced off for
    * crisp pixel art and restored afterward.
    *
-   * `sit` draws the standing frame as a seated pose: only the upper body is
-   * drawn (the legs vanish under the desk / into the chair) and it sinks a few
-   * pixels, since the sheet has no sitting frames.
+   * `sit` draws the standing frame as a seated pose: the sheet has no sitting
+   * frames, so the whole sprite simply sinks a few pixels into the chair.
    */
   draw(
     ctx: CanvasRenderingContext2D,
@@ -368,25 +367,10 @@ export class CharacterSheet {
     const dw = FRAME * scale;
     const dh = FRAME * scale;
     const dx = centerX - dw / 2;
-    const dy = footY - dh;
+    const dy = footY - dh + (sit ? SIT_DROP * scale : 0);
     const prev = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
-    if (sit) {
-      // Seated: standing frame cut at the thighs, lowered by SIT_DROP px.
-      ctx.drawImage(
-        sheet,
-        c * FRAME,
-        row * FRAME,
-        FRAME,
-        SIT_CUT,
-        dx,
-        dy + SIT_DROP * scale,
-        dw,
-        SIT_CUT * scale,
-      );
-    } else {
-      ctx.drawImage(sheet, c * FRAME, row * FRAME, FRAME, FRAME, dx, dy, dw, dh);
-    }
+    ctx.drawImage(sheet, c * FRAME, row * FRAME, FRAME, FRAME, dx, dy, dw, dh);
     ctx.imageSmoothingEnabled = prev;
     return true;
   }

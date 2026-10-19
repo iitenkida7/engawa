@@ -22,7 +22,7 @@ import {
   POND,
   POND_RECT,
   SOLID,
-  seatFacingAt,
+  seatAt,
   TILE_SIZE,
   Tile,
   ZONES,
@@ -368,7 +368,7 @@ describe('isMeetingRoom', () => {
   });
 });
 
-describe('seatFacingAt (sitting spots)', () => {
+describe('seatAt (sitting spots)', () => {
   const TS = TILE_SIZE;
   const centre = (col: number, row: number) => [col * TS + TS / 2, row * TS + TS / 2] as const;
 
@@ -376,26 +376,39 @@ describe('seatFacingAt (sitting spots)', () => {
     for (const d of OPEN_DESK_CHAIRS) {
       // The chair is one tile in front of the desk centre tile.
       const [x, y] = centre(d.col, d.row + (d.facesSouth ? -1 : 1));
-      expect(seatFacingAt(x, y)).toBe(d.facesSouth ? 'down' : 'up');
+      expect(seatAt(x, y)?.facing).toBe(d.facesSouth ? 'down' : 'up');
+    }
+  });
+
+  it('lifts a chair below its desk by a tile, so the occupant lands on it', () => {
+    // drawDeskChair tucks every chair against its desk: for a chair below the
+    // desk that is the far edge of the seat tile, a tile above where a standing
+    // avatar's feet are. Chairs above their desk already line up.
+    for (const d of OPEN_DESK_CHAIRS) {
+      const [x, y] = centre(d.col, d.row + (d.facesSouth ? -1 : 1));
+      expect(seatAt(x, y)?.lift).toBe(d.facesSouth ? 0 : TILE_SIZE);
     }
   });
 
   it('the rug beside the chair and the desk row itself are not seats', () => {
     const d = OPEN_DESK_CHAIRS[0];
     const [cx, cy] = centre(d.col, d.row + (d.facesSouth ? -1 : 1));
-    expect(seatFacingAt(cx + TS, cy)).toBeNull();
-    expect(seatFacingAt(cx - TS, cy)).toBeNull();
-    expect(seatFacingAt(...centre(d.col, d.row))).toBeNull();
+    expect(seatAt(cx + TS, cy)).toBeNull();
+    expect(seatAt(cx - TS, cy)).toBeNull();
+    expect(seatAt(...centre(d.col, d.row))).toBeNull();
   });
 
-  it('café armchairs seat their occupant facing the table', () => {
+  it('café armchairs seat their occupant facing the table, with no lift', () => {
     expect(ARMCHAIR_SPOTS.length).toBeGreaterThan(0);
-    for (const a of ARMCHAIR_SPOTS) expect(seatFacingAt(a.x, a.y)).toBe(a.facing);
+    for (const a of ARMCHAIR_SPOTS) {
+      expect(seatAt(a.x, a.y)?.facing).toBe(a.facing);
+      expect(seatAt(a.x, a.y)?.lift).toBe(0); // the armchair is centred on its spot
+    }
     // Armchairs above the table face down, below face up.
     expect(new Set(ARMCHAIR_SPOTS.map((a) => a.facing))).toEqual(new Set(['down', 'up']));
   });
 
   it('open floor is not a seat', () => {
-    expect(seatFacingAt(0, 0)).toBeNull();
+    expect(seatAt(0, 0)).toBeNull();
   });
 });

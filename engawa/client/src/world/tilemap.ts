@@ -698,24 +698,42 @@ export const ARMCHAIR_SPOTS: { x: number; y: number; facing: Direction }[] = LOU
 // How close to an armchair's centre counts as sitting in it.
 const ARMCHAIR_SEAT_RADIUS = 25;
 
-// The chair tile of every desk (map coords) → the way its occupant faces: the
-// desk is in front of the chair, so a south-facing unit (chair above) faces down.
-const DESK_CHAIR_FACING = new Map<string, Direction>(
-  OPEN_DESK_UNITS.map((u): [string, Direction] => {
+/**
+ * A sitting spot: which way its occupant faces, and how far UP to draw them (and
+ * everything anchored to them) so they land on the chair rather than beside it.
+ *
+ * Every desk chair is drawn tucked against its desk. For a chair ABOVE its desk
+ * that is the near edge of the seat tile — right where an avatar standing in the
+ * middle of that tile already has its feet, so no lift. For a chair BELOW its
+ * desk it is the FAR edge: a whole tile above those feet, which read as standing
+ * behind the chair. The café armchairs are centred on their spot and need none.
+ */
+export type Seat = { facing: Direction; lift: number };
+
+// The chair tile of every desk (map coords) → its seat: the desk is in front of
+// the chair, so a south-facing unit (chair above) faces down.
+const DESK_SEATS = new Map<string, Seat>(
+  OPEN_DESK_UNITS.map((u): [string, Seat] => {
     const [sc, sr] = seatOf(u);
-    return [`${sc + OUTDOOR_MARGIN},${sr + OUTDOOR_MARGIN}`, u.facing === 'south' ? 'down' : 'up'];
+    const south = u.facing === 'south';
+    return [
+      `${sc + OUTDOOR_MARGIN},${sr + OUTDOOR_MARGIN}`,
+      { facing: south ? 'down' : 'up', lift: south ? 0 : TILE_SIZE },
+    ];
   }),
 );
 
 /**
- * The direction to face when sitting at (px,py), or null when it is not a chair.
- * Pure geometry; the caller decides *when* to sit (standing still).
+ * The seat at (px,py), or null when it is not a chair. Pure geometry; the caller
+ * decides *when* to sit (standing still).
  */
-export function seatFacingAt(px: number, py: number): Direction | null {
-  const desk = DESK_CHAIR_FACING.get(`${Math.floor(px / TILE_SIZE)},${Math.floor(py / TILE_SIZE)}`);
+export function seatAt(px: number, py: number): Seat | null {
+  const desk = DESK_SEATS.get(`${Math.floor(px / TILE_SIZE)},${Math.floor(py / TILE_SIZE)}`);
   if (desk) return desk;
   for (const a of ARMCHAIR_SPOTS) {
-    if (Math.hypot(px - a.x, py - a.y) <= ARMCHAIR_SEAT_RADIUS) return a.facing;
+    if (Math.hypot(px - a.x, py - a.y) <= ARMCHAIR_SEAT_RADIUS) {
+      return { facing: a.facing, lift: 0 };
+    }
   }
   return null;
 }
