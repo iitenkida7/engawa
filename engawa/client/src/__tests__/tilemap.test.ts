@@ -20,8 +20,10 @@ import {
   OPEN_DESK_CHAIRS,
   OUTDOOR_MARGIN,
   officeMap,
+  POD_RUGS,
   POND,
   POND_RECT,
+  podRugAt,
   ROW_OFF,
   SOLID,
   seatAt,
@@ -242,6 +244,47 @@ describe('isDeskSeat (private one-person desk seats)', () => {
         );
         expect(cheby).toBeGreaterThanOrEqual(2);
       }
+    }
+  });
+});
+
+describe('podRugAt (desk-pod focus veil)', () => {
+  // The pods are the open-office desks. The president's desk (#358) stands in a
+  // zone instead, and POD_RUGS deliberately leaves it out: its office already
+  // dims as a room (#223), so it needs no rug of its own.
+  const seatCentre = (ch: { col: number; row: number; facesSouth: boolean }) =>
+    center(ch.col, ch.row + (ch.facesSouth ? -1 : 1));
+  const inZone = (ch: { col: number; row: number; facesSouth: boolean }) => {
+    const { x, y } = seatCentre(ch);
+    return zoneAt(x, y) !== null;
+  };
+
+  it('returns the enclosing rug on every seat tile, matching isDeskSeat', () => {
+    const podChairs = OPEN_DESK_CHAIRS.filter((ch) => !inZone(ch));
+    expect(podChairs.length).toBe(POD_RUGS.length);
+    for (const ch of podChairs) {
+      const { x, y } = seatCentre(ch);
+      const rug = podRugAt(x, y);
+      expect(rug).not.toBeNull();
+      // The returned rug is one of the exported POD_RUGS and actually contains it.
+      expect(POD_RUGS).toContain(rug!);
+      expect(x).toBeGreaterThanOrEqual(rug!.x);
+      expect(x).toBeLessThan(rug!.x + rug!.w);
+      expect(y).toBeGreaterThanOrEqual(rug!.y);
+      expect(y).toBeLessThan(rug!.y + rug!.h);
+    }
+  });
+
+  it('is null on open aisle floor away from any desk', () => {
+    expect(podRugAt(TILE_SIZE / 2, TILE_SIZE / 2)).toBeNull();
+  });
+
+  it("is null at a desk inside a room, which that room's own veil covers", () => {
+    const exec = OPEN_DESK_CHAIRS.filter(inZone);
+    expect(exec.length).toBeGreaterThan(0);
+    for (const ch of exec) {
+      const { x, y } = seatCentre(ch);
+      expect(podRugAt(x, y)).toBeNull();
     }
   });
 });
