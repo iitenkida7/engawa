@@ -28,10 +28,14 @@ function hasValidMediaToken(req: Request): boolean {
   return token !== null && mediaTokens.has(token);
 }
 
-const UNAUTHORIZED = Response.json(
-  { errorCode: 'unauthorized', errorDescription: 'join required' },
-  { status: 401 },
-);
+// Built per request on purpose: a Response body can only be read once, so a
+// shared instance 500s on every call after the first.
+function unauthorized(): Response {
+  return Response.json(
+    { errorCode: 'unauthorized', errorDescription: 'join required' },
+    { status: 401 },
+  );
+}
 
 // Unique per process start. Sent to clients in `welcome`; when a client sees a
 // different boot id after an automatic reconnect, it knows the server restarted
@@ -77,6 +81,7 @@ const server = Bun.serve({
           mediaToken: null,
           resumeToken: null,
           lastGroupAt: 0,
+          lastMoveAt: 0,
           joined: false,
           away: false,
         } satisfies WsData,
@@ -86,7 +91,7 @@ const server = Bun.serve({
     }
 
     if (url.pathname === '/api/turn-credentials') {
-      if (!hasValidMediaToken(req)) return UNAUTHORIZED;
+      if (!hasValidMediaToken(req)) return unauthorized();
       const iceServers = await getTurnCredentials();
       return Response.json(iceServers, {
         headers: { 'Cache-Control': 'no-store' },
@@ -124,7 +129,7 @@ const server = Bun.serve({
     // media never traverses our server. The path after /sessions is whitelisted
     // to the documented endpoints (SSRF / traversal guard, see sfu.ts).
     if (url.pathname.startsWith('/api/sfu/sessions')) {
-      if (!hasValidMediaToken(req)) return UNAUTHORIZED;
+      if (!hasValidMediaToken(req)) return unauthorized();
       if (!isSfuEnabled()) {
         return Response.json(
           { errorCode: 'sfu_disabled', errorDescription: 'SFU disabled' },

@@ -25,6 +25,7 @@ import {
   remoteKey,
   SFU_API_MAX_ATTEMPTS,
   SFU_API_TIMEOUT_MS,
+  SFU_STALE_STREAM_GRACE_MS,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
   sfuPullRetryDelayMs,
@@ -167,9 +168,12 @@ export class SfuManager {
 
   // While true, video (cam/screen) tracks are neither pulled nor kept — only
   // mic audio flows downlink (issue #188: audio-only receive on a starved
-  // downlink, or the manual audio-only mode). Existing video pulls are dropped
-  // on entry; on exit the App re-feeds the cached directories to re-pull.
+  // downlink). Existing video pulls are dropped on entry; on exit the App
+  // re-feeds the cached directories to re-pull.
   private videoPullPaused = false;
+  // The simulcast layer new camera pulls start on (see initialSfuCamRid); the
+  // App sets it from the zone we stand in.
+  private initialCamRid = SFU_CAM_DEFAULT_RID;
 
   constructor(events: SfuEvents) {
     this.events = events;
@@ -264,8 +268,17 @@ export class SfuManager {
       }
       const prevSession = this.peerSessions.get(userId);
       if (prevSession !== undefined && prevSession !== dir.sessionId) {
+        // The peer rebuilt their transport: everything we pulled from the old
+        // session is dead and gets re-pulled from the new one just below. Drop it
+        // WITHOUT tearing the tile down now — otherwise one flaky peer's repeated
+        // rebuilds blink their tile for everyone each time. `keepTile` keeps the
+        // frozen frame up; the re-pull replaces it in place (detachRemoteStream is
+        // streamId-matched), and any kind the peer didn't bring back is swept after
+        // a grace. Mirrors the self-rebuild keepTiles path (#254).
         for (const key of [...this.remoteTracks.keys()]) {
-          if (this.remoteTracks.get(key)!.userId === userId) await this.dropRemote(key);
+          if (this.remoteTracks.get(key)!.userId === userId) {
+            await this.dropRemote(key, { keepTile: true });
+          }
         }
       }
       this.peerSessions.set(userId, dir.sessionId);
@@ -292,9 +305,10 @@ export class SfuManager {
     for (const userId of new Set(rejected.map((r) => r.userId))) {
       const dir = dirs.get(userId)!;
       logNet('sfu-pull-rejected', { retry: dir.retry });
-      const delay = sfuPullRetryDelayMs(dir.retry + 1);
-      // Still rejected against an unchanged directory after every retry: the
-      // fault may be our own session after all, so take the normal failure path.
+      const delay = sfuPullRetryDelayMs(dir.retry + 1, this.hasLiveRemoteExcept(userId));
+      // Still rejected against an unchanged directory after every retry, with no
+      // other peer's media flowing either: the fault may be our own session
+      // after all, so take the normal failure path.
       if (delay === null) {
         exhausted = new Error(`sfu pull: rejected after ${dir.retry} retries`);
         continue;
@@ -307,6 +321,15 @@ export class SfuManager {
       }, delay);
     }
     if (exhausted) throw exhausted;
+  }
+
+  // Whether media pulled from some other peer is arriving over our transport —
+  // proof our own session works, so a peer's persistent rejection is theirs.
+  private hasLiveRemoteExcept(userId: string): boolean {
+    for (const r of this.remoteTracks.values()) {
+      if (r.userId !== userId && r.streamId !== null) return true;
+    }
+    return false;
   }
 
   // A peer left the group entirely: drop all of their pulled tracks.
@@ -325,6 +348,10 @@ export class SfuManager {
   // Pause / resume video pulling (issue #188). Pausing drops every non-mic
   // remote track immediately (freeing the downlink); resuming only clears the
   // flag — the App re-feeds the cached peer directories to re-pull video.
+  setInitialCamRid(rid: string) {
+    this.initialCamRid = rid;
+  }
+
   setVideoPullPaused(paused: boolean) {
     if (this.videoPullPaused === paused) return;
     this.videoPullPaused = paused;
@@ -673,6 +700,13 @@ export class SfuManager {
       await existing.sender.replaceTrack(track);
       existing.streamId = streamId;
       existing.published = true;
+      // A re-share may come from a different display size, so re-derive the
+      // screen scale for the new track (#324). Best-effort, as below.
+      try {
+        await tuneSfuSender(existing.sender, kind, track);
+      } catch (err) {
+        console.warn('[sfu] sender tune failed', err);
+      }
       this.announcePublished();
       return;
     }
@@ -710,7 +744,7 @@ export class SfuManager {
     // bitrate ceilings already went in via sendEncodings above. Best-effort: a
     // setParameters failure must not fail the push and trip the mesh fallback.
     try {
-      await tuneSfuSender(tx.sender, kind);
+      await tuneSfuSender(tx.sender, kind, track);
     } catch (err) {
       console.warn('[sfu] sender tune failed', err);
     }
@@ -748,6 +782,7 @@ export class SfuManager {
     if (todo.length === 0) return [];
     const pc = await this.ensurePc();
     const sid = await this.ensureSession();
+    const camRid = this.initialCamRid;
 
     const resp = await this.api<TracksResponse>(`/${sid}/tracks/new`, 'POST', {
       tracks: todo.map((i) => ({
@@ -756,7 +791,7 @@ export class SfuManager {
         trackName: i.trackName,
         // Only the camera is simulcast; let the SFU adapt its layer to our
         // downlink from the first frame (issue #269).
-        ...(i.kind === 'cam' ? { simulcast: sfuCamSimulcast(SFU_CAM_DEFAULT_RID) } : {}),
+        ...(i.kind === 'cam' ? { simulcast: sfuCamSimulcast(camRid) } : {}),
       })),
     });
     const reqErr = sfuErrorMessage(resp);
@@ -777,6 +812,7 @@ export class SfuManager {
     // transceiver in the 'track' event, so we route ontrack by it.
     const results = matchPullResults(todo, resp.tracks);
     const rejected: PullItem[] = [];
+    const accepted: { item: PullItem; key: string; mid: string }[] = [];
     todo.forEach((item, idx) => {
       const r = results[idx];
       if ('error' in r) {
@@ -793,34 +829,62 @@ export class SfuManager {
         streamId: null,
         trackId: null,
         // What the pull above asked for, so re-requesting it is a no-op.
-        preferredRid: item.kind === 'cam' ? SFU_CAM_DEFAULT_RID : null,
+        preferredRid: item.kind === 'cam' ? camRid : null,
       });
       this.midToRemote.set(r.mid, key);
+      accepted.push({ item, key, mid: r.mid });
     });
 
     if (resp.requiresImmediateRenegotiation && resp.sessionDescription) {
-      await pc.setRemoteDescription(resp.sessionDescription);
-      const answer = await pc.createAnswer();
-      // Same low-latency Opus tuning the mesh applies to every answer. Video
-      // codec order is left to the browser: the camera publish is simulcast, for
-      // which VP8 is the reliable path — forcing VP9/SVC can break the rids.
-      await pc.setLocalDescription({
-        type: 'answer',
-        sdp: transformSdpForLowLatency(answer.sdp ?? ''),
-      });
-      const reneg = await this.api<TracksResponse>(`/${sid}/renegotiate`, 'PUT', {
-        sessionDescription: { type: 'answer', sdp: pc.localDescription?.sdp ?? '' },
-      });
-      const renegErr = sfuErrorMessage(reneg);
-      if (renegErr) throw new Error(`sfu renegotiate: ${renegErr}`);
+      try {
+        await pc.setRemoteDescription(resp.sessionDescription);
+        const answer = await pc.createAnswer();
+        // Same low-latency Opus tuning the mesh applies to every answer. Video
+        // codec order is left to the browser: the camera publish is simulcast, for
+        // which VP8 is the reliable path — forcing VP9/SVC can break the rids.
+        await pc.setLocalDescription({
+          type: 'answer',
+          sdp: transformSdpForLowLatency(answer.sdp ?? ''),
+        });
+        const reneg = await this.api<TracksResponse>(`/${sid}/renegotiate`, 'PUT', {
+          sessionDescription: { type: 'answer', sdp: pc.localDescription?.sdp ?? '' },
+        });
+        const renegErr = sfuErrorMessage(reneg);
+        if (renegErr) throw new Error(`sfu renegotiate: ${renegErr}`);
+      } catch (err) {
+        // A failed pull renegotiation is (like a rejected pull, #250) the pulled
+        // peers' problem, not our transport's: the SFU offer we tried to answer
+        // described tracks that may have just died under a peer's own rebuild.
+        // Throwing here reached the op-chain fallback and rebuilt OUR whole
+        // session — which changes our session id and forces every other member to
+        // re-pull us, so one flaky peer's rebuild rippled a reconnect across the
+        // group (the #250 cascade the per-track path already avoids, but the
+        // renegotiation step did not). Instead roll the batch's freshly-registered
+        // tracks back and hand them to the per-peer retry, escalating to the
+        // transport failure path only once those retries are exhausted.
+        if (err instanceof StaleSfuOpError) throw err;
+        this.assertCurrentOp(); // closeAll ran mid-await: bail as a stale op
+        logNet('sfu-pull-reneg-failed', {
+          err: err instanceof Error ? err.message : String(err),
+        });
+        console.warn('[sfu] pull renegotiation failed; retrying per peer', err);
+        for (const a of accepted) {
+          this.remoteTracks.delete(a.key);
+          this.midToRemote.delete(a.mid);
+          rejected.push(a.item);
+        }
+      }
     }
     return rejected;
   }
 
-  private async dropRemote(key: string) {
+  private async dropRemote(key: string, opts: { keepTile?: boolean } = {}) {
     const entry = this.remoteTracks.get(key);
     if (!entry) return;
-    if (entry.streamId) this.events.onRemoteStreamRemoved(entry.userId, entry.streamId);
+    if (entry.streamId) {
+      if (opts.keepTile) this.deferStreamRemoval(key, entry.userId, entry.streamId);
+      else this.events.onRemoteStreamRemoved(entry.userId, entry.streamId);
+    }
     if (entry.mid) this.midToRemote.delete(entry.mid);
     this.remoteTracks.delete(key);
     // Tell Cloudflare to stop delivering this pulled track and free the local
@@ -851,6 +915,23 @@ export class SfuManager {
         }
       }
     }
+  }
+
+  // Keep a dropped peer track's frozen tile up and remove it only if the re-pull
+  // (from the peer's new session) hasn't brought that (peer, kind) back within the
+  // grace. A re-pull stores a fresh entry under the same key, so `has(key)` means
+  // the tile was replaced in place — leave it. Only a key that stayed empty (the
+  // peer dropped that kind while rebuilding) gets the deferred removal. Used by
+  // dropRemote({ keepTile }) on a peer session change so one flaky peer's rebuild
+  // doesn't blink their tile across the whole group (companion to the #254
+  // self-rebuild keepTiles sweep).
+  private deferStreamRemoval(key: string, userId: string, streamId: string) {
+    const gen = this.generation;
+    setTimeout(() => {
+      if (this.closed || gen !== this.generation) return;
+      if (this.remoteTracks.has(key)) return; // re-pulled in place → keep the tile
+      this.events.onRemoteStreamRemoved(userId, streamId);
+    }, SFU_STALE_STREAM_GRACE_MS);
   }
 
   private announcePublished() {

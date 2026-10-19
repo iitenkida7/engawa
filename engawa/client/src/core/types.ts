@@ -63,6 +63,8 @@ export type ClientMessage =
       isVideoOn: boolean;
       // Our camera is paused by the tier-3 network ladder, not by hand (#312).
       camAutoOff: boolean;
+      // Push-to-talk is on: peers mark our tile with a mic badge.
+      ptt: boolean;
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
@@ -121,6 +123,7 @@ export type ServerMessage =
       isMuted: boolean;
       isVideoOn: boolean;
       camAutoOff: boolean;
+      ptt: boolean;
     }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }

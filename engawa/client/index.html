@@ -480,6 +480,12 @@
         color: #46d17f;
       }
 
+      /* Push-to-talk: live mic waiting for the key. */
+      #toolbar button.icon-toggle.ptt-idle {
+        color: #d9a441;
+        opacity: 0.75;
+      }
+
       #toolbar button.icon-toggle .strike {
         display: none;
         stroke: #cc6b6b;
@@ -858,6 +864,20 @@
         display: block;
       }
 
+      /* Push-to-talk badge on a peer's tile (hidden while their mic is off,
+         where the red mic-off indicator already says enough). */
+      .panel-header .ptt-indicator {
+        display: none;
+        flex: none;
+        margin-right: 6px;
+        font-size: 15px;
+        line-height: 18px;
+      }
+
+      .remote-tile.ptt:not(.muted) .panel-header .ptt-indicator {
+        display: block;
+      }
+
       .panel-body .no-video {
         position: absolute;
         inset: 0;
@@ -904,7 +924,12 @@
          remote-media.ts (so no display:none here — presence in the DOM means
          it's on screen). Position/size come from reflowLayout. The "main"
          (featured) share — the oldest one, or whichever was promoted by
-         double-click — gets a blue accent. */
+         click — gets a blue accent. */
+      /* A non-main share is clickable: clicking makes it the main one. */
+      .screenshare-stage:not(.main) {
+        cursor: pointer;
+      }
+
       .screenshare-stage {
         z-index: 6;
         /* Initial frame only; reflowLayout overrides left/top/width/height. */
@@ -1054,6 +1079,44 @@
       #filmstrip-resizer:hover::after,
       #filmstrip-resizer.dragging::after {
         background: rgba(230, 232, 238, 0.75);
+      }
+
+      /* Share / pinned-window seam drag handle: the horizontal twin of the
+         filmstrip seam, between the share (top) and the clicked tile (bottom). */
+      #meeting-split-resizer {
+        position: fixed;
+        z-index: 7;
+        height: 10px;
+        transform: translateY(-50%);
+        cursor: row-resize;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #meeting-split-resizer::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 4px;
+        height: 2px;
+        border-radius: 1px;
+        background: rgba(230, 232, 238, 0);
+        transition: background 0.12s ease;
+      }
+      #meeting-split-resizer:hover::after,
+      #meeting-split-resizer.dragging::after {
+        background: rgba(230, 232, 238, 0.75);
+      }
+      /* Filmstrip tiles pin under the share on click; the pinned one unpins. */
+      #app.meeting .panel.meeting-pinnable,
+      #app.meeting .panel.meeting-pinned {
+        cursor: pointer;
+      }
+      /* A pinned camera gets a big, oddly shaped pane: letterbox it rather than
+         cropping faces off. */
+      #app.meeting .panel.meeting-pinned .panel-body video {
+        object-fit: contain;
       }
 
       /* Minimize/restore the immersive meeting — top-left, toolbar chrome. */
@@ -1209,6 +1272,58 @@
         border-top: 1px solid #3a4050;
         color: #8a90a0;
         font-size: 11px;
+      }
+
+      /* ===== Desktop notification fix-it guide ===== */
+      #notify-help {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: min(420px, calc(100% - 32px));
+        max-height: calc(100% - 80px);
+        overflow-y: auto;
+        background: rgba(28, 32, 40, 0.98);
+        border: 1px solid #3a4050;
+        border-radius: 10px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        z-index: 1200;
+        color: #e6e8ee;
+      }
+      #notify-help.hidden {
+        display: none;
+      }
+      #notify-help-lead {
+        margin: 10px 14px 0;
+        color: #b9bfcc;
+        font-size: 13px;
+      }
+      #notify-help-steps {
+        margin: 8px 14px 0;
+        padding-left: 20px;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+      #notify-help-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px 14px;
+      }
+      .notify-help-btn {
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 6px;
+        border: 1px solid #454c60;
+        background: #2a3040;
+        color: #e6e8ee;
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .notify-help-btn.primary {
+        background: #3d6fd9;
+        border-color: #3d6fd9;
       }
 
       /* ===== Participant roster (#242) ===== */
@@ -1439,7 +1554,7 @@
         position: fixed;
         top: 16px;
         right: 16px;
-        width: 360px;
+        width: 420px;
         max-width: calc(100vw - 32px);
         max-height: calc(100vh - 120px);
         display: flex;
@@ -1466,6 +1581,10 @@
         flex-shrink: 0;
         cursor: grab;
         user-select: none;
+      }
+
+      #debug-header > span {
+        flex: 1;
       }
 
       #debug-header button {
@@ -1523,6 +1642,63 @@
         margin-bottom: 8px;
         background: rgba(0, 0, 0, 0.2);
       }
+
+      /* Verdict colors share the tile quality-dot palette (q0 good … q3 bad). */
+      .debug-conn.q0 { border-left: 3px solid #34c759; }
+      .debug-conn.q1 { border-left: 3px solid #f5c542; }
+      .debug-conn.q2 { border-left: 3px solid #f08c3c; }
+      .debug-conn.q3 { border-left: 3px solid #e5484d; }
+
+      .debug-verdict {
+        flex-shrink: 0;
+        padding: 1px 7px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #0e1014;
+      }
+      .debug-verdict.q0 { background: #34c759; }
+      .debug-verdict.q1 { background: #f5c542; }
+      .debug-verdict.q2 { background: #f08c3c; }
+      .debug-verdict.q3 { background: #e5484d; color: #fff; }
+
+      .debug-blame {
+        border-radius: 8px;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+        line-height: 1.5;
+        color: #e6e8ee;
+        background: rgba(52, 199, 89, 0.12);
+      }
+      .debug-blame.q1 { background: rgba(245, 197, 66, 0.14); }
+      .debug-blame.q2 { background: rgba(240, 140, 60, 0.16); }
+      .debug-blame.q3 { background: rgba(229, 72, 77, 0.18); }
+
+      .debug-reasons {
+        color: #f5a35c;
+        line-height: 1.5;
+      }
+
+      .debug-notes {
+        color: #8a91a0;
+        line-height: 1.5;
+      }
+
+      .debug-history {
+        display: flex;
+        gap: 1px;
+        height: 8px;
+        margin: 4px 0;
+      }
+      .debug-history i {
+        flex: 1;
+        border-radius: 1px;
+        background: #2a2f3a;
+      }
+      .debug-history i.q0 { background: #34c759; }
+      .debug-history i.q1 { background: #f5c542; }
+      .debug-history i.q2 { background: #f08c3c; }
+      .debug-history i.q3 { background: #e5484d; }
 
       .debug-conn-head {
         display: flex;
@@ -1868,6 +2044,16 @@
         </div>
         <div id="keyhelp-list"></div>
         <div id="keyhelp-note"></div>
+      </div>
+      <!-- Desktop notification fix-it guide, filled in by ui/notify-help.ts. -->
+      <div id="notify-help" class="hidden">
+        <div class="roster-head">
+          <span id="notify-help-title"></span>
+          <button id="notify-help-close" class="roster-close" aria-label="閉じる">✕</button>
+        </div>
+        <p id="notify-help-lead"></p>
+        <ol id="notify-help-steps"></ol>
+        <div id="notify-help-actions"></div>
       </div>
       <div id="roster" class="hidden">
         <div class="roster-head">

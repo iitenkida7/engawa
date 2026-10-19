@@ -23,6 +23,7 @@ import {
 import { FACE_PIP_STORAGE_KEY, parseFacePipSetting } from '@/ui/face-pip';
 import type { Toasts } from '@/ui/notify';
 import type { LayoutMode } from '@/ui/panels';
+import { PTT_STORAGE_KEY, parsePttSetting } from '@/ui/ptt';
 import type { RemoteMediaView } from '@/ui/remote-media';
 import type { PlayerState } from '@/world/player';
 
@@ -61,11 +62,10 @@ export class ToolbarController {
   private onRecordingChange: (recording: boolean) => void;
   private onOpenAvatar: () => void;
   private onOpenShortcuts: () => void;
+  private onTestNotify: () => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
   private onUserCamToggle: () => void;
-  private isAudioOnly: () => boolean;
-  private onToggleAudioOnly: () => void;
 
   // Experimental features master switch (#323): persisted, off by default. The
   // per-feature toggles below only take effect while this is on.
@@ -77,6 +77,11 @@ export class ToolbarController {
   private facePipEnabled = true;
   private facePipHintShown = false;
   private facePipToastDismiss: (() => void) | null = null;
+
+  // Push-to-talk: persisted toggle (default off) and whether the PTT key is
+  // currently held.
+  private pttEnabled = false;
+  private pttHeld = false;
 
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
@@ -103,15 +108,12 @@ export class ToolbarController {
     onRecordingChange: (recording: boolean) => void;
     onOpenAvatar: () => void;
     onOpenShortcuts: () => void;
+    onTestNotify: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
     // Fired on a MANUAL camera-button toggle (not setCamEnabled), so the App's
     // bandwidth automation (#185) can stand down when the user takes over.
     onUserCamToggle: () => void;
-    // Audio-only mode (#188): current state + toggle, both owned by the App
-    // (it also pauses SFU video pulls). Rendered as a ✓ item in the "⋯" menu.
-    isAudioOnly: () => boolean;
-    onToggleAudioOnly: () => void;
   }) {
     this.media = opts.media;
     this.rtc = opts.rtc;
@@ -125,11 +127,10 @@ export class ToolbarController {
     this.onRecordingChange = opts.onRecordingChange;
     this.onOpenAvatar = opts.onOpenAvatar;
     this.onOpenShortcuts = opts.onOpenShortcuts;
+    this.onTestNotify = opts.onTestNotify;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
     this.onUserCamToggle = opts.onUserCamToggle;
-    this.isAudioOnly = opts.isAudioOnly;
-    this.onToggleAudioOnly = opts.onToggleAudioOnly;
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
@@ -157,6 +158,7 @@ export class ToolbarController {
     this.loadNoiseSetting();
     this.loadExperimentalSetting();
     this.loadFacePipSetting();
+    this.loadPttSetting();
     this.setup();
     this.refresh();
   }
@@ -179,22 +181,44 @@ export class ToolbarController {
   // The four media toggles, public so the keyboard shortcuts (issue #297) run
   // exactly what the buttons run — one path, no drift between mouse and key.
   async toggleMic() {
-    if (this.media.micOn) {
-      this.stopMic();
-    } else {
+    // Flip the icon the instant it's clicked: enableMic() awaits getUserMedia,
+    // which can take a beat (permission prompt, device spin-up), and the real
+    // refresh only fires on the media event afterwards. The optimistic toggle
+    // below is reconciled to the true state by refresh() at the end, so a
+    // failed/denied acquisition reverts the icon on its own.
+    const target = !this.media.micOn;
+    this.setMicVisual(target);
+    if (target) {
       await this.startMic();
+    } else {
+      this.stopMic();
     }
+    this.refresh();
     this.broadcastStatus();
   }
 
   async toggleCam() {
     this.onUserCamToggle();
-    if (this.media.camOn) {
-      this.stopCam();
-    } else {
+    const target = !this.media.camOn;
+    this.setCamVisual(target);
+    if (target) {
       await this.startCam();
+    } else {
+      this.stopCam();
     }
+    this.refresh();
     this.broadcastStatus();
+  }
+
+  // Paint the mic/cam button for a given on/off state without touching any
+  // device — used for the optimistic flip on click (reconciled by refresh()).
+  private setMicVisual(on: boolean) {
+    this.btnMic.classList.toggle('on', on);
+    this.btnMic.classList.toggle('off', !on);
+  }
+  private setCamVisual(on: boolean) {
+    this.btnCam.classList.toggle('on', on);
+    this.btnCam.classList.toggle('off', !on);
   }
 
   // Wire the icon-only layout-mode buttons (▦ グリッド / ▤ サイドバー). They live
@@ -232,10 +256,10 @@ export class ToolbarController {
 
   refresh() {
     // Mic/cam are icon-only toggles: green when on, red + strike when off.
-    this.btnMic.classList.toggle('on', this.media.micOn);
-    this.btnMic.classList.toggle('off', !this.media.micOn);
-    this.btnCam.classList.toggle('on', this.media.camOn);
-    this.btnCam.classList.toggle('off', !this.media.camOn);
+    this.setMicVisual(this.media.micOn);
+    // Push-to-talk: a live mic that is waiting for the key reads as dimmed.
+    this.btnMic.classList.toggle('ptt-idle', this.media.micOn && !this.media.micTransmitting);
+    this.setCamVisual(this.media.camOn);
     // Screen share goes blue (.active) while sharing; record goes red (.recording)
     // and swaps its dot for a stop square. Both are icon-only.
     this.btnScreen.classList.toggle('active', this.media.screenOn);
@@ -299,8 +323,8 @@ export class ToolbarController {
     this.broadcastStatus();
   }
 
-  // Programmatic screen-share stop for audio-only mode (#188): same teardown as
-  // the button / the OS "stop sharing" bar.
+  // Programmatic screen-share stop: same teardown as the button / the OS
+  // "stop sharing" bar.
   stopScreenShare() {
     if (!this.media.screenOn) return;
     const old = this.media.disableScreen();
@@ -390,6 +414,52 @@ export class ToolbarController {
     this.applyFacePipNow();
   }
 
+  pttActive(): boolean {
+    return this.pttEnabled;
+  }
+
+  // Key down/up of the PTT key (called by the App's keyboard handlers). Does
+  // nothing unless PTT is active; the mic must already be on — PTT gates a live
+  // mic rather than turning it on.
+  setPttHeld(held: boolean) {
+    this.pttHeld = held;
+    this.applyPtt();
+  }
+
+  // Sync the media gate with the settings and key state: open when PTT is off
+  // (normal mic) or the key is held, closed otherwise.
+  private applyPtt() {
+    this.media.setMicTransmit(!this.pttActive() || this.pttHeld);
+    this.refresh();
+  }
+
+  private togglePtt() {
+    this.pttEnabled = !this.pttEnabled;
+    this.persistPttSetting();
+    this.applyPtt();
+    // Peers show a badge on our tile while push-to-talk is on.
+    this.broadcastStatus();
+  }
+
+  private loadPttSetting() {
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(PTT_STORAGE_KEY);
+    } catch {
+      /* ignore private-mode storage errors */
+    }
+    this.pttEnabled = parsePttSetting(stored);
+    this.applyPtt();
+  }
+
+  private persistPttSetting() {
+    try {
+      localStorage.setItem(PTT_STORAGE_KEY, this.pttEnabled ? '1' : '0');
+    } catch {
+      /* ignore private-mode storage errors */
+    }
+  }
+
   private applyFacePipNow() {
     if (!this.media.screenOn) return;
     if (this.facePipActive()) void this.maybeOpenFacePip();
@@ -474,9 +544,6 @@ export class ToolbarController {
     // or we stopped), so others get the privacy notice.
     if (this.recorder.recording !== wasRecording) {
       this.onRecordingChange(this.recorder.recording);
-      // The file only exists once ■ Stop is pressed (recording is in-browser),
-      // so say so up front (#315). Kept up longer than a plain info toast.
-      if (this.recorder.recording) this.toasts.info(t('rec.selfStartedHint'), 10000);
     }
     this.refresh();
   }
@@ -620,7 +687,8 @@ export class ToolbarController {
   // The mic caret menu: microphone device list, then a separated noise-
   // suppression toggle (issue #180). Noise suppression lives here since it's a
   // mic setting — its standalone toolbar button was removed. The toggle shows a
-  // ✓ when on; the setting is persisted and defaults to on.
+  // ✓ when on; the setting is persisted and defaults to on. Push-to-talk sits
+  // right after it for the same reason.
   private async populateMicMenu(menu: HTMLDivElement) {
     await this.populateDeviceMenu(
       menu,
@@ -644,6 +712,18 @@ export class ToolbarController {
       void this.toggleNoise();
     });
     menu.appendChild(item);
+
+    // Push-to-talk: while ticked, a live mic only transmits while Space is held.
+    const ptt = document.createElement('button');
+    ptt.className = 'device-item';
+    if (this.pttEnabled) ptt.classList.add('selected');
+    ptt.textContent = (this.pttEnabled ? '✓ ' : '') + t('toolbar.ptt');
+    ptt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      menu.classList.add('hidden');
+      this.togglePtt();
+    });
+    menu.appendChild(ptt);
   }
 
   // The cam caret menu: camera device list, then a labelled virtual-background
@@ -715,14 +795,12 @@ export class ToolbarController {
     };
     addItem(t('toolbar.editAvatar'), () => this.onOpenAvatar());
     addItem(t('toolbar.shortcuts'), () => this.onOpenShortcuts());
-    // Audio-only mode (#188): stops sending cam/screen and (on SFU) receiving
-    // video, for rock-bottom bandwidth. ✓ reflects the current state.
-    addItem((this.isAudioOnly() ? '✓ ' : '') + t('toolbar.audioOnly'), () =>
-      this.onToggleAudioOnly(),
-    );
+    addItem(t('toolbar.testNotify'), () => this.onTestNotify());
     addItem(this.isDebugOpen() ? t('toolbar.closeDebug') : t('toolbar.openDebug'), () =>
       this.toggleDebug(),
     );
+    // Camera quality lab: a standalone page comparing the SFU simulcast layers.
+    addItem(t('toolbar.cameraLab'), () => window.open('/camera-lab.html', '_blank'));
     // Language switch (issue #172): label shows the language you'd switch TO;
     // setLang persists the choice and reloads.
     const other: Lang = getLang() === 'ja' ? 'en' : 'ja';

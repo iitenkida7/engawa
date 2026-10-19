@@ -15,6 +15,7 @@ import {
   applyPanelGeometry,
   CAM_ASPECT,
   clampFilmstripWidth,
+  clampMeetingSplit,
   computeFilmstripColumns,
   computeFocusLayout,
   computeGridLayout,
@@ -28,10 +29,12 @@ import {
   MEETING_FILMSTRIP_MAX_VISIBLE_ROWS,
   MEETING_FILMSTRIP_SEP,
   MEETING_FILMSTRIP_TILE_W,
+  MEETING_SPLIT_DEFAULT,
   MINIMIZED_SIDEBAR_MAX_VISIBLE,
   meetingFilmstripColWidth,
   minimizedSidebarWidth,
   PANEL_BOTTOM_RESERVED,
+  type PanelGeometry,
 } from '@/ui/panels';
 import {
   clampGain,
@@ -44,9 +47,12 @@ import {
 } from '@/ui/peer-volume';
 import {
   classifyStall,
+  INITIAL_STALL_STATE,
   STALL_ATTACH_GRACE_MS,
   type StallReason,
+  type StallState,
   stallLabelKey,
+  updateStallState,
 } from '@/ui/video-stall';
 import type { PlayerState } from '@/world/player';
 
@@ -61,12 +67,15 @@ type RemoteTile = {
   hasCam: boolean;
   // Stall tracking for the live camera (#312): performance.now() of the last
   // rendered frame (+grace right after attach), whether the receive track is
-  // muted (no RTP), when we last requested another SFU layer, the reason on
-  // show (null = none), and the watcher's abort handle.
+  // muted (no RTP), when we last requested another SFU layer, the overlay's
+  // hysteresis state (reason on show + how long frames have been back), and
+  // the watcher's abort handle.
   lastFrameAt: number;
   trackMuted: boolean;
   layerSwitchAt: number | null;
-  stallReason: StallReason | null;
+  stallState: StallState;
+  // The reason currently rendered, so applyStall stays a no-op per tick.
+  shownStall: StallReason | null;
   frameWatch?: AbortController;
 };
 
@@ -87,7 +96,7 @@ type Screenshare = {
   video: HTMLVideoElement;
   label: HTMLSpanElement;
   streamId: string;
-  // Removes the stage's dblclick handler when the stage is destroyed (it
+  // Removes the stage's click handler when the stage is destroyed (it
   // captures `this`/userId, so it must be detached explicitly rather than
   // relying on the element being GC'd).
   cleanup: () => void;
@@ -204,7 +213,7 @@ export class RemoteMediaView {
   // True while the SFU transport is being rebuilt (issue #254): remote panels
   // stay up, frozen, under a "reconnecting" overlay until the re-pull lands.
   private reconnecting = false;
-  // True while we are not pulling remote video (manual audio-only or tier 3,
+  // True while we are not pulling remote video (tier 3 on a starved downlink,
   // #188): video-less tiles say so instead of looking like a camera-off (#312).
   private recvVideoPaused = false;
 
@@ -220,6 +229,12 @@ export class RemoteMediaView {
   // Filmstrip column width (px) in presentation mode, dragged via the seam
   // handle (#288). Per-meeting only: not persisted, reset when the meeting ends.
   private filmstripWidth = MEETING_FILMSTRIP_TILE_W;
+  // The window pinned under the featured share (presentation mode): clicking a
+  // filmstrip tile moves it here, splitting the main area top (share) / bottom
+  // (pinned). `meetingSplit` is the top pane's height fraction, dragged via the
+  // horizontal seam. Both per-meeting only, reset when the meeting ends.
+  private meetingPinnedKey: string | null = null;
+  private meetingSplit = MEETING_SPLIT_DEFAULT;
   // Minimized: in a meeting zone but temporarily dropped back to floating tiles
   // so the map (and the way out of the room) is reachable. Reset on leaving.
   private meetingMinimized = false;
@@ -229,6 +244,7 @@ export class RemoteMediaView {
   private appEl: HTMLElement;
   private filmstripToggleEl: HTMLButtonElement;
   private filmstripResizerEl: HTMLDivElement;
+  private splitResizerEl: HTMLDivElement;
   private meetingMinimizeEl: HTMLButtonElement;
 
   // Replays remote media the autoplay policy refused on the next user gesture
@@ -276,6 +292,14 @@ export class RemoteMediaView {
     this.filmstripResizerEl = document.getElementById('filmstrip-resizer') as HTMLDivElement;
     this.filmstripResizerEl.title = t('media.filmstripResize');
     this.bindFilmstripResizer();
+    // Built here rather than in index.html: it only ever exists alongside the
+    // meeting presentation layout this class owns.
+    this.splitResizerEl = document.createElement('div');
+    this.splitResizerEl.id = 'meeting-split-resizer';
+    this.splitResizerEl.style.display = 'none';
+    this.splitResizerEl.title = t('media.filmstripResize');
+    this.appEl.appendChild(this.splitResizerEl);
+    this.bindSplitResizer();
     this.meetingMinimizeEl = document.getElementById('meeting-minimize') as HTMLButtonElement;
     this.meetingMinimizeEl.addEventListener('click', () => this.toggleMeetingView());
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
@@ -294,11 +318,23 @@ export class RemoteMediaView {
     // One delegated click handler for every maximize button: panels come and go
     // constantly (peers, shares), and #app outlives all of them, so delegation
     // keeps this free of per-panel listener bookkeeping.
+    // The same handler pins a meeting filmstrip tile under the share (or unpins
+    // the pinned one) on a plain click. Only the first click of a double-click
+    // counts, so double-clicking a share to make it main doesn't pin-then-unpin.
     this.stageLayerEl.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement | null)?.closest?.('.panel-focus-btn');
-      if (!btn) return;
-      const key = btn.closest<HTMLElement>('.panel')?.dataset.focusKey;
-      if (key) this.toggleFocus(key);
+      const target = e.target as HTMLElement | null;
+      const btn = target?.closest?.('.panel-focus-btn');
+      if (btn) {
+        const key = btn.closest<HTMLElement>('.panel')?.dataset.focusKey;
+        if (key) this.toggleFocus(key);
+        return;
+      }
+      if (e.detail > 1) return;
+      const panel = target?.closest?.<HTMLElement>(
+        '.panel.meeting-pinnable, .panel.meeting-pinned',
+      );
+      const key = panel?.dataset.focusKey;
+      if (key) this.togglePin(key);
     });
     // Esc is the universal way out of a maximized window — without it a user who
     // maximized the only window has no visible way back but the same button.
@@ -411,6 +447,7 @@ export class RemoteMediaView {
     const watch = new AbortController();
     tile.frameWatch = watch;
     tile.layerSwitchAt = null;
+    tile.stallState = INITIAL_STALL_STATE;
     const track = stream.getVideoTracks()[0];
     tile.trackMuted = track?.muted ?? false;
     if (track) {
@@ -453,6 +490,7 @@ export class RemoteMediaView {
     tile.frameWatch = undefined;
     tile.trackMuted = false;
     tile.layerSwitchAt = null;
+    tile.stallState = INITIAL_STALL_STATE;
     this.applyStall(userId, tile, null);
   }
 
@@ -475,18 +513,20 @@ export class RemoteMediaView {
         continue;
       }
       const stalledMs = tile.trackMuted ? Number.POSITIVE_INFINITY : now - tile.lastFrameAt;
-      const reason = classifyStall({
+      const candidate = classifyStall({
         stalledMs,
         sinceLayerSwitchMs: tile.layerSwitchAt === null ? null : now - tile.layerSwitchAt,
         myTier,
       });
-      this.applyStall(userId, tile, reason);
+      // Hysteresis lives in the fold, not in the tick: see updateStallState.
+      tile.stallState = updateStallState(tile.stallState, candidate, now);
+      this.applyStall(userId, tile, tile.stallState.reason);
     }
   }
 
   private applyStall(userId: string, tile: RemoteTile, reason: StallReason | null) {
-    if (tile.stallReason === reason) return;
-    tile.stallReason = reason;
+    if (tile.shownStall === reason) return;
+    tile.shownStall = reason;
     logNet('video-stall', { peer: userId, reason });
     const body = tile.placeholder.parentElement;
     if (body) body.dataset.stallLabel = reason ? t(stallLabelKey(reason)) : '';
@@ -741,6 +781,7 @@ export class RemoteMediaView {
     // Reflect the current mute state right away (a placeholder tile may be
     // created between status broadcasts, which only fire on change).
     if (p?.isMuted) container.classList.add('muted');
+    if (p?.ptt) container.classList.add('ptt');
     if (this.reconnecting) container.classList.add('reconnecting');
 
     const header = document.createElement('div');
@@ -754,7 +795,13 @@ export class RemoteMediaView {
     const label = document.createElement('span');
     label.className = 'label';
     label.textContent = name;
+    // Push-to-talk badge: shown (by CSS) while the peer has PTT on and mic live.
+    const ptt = document.createElement('span');
+    ptt.className = 'ptt-indicator';
+    ptt.textContent = '🎙';
+    ptt.title = t('media.peerPtt');
     left.appendChild(mic);
+    left.appendChild(ptt);
     left.appendChild(label);
     header.appendChild(left);
     header.appendChild(this.createVolumeSlider(userId));
@@ -794,7 +841,8 @@ export class RemoteMediaView {
       lastFrameAt: Number.POSITIVE_INFINITY,
       trackMuted: false,
       layerSwitchAt: null,
-      stallReason: null,
+      stallState: INITIAL_STALL_STATE,
+      shownStall: null,
     };
     this.remoteTiles.set(userId, tile);
     this.refreshTileReason(userId);
@@ -910,7 +958,7 @@ export class RemoteMediaView {
     this.reflowLayout();
   }
 
-  // Makes a non-main share the featured (main) one by double-click: re-designate
+  // Makes a non-main share the featured (main) one by click: re-designate
   // the main and let reflowLayout give it the large area. Positions aren't
   // swapped — the auto-arrange handles placement (issue #175).
   private promoteScreenshare(userId: string) {
@@ -927,7 +975,7 @@ export class RemoteMediaView {
 
   // Builds a screenshare stage panel (free aspect, letterboxed video). `isMain`
   // gets the "main" accent + the large area; position/size come from
-  // reflowLayout. Double-click re-designates which share is main.
+  // reflowLayout. Clicking a non-main share makes it the main one.
   private createScreenshareStage(userId: string, isMain: boolean): Screenshare {
     const container = document.createElement('div');
     container.className = isMain ? 'panel screenshare-stage main' : 'panel screenshare-stage';
@@ -955,16 +1003,15 @@ export class RemoteMediaView {
     body.appendChild(video);
 
     this.stageLayerEl.appendChild(container);
-    // Double-click anywhere on the stage makes it the featured (main) share —
-    // except on the maximize button, where double-clicking is a natural reflex
-    // (it toggles focus on then off, so nothing seems to happen) and would
-    // otherwise silently swap which share is featured.
-    const onDblClick = (e: Event) => {
+    // A single click anywhere on the stage makes it the featured (main) share
+    // (a double-click was too hidden) — except on the maximize button, which
+    // has its own job and must not also swap which share is featured.
+    const onClick = (e: Event) => {
       if ((e.target as HTMLElement | null)?.closest?.('.panel-focus-btn')) return;
       this.promoteScreenshare(userId);
     };
-    container.addEventListener('dblclick', onDblClick);
-    const cleanup = () => container.removeEventListener('dblclick', onDblClick);
+    container.addEventListener('click', onClick);
+    const cleanup = () => container.removeEventListener('click', onClick);
     return { container, video, label, streamId: '', cleanup };
   }
 
@@ -1011,6 +1058,10 @@ export class RemoteMediaView {
     const tile = this.remoteTiles.get(userId);
     if (tile) tile.container.classList.toggle('muted', muted);
     this.facePip.setMuted(userId, muted);
+  }
+
+  setTilePtt(userId: string, ptt: boolean) {
+    this.remoteTiles.get(userId)?.container.classList.toggle('ptt', ptt);
   }
 
   // ============= Face window (issue #318) =============
@@ -1155,6 +1206,8 @@ export class RemoteMediaView {
       this.filmstripExpanded = false;
       this.meetingMinimized = false;
       this.filmstripWidth = MEETING_FILMSTRIP_TILE_W;
+      this.meetingPinnedKey = null;
+      this.meetingSplit = MEETING_SPLIT_DEFAULT;
     }
     // Entering/leaving a meeting flips whether your own camera-off tile shows.
     this.refreshSelfPreview();
@@ -1195,6 +1248,7 @@ export class RemoteMediaView {
     // The seam handle only exists in the meeting presentation layout; every other
     // branch below hides it, and layoutMeeting re-shows it when it applies.
     this.hideFilmstripResizer();
+    this.splitResizerEl.style.display = 'none';
     if (panels.length === 0) return;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -1213,7 +1267,14 @@ export class RemoteMediaView {
     }
 
     for (const p of panels) {
-      p.el.classList.remove('focus-hidden', 'focused', 'meeting-hidden', 'layout-hidden');
+      p.el.classList.remove(
+        'focus-hidden',
+        'focused',
+        'meeting-hidden',
+        'layout-hidden',
+        'meeting-pinnable',
+        'meeting-pinned',
+      );
     }
     if (meetingActive) {
       this.layoutMeeting(panels, vw, vh);
@@ -1284,6 +1345,10 @@ export class RemoteMediaView {
     vh: number,
   ) {
     const mainIdx = panels.findIndex((p) => !p.item.aspectLocked);
+    // A pin whose window is gone (peer left, share stopped, or it became the
+    // main share) is dropped, so the split never lingers with an empty pane.
+    const pinnedIdx = panels.findIndex((p, i) => i !== mainIdx && p.key === this.meetingPinnedKey);
+    if (mainIdx === -1 || pinnedIdx === -1) this.meetingPinnedKey = null;
     if (mainIdx === -1) {
       // Gallery: no screenshare to feature — every window fills a grid cell.
       const geos = computeMeetingGallery(
@@ -1300,7 +1365,7 @@ export class RemoteMediaView {
     // Presentation: main share + left filmstrip of everything else, trimmed to
     // the visible (collapsed/expanded) set so a big meeting doesn't stack 20
     // thumbnails down the edge.
-    const stripIdxs = panels.map((_, i) => i).filter((i) => i !== mainIdx);
+    const stripIdxs = panels.map((_, i) => i).filter((i) => i !== mainIdx && i !== pinnedIdx);
     // Re-clamp every reflow so a viewport shrink pulls an over-wide rail back.
     // Done before the cap because the rail's width decides its column count,
     // and the cap is counted in rows (#304): five rows is ten faces in two.
@@ -1314,16 +1379,23 @@ export class RemoteMediaView {
     const visible = stripIdxs.slice(0, visibleCount);
     for (const i of stripIdxs.slice(visibleCount)) panels[i].el.classList.add('meeting-hidden');
 
-    const order = [mainIdx, ...visible];
+    const pinned = pinnedIdx !== -1;
+    const order = pinned ? [mainIdx, pinnedIdx, ...visible] : [mainIdx, ...visible];
     const geos = computeMeetingPresentation(
       order.map((i) => panels[i].item),
       vw,
       vh,
       this.filmstripWidth,
+      pinned ? this.meetingSplit : null,
     );
     order.forEach((pi, k) => {
       applyPanelGeometry(panels[pi].el, geos[k]);
     });
+    for (const i of visible) panels[i].el.classList.add('meeting-pinnable');
+    if (pinned) {
+      panels[pinnedIdx].el.classList.add('meeting-pinned');
+      this.placeSplitResizer(geos[0]);
+    }
 
     const railW = meetingFilmstripColWidth(this.filmstripWidth);
     if (needToggle) this.placeToggle(railW / 2, vh);
@@ -1380,6 +1452,57 @@ export class RemoteMediaView {
     el.addEventListener('pointercancel', end);
     el.addEventListener('dblclick', () => {
       this.filmstripWidth = MEETING_FILMSTRIP_TILE_W;
+      this.reflowLayout();
+    });
+  }
+
+  // Pins a filmstrip window under the share, swaps the pin to another window,
+  // or unpins (back to the filmstrip) when it is already the pinned one.
+  private togglePin(key: string) {
+    this.meetingPinnedKey = this.meetingPinnedKey === key ? null : key;
+    this.reflowLayout();
+  }
+
+  // Parks the horizontal drag handle on the seam under the share (top pane).
+  private placeSplitResizer(top: PanelGeometry) {
+    const el = this.splitResizerEl;
+    el.style.display = 'block';
+    el.style.left = `${top.left}px`;
+    el.style.width = `${top.width}px`;
+    el.style.top = `${Math.round(top.top + (top.height ?? 0) + MEETING_FILMSTRIP_SEP / 2)}px`;
+  }
+
+  // Drag the share / pinned seam to change the top : bottom ratio. Same
+  // mechanics as the filmstrip seam; double-click snaps back to an even split.
+  private bindSplitResizer() {
+    const el = this.splitResizerEl;
+    let dragging = false;
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      if (typeof el.setPointerCapture === 'function') el.setPointerCapture(e.pointerId);
+      el.classList.add('dragging');
+      e.preventDefault();
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      // The meeting area starts at y=0, so the pointer y over its height IS the ratio.
+      const areaH = Math.max(1, window.innerHeight - PANEL_BOTTOM_RESERVED);
+      this.meetingSplit = clampMeetingSplit(e.clientY / areaH);
+      this.reflowLayout();
+    });
+    const end = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      el.classList.remove('dragging');
+      if (typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId)) {
+        el.releasePointerCapture(e.pointerId);
+      }
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('dblclick', () => {
+      this.meetingSplit = MEETING_SPLIT_DEFAULT;
       this.reflowLayout();
     });
   }

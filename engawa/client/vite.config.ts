@@ -36,5 +36,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // Second page: the camera quality lab opened from the "⋯" menu.
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        cameraLab: fileURLToPath(new URL('./camera-lab.html', import.meta.url)),
+      },
+    },
   },
 });

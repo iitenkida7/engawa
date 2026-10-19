@@ -43,8 +43,10 @@ import {
   computeCamEncoding,
   computeScreenEncoding,
   computeSfuCamRid,
+  initialSfuCamRid,
   isHeldSpeaking,
 } from '@/rtc/cam-bitrate';
+import { diagnoseConns, peerQualityRows } from '@/rtc/diag';
 import {
   applyNetTierToCam,
   applyNetTierToScreen,
@@ -56,7 +58,7 @@ import {
 } from '@/rtc/netquality';
 import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
 import { setPreferRedAudio } from '@/rtc/sdp';
-import { SfuManager } from '@/rtc/sfu';
+import { SFU_UPSTREAM_ID, SfuManager } from '@/rtc/sfu';
 import {
   localPublishRoute,
   partitionMembers,
@@ -73,6 +75,8 @@ import { DesktopNotifier, isBackgrounded, knockAlertLevel } from '@/ui/desktop-n
 import { KeyHelpPanel } from '@/ui/keyhelp';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
+import { NotifyHelpPanel } from '@/ui/notify-help';
+import { isPttKey, PTT_KEY } from '@/ui/ptt';
 import { ReactionToasts } from '@/ui/reaction-toast';
 import { RecIndicator } from '@/ui/rec-indicator';
 import { RemoteMediaView } from '@/ui/remote-media';
@@ -92,6 +96,7 @@ import {
   findAdjacentSpawn,
   findWalkableSpawn,
   isDeskSeat,
+  isMeetingRoom,
   isMeetingZone,
   zoneAt,
 } from '@/world/tilemap';
@@ -106,17 +111,6 @@ const JOIN_CHIME_GRACE_MS = 2500;
 // often to keep localStorage writes cheap.
 const POS_STORAGE_KEY = 'engawa-pos';
 const POS_SAVE_INTERVAL_MS = 3000;
-
-// Persist the ⋯-menu audio-only choice (#321): someone who works audio-only
-// shouldn't have to re-pick it every login. Only an explicit '1' enables it.
-const AUDIO_ONLY_STORAGE_KEY = 'engawa-audio-only';
-function readAudioOnlyPref(): boolean {
-  try {
-    return localStorage.getItem(AUDIO_ONLY_STORAGE_KEY) === '1';
-  } catch {
-    return false; /* private-mode storage errors: full video, as before */
-  }
-}
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
@@ -142,6 +136,7 @@ export class App {
   private reactionToasts = new ReactionToasts();
   private roster = new RosterPanel({ getPlayers: () => this.players });
   private keyHelp = new KeyHelpPanel();
+  private notifyHelp = new NotifyHelpPanel(() => void this.testDesktopNotify());
   private sounds = new SoundManager();
   private desktopNotifier = new DesktopNotifier();
   private knocks: KnockController;
@@ -258,10 +253,8 @@ export class App {
   private lastQualitySampleAt = 0;
   private netTierState: TierState = INITIAL_TIER_STATE;
   private autoCamOff = false;
-  // Receive-side degradation (#188): `manualAudioOnly` is the user's ⋯-menu
-  // toggle (stops our own cam/screen and, on SFU, pauses video pulls);
-  // `autoRecvAudioOnly` is the tier-3 automatic variant, cleared on recovery.
-  private manualAudioOnly = readAudioOnlyPref();
+  // Receive-side degradation (#188): at tier 3 on the SFU, video pulls pause
+  // so the downlink serves audio; cleared on recovery.
   private autoRecvAudioOnly = false;
 
   // Mesh-peer recovery state (issue #184), all keyed by peer userId and driven
@@ -296,6 +289,13 @@ export class App {
   private onCanvasClick = (e: MouseEvent) => this.handleCanvasClick(e);
   private avatarMenuEl = document.getElementById('avatar-menu') as HTMLDivElement;
   private onShortcutKey = (e: KeyboardEvent) => this.handleShortcutKey(e);
+  private onPttKeyUp = (e: KeyboardEvent) => {
+    if (e.key !== PTT_KEY) return;
+    // A focused button "clicks" on Space keyup; don't let releasing PTT press it.
+    if (this.toolbar.pttActive() && !isTypingTarget(e.target)) e.preventDefault();
+    this.toolbar.setPttHeld(false);
+  };
+  private onPttRelease = () => this.toolbar.setPttHeld(false);
   private onBeforeUnload = (e: BeforeUnloadEvent) => {
     // Closing the tab mid-recording: download what has been recorded so far
     // right now, synchronously (#315). This is the only unload-time hook from
@@ -475,6 +475,7 @@ export class App {
       // peers (see onOutfitApplied).
       onOpenAvatar: () => this.editor.open({ onApply: (o) => this.onOutfitApplied(o) }),
       onOpenShortcuts: () => this.keyHelp.toggle(),
+      onTestNotify: () => void this.testDesktopNotify(),
       // The 🐛 debug console lives in the toolbar's "⋯" menu (issue #113). These
       // resolve lazily on click, so referencing this.debug (built below) is fine.
       toggleDebug: () => this.debug.toggle(),
@@ -483,11 +484,6 @@ export class App {
       // turning the camera on (or off) while paused takes it out of automation.
       onUserCamToggle: () => {
         this.autoCamOff = false;
-      },
-      // Audio-only mode (#188), owned here since it spans send + receive.
-      isAudioOnly: () => this.manualAudioOnly,
-      onToggleAudioOnly: () => {
-        void this.setAudioOnlyMode(!this.manualAudioOnly);
       },
     });
 
@@ -546,6 +542,11 @@ export class App {
     // toggles (issue #297, re-laid-out in #302). Ignored while typing in a
     // field, and key-repeat is dropped so holding a key doesn't spam.
     window.addEventListener('keydown', this.onShortcutKey);
+    // Push-to-talk release. Unconditional (like world/input.ts): the key may be
+    // let go after focus moved into a text field, and a missed keyup would leave
+    // the mic open. Losing window focus releases it too.
+    window.addEventListener('keyup', this.onPttKeyUp);
+    window.addEventListener('blur', this.onPttRelease);
   }
 
   // Run a keyboard shortcut. The key → action table lives in core/shortcuts.ts
@@ -556,11 +557,13 @@ export class App {
     if (!this.me) return;
     // Skipped while typing, same guard as world/input.ts and the Esc handler in
     // ui/remote-media.ts — 'm' in a message is an 'm', not "mute".
-    const t = e.target;
-    if (
-      t instanceof HTMLElement &&
-      (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-    ) {
+    if (isTypingTarget(e.target)) return;
+    // Push-to-talk: hold Space = transmit (the keyup / blur handlers release
+    // it). preventDefault stops Space scrolling the page or pressing a focused
+    // button; auto-repeat keydowns are swallowed too.
+    if (this.toolbar.pttActive() && isPttKey(e)) {
+      e.preventDefault();
+      if (!e.repeat) this.toolbar.setPttHeld(true);
       return;
     }
     const hit = resolveShortcut(e);
@@ -705,10 +708,9 @@ export class App {
   start(name: string, password: string) {
     this.joinedName = name;
     this.joinedPassword = password;
-    // Entering the room is a user gesture, the only context in which browsers
-    // show the notification prompt — so ask here, once, rather than hoping the
-    // user finds the status-menu toggle (#321). No-op once decided either way.
-    void this.desktopNotifier.ensurePermission();
+    // No permission prompt on join: if notifications aren't already allowed the
+    // toggle starts OFF, and turning it on runs the test + fix-it flow.
+    this.desktopNotifier.syncOnJoin();
     this.net.connect();
     // Guard like startBackgroundTicker/setupLifecycle: an auth-error retry calls
     // start() again on the same App, and a second rAF chain would double-drive
@@ -719,9 +721,6 @@ export class App {
     }
     this.startBackgroundTicker();
     this.setupLifecycle();
-    // A restored audio-only preference has to reach the SFU / view before the
-    // first pulls are set up.
-    if (this.manualAudioOnly) this.updateVideoPullPause();
   }
 
   // Keep the simulation alive in a hidden tab. While visible, requestAnimationFrame
@@ -835,6 +834,8 @@ export class App {
     this.canvas.removeEventListener('dblclick', this.onCanvasDblClick);
     this.canvas.removeEventListener('click', this.onCanvasClick);
     window.removeEventListener('keydown', this.onShortcutKey);
+    window.removeEventListener('keyup', this.onPttKeyUp);
+    window.removeEventListener('blur', this.onPttRelease);
     window.removeEventListener('beforeunload', this.onBeforeUnload);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     window.removeEventListener('focus', this.onWindowFocus);
@@ -875,7 +876,10 @@ export class App {
       return;
     }
     const q = summarizeConnQuality(conns);
-    logNet('quality', { method, ...q });
+    // Per-peer rows let the debug console's diagnosis report say *who* was bad
+    // over the last minutes, not just that the worst link was bad.
+    const diags = diagnoseConns(conns, (id) => this.players.get(id)?.name ?? '', SFU_UPSTREAM_ID);
+    logNet('quality', { method, ...q, peers: peerQualityRows(diags) });
 
     const prevTier = this.netTierState.tier;
     this.netTierState = updateTierState(this.netTierState, classifySample(q));
@@ -912,12 +916,12 @@ export class App {
     if (tier === 3 && this.currentMethod === 'sfu' && !this.autoRecvAudioOnly) {
       this.autoRecvAudioOnly = true;
       logNet('net-recv-audio-only', { on: true });
-      if (!this.manualAudioOnly) this.toasts.info(t('app.netRecvAudioOnly'));
+      this.toasts.info(t('app.netRecvAudioOnly'));
       this.updateVideoPullPause();
     } else if (this.autoRecvAudioOnly && tier <= 1) {
       this.autoRecvAudioOnly = false;
       logNet('net-recv-audio-only', { on: false });
-      if (!this.manualAudioOnly) this.toasts.info(t('app.netRecvVideoRestore'));
+      this.toasts.info(t('app.netRecvVideoRestore'));
       this.updateVideoPullPause();
     }
   }
@@ -938,38 +942,14 @@ export class App {
     }
   }
 
-  // Push the effective video-pull pause (manual OR automatic) to the SFU; on
-  // resume, re-feed the cached directories so the dropped video is re-pulled.
+  // Push the video-pull pause to the SFU; on resume, re-feed the cached
+  // directories so the dropped video is re-pulled.
   private updateVideoPullPause() {
-    const paused = this.manualAudioOnly || this.autoRecvAudioOnly;
+    const paused = this.autoRecvAudioOnly;
     this.sfu.setVideoPullPaused(paused);
     this.view.setRecvVideoPaused(paused && this.currentMethod === 'sfu');
     if (paused || this.currentMethod !== 'sfu') return;
     this.refeedSfuDirectories();
-  }
-
-  // The ⋯-menu audio-only toggle (#188): entering stops our camera and screen
-  // share through the regular toolbar flows and pauses SFU video pulls; leaving
-  // resumes receiving but deliberately does NOT re-enable the camera — the user
-  // decides what to re-share.
-  private async setAudioOnlyMode(on: boolean) {
-    if (this.manualAudioOnly === on) return;
-    this.manualAudioOnly = on;
-    logNet('audio-only-mode', { on });
-    try {
-      localStorage.setItem(AUDIO_ONLY_STORAGE_KEY, on ? '1' : '0');
-    } catch {
-      /* ignore private-mode storage errors */
-    }
-    if (on) {
-      this.autoCamOff = false; // manual mode supersedes the automation
-      await this.toolbar.setCamEnabled(false);
-      this.toolbar.stopScreenShare();
-      this.toasts.info(t('app.audioOnlyOn'));
-    } else {
-      this.toasts.info(t('app.audioOnlyOff'));
-    }
-    this.updateVideoPullPause();
   }
 
   // Tier 3 means voice is at risk: pause the camera through the same toolbar
@@ -990,7 +970,7 @@ export class App {
       logNet('net-auto-cam-off');
       this.toasts.info(t('app.netCamOff'));
       await this.toolbar.setCamEnabled(false);
-    } else if (this.autoCamOff && tier <= 1 && !this.manualAudioOnly) {
+    } else if (this.autoCamOff && tier <= 1) {
       this.autoCamOff = false;
       logNet('net-auto-cam-restore');
       this.toasts.info(t('app.netCamRestore'));
@@ -1331,7 +1311,9 @@ export class App {
           p.isMuted = msg.isMuted;
           p.isVideoOn = msg.isVideoOn;
           p.camAutoOff = msg.camAutoOff;
+          p.ptt = msg.ptt;
           this.view.setTileMuted(msg.userId, msg.isMuted);
+          this.view.setTilePtt(msg.userId, msg.ptt);
           this.view.refreshTileReason(msg.userId);
         }
         break;
@@ -1590,12 +1572,14 @@ export class App {
     // zone (any room, booth or café — #287); a hallway bump keeps the small
     // floating tiles. No-ops when unchanged.
     this.view.setMeetingMode(this.myStatus !== 'away' && isMeetingZone(zoneId));
+    // Meeting rooms seat up to ~20: start new camera pulls on the light layer.
+    this.sfu.setInitialCamRid(initialSfuCamRid(isMeetingRoom(zoneId)));
 
     // Walking out of a zone cuts mic, camera and screen share (#306). The flag
     // `autoCamOff` is deliberately NOT set: that one belongs to the tier-3
     // policy, which would otherwise restore this camera the moment the network
     // recovers. Nothing here turns media back on — walking back in leaves the
-    // decision to re-share with the user, as audio-only mode does (#188).
+    // decision to re-share with the user.
     // Recording keeps running: it was started deliberately and is the user's to
     // stop.
     if (shouldDisableOnZoneExit(this.lastZoneId, zoneId, this.anyLocalMediaOn())) {
@@ -1832,14 +1816,32 @@ export class App {
       isMuted: !this.media.micOn,
       isVideoOn: this.media.camOn,
       camAutoOff: this.autoCamOff && !this.media.camOn,
+      ptt: this.toolbar.pttActive(),
     });
   }
 
-  // Status-menu toggle for desktop notifications (#140). A denied permission
-  // can only be lifted in the browser's site settings, so say so.
+  // Status-menu toggle for desktop notifications (#140). A browser denial gets
+  // the site-settings steps; the OS gate is checked from ⋯ → test notification.
   private async toggleDesktopNotify() {
-    const perm = await this.desktopNotifier.toggle();
-    if (perm === 'denied') this.toasts.error(t('notify.denied'));
+    const result = await this.desktopNotifier.toggle();
+    if (result === 'unsupported') this.toasts.error(t('notify.unsupported'));
+    else if (result === 'denied') this.notifyHelp.show('browser');
+  }
+
+  // ⋯ → test notification. The browser gate is detectable; the OS gate isn't,
+  // so after sending we ask the user whether it arrived.
+  private async testDesktopNotify() {
+    const result = await this.desktopNotifier.test();
+    if (result === 'unsupported') this.toasts.error(t('notify.unsupported'));
+    else if (result === 'denied') this.notifyHelp.show('browser');
+    else if (result === 'sent') this.askTestArrived();
+  }
+
+  private askTestArrived() {
+    this.toasts.action(t('notify.testAsk'), [
+      { label: t('notify.testYes'), primary: true, onClick: () => {} },
+      { label: t('notify.testNo'), onClick: () => this.notifyHelp.show('os') },
+    ]);
   }
 
   // Set the presence status. No-ops when it already matches. Going away (#220)
@@ -2051,4 +2053,13 @@ export class App {
 
 function clamp(v: number, lo: number, hi: number) {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+// Whether a key event lands in a text field (where keys are typing, not
+// shortcuts) — same guard as world/input.ts and ui/remote-media.ts.
+function isTypingTarget(t: EventTarget | null): boolean {
+  return (
+    t instanceof HTMLElement &&
+    (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
+  );
 }

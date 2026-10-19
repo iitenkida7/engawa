@@ -9,6 +9,7 @@ import {
   partitionMembers,
   reconcilePeerTracks,
   remoteKey,
+  SFU_PULL_SLOW_RETRY_MS,
   sfuApiRetryDelayMs,
   sfuErrorMessage,
   sfuPullRetryDelayMs,
@@ -281,6 +282,13 @@ describe('sfu rejected-pull retry schedule (issue #250)', () => {
     expect(sfuPullRetryDelayMs(3)).toBe(4000);
     expect(sfuPullRetryDelayMs(4)).toBeNull();
     expect(sfuPullRetryDelayMs(0)).toBeNull();
+  });
+
+  it('keeps retrying slowly past the limit while the transport is healthy', () => {
+    expect(sfuPullRetryDelayMs(3, true)).toBe(4000);
+    expect(sfuPullRetryDelayMs(4, true)).toBe(SFU_PULL_SLOW_RETRY_MS);
+    expect(sfuPullRetryDelayMs(50, true)).toBe(SFU_PULL_SLOW_RETRY_MS);
+    expect(sfuPullRetryDelayMs(0, true)).toBeNull();
   });
 });
 

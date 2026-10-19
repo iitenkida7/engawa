@@ -13,9 +13,11 @@ import {
   computeScreenEncoding,
   computeScreenScale,
   computeSfuCamRid,
+  initialSfuCamRid,
   isHeldSpeaking,
   SCREEN_BITRATE_HIGH,
   SCREEN_BITRATE_THROTTLED,
+  SCREEN_CAPTURE_CONSTRAINTS,
   SCREEN_FPS_DEFAULT,
   SCREEN_FPS_LARGE,
   SCREEN_LARGE_MIN_PEERS,
@@ -27,6 +29,8 @@ import {
   SFU_CAM_LAYERS,
   SFU_CAM_QUARTER_RID,
   SFU_SCREEN_MAX_BITRATE,
+  SFU_SCREEN_MAX_FRAMERATE,
+  SFU_SCREEN_MAX_LONG_EDGE,
   SIMULCAST_FULL_MIN_WIDTH,
   SIMULCAST_HALF_MIN_WIDTH,
   SIMULCAST_HYSTERESIS_PX,
@@ -344,8 +348,16 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
     expect(full?.maxFramerate).toBeLessThan(CAM_FPS_SPEAKING);
   });
 
-  it('leaves the screen share ceiling untouched (#314: cameras only)', () => {
-    expect(SFU_SCREEN_MAX_BITRATE).toBe(SCREEN_BITRATE_HIGH);
+  it('keeps the screen share ceiling between the mesh throttled and high tiers (#324)', () => {
+    expect(SFU_SCREEN_MAX_BITRATE).toBe(2_000_000);
+    expect(SFU_SCREEN_MAX_BITRATE).toBeGreaterThan(SCREEN_BITRATE_THROTTLED);
+    expect(SFU_SCREEN_MAX_BITRATE).toBeLessThan(SCREEN_BITRATE_HIGH);
+  });
+
+  it('caps the SFU screen share like the mesh small group (#324)', () => {
+    const mesh = computeScreenEncoding(1);
+    expect(SFU_SCREEN_MAX_FRAMERATE).toBe(mesh.maxFramerate);
+    expect(SFU_SCREEN_MAX_LONG_EDGE).toBe(mesh.maxLongEdge);
   });
 
   it('contains every rid computePreferredRid can return', () => {
@@ -355,9 +367,48 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
     expect(rids).toContain(SFU_CAM_QUARTER_RID);
   });
 
+  it('runs every camera layer at the 15fps quiet rate', () => {
+    for (const layer of SFU_CAM_LAYERS) {
+      expect(layer.maxFramerate).toBe(CAM_FPS_QUIET);
+    }
+  });
+
   it('steps bitrate down with each smaller layer', () => {
     for (let i = 1; i < SFU_CAM_LAYERS.length; i++) {
       expect(SFU_CAM_LAYERS[i].maxBitrate).toBeLessThan(SFU_CAM_LAYERS[i - 1].maxBitrate);
     }
+  });
+});
+
+describe('initialSfuCamRid', () => {
+  it('starts camera pulls on the quarter layer in a meeting room', () => {
+    expect(initialSfuCamRid(true)).toBe(SFU_CAM_QUARTER_RID);
+  });
+
+  it('starts on the full layer everywhere else', () => {
+    expect(initialSfuCamRid(false)).toBe(SFU_CAM_DEFAULT_RID);
+  });
+});
+
+describe('SCREEN_CAPTURE_CONSTRAINTS', () => {
+  const c = SCREEN_CAPTURE_CONSTRAINTS as {
+    width: { max: number };
+    height: { max: number };
+    frameRate: { max: number };
+  };
+
+  it('caps both edges at the long-edge limit so any aspect ratio fits', () => {
+    expect(c.width.max).toBe(SCREEN_LONG_EDGE_DEFAULT);
+    expect(c.height.max).toBe(SCREEN_LONG_EDGE_DEFAULT);
+  });
+
+  it('never captures less than any send tier encodes', () => {
+    for (const peers of [1, 3, 8, 20]) {
+      const enc = computeScreenEncoding(peers);
+      expect(c.frameRate.max).toBeGreaterThanOrEqual(enc.maxFramerate);
+      expect(c.width.max).toBeGreaterThanOrEqual(enc.maxLongEdge);
+    }
+    expect(c.frameRate.max).toBeGreaterThanOrEqual(SFU_SCREEN_MAX_FRAMERATE);
+    expect(c.width.max).toBeGreaterThanOrEqual(SFU_SCREEN_MAX_LONG_EDGE);
   });
 });

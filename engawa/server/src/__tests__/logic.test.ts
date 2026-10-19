@@ -22,6 +22,7 @@ import {
   normalizeWorkspace,
   PLAYER_STATUSES,
   PROXIMITY_CONNECT_RADIUS,
+  PROXIMITY_DISCONNECT_RADIUS,
   REACTION_EMOJIS,
   SFU_MAX_TRACKS,
   SFU_PROMOTE_AT,
@@ -266,6 +267,42 @@ describe('computeProximityGroups', () => {
     });
     expect(groups).toHaveLength(2);
     expect(groups.every((g) => g.method === 'mesh')).toBe(true);
+  });
+
+  test('moving: a walker passing a still player does NOT form a new group', () => {
+    const still = m('a', 0, 0);
+    const walker: GroupMember = { ...m('b', 50, 0), moving: true };
+    const groups = computeProximityGroups([still, walker], { sfuEnabled: true });
+    expect(groups).toHaveLength(2);
+  });
+
+  test('moving: two moving players do not connect either', () => {
+    const a: GroupMember = { ...m('a', 0, 0), moving: true };
+    const b: GroupMember = { ...m('b', 50, 0), moving: true };
+    expect(computeProximityGroups([a, b], { sfuEnabled: true })).toHaveLength(2);
+  });
+
+  test('moving: connects once both have stopped', () => {
+    const a: GroupMember = { ...m('a', 0, 0), moving: false };
+    const b: GroupMember = { ...m('b', 50, 0), moving: false };
+    expect(computeProximityGroups([a, b], { sfuEnabled: true })).toHaveLength(1);
+  });
+
+  test('moving: an existing group stays connected while a member walks within the disconnect radius', () => {
+    const a = m('a', 0, 0);
+    const b: GroupMember = { ...m('b', 100, 0), moving: true };
+    const groups = computeProximityGroups([a, b], {
+      sfuEnabled: true,
+      prevGroupMemberSets: [['a', 'b']],
+      disconnectRadius: PROXIMITY_DISCONNECT_RADIUS,
+    });
+    expect(groups).toHaveLength(1);
+  });
+
+  test('moving: a meeting room still connects regardless of movement', () => {
+    const a: GroupMember = { ...m('a', 0, 0, 'room1'), moving: true };
+    const b: GroupMember = { ...m('b', 900, 0, 'room1'), moving: true };
+    expect(computeProximityGroups([a, b], { sfuEnabled: true })).toHaveLength(1);
   });
 
   test('seated: a passer-by two tiles away does NOT connect (private desk seat)', () => {

@@ -217,6 +217,21 @@ export function filmstripTileHeight(stripW: number): number {
   return Math.max(1, Math.round((stripW * MEETING_FILMSTRIP_TILE_H) / MEETING_FILMSTRIP_TILE_W));
 }
 
+// Split main area (presentation): clicking a filmstrip tile pins it under the
+// featured share, so the main area splits top (share) / bottom (pinned). The
+// ratio is the top pane's share of the height, dragged via the horizontal seam
+// and clamped so neither pane collapses to an unreadable sliver.
+export const MEETING_SPLIT_DEFAULT = 0.5;
+export const MEETING_SPLIT_MIN = 0.2;
+export const MEETING_SPLIT_MAX = 0.8;
+
+// Pure: clamps a requested split ratio into the draggable range. Non-finite
+// input (a stray drag) falls back to the default.
+export function clampMeetingSplit(ratio: number): number {
+  if (!Number.isFinite(ratio)) return MEETING_SPLIT_DEFAULT;
+  return Math.max(MEETING_SPLIT_MIN, Math.min(MEETING_SPLIT_MAX, ratio));
+}
+
 // Full-bleed horizontally; only the bottom toolbar strip is reserved so tiles
 // never hide under the controls.
 function meetingArea(vw: number, vh: number) {
@@ -262,41 +277,52 @@ export function computeMeetingGallery(
 // MEETING_FILMSTRIP_TILE_W; user-dragged, #288). The rail runs one column, or
 // two once it is wide enough to hold two default tiles (#304); tiles are
 // centered in the rail when they fit and shrink to divide it when they don't.
+// With a `splitRatio`, items[1] is the pinned window: the main area splits into
+// the share on top (that fraction of the height) and items[1] below, and the
+// rail holds items[2..]. With nothing left for the rail the split spans the
+// full width.
 export function computeMeetingPresentation(
   items: LayoutItem[],
   vw: number,
   vh: number,
   stripW: number = MEETING_FILMSTRIP_TILE_W,
+  splitRatio: number | null = null,
 ): PanelGeometry[] {
   const n = items.length;
   if (n === 0) return [];
   const area = meetingArea(vw, vh);
   const result = new Array<PanelGeometry>(n);
-  if (n === 1) {
-    result[0] = fillCell(area.x, area.y, area.w, area.h);
+  const pinned = splitRatio != null && n >= 2 ? 1 : 0;
+  if (n === 1 + pinned) {
+    if (pinned) splitMain(result, area.x, area.y, area.w, area.h, splitRatio!);
+    else result[0] = fillCell(area.x, area.y, area.w, area.h);
     return result;
   }
-  const strip = n - 1;
+  const first = 1 + pinned;
+  const strip = n - first;
   const cols = computeFilmstripColumns(stripW);
   const tileW = filmstripTileWidth(stripW);
   const tileH = filmstripTileHeight(tileW);
   // Row-major fill: left to right, then down — reading order, so a newcomer
   // lands where the eye expects rather than extending a column.
   const rows = Math.ceil(strip / cols);
-  const colX = (k: number) => area.x + ((k - 1) % cols) * (tileW + MEETING_GAP);
+  const colX = (k: number) => area.x + ((k - first) % cols) * (tileW + MEETING_GAP);
+  const rowOf = (k: number) => Math.floor((k - first) / cols);
   // Main share abuts the whole rail with only the thin seam between them, and
   // runs full-bleed on the other three edges.
   const mainX = area.x + stripW + MEETING_FILMSTRIP_SEP;
-  result[0] = { left: mainX, top: area.y, width: Math.max(1, area.w - mainX), height: area.h };
+  const mainW = Math.max(1, area.w - mainX);
+  if (pinned) splitMain(result, mainX, area.y, mainW, area.h, splitRatio!);
+  else result[0] = { left: mainX, top: area.y, width: mainW, height: area.h };
 
   const fixedTotalH = rows * tileH + (rows - 1) * MEETING_GAP;
   if (fixedTotalH <= area.h) {
     // Fits: fixed-size tiles, flush-left and vertically centered beside the share.
     const startY = area.y + (area.h - fixedTotalH) / 2;
-    for (let k = 1; k < n; k++) {
+    for (let k = first; k < n; k++) {
       result[k] = {
         left: Math.round(colX(k)),
-        top: Math.round(startY + Math.floor((k - 1) / cols) * (tileH + MEETING_GAP)),
+        top: Math.round(startY + rowOf(k) * (tileH + MEETING_GAP)),
         width: tileW,
         height: tileH,
       };
@@ -312,16 +338,32 @@ export function computeMeetingPresentation(
       1,
       Math.min(tileW, Math.round((h * MEETING_FILMSTRIP_TILE_W) / MEETING_FILMSTRIP_TILE_H)),
     );
-    for (let k = 1; k < n; k++) {
+    for (let k = first; k < n; k++) {
       result[k] = {
         left: Math.round(colX(k) + (tileW - w) / 2),
-        top: Math.round(area.y + Math.floor((k - 1) / cols) * cellH),
+        top: Math.round(area.y + rowOf(k) * cellH),
         width: w,
         height: h,
       };
     }
   }
   return result;
+}
+
+// Splits the main box [x, y, w, h] into the share (result[0], top) and the
+// pinned window (result[1], bottom) with the thin seam between them.
+function splitMain(
+  result: PanelGeometry[],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  ratio: number,
+) {
+  const topH = Math.max(1, Math.round((h - MEETING_FILMSTRIP_SEP) * clampMeetingSplit(ratio)));
+  const bottomY = y + topH + MEETING_FILMSTRIP_SEP;
+  result[0] = { left: x, top: y, width: w, height: topH };
+  result[1] = { left: x, top: bottomY, width: w, height: Math.max(1, y + h - bottomY) };
 }
 
 // ===== Minimized meeting sidebar (#263) =====

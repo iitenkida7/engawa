@@ -128,16 +128,11 @@ const STR: Record<string, Record<Lang, string>> = {
   'rec.started': { ja: '{name} さんが録画を開始しました', en: '{name} started recording' },
   'rec.stopped': { ja: '{name} さんが録画を終了しました', en: '{name} stopped recording' },
   'rec.othersTip': { ja: '録画中: {names}', en: 'Recording: {names}' },
-  // Our own recording (#315): it runs inside this browser and is only saved when
-  // stopped, so say so at start and keep a persistent indicator on screen.
-  'rec.selfStartedHint': {
-    ja: '録画を開始しました。録画はこの PC 上で行われ、■ 停止を押したときにダウンロードされます。停止せずにタブを閉じた場合は、その時点までの録画を自動でダウンロードします。',
-    en: 'Recording started. It runs on this PC and is downloaded when you press ■ Stop. If you close the tab without stopping, what was recorded so far is downloaded automatically.',
-  },
+  // Our own recording (#315): a persistent indicator stays on screen while it runs.
   'rec.indicator': { ja: '録画中', en: 'REC' },
   'rec.indicatorHint': {
-    ja: '■ 停止で保存 / 閉じるとそこまでを自動保存',
-    en: '■ Stop to save / closing auto-saves so far',
+    ja: '■ 停止で保存',
+    en: '■ Stop to save',
   },
   'toolbar.reactions': { ja: 'リアクション', en: 'Reactions' },
   'toolbar.more': { ja: 'その他', en: 'More' },
@@ -166,8 +161,8 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.bgCustom': { ja: '🖼 カスタム画像', en: '🖼 Custom image' },
   'toolbar.bgUpload': { ja: '📁 画像をアップロード…', en: '📁 Upload image…' },
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
-  'toolbar.audioOnly': { ja: '🔉 音声のみモード', en: '🔉 Audio-only mode' },
   'toolbar.shortcuts': { ja: '⌨ キーバインド一覧', en: '⌨ Keyboard shortcuts' },
+  'toolbar.testNotify': { ja: '🔔 通知をテスト', en: '🔔 Test notification' },
   // "⋯" menu: experimental features master switch (#323). Opt-in, off by
   // default; the per-feature toggles appear beneath it once ticked.
   'toolbar.experimental': { ja: '🧪 実験的機能を使う', en: '🧪 Use experimental features' },
@@ -184,8 +179,10 @@ const STR: Record<string, Record<Lang, string>> = {
     en: 'Could not open the faces window automatically',
   },
   'toolbar.facePipOpen': { ja: '小窓を開く', en: 'Open it' },
+  'toolbar.ptt': { ja: '🎙 プッシュトーク(SPACEキー)', en: '🎙 Push-to-talk (Space key)' },
   'toolbar.closeDebug': { ja: '🐛 デバッグを閉じる', en: '🐛 Close debug' },
   'toolbar.openDebug': { ja: '🐛 デバッグ（RTC 接続）', en: '🐛 Debug (RTC connections)' },
+  'toolbar.cameraLab': { ja: '🎥 カメラ画質ラボ', en: '🎥 Camera quality lab' },
 
   // -- virtual background presets & button ----------------------------------
   'vbg.office': { ja: '⬛ ダーク', en: '⬛ Dark' },
@@ -223,10 +220,83 @@ const STR: Record<string, Record<Lang, string>> = {
   'notify.knockBody': { ja: '話したがっています', en: 'They would like to talk' },
   'notify.toggleOn': { ja: '🔔 デスクトップ通知: ON', en: '🔔 Desktop notifications: ON' },
   'notify.toggleOff': { ja: '🔕 デスクトップ通知: OFF', en: '🔕 Desktop notifications: OFF' },
-  'notify.denied': {
-    ja: '通知がブロックされています。ブラウザのサイト設定で通知を許可してください',
-    en: 'Notifications are blocked. Allow them in your browser site settings',
+  'notify.testTitle': { ja: '🔔 engawa のテスト通知', en: '🔔 engawa test notification' },
+  'notify.testBody': {
+    ja: 'これが見えていればデスクトップ通知は届きます',
+    en: 'If you can see this, desktop notifications work',
   },
+  'notify.testAsk': {
+    ja: 'テスト通知を送りました。画面の端に届きましたか？',
+    en: 'Sent a test notification. Did it show up?',
+  },
+  'notify.testYes': { ja: '届いた', en: 'Yes' },
+  'notify.testNo': { ja: '届かない', en: 'No' },
+  'notify.unsupported': {
+    ja: 'このブラウザ / 環境ではデスクトップ通知を使えません',
+    en: 'Desktop notifications are not available in this browser',
+  },
+  'notify.help.browserTitle': {
+    ja: '🚫 ブラウザが通知をブロックしています',
+    en: '🚫 Your browser is blocking notifications',
+  },
+  'notify.help.browserLead': {
+    ja: 'engawa のサイトに通知の許可がありません。ブラウザのサイト設定で許可してください。',
+    en: 'engawa is not allowed to notify you. Allow it in the browser site settings.',
+  },
+  'notify.help.browser1': {
+    ja: 'アドレスバー左端のアイコン（🔒 など）をクリック',
+    en: 'Click the icon at the left of the address bar (🔒 etc.)',
+  },
+  'notify.help.browser2': {
+    ja: '「通知」を「許可」に変更（なければ「サイトの設定」→「通知」→「許可」）',
+    en: 'Set "Notifications" to "Allow" (or Site settings → Notifications → Allow)',
+  },
+  'notify.help.browser3': {
+    ja: 'ページを再読み込みして、⋯ メニューの「通知をテスト」で確認',
+    en: 'Reload the page and check again with ⋯ → Test notification',
+  },
+  'notify.help.osTitle': {
+    ja: '🖥 OS の通知設定を確認してください',
+    en: '🖥 Check your OS notification settings',
+  },
+  'notify.help.osLead': {
+    ja: 'ブラウザ側は許可済みです。OS がブラウザの通知を止めている可能性があります。',
+    en: 'The browser allows it, so the OS is probably holding back browser notifications.',
+  },
+  'notify.help.mac1': {
+    ja: '下のボタンで「システム設定 › 通知」を開く',
+    en: 'Open System Settings › Notifications with the button below',
+  },
+  'notify.help.mac2': {
+    ja: '一覧の「Google Chrome」（2 行あれば両方。Edge なら Microsoft Edge）の「通知を許可」をオン',
+    en: 'Turn on "Allow notifications" for Google Chrome (both rows if there are two; Microsoft Edge for Edge)',
+  },
+  'notify.help.mac3': {
+    ja: '集中モード（おやすみモードなど）がオフか確認',
+    en: 'Make sure a Focus mode (e.g. Do Not Disturb) is off',
+  },
+  'notify.help.win1': {
+    ja: '下のボタンで「設定 › システム › 通知」を開く',
+    en: 'Open Settings › System › Notifications with the button below',
+  },
+  'notify.help.win2': {
+    ja: '「通知」をオンにし、アプリ一覧の Google Chrome（または Microsoft Edge）もオン',
+    en: 'Turn on "Notifications", and Google Chrome (or Microsoft Edge) in the app list',
+  },
+  'notify.help.win3': {
+    ja: '「応答不可」（集中モード）がオフか確認',
+    en: 'Make sure "Do not disturb" (Focus) is off',
+  },
+  'notify.help.other1': {
+    ja: 'OS の通知設定で、使っているブラウザの通知を許可',
+    en: "Allow your browser's notifications in the OS notification settings",
+  },
+  'notify.help.other2': {
+    ja: 'おやすみモード / 集中モードがオフか確認',
+    en: 'Make sure Do Not Disturb / Focus is off',
+  },
+  'notify.help.openSettings': { ja: '⚙ 通知設定を開く', en: '⚙ Open notification settings' },
+  'notify.help.retest': { ja: 'もう一度テスト', en: 'Test again' },
 
   // -- debug console --------------------------------------------------------
   'debug.title': { ja: '🐛 デバッグ — RTC 接続', en: '🐛 Debug — RTC connections' },
@@ -238,13 +308,22 @@ const STR: Record<string, Record<Lang, string>> = {
   },
   'debug.noStreams': { ja: 'ストリームなし', en: 'No streams' },
   'debug.copyLog': { ja: '接続ログをコピー', en: 'Copy connection log' },
+  'debug.copyReport': {
+    ja: '診断レポートをコピー（Claude に貼って分析）',
+    en: 'Copy diagnosis report (paste into Claude to analyze)',
+  },
+  'debug.avail': { ja: '上り推定', en: 'Uplink est.' },
+  'debug.history': {
+    ja: '直近60秒の品質（緑=良好 / 黄=やや注意 / 橙=不良 / 赤=深刻）',
+    en: 'Last 60s quality (green=good / yellow=fair / orange=poor / red=bad)',
+  },
 
   // -- remote media ---------------------------------------------------------
   'media.yourScreen': { ja: 'あなたの画面', en: 'Your screen' },
   'media.screenOf': { ja: '{name} の画面', en: "{name}'s screen" },
   'media.dblClickMain': {
-    ja: 'ダブルクリックでメイン表示に切り替え',
-    en: 'Double-click to make this the main view',
+    ja: 'クリックでメイン表示に切り替え',
+    en: 'Click to make this the main view',
   },
   'media.volume': {
     ja: '音量 {pct}%（ダブルクリックで100%に戻す）',
@@ -271,6 +350,7 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: '相手の回線が不安定なためカメラ停止中',
     en: 'Camera paused: their connection is unstable',
   },
+  'media.peerPtt': { ja: 'プッシュトーク使用中', en: 'Using push-to-talk' },
   'media.unfocus': { ja: '拡大を解除（Esc）', en: 'Exit maximize (Esc)' },
   'media.filmstripMore': { ja: '他の参加者も表示', en: 'Show more participants' },
   'media.filmstripLess': { ja: '表示を減らす', en: 'Show fewer' },
@@ -293,6 +373,10 @@ const STR: Record<string, Record<Lang, string>> = {
   'keys.meetingView': { ja: '会議表示 ⇄ マップ表示', en: 'Meeting view ⇄ map' },
   'keys.zoom': { ja: '自分にズーム ⇄ 全体表示', en: 'Zoom to me ⇄ fit map' },
   'keys.mic': { ja: 'マイク ON/OFF', en: 'Mic on/off' },
+  'keys.ptt': {
+    ja: '押している間だけ話す（プッシュトーク有効時）',
+    en: 'Hold to talk (when push-to-talk is on)',
+  },
   'keys.cam': { ja: 'カメラ ON/OFF', en: 'Camera on/off' },
   'keys.screen': { ja: '画面共有 ON/OFF', en: 'Screen share on/off' },
   'keys.record': { ja: '録画 開始/停止', en: 'Start/stop recording' },
@@ -345,14 +429,6 @@ const STR: Record<string, Record<Lang, string>> = {
   'app.netRecvVideoRestore': {
     ja: '回線が回復したため、映像の受信を再開しました。',
     en: 'Network recovered — incoming video resumed.',
-  },
-  'app.audioOnlyOn': {
-    ja: '音声のみモードをオンにしました(カメラ・画面共有を停止)。',
-    en: 'Audio-only mode on (camera and screen share stopped).',
-  },
-  'app.audioOnlyOff': {
-    ja: '音声のみモードをオフにしました。',
-    en: 'Audio-only mode off.',
   },
   'app.zoneLeftMediaOff': {
     ja: '部屋を出たので、マイク・カメラ・画面共有をオフにしました。',

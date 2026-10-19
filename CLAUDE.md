@@ -104,7 +104,9 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 - `logic.ts` — **副作用のない純粋関数**（座標クランプ、スポーン生成、名前/workspace 正規化、
   パスワード検証/パース、**近接グループ判定 `computeProximityGroups`**）。グループ判定は位置＋zone
   から連結成分を求め、会議室=常時 SFU・屋外は `SFU_PROMOTE_AT` 人で SFU 昇格（既定 2＝実質すべて SFU。
-  一方向ラッチ）を割り当てる純粋関数。閾値の正規化も純粋関数 `normalizeSfuPromoteAt`。
+  一方向ラッチ）を割り当てる純粋関数。**開放フロアで新しく会話が始まるには双方が静止している（直近
+  `PROXIMITY_STILL_MS`=700ms 位置が変わっていない）ことが必要**（すれ違いで通知音が鳴らないように。既存グループの維持・
+  会議室は対象外）。停止後はサーバーのタイマー（`scheduleStillRegroup`）が再判定する。閾値の正規化も純粋関数 `normalizeSfuPromoteAt`。
 - `turn.ts` — Cloudflare API を叩いて短期 ICE クレデンシャルを発行。**API キーはサーバーのみ保持**。
 - `sfu.ts` — Cloudflare Realtime SFU の制御プレーン（セッション/トラック）を**プロキシ**する。
   App ID/Token はサーバーのみ保持しブラウザに渡さない（turn.ts と同じ作法）。転送先パスはホワイト
@@ -116,10 +118,10 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 `tsconfig.json` の `paths` と `vite.config.ts` の `resolve.alias` で定義。Bun test も `paths` を解決する）で
 参照する。エントリは `core/main.ts`（`index.html` が読む）。同一フォルダ内でも `@/` で参照し位置非依存にしてある。
 - **`core/`** — オーケストレーションと基盤: `app.ts`, `main.ts`, `types.ts`, `lifecycle.ts`, `network.ts`, `proximity.ts`, `reload.ts`, `background-ticker.ts`
-- **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`
-- **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`
+- **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`, `diag.ts`（デバッグコンソールの接続判定・原因推定・Claude 用診断レポート。純粋関数）
+- **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`, `noise.ts`, `noise-worklet.ts`, `rnnoise-wasm.ts`, `voice-gate.ts`
 - **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`
-- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `rec-indicator.ts`, `debug-console.ts`, `sounds.ts`, `video-stall.ts`（映像停止の理由判定。純粋関数）, `face-pip.ts`, `experimental.ts`
+- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `rec-indicator.ts`, `debug-console.ts`, `sounds.ts`, `video-stall.ts`（映像停止の理由判定。純粋関数）, `face-pip.ts`, `experimental.ts`, `camera-lab.ts`（⋯メニューから別タブで開く `camera-lab.html` のロジック。`SFU_CAM_LAYERS` をループバック接続で実エンコードして見比べる画質ラボ）
 
 `core/app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・移動・近接判定・
 サーバーメッセージのルーティング・各サブシステムの配線を担う。サブシステム同士は直接参照せず
@@ -133,11 +135,17 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   下流（`ui/remote-media`・録画）は無変更。App が mesh と排他的に切り替える（`/api/sfu/*` プロキシ経由）。
   SFU が失敗しても**メッシュには落とさず**、タイルを残したままバックオフ付きで SFU セッションを作り直し続ける（#254）。
 - `rtc/cam-bitrate.ts` — mesh のピア数連動ビットレート throttle に加え、**SFU の simulcast
-  レイヤ構成 `SFU_CAM_LAYERS`（カメラは意図的に軽め: f 500kbps/20fps・h 150kbps・q 80kbps #314）・
-  受信タイルサイズ→レイヤ選択 `computePreferredRid`（640px 以上で f・320px 以上で h）**（純粋関数）。
-  画面共有は SFU でも単一の高画質レイヤ（3Mbps / 長辺 1920px）で絞らない。
+  レイヤ構成 `SFU_CAM_LAYERS`（カメラは意図的に軽め: 全レイヤ 15fps で f 500kbps・h 150kbps・q 50kbps #314）・
+  受信タイルサイズ→レイヤ選択 `computePreferredRid`（640px 以上で f・320px 以上で h）・
+  受信開始時のレイヤ `initialSfuCamRid`（会議室=all-hands/meeting-N は q から、他は f から）**（純粋関数）。
+  画面共有は SFU でも単一レイヤ（2Mbps / 長辺 1920px / 15fps #324）で simulcast しない。取り込み（`getDisplayMedia`）自体も
+  `SCREEN_CAPTURE_CONSTRAINTS` で長辺 1920px・15fps に抑え、高解像度ディスプレイの無駄な取り込み・縮小を避ける。
 - `rtc/sdp.ts` — Opus を低レイテンシ寄りにチューニングする offer/answer 変換（ptime=20, in-band FEC など）。
 - `media/media.ts` — マイク/カメラ/画面共有ストリーム管理。`media/recorder.ts` — ブラウザ内録画。
+- `media/noise.ts` — マイクのノイズ除去（既定オン）。自前の AudioWorklet（`media/noise-worklet.ts`）で RNNoise の WASM
+  （`@sapphi-red/web-noise-suppressor` 同梱のビルドを `media/rnnoise-wasm.ts` で直接駆動）を回し、RNNoise が毎フレーム返す
+  **発話確率（VAD）で話していない間を完全に無音にするボイスゲート**（`media/voice-gate.ts`。純粋ロジック）をかける。
+  追加モデルなしで CPU 負荷は従来と同等。遅延はバッファ込み 30ms（先読み 2 フレームで語頭を欠かさない）。
 - `core/proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、
   どちらが initiator かの決定）。テスト容易性のため `core/app.ts` から切り出している。
 - `ui/toolbar.ts`（`ToolbarController`）— マイク/カメラ/画面共有/録画ボタンとデバイス/ステータスメニュー。
@@ -154,14 +162,14 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   `engawa-face-pip` が `1` のときだけ有効 #323）でチェックした人だけ使う。試験的な機能のトグルは今後もこの区画に並べる。
   **`requestWindow()` は操作許可を消費する**ため、必ず `getDisplayMedia` の**後**に開く（逆順だと共有自体が失敗しうる）。
   `media/speaking.ts` — `SpeakingDetector` と純粋なしきい値判定 `isLoud()`。
-- `world/tilemap.ts` — オフィスのタイルマップと `canOccupy`（衝突判定）。`world/pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
+- `world/tilemap.ts` — オフィスのタイルマップと `canOccupy`（衝突判定）。**座る姿勢**は位置だけで決まる純粋関数 `seatAt()`（デスクの椅子タイル／カフェのアームチェア → 向き＋`lift`）。`canvas.ts` が静止中のみ座り姿（`CharacterSheet.draw` の `sit`: シートに座りフレームが無いため、立ちフレームをそのまま少し沈めて描く）で描く。`lift` は椅子の絵が机に寄せて描かれるぶんの補正で、**机の下側の椅子（上向き）だけ半タイル持ち上げる**（1タイルだと机に乗って見える）。スプライト・名前ラベル・吹き出しが同じ `lift` で動くので一体のまま。位置から全員が同じ姿を導けるので通信は増えない。`world/pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
 - `world/canvas.ts` — Canvas 2D 描画。`world/input.ts` — キー入力。`world/player.ts` — プレイヤー状態。
   `ui/draggable.ts` — ビデオ/画面共有パネルのドラッグ。`media/compositor.ts` — 録画用の映像合成。`ui/sounds.ts` — 効果音。
 - `core/types.ts` — クライアント側の共有定数/型。`core/main.ts` — エントリ。
 
 **「純粋ロジックをモジュールに切り出してテストする」パターン**が server(`logic.ts` の各正規化関数と
 `computeProximityGroups`)/client(`core/proximity.ts`, `world/pathfind.ts`, `rtc/sdp.ts`, `media/speaking.ts` の `isLoud()`,
-`ui/panels.ts` の `computePanelPreset()`, `rtc/cam-bitrate.ts` の `computePreferredRid()`) の両方で採られている。
+`ui/panels.ts` の `computePanelPreset()`, `rtc/cam-bitrate.ts` の `computePreferredRid()`, `media/voice-gate.ts` の `GatedDenoiser`) の両方で採られている。
 テストは `src/__tests__/`（フラット）に集約し、`@/<folder>/<name>` で対象を import する。
 挙動を変えずにテストしやすくするのが目的なので、ロジックを触るときはこの分離を保ち、対応するテストも更新する。
 
@@ -206,7 +214,7 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
 
 ## 作業の進め方
 - 仕様はユーザーと一緒に決める。不明点や判断に迷う点は実装前に確認する。
-- 仕様が決まったら GitHub Issue に起票してから着手する。
+- 仕様が決まったら **Issue は起票せず**、そのままフィーチャーブランチで実装して PR を出す（PR が仕様と変更の記録を兼ねる）。
 - 実装フェーズではユーザーはコードを読まないので Claude が自律的に進め、テスト・push・PR の自動起票まで
   一貫して完了させる（PR の作成にユーザーへの確認は不要）。
 - 改修前に `git fetch origin` で最新の remote main を取得し、`git worktree` で作業環境を分け、
@@ -221,18 +229,25 @@ engawa は **host 非依存の OSS**。リリースとは「**バージョンタ
 - `scripts/release.sh vX.Y.Z "subject"` = ガード（clean / origin/main 一致 / CI green / タグ未存在）→
   annotated タグ `vX.Y.Z` を push → `release.yml` が `ghcr.io/<owner>/engawa:vX.Y.Z` を build & push → 完了まで待機。
 
-**新機能はマイナー（vX.Y+1.0）、バグ修正はパッチ（vX.Y.Z+1）**。**小さな変更（バグ修正・軽微な修正＝パッチ）は
-ユーザーに確認せず、次のパッチ版を自動で打つ**。確認するのは新機能（マイナー）・メジャー・判断に迷うときだけ。
+**バージョンは依頼者の指定に従う。依頼者がバージョンに触れていなければマイナー（vX.Y+1.0）で打ち、確認しない**。
+パッチ・メジャーは依頼者が明示したときだけ。ただし Claude が自発的に打つ小さな変更（バグ修正・軽微な修正）の
+リリースは従来どおり次のパッチ版（vX.Y.Z+1）で、確認不要。
 通常どおりフィーチャーブランチ→PR で進める。GHCR publish 後の本番反映は OSS の外（デプロイ専用の別環境）が GHCR の成果物を引いて行う。
 
 ## ランディングページ（LP / GitHub Pages）
-紹介用の LP は **`docs/`（リポジトリ最上位）** に置く。**ビルド不要の自己完結した静的 1 ページ**
-（`index.html` + `styles.css` + 素の `main.js`。フレームワーク・バンドラなし。不変条件 #5 のシンプル志向）。
+紹介用の LP は **`docs/`（リポジトリ最上位）** に置く。**ビルド不要の自己完結した静的ページ**
+（英語 `index.html` と日本語 `ja/index.html` + 共通の `styles.css` + 素の `main.js`。フレームワーク・バンドラなし。
+不変条件 #5 のシンプル志向）。日英は SEO のため**別 URL**（`/engawa/` と `/engawa/ja/`）で、canonical と hreflang で
+対応づける。文言を変えるときは**両方のファイル**を更新する。
 - **公開**: `Settings → Pages → Source: Deploy from a branch → main / docs`
   （URL は `https://iitenkida7.github.io/engawa/`）。`docs/.nojekyll` を置き Jekyll を無効化する。
-- **デザイン**: 和モダン。配色は**アプリアイコン（夜明けの陽 × 縁側の板の間）由来**＝アンバーの陽 /
-  生成りの和紙 / 板目の横ライン / 墨色の明朝。日英トグル（localStorage 保存）と IntersectionObserver
-  のスクロール演出（`prefers-reduced-motion` 尊重）を素の JS で実装。
+- **デザイン**: 技術読本（`docs/reader/`）と同じテイストに揃える。青みのグレーの地 / 墨色の文字 /
+  ティールの「信号線」アクセント（＋補助の暖色）、書体は M PLUS 1（見出し）・IBM Plex Sans JP（本文）・
+  IBM Plex Mono（ラベル）。ライト/ダークは `prefers-color-scheme` に追従。日英の切り替えはページ間リンク（選んだ言語を localStorage に保存し、次回は英語ページから `/ja/` へ送る）、
+  IntersectionObserver のスクロール演出（`prefers-reduced-motion` 尊重）を素の JS で実装。
+- **技術読本**: `docs/reader/index.html`（日本語）と英語版 `docs/reader/en.html`（どちらも自己完結の 1 ファイル）。SFU・simulcast・帯域推定・音声・
+  画面共有などを公開ソースと engawa の実装で照合した読み物。実装の数値（レイヤ構成・tier・ノイズ除去の設定など）を
+  変えたら、読本の該当箇所も**日英両方**更新する。
 - **スクショ**は `docs/assets/screens/`。実アプリの撮影は **Caddy 経由 `https://engawa.localhost`** で行う
   （`localhost:5173` は Vite が WS の 101 升級を中継できず入室できない）。MCP ブラウザの自己署名証明書エラーは
   Chrome のエラー画面で `thisisunsafe` とタイプして回避。画像は `sips` で中央クロップ＋縮小。favicon は

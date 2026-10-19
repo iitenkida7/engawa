@@ -367,6 +367,13 @@ export const PROXIMITY_CONNECT_RADIUS = 120;
 // (a latecomer connects to every member, not just nearby ones).
 export const PROXIMITY_DISCONNECT_RADIUS = 150;
 
+// A member counts as "moving" until this long after their last position change.
+// A NEW open-floor conversation only forms when both sides are still (not moving),
+// so someone walking past a person who is working at their spot doesn't ring them
+// or open a call; it starts once the walker actually stops nearby. Existing
+// groups are unaffected (they follow the disconnect-radius hysteresis).
+export const PROXIMITY_STILL_MS = 700;
+
 // Clear of everyone's bubble = beyond the disconnect radius (+ a small margin).
 export const SPAWN_CLEARANCE = PROXIMITY_DISCONNECT_RADIUS + 20;
 
@@ -399,6 +406,9 @@ export type GroupMember = {
   zoneId: string | null;
   // On an open-office desk seat: privatises this member's proximity bubble.
   seated?: boolean;
+  // Position changed within the last PROXIMITY_STILL_MS (see there). Only gates
+  // forming a NEW open-floor edge.
+  moving?: boolean;
 };
 
 export type ProximityGroup = {
@@ -475,8 +485,11 @@ export function computeProximityGroups(
     const seated = a.seated || b.seated;
     const cR = seated ? SEAT_CONNECT_RADIUS : connectRadius;
     const dR = seated ? SEAT_DISCONNECT_RADIUS : disconnectRadius;
-    if (d <= cR) return true;
-    return d <= dR && wereTogether(a.userId, b.userId);
+    // Already together: keep the edge out to the disconnect radius, moving or not.
+    if (wereTogether(a.userId, b.userId)) return d <= dR;
+    // A new edge needs both sides standing still, so passing by doesn't connect.
+    if (a.moving || b.moving) return false;
+    return d <= cR;
   };
 
   // Union-find over the proximity graph.

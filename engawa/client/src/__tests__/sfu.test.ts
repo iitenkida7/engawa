@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { resetIceCache } from '@/rtc/ice';
 import { SfuManager } from '@/rtc/sfu';
-import { SFU_API_TIMEOUT_MS } from '@/rtc/sfu-logic';
+import { SFU_API_TIMEOUT_MS, SFU_PULL_SLOW_RETRY_MS } from '@/rtc/sfu-logic';
 
 // A sender whose getParameters/setParameters round-trip so tuneSfuSender's
 // priority / degradationPreference writes can be observed (issue #146). Each
@@ -36,6 +36,9 @@ class FakeRTCPeerConnection {
   lastSender: ReturnType<typeof makeFakeSender> | null = null;
   transceiverCount = 0;
   closed = false;
+  // The captured 'track' listener, so a test can simulate the SFU delivering a
+  // pulled track (gives the remote entry a streamId → fires onRemoteStream).
+  private trackListener: ((event: unknown) => void) | null = null;
   constructor() {
     createdPcs.push(this);
   }
@@ -43,7 +46,18 @@ class FakeRTCPeerConnection {
   private assertOpen() {
     if (this.closed) throw new Error('InvalidStateError: RTCPeerConnection is closed');
   }
-  addEventListener() {}
+  addEventListener(type: string, handler: (event: unknown) => void) {
+    if (type === 'track') this.trackListener = handler;
+  }
+  // Simulate the SFU sending a pulled track on the given mid, with a track whose
+  // id becomes the remote stream id the manager tracks.
+  emitTrack(mid: string, trackId: string) {
+    this.trackListener?.({
+      transceiver: { mid },
+      receiver: {},
+      track: { id: trackId, addEventListener() {} },
+    });
+  }
   addTransceiver() {
     this.assertOpen();
     this.transceiverCount++;
@@ -54,6 +68,10 @@ class FakeRTCPeerConnection {
   async createOffer() {
     this.assertOpen();
     return { type: 'offer', sdp: 'v=0\r\n' };
+  }
+  async createAnswer() {
+    this.assertOpen();
+    return { type: 'answer', sdp: 'v=0\r\n' };
   }
   async setLocalDescription() {}
   async setRemoteDescription() {
@@ -73,9 +91,17 @@ class FakeRTCPeerConnection {
 // Fake local stream carrying one track of the requested kind. `suffix`
 // distinguishes two streams of the same kind (e.g. the before/after of a
 // device switch or a screen re-share) by giving them distinct ids.
-function makeStream(kind: 'mic' | 'cam' | 'screen', suffix = '') {
+function makeStream(
+  kind: 'mic' | 'cam' | 'screen',
+  suffix = '',
+  settings?: { width: number; height: number },
+) {
   const isAudio = kind === 'mic';
-  const track = { kind: isAudio ? 'audio' : 'video', id: `trk-${kind}${suffix}` };
+  const track = {
+    kind: isAudio ? 'audio' : 'video',
+    id: `trk-${kind}${suffix}`,
+    getSettings: () => settings ?? {},
+  };
   return {
     id: `stream-${kind}${suffix}`,
     getAudioTracks: () => (isAudio ? [track] : []),
@@ -97,6 +123,17 @@ function requestedTracks(init?: RequestInit): { sessionId?: string; trackName: s
 }
 let originalFetch: typeof globalThis.fetch;
 let originalRTC: typeof globalThis.RTCPeerConnection;
+let originalMediaStream: typeof globalThis.MediaStream;
+
+// Minimal MediaStream (absent in bun): the manager wraps each pulled track in one
+// and tracks the wrapper's id as the stream id. Derive the id from the track so a
+// test can predict which stream id a simulated 'track' event produces.
+class FakeMediaStream {
+  id: string;
+  constructor(tracks: { id: string }[]) {
+    this.id = `ms-${tracks[0]?.id ?? 'x'}`;
+  }
+}
 
 beforeEach(() => {
   fetchMock = mock(async (url: string, init?: RequestInit) => {
@@ -117,14 +154,17 @@ beforeEach(() => {
   createdPcs.length = 0;
   originalFetch = globalThis.fetch;
   originalRTC = globalThis.RTCPeerConnection;
+  originalMediaStream = globalThis.MediaStream;
   globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
   globalThis.RTCPeerConnection =
     FakeRTCPeerConnection as unknown as typeof globalThis.RTCPeerConnection;
+  globalThis.MediaStream = FakeMediaStream as unknown as typeof globalThis.MediaStream;
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
   globalThis.RTCPeerConnection = originalRTC;
+  globalThis.MediaStream = originalMediaStream;
 });
 
 function makeEvents() {
@@ -221,6 +261,43 @@ describe('SfuManager sender tuning (issue #146)', () => {
     const params = createdPcs[0].lastSender!._params();
     expect(params.degradationPreference).toBe('balanced');
     expect(events.onFailed).not.toHaveBeenCalled();
+  });
+});
+
+describe('SfuManager screen-share caps (issue #324)', () => {
+  it('caps a 5K share to a 1920px longest edge at 15fps', async () => {
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+    const published = waitPublish();
+    sfu.addLocalStream(makeStream('screen', '', { width: 5120, height: 2880 }), 'screen');
+    await published;
+    const params = createdPcs[0].lastSender!._params();
+    const enc = params.encodings[0] as { scaleResolutionDownBy?: number; maxFramerate?: number };
+    expect(enc.scaleResolutionDownBy).toBeCloseTo(5120 / 1920);
+    expect(enc.maxFramerate).toBe(15);
+    expect(params.degradationPreference).toBe('maintain-resolution');
+  });
+
+  it('re-derives the scale when a re-share reuses the transceiver', async () => {
+    const { events, waitPublish } = makeEvents();
+    const sfu = new SfuManager(events);
+    let published = waitPublish();
+    const screenA = makeStream('screen', '-a', { width: 5120, height: 2880 });
+    sfu.addLocalStream(screenA, 'screen');
+    await published;
+    published = waitPublish();
+    sfu.removeLocalStream(screenA);
+    await published;
+
+    // Re-share from an FHD display: no downscale needed any more.
+    published = waitPublish();
+    sfu.addLocalStream(makeStream('screen', '-b', { width: 1920, height: 1080 }), 'screen');
+    await published;
+    const enc = createdPcs[0].lastSender!._params().encodings[0] as {
+      scaleResolutionDownBy?: number;
+    };
+    expect(enc.scaleResolutionDownBy).toBe(1);
+    expect(createdPcs[0].transceiverCount).toBe(1);
   });
 });
 
@@ -437,6 +514,152 @@ describe('SfuManager peer session change re-pull (issue #186)', () => {
 
     const pulls = fetchMock.mock.calls.filter((c) => String(c[0]).includes('/tracks/new')).length;
     expect(pulls).toBe(1);
+  });
+});
+
+describe('SfuManager pull renegotiation failure is isolated to that peer', () => {
+  // Fire scheduled retries immediately so the backoff doesn't slow the test.
+  let timeoutSpy: ReturnType<typeof spyOn>;
+  let delays: number[];
+  beforeEach(() => {
+    delays = [];
+    timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      if (ms) delays.push(ms);
+      queueMicrotask(fn);
+      return 0;
+    }) as unknown as typeof setTimeout);
+  });
+  afterEach(() => timeoutSpy.mockRestore());
+
+  const flush = async () => {
+    for (let i = 0; i < 50; i++) await new Promise<void>((r) => queueMicrotask(r));
+  };
+
+  // A pull whose immediate renegotiation the SFU rejects, for the first
+  // `failures` renegotiate calls. Each pull registers the track, then the
+  // renegotiate PUT fails — the rollback must hand it to the per-peer retry.
+  function failRenegotiations(failures: number) {
+    let renegs = 0;
+    fetchMock = mock(async (url: string) => {
+      const u = String(url);
+      if (u.includes('/api/turn-credentials')) return jsonRes([]);
+      if (u.includes('/sessions/new')) return jsonRes({ sessionId: 'sess-1' });
+      if (u.includes('/tracks/new')) {
+        return jsonRes({
+          requiresImmediateRenegotiation: true,
+          sessionDescription: { type: 'offer', sdp: 'v=0\r\n' },
+          tracks: [{ mid: '0' }],
+        });
+      }
+      if (u.includes('/renegotiate')) {
+        renegs++;
+        if (renegs <= failures) return jsonRes({ errorCode: 'renegotiation_failed' });
+        return jsonRes({});
+      }
+      return jsonRes({});
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    const pulls = () =>
+      fetchMock.mock.calls.filter((c) => String(c[0]).includes('/tracks/new')).length;
+    return { pulls };
+  }
+
+  it('retries per peer with backoff instead of rebuilding the whole transport', async () => {
+    const { pulls } = failRenegotiations(2);
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'their-sess', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+
+    // First try + two retries (third renegotiation succeeds). Crucially the
+    // transport is never failed, so no rebuild ripples a re-pull onto the group.
+    expect(pulls()).toBe(3);
+    expect(delays).toEqual([1000, 2000]);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the failure path once the per-peer retries are exhausted', async () => {
+    const { pulls } = failRenegotiations(Number.POSITIVE_INFINITY);
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'their-sess', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+
+    expect(pulls()).toBe(4); // first try + 3 retries, then give up
+    expect(events.onFailed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SfuManager peer session change keeps the tile up (no group-wide blink)', () => {
+  // deferStreamRemoval is the only setTimeout here; capture it so the test can
+  // decide when the grace elapses.
+  let timeoutSpy: ReturnType<typeof spyOn>;
+  let sweeps: (() => void)[];
+  beforeEach(() => {
+    sweeps = [];
+    timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      if (ms) sweeps.push(fn);
+      else queueMicrotask(fn);
+      return 0;
+    }) as unknown as typeof setTimeout);
+  });
+  afterEach(() => timeoutSpy.mockRestore());
+
+  const flush = async () => {
+    for (let i = 0; i < 50; i++) await new Promise<void>((r) => queueMicrotask(r));
+  };
+  const currentPc = () => createdPcs[createdPcs.length - 1]!;
+
+  it('defers the old tile removal and skips it once the re-pull replaces it', async () => {
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'sess-A', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+    currentPc().emitTrack('0', 'trk-a'); // the SFU delivers the pulled track
+    expect(events.onRemoteStream).toHaveBeenCalledTimes(1);
+
+    // The peer rebuilt (new session): the tile must NOT be torn down now.
+    sfu.setPeerTracks('peer-1', 'sess-B', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+    expect(events.onRemoteStreamRemoved).not.toHaveBeenCalled();
+    expect(sweeps).toHaveLength(1);
+
+    // The re-pull lands and replaces the tile in place (new stream id).
+    currentPc().emitTrack('1', 'trk-b');
+    // The grace elapses: the deferred removal targets the OLD stream, which is no
+    // longer current, so it is skipped — the tile never blinked.
+    sweeps[0]!();
+    expect(events.onRemoteStreamRemoved).not.toHaveBeenCalled();
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('removes the stale tile after the grace when the re-pull never brings it back', async () => {
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-1', 'sess-A', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+    currentPc().emitTrack('0', 'trk-a');
+
+    // The peer rebuilt AND dropped the camera: nothing re-pulls the cam tile.
+    sfu.setPeerTracks('peer-1', 'sess-B', [{ kind: 'mic', trackName: 'mic' }]);
+    await flush();
+    expect(events.onRemoteStreamRemoved).not.toHaveBeenCalled();
+
+    // Grace elapses with no replacement → the frozen tile is finally swept.
+    expect(sweeps).toHaveLength(1);
+    sweeps[0]!();
+    expect(events.onRemoteStreamRemoved).toHaveBeenCalledWith('peer-1', 'ms-trk-a');
+    expect(events.onFailed).not.toHaveBeenCalled();
   });
 });
 
@@ -723,6 +946,88 @@ describe('SfuManager rejected pull is isolated to that peer (issue #250)', () =>
     await flush();
 
     expect(pulls()).toBe(4); // first try + 3 retries
+    expect(events.onFailed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SfuManager keeps a healthy transport when one peer stays rejected', () => {
+  // Hold every backoff timer so the test steps through retries explicitly
+  // (with a healthy transport they never run out).
+  let timeoutSpy: ReturnType<typeof spyOn>;
+  let pending: { fn: () => void; ms: number }[];
+  beforeEach(() => {
+    pending = [];
+    timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: () => void,
+      ms?: number,
+    ) => {
+      if (ms) pending.push({ fn, ms });
+      else queueMicrotask(fn);
+      return 0;
+    }) as unknown as typeof setTimeout);
+  });
+  afterEach(() => timeoutSpy.mockRestore());
+
+  const flush = async () => {
+    for (let i = 0; i < 50; i++) await new Promise<void>((r) => queueMicrotask(r));
+  };
+  const fireNext = async () => {
+    pending.shift()!.fn();
+    await flush();
+  };
+
+  // tracks/new rejects every pull from the 'stale' session and accepts the rest.
+  function rejectStaleSession() {
+    let mids = 0;
+    fetchMock = mock(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/api/turn-credentials')) return jsonRes([]);
+      if (u.includes('/sessions/new')) return jsonRes({ sessionId: 'sess-1' });
+      if (u.includes('/tracks/new')) {
+        return jsonRes({
+          sessionDescription: { type: 'answer', sdp: 'v=0\r\n' },
+          tracks: requestedTracks(init).map((t) =>
+            t.sessionId === 'stale' ? { errorCode: 'not_found' } : { mid: String(mids++) },
+          ),
+        });
+      }
+      return jsonRes({});
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+    return () =>
+      fetchMock.mock.calls
+        .filter((c) => String(c[0]).includes('/tracks/new'))
+        .filter((c) => requestedTracks(c[1] as RequestInit)[0]?.sessionId === 'stale').length;
+  }
+
+  it('retries the stale peer slowly instead of rebuilding while others play', async () => {
+    const stalePulls = rejectStaleSession();
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-ok', 'good', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+    createdPcs[createdPcs.length - 1]!.emitTrack('0', 'trk-ok'); // its media arrives
+    sfu.setPeerTracks('peer-stale', 'stale', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+
+    for (let i = 0; i < 5; i++) await fireNext();
+
+    expect(stalePulls()).toBe(6); // first try + 3 backoff retries + 2 slow retries
+    expect(pending[0]?.ms).toBe(SFU_PULL_SLOW_RETRY_MS);
+    expect(events.onFailed).not.toHaveBeenCalled();
+  });
+
+  it('still takes the failure path when no other peer media is flowing', async () => {
+    const stalePulls = rejectStaleSession();
+    const { events } = makeEvents();
+    const sfu = new SfuManager(events);
+
+    sfu.setPeerTracks('peer-stale', 'stale', [{ kind: 'cam', trackName: 'cam' }]);
+    await flush();
+    for (let i = 0; i < 3; i++) await fireNext();
+
+    expect(stalePulls()).toBe(4);
     expect(events.onFailed).toHaveBeenCalledTimes(1);
   });
 });

@@ -64,6 +64,18 @@ export const SCREEN_FPS_LARGE = 10;
 export const SCREEN_LONG_EDGE_DEFAULT = 1920;
 export const SCREEN_LONG_EDGE_LARGE = 1280;
 
+// getDisplayMedia video constraints: capture no larger / faster than any send
+// path ever encodes (the small-group tier above is the ceiling for both mesh and
+// SFU). Capturing a Retina/5K display natively at up to 60fps and downscaling
+// every frame in the encoder cost CPU for pixels and frames nobody receives;
+// the browser scales at capture time far more cheaply. Both edges are capped at
+// the long-edge limit so the aspect ratio (portrait, ultrawide) is preserved.
+export const SCREEN_CAPTURE_CONSTRAINTS: MediaTrackConstraints = {
+  width: { max: SCREEN_LONG_EDGE_DEFAULT },
+  height: { max: SCREEN_LONG_EDGE_DEFAULT },
+  frameRate: { ideal: SCREEN_FPS_DEFAULT, max: SCREEN_FPS_DEFAULT },
+};
+
 // The full per-sender encoding ceiling for a screen-share track. Mirrors
 // CamEncoding, except the resolution is expressed as a longest-edge cap
 // (maxLongEdge) that webrtc.ts turns into scaleResolutionDownBy using the live
@@ -172,14 +184,17 @@ export type SimulcastLayer = {
 // Camera simulcast ladder for SFU mode: f = full capture (540p), h = half
 // (270p), q = quarter (135p). The full layer is only pulled for a big tile (a
 // maximized window, a 2-3 person gallery), so it is capped well under the mesh
-// "speaking" ceiling: 500kbps at 20fps still reads as a sharp 540p face, at
-// half the uplink (#314). The smaller layers feed galleries, filmstrips and
-// unwatched tiles, where 15fps (the mesh "quiet" rate) is plenty and halves
-// decode cost (issue #269). Per sender the whole ladder is ~0.73Mbps up.
+// "speaking" ceiling: 500kbps still reads as a sharp 540p face, at half the
+// uplink (#314). Every layer runs at 15fps (the mesh "quiet" rate): a talking
+// head looks smooth enough there, and on the full layer the saved frames buy a
+// sharper picture per frame plus lighter encode/decode (issue #269). The quarter
+// layer only feeds tiles under 320px and unwatched video, so 50kbps keeps its
+// 135p picture intact while halving the downlink of a crowded meeting room's
+// filmstrip. Per sender the whole ladder is ~0.7Mbps up.
 export const SFU_CAM_FULL_BITRATE = 500_000;
-export const SFU_CAM_FULL_FPS = 20;
+export const SFU_CAM_FULL_FPS = 15;
 export const SFU_CAM_HALF_BITRATE = 150_000;
-export const SFU_CAM_QUARTER_BITRATE = 80_000;
+export const SFU_CAM_QUARTER_BITRATE = 50_000;
 export const SFU_CAM_LAYERS: SimulcastLayer[] = [
   {
     rid: 'f',
@@ -204,10 +219,16 @@ export const SFU_CAM_LAYERS: SimulcastLayer[] = [
 // SFU screen share stays a single high-quality layer: screen content is text-
 // heavy so resolution matters more than per-receiver adaptation, and the SFU
 // encodes only the sender's one upstream (no mesh ×N cost). Issue #78 leaves
-// screen out of the layer split on purpose. Pinned to the mesh small-group
-// ceiling so SFU screen quality never drops below it (the issue #77 floor); the
-// SFU encodes it once, so there is no mesh ×N reason to go lower.
-export const SFU_SCREEN_MAX_BITRATE = SCREEN_BITRATE_HIGH;
+// screen out of the layer split on purpose. Set between the mesh throttled and
+// small-group ceilings (#324): a mostly static FHD share sits far below either,
+// so this only trims the peaks while scrolling / switching slides, which recover
+// to full sharpness once the picture settles.
+export const SFU_SCREEN_MAX_BITRATE = 2_000_000;
+// The SFU share also takes the mesh small-group resolution/framerate caps
+// (#324): without them a 4K/5K display was encoded at native size, costing the
+// sharer and every receiver encode/decode CPU for text that FHD keeps legible.
+export const SFU_SCREEN_MAX_FRAMERATE = SCREEN_FPS_DEFAULT;
+export const SFU_SCREEN_MAX_LONG_EDGE = SCREEN_LONG_EDGE_DEFAULT;
 
 // The full-quality rid; the SFU's default pull layer before a tile size is known.
 export const SFU_CAM_DEFAULT_RID = 'f';
@@ -216,6 +237,16 @@ export const SFU_CAM_HALF_RID = 'h';
 // The quarter-resolution rid, for thumbnails and video nobody is watching. All
 // three rids must exist in SFU_CAM_LAYERS (asserted in the tests).
 export const SFU_CAM_QUARTER_RID = 'q';
+
+// Pure: the layer a new camera pull starts on, before the ~1s layer tick has
+// measured its tile. In a meeting room (up to ~20 people) the tiles are small,
+// so starting on full would pull every camera at 500kbps/540p at once on entry
+// and then black each tile out again while it steps down; starting on quarter
+// keeps entry light and only the few big tiles step up. Elsewhere (1-on-1s,
+// booths, hallway chats) tiles are big, so full avoids a blurry first second.
+export function initialSfuCamRid(inMeetingRoom: boolean): string {
+  return inMeetingRoom ? SFU_CAM_QUARTER_RID : SFU_CAM_DEFAULT_RID;
+}
 
 // Below this rendered tile width (CSS px) a receiver requests the half layer
 // instead of full, so small tiles don't waste downlink (issue #78). 640 keeps

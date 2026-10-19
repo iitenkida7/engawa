@@ -73,6 +73,9 @@ export type ClientMessage =
       // hand — peers show why the tile went dark (issue #312). Optional so
       // older clients still validate.
       camAutoOff?: boolean;
+      // The sender has push-to-talk on: peers mark the tile so a silent mic
+      // reads as "holding to talk", not as broken. Optional for older clients.
+      ptt?: boolean;
     }
   | { type: 'signal'; to: string; data: SignalData }
   | { type: 'stream-meta'; to: string; streamId: string; kind: StreamKind | 'removed' }
@@ -129,6 +132,7 @@ export type ServerMessage =
       isMuted: boolean;
       isVideoOn: boolean;
       camAutoOff: boolean;
+      ptt: boolean;
     }
   | { type: 'player-left'; userId: string }
   | { type: 'signal'; from: string; data: SignalData }
@@ -188,6 +192,10 @@ export type WsData = {
   // burst of `move` messages from one socket can't force the O(n²) recompute at
   // wire speed. Position updates and player-moved broadcasts are never throttled.
   lastGroupAt: number;
+  // Last time (ms) this connection's position actually changed. Proximity uses it
+  // to tell "walking past" from "standing still": a new open-floor conversation
+  // only starts once both sides have stopped (logic.ts PROXIMITY_STILL_MS).
+  lastMoveAt: number;
   joined: boolean;
   // Away mode (#220): a joined client that has stepped away. Stays connected and
   // keeps receiving broadcasts, but is hidden from peers (treated like a leave:

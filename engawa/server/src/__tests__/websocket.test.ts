@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ServerWebSocket } from 'bun';
+import { PROXIMITY_STILL_MS } from '../logic';
 import type { Outfit, ServerMessage, WsData } from '../types';
 import { createWebSocketHandler } from '../websocket';
 
@@ -49,6 +50,7 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       mediaToken: data.mediaToken ?? null,
       resumeToken: data.resumeToken ?? null,
       lastGroupAt: data.lastGroupAt ?? 0,
+      lastMoveAt: data.lastMoveAt ?? 0,
       joined: data.joined ?? false,
       away: data.away ?? false,
     } satisfies WsData,
@@ -555,7 +557,27 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       isMuted: true,
       isVideoOn: false,
       camAutoOff: false,
+      ptt: false,
     });
+  });
+
+  test('relays the push-to-talk flag', () => {
+    const sender = makeWs({ workspace: 'ws1', joined: true });
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(sender);
+    handler.open!(peer);
+
+    deliver(handler, sender, {
+      type: 'status',
+      status: 'online',
+      isMuted: false,
+      isVideoOn: false,
+      ptt: true,
+    });
+
+    const status = peer.sent.find((m) => m.type === 'player-status');
+    if (status?.type !== 'player-status') throw new Error('expected player-status');
+    expect(status.ptt).toBe(true);
   });
 
   test('relays the network-paused camera flag (#312)', () => {
@@ -632,6 +654,7 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     expect(status.isVideoOn).toBe(false);
     // An older client sends no camAutoOff at all: a plain false.
     expect(status.camAutoOff).toBe(false);
+    expect(status.ptt).toBe(false);
   });
 
   test('going away broadcasts player-left and hides the sender from grouping (#220)', () => {
@@ -672,6 +695,7 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       isMuted: false,
       isVideoOn: false,
       camAutoOff: false,
+      ptt: false,
     });
   });
 
@@ -848,6 +872,10 @@ describe('createWebSocketHandler — SFU grouping', () => {
     const ws = makeWs();
     handler.open!(ws);
     deliver(handler, ws, { type: 'join', name: 'U', workspace: 'ws1' });
+    // Pre-set the position so this `move` is not a change: a client that has not
+    // moved is "still", and only still clients can start a new conversation.
+    ws.data.x = x;
+    ws.data.y = y;
     deliver(handler, ws, { type: 'move', x, y, vx: 0, vy: 0, zoneId });
     return ws;
   };
@@ -961,6 +989,8 @@ describe('createWebSocketHandler — SFU grouping', () => {
     const ws = makeWs({ userId });
     handler.open!(ws);
     deliver(handler, ws, { type: 'join', name: 'U', workspace: 'ws1' });
+    ws.data.x = x; // not a change, so the client counts as still
+    ws.data.y = y;
     deliver(handler, ws, { type: 'move', x, y, vx: 0, vy: 0 });
     return ws;
   };
@@ -1022,14 +1052,60 @@ describe('createWebSocketHandler — move group-recompute throttle', () => {
     // A move into range 10ms later is throttled: the position/relay happen but the
     // O(n²) group recompute is skipped, so the pairing is not reflected yet.
     t = 1010;
+    // Already at (140,100): the move is not a position change, so the mover is
+    // still and only the throttle decides whether the pair is regrouped.
+    mover.data.x = 140;
+    mover.data.y = 100;
+    // Both settled long ago (their setup moves above counted as movement).
+    mover.data.lastMoveAt = 0;
+    peer.data.lastMoveAt = 0;
     deliver(h, mover, { type: 'move', x: 140, y: 100, vx: 0, vy: 0 });
     expect(peer.sent.some((m) => m.type === 'player-moved')).toBe(true);
     expect(groupMembersLen(mover)).toBe(1);
 
     // Past the window the recompute runs and the pair is grouped.
     t = 1050;
-    deliver(h, mover, { type: 'move', x: 141, y: 100, vx: 0, vy: 0 });
+    deliver(h, mover, { type: 'move', x: 140, y: 100, vx: 0, vy: 0 });
     expect(groupMembersLen(mover)).toBe(2);
+  });
+});
+
+describe('createWebSocketHandler — stand-still to connect', () => {
+  test('a walker next to a still player connects only after stopping', async () => {
+    let t = 1000;
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const h = createWebSocketHandler(clients, undefined, 'dev', new Set(), () => t);
+
+    const still = makeWs();
+    const walker = makeWs();
+    h.open!(still);
+    h.open!(walker);
+    deliver(h, still, { type: 'join', name: 'S', workspace: 'ws1' });
+    deliver(h, walker, { type: 'join', name: 'W', workspace: 'ws1' });
+    still.data.x = 100;
+    still.data.y = 100;
+    deliver(h, still, { type: 'move', x: 100, y: 100, vx: 0, vy: 0 });
+    walker.data.x = 900;
+    walker.data.y = 100;
+    deliver(h, walker, { type: 'move', x: 900, y: 100, vx: 0, vy: 0 });
+
+    const groupMembersLen = (ws: FakeWs): number => {
+      const g = [...ws.sent].reverse().find((m) => m.type === 'group-update');
+      return g?.type === 'group-update' ? g.members.length : 0;
+    };
+
+    // The walker steps next to the still player: moving, so no conversation yet.
+    t = 2000;
+    deliver(h, walker, { type: 'move', x: 140, y: 100, vx: 1, vy: 0 });
+    expect(groupMembersLen(walker)).toBe(1);
+    expect(groupMembersLen(still)).toBe(1);
+
+    // They stop: no further move arrives, so the server's own timer regroups once
+    // the still window has passed.
+    t = 3000;
+    await new Promise((r) => setTimeout(r, PROXIMITY_STILL_MS + 120));
+    expect(groupMembersLen(walker)).toBe(2);
+    expect(groupMembersLen(still)).toBe(2);
   });
 });
 

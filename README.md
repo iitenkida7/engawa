@@ -2,6 +2,8 @@
 
 **ブラウザだけで使える、社内向けの仮想オフィス。**
 
+🌐 **紹介ページ: [iitenkida7.github.io/engawa/ja](https://iitenkida7.github.io/engawa/ja/)（[English](https://iitenkida7.github.io/engawa/)）**　｜　📖 [技術読本](https://iitenkida7.github.io/engawa/reader/)（[English](https://iitenkida7.github.io/engawa/reader/en.html)）
+
 2D マップ上でアバターを動かし、誰かに近づくと自動で音声・映像・画面共有がつながります。
 Slack のハドルや Gather.town のような「ちょっと話しかける」体験を、軽量・低コストで実現することを目指したツールです。
 
