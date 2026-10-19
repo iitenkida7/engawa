@@ -705,10 +705,14 @@ const ARMCHAIR_SEAT_RADIUS = 25;
  * Every desk chair is drawn tucked against its desk. For a chair ABOVE its desk
  * that is the near edge of the seat tile — right where an avatar standing in the
  * middle of that tile already has its feet, so no lift. For a chair BELOW its
- * desk it is the FAR edge: a whole tile above those feet, which read as standing
- * behind the chair. The café armchairs are centred on their spot and need none.
+ * desk it is the FAR edge, a whole tile above those feet, and the avatar read as
+ * standing behind its chair. Half a tile closes that gap; a full tile put the
+ * avatar up on the desk. The café armchairs are centred on their spot: no lift.
  */
 export type Seat = { facing: Direction; lift: number };
+
+// How far up a chair below its desk seats its occupant (see Seat.lift).
+const SEAT_LIFT = TILE_SIZE / 2;
 
 // The chair tile of every desk (map coords) → its seat: the desk is in front of
 // the chair, so a south-facing unit (chair above) faces down.
@@ -718,7 +722,7 @@ const DESK_SEATS = new Map<string, Seat>(
     const south = u.facing === 'south';
     return [
       `${sc + OUTDOOR_MARGIN},${sr + OUTDOOR_MARGIN}`,
-      { facing: south ? 'down' : 'up', lift: south ? 0 : TILE_SIZE },
+      { facing: south ? 'down' : 'up', lift: south ? 0 : SEAT_LIFT },
     ];
   }),
 );

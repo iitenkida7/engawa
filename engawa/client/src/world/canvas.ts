@@ -1776,12 +1776,15 @@ export class CanvasRenderer {
     // + initials until the sprite layers load.
     // Standing still on a chair (desk chair / café armchair) draws the seated
     // pose, facing the way the chair faces; walking off stands back up.
+    // Advance the walk cycle for this frame first: seatOf() below (and the name
+    // label pass) read the column it settles on.
+    const col = p.advanceWalk();
     const seat = seatOf(p);
     const drewSprite = this.characters.draw(
       ctx,
       p.outfit,
       seat?.facing ?? p.facing,
-      p.walkCol(),
+      col,
       p.x,
       footY - (seat?.lift ?? 0),
       SPRITE_SCALE,
@@ -1841,6 +1844,8 @@ export class CanvasRenderer {
 // (any frame but the standing one) stands you back up, so this is also what drives
 // the seated pose. Everything anchored to the avatar — sprite, name label, speech
 // bubble — shifts by the seat's `lift` together, so they stay as one figure.
+// Reads walkCol(), never advanceWalk(): the cycle is advanced once per frame, in
+// drawPlayer, and advancing it again here would reset it to the standing frame.
 function seatOf(p: PlayerState): Seat | null {
   return p.walkCol() === 0 ? seatAt(p.x, p.y) : null;
 }

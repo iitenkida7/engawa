@@ -380,13 +380,13 @@ describe('seatAt (sitting spots)', () => {
     }
   });
 
-  it('lifts a chair below its desk by a tile, so the occupant lands on it', () => {
+  it('lifts a chair below its desk half a tile, so the occupant lands on it', () => {
     // drawDeskChair tucks every chair against its desk: for a chair below the
     // desk that is the far edge of the seat tile, a tile above where a standing
     // avatar's feet are. Chairs above their desk already line up.
     for (const d of OPEN_DESK_CHAIRS) {
       const [x, y] = centre(d.col, d.row + (d.facesSouth ? -1 : 1));
-      expect(seatAt(x, y)?.lift).toBe(d.facesSouth ? 0 : TILE_SIZE);
+      expect(seatAt(x, y)?.lift).toBe(d.facesSouth ? 0 : TILE_SIZE / 2);
     }
   });
 
