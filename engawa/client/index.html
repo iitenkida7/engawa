@@ -799,26 +799,28 @@
       /* Virtual-background picker in the cam menu: 5-column thumbnail grid. The
          menu scrolls instead of clipping on short screens. */
       #cam-menu {
+        width: 440px;
+        max-width: calc(100vw - 24px);
         max-height: calc(100vh - 96px);
         overflow-y: auto;
       }
 
       .device-menu .bg-grid {
         display: grid;
-        grid-template-columns: repeat(5, 56px);
-        gap: 4px;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 6px;
         padding: 2px 6px 6px;
       }
 
       .device-menu .bg-tile {
-        width: 56px;
+        width: 100%;
         aspect-ratio: 16 / 9;
         padding: 0;
         border: 2px solid transparent;
         border-radius: 6px;
         background: #353a47;
         color: #e6e8ee;
-        font-size: 16px;
+        font-size: 22px;
         line-height: 1;
         cursor: pointer;
         overflow: hidden;
