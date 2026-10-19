@@ -5,9 +5,12 @@ import type { RecorderManager } from '@/media/recorder';
 import { RemoteMediaView } from '@/ui/remote-media';
 import {
   classifyStall,
+  INITIAL_STALL_STATE,
   LAYER_SWITCH_WINDOW_MS,
   STALL_ATTACH_GRACE_MS,
+  STALL_CLEAR_MS,
   STALL_MS,
+  updateStallState,
 } from '@/ui/video-stall';
 import type { PlayerState } from '@/world/player';
 
@@ -50,6 +53,47 @@ describe('classifyStall', () => {
     expect(
       classifyStall({ stalledMs: Number.POSITIVE_INFINITY, sinceLayerSwitchMs: null, myTier: 0 }),
     ).toBe('peer-network');
+  });
+});
+
+describe('updateStallState', () => {
+  it('shows the first reason of a stall and stays quiet while frames flow', () => {
+    expect(updateStallState(INITIAL_STALL_STATE, null, 1000)).toEqual(INITIAL_STALL_STATE);
+    expect(updateStallState(INITIAL_STALL_STATE, 'peer-network', 1000)).toEqual({
+      reason: 'peer-network',
+      clearingSince: null,
+    });
+  });
+
+  it('latches the reason so the label does not swap mid-stall', () => {
+    const shown = updateStallState(INITIAL_STALL_STATE, 'peer-network', 1000);
+    // Our tier crossing 2 would otherwise rewrite the text under the reader.
+    expect(updateStallState(shown, 'my-network', 1500).reason).toBe('peer-network');
+  });
+
+  it('escalates away from a layer switch that outlived its window', () => {
+    const shown = updateStallState(INITIAL_STALL_STATE, 'layer-switch', 1000);
+    expect(updateStallState(shown, 'peer-network', 6000).reason).toBe('peer-network');
+  });
+
+  it('keeps the label until frames have been back for STALL_CLEAR_MS', () => {
+    const shown = updateStallState(INITIAL_STALL_STATE, 'peer-network', 1000);
+    // One stray frame starts the recovery clock but changes nothing on screen.
+    const clearing = updateStallState(shown, null, 2000);
+    expect(clearing).toEqual({ reason: 'peer-network', clearingSince: 2000 });
+    expect(updateStallState(clearing, null, 2000 + STALL_CLEAR_MS - 1).reason).toBe('peer-network');
+    expect(updateStallState(clearing, null, 2000 + STALL_CLEAR_MS)).toEqual(INITIAL_STALL_STATE);
+  });
+
+  it('restarts the recovery clock when the video stalls again', () => {
+    const clearing = { reason: 'peer-network' as const, clearingSince: 2000 };
+    const again = updateStallState(clearing, 'peer-network', 2500);
+    expect(again).toEqual({ reason: 'peer-network', clearingSince: null });
+    // The hold is measured from the new recovery, not the abandoned one.
+    const reclearing = updateStallState(again, null, 3000);
+    expect(updateStallState(reclearing, null, 3000 + STALL_CLEAR_MS - 1).reason).toBe(
+      'peer-network',
+    );
   });
 });
 
@@ -168,7 +212,11 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
   it('labels a muted track as the peer not delivering, and clears on unmute', () => {
     const { stream, setMuted } = makeCamStream('cam-a');
     view.attachRemoteStream('a', stream, 'cam');
-    const now = performance.now();
+    // Whole milliseconds. The label clears on now - clearingSince >=
+    // STALL_CLEAR_MS, and off a fractional clock that sum rounds an ulp short
+    // (549.1787919999999 + 1500 - 549.1787919999999 = 1499.9999999999998),
+    // leaving the overlay up on roughly one run in twenty.
+    const now = Math.ceil(performance.now());
     view.tickStalls(now, 0);
     expect(tileOf('a').classList.contains('stalled')).toBe(false);
 
@@ -177,8 +225,12 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
     expect(tileOf('a').classList.contains('stalled')).toBe(true);
     expect(stallLabel('a')).toBe(t('media.stall.peer-network'));
 
+    // Unmuting does not drop the overlay straight away: frames have to keep
+    // coming for STALL_CLEAR_MS, or a flapping track blinks the label.
     setMuted(false);
     view.tickStalls(now + 200, 0);
+    expect(tileOf('a').classList.contains('stalled')).toBe(true);
+    view.tickStalls(now + 200 + STALL_CLEAR_MS, 0);
     expect(tileOf('a').classList.contains('stalled')).toBe(false);
     expect(stallLabel('a')).toBe('');
   });
@@ -204,8 +256,12 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
     const frames = installFrameCallback();
     try {
       const { stream } = makeCamStream('cam-a');
-      const t0 = performance.now();
       view.attachRemoteStream('a', stream, 'cam');
+      // AFTER the attach, which is what stamps the grace off the real clock
+      // (lastFrameAt = now + STALL_ATTACH_GRACE_MS). Reading the clock before it
+      // left the second assertion below true only while the attach itself took
+      // under 1ms — fine on an idle machine, flaky on a loaded CI runner.
+      const t0 = performance.now();
       expect(frames.pending()).toBe(1);
 
       // No frame yet, but still within the attach grace: not a stall.
@@ -215,10 +271,17 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
       view.tickStalls(t0 + STALL_ATTACH_GRACE_MS + STALL_MS + 1, 0);
       expect(tileOf('a').classList.contains('stalled')).toBe(true);
 
-      // A rendered frame clears it and re-arms the callback.
+      // A rendered frame re-arms the callback, but a single frame is not a
+      // recovery: the label waits out STALL_CLEAR_MS of steady frames.
       frames.frame();
       expect(frames.pending()).toBe(1);
-      view.tickStalls(performance.now(), 0);
+      // (frames.frame() stamps the real clock, so tick from there too.)
+      // Whole milliseconds again, for the STALL_CLEAR_MS boundary below.
+      const back = Math.ceil(performance.now());
+      view.tickStalls(back, 0);
+      expect(tileOf('a').classList.contains('stalled')).toBe(true);
+      frames.frame();
+      view.tickStalls(back + STALL_CLEAR_MS, 0);
       expect(tileOf('a').classList.contains('stalled')).toBe(false);
 
       // Detaching the camera stops watching and drops the overlay.
