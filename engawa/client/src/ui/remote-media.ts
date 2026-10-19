@@ -38,9 +38,12 @@ import {
 } from '@/ui/panels';
 import {
   classifyStall,
+  INITIAL_STALL_STATE,
   STALL_ATTACH_GRACE_MS,
   type StallReason,
+  type StallState,
   stallLabelKey,
+  updateStallState,
 } from '@/ui/video-stall';
 import type { PlayerState } from '@/world/player';
 
@@ -55,12 +58,15 @@ type RemoteTile = {
   hasCam: boolean;
   // Stall tracking for the live camera (#312): performance.now() of the last
   // rendered frame (+grace right after attach), whether the receive track is
-  // muted (no RTP), when we last requested another SFU layer, the reason on
-  // show (null = none), and the watcher's abort handle.
+  // muted (no RTP), when we last requested another SFU layer, the overlay's
+  // hysteresis state (reason on show + how long frames have been back), and
+  // the watcher's abort handle.
   lastFrameAt: number;
   trackMuted: boolean;
   layerSwitchAt: number | null;
-  stallReason: StallReason | null;
+  stallState: StallState;
+  // The reason currently rendered, so applyStall stays a no-op per tick.
+  shownStall: StallReason | null;
   frameWatch?: AbortController;
 };
 
@@ -416,6 +422,7 @@ export class RemoteMediaView {
     const watch = new AbortController();
     tile.frameWatch = watch;
     tile.layerSwitchAt = null;
+    tile.stallState = INITIAL_STALL_STATE;
     const track = stream.getVideoTracks()[0];
     tile.trackMuted = track?.muted ?? false;
     if (track) {
@@ -458,6 +465,7 @@ export class RemoteMediaView {
     tile.frameWatch = undefined;
     tile.trackMuted = false;
     tile.layerSwitchAt = null;
+    tile.stallState = INITIAL_STALL_STATE;
     this.applyStall(userId, tile, null);
   }
 
@@ -480,18 +488,20 @@ export class RemoteMediaView {
         continue;
       }
       const stalledMs = tile.trackMuted ? Number.POSITIVE_INFINITY : now - tile.lastFrameAt;
-      const reason = classifyStall({
+      const candidate = classifyStall({
         stalledMs,
         sinceLayerSwitchMs: tile.layerSwitchAt === null ? null : now - tile.layerSwitchAt,
         myTier,
       });
-      this.applyStall(userId, tile, reason);
+      // Hysteresis lives in the fold, not in the tick: see updateStallState.
+      tile.stallState = updateStallState(tile.stallState, candidate, now);
+      this.applyStall(userId, tile, tile.stallState.reason);
     }
   }
 
   private applyStall(userId: string, tile: RemoteTile, reason: StallReason | null) {
-    if (tile.stallReason === reason) return;
-    tile.stallReason = reason;
+    if (tile.shownStall === reason) return;
+    tile.shownStall = reason;
     logNet('video-stall', { peer: userId, reason });
     const body = tile.placeholder.parentElement;
     if (body) body.dataset.stallLabel = reason ? t(stallLabelKey(reason)) : '';
@@ -702,7 +712,8 @@ export class RemoteMediaView {
       lastFrameAt: Number.POSITIVE_INFINITY,
       trackMuted: false,
       layerSwitchAt: null,
-      stallReason: null,
+      stallState: INITIAL_STALL_STATE,
+      shownStall: null,
     };
     this.remoteTiles.set(userId, tile);
     this.refreshTileReason(userId);
