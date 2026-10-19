@@ -212,7 +212,11 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
   it('labels a muted track as the peer not delivering, and clears on unmute', () => {
     const { stream, setMuted } = makeCamStream('cam-a');
     view.attachRemoteStream('a', stream, 'cam');
-    const now = performance.now();
+    // Whole milliseconds. The label clears on now - clearingSince >=
+    // STALL_CLEAR_MS, and off a fractional clock that sum rounds an ulp short
+    // (549.1787919999999 + 1500 - 549.1787919999999 = 1499.9999999999998),
+    // leaving the overlay up on roughly one run in twenty.
+    const now = Math.ceil(performance.now());
     view.tickStalls(now, 0);
     expect(tileOf('a').classList.contains('stalled')).toBe(false);
 
@@ -272,7 +276,8 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
       frames.frame();
       expect(frames.pending()).toBe(1);
       // (frames.frame() stamps the real clock, so tick from there too.)
-      const back = performance.now();
+      // Whole milliseconds again, for the STALL_CLEAR_MS boundary below.
+      const back = Math.ceil(performance.now());
       view.tickStalls(back, 0);
       expect(tileOf('a').classList.contains('stalled')).toBe(true);
       frames.frame();
