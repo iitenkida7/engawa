@@ -8,6 +8,7 @@ import {
   destroySpeakingDetector,
   getSharedAudioContext,
   isSpeaking,
+  SPEAKING_POLL_MS,
   type SpeakingDetector,
 } from '@/media/speaking';
 import { AutoplayGate } from '@/ui/autoplay';
@@ -163,6 +164,8 @@ export class RemoteMediaView {
   // Mic audio is attached to dedicated <audio> elements so it plays even when
   // the user has no cam (no video tile yet). userId → audio element.
   private remoteAudios = new Map<string, RemoteAudio>();
+  // performance.now() of the last speaking-detector read (see updateSpeaking).
+  private lastSpeakingPollMs = 0;
 
   // Set by the App so the transcriber can follow remote mics as they come and
   // go (media/transcriber.ts taps one stream per speaker). A callback rather
@@ -1154,9 +1157,13 @@ export class RemoteMediaView {
     }
   }
 
-  // Pumped once per frame: refreshes the speaking flag on the local and remote
+  // Pumped every frame (reads throttled below): refreshes the speaking flag on the local and remote
   // players and toggles the "speaking" ring on each remote tile.
   updateSpeaking() {
+    // Throttled to SPEAKING_POLL_MS, whatever rate the loop runs at.
+    const now = performance.now();
+    if (now - this.lastSpeakingPollMs < SPEAKING_POLL_MS) return;
+    this.lastSpeakingPollMs = now;
     const me = this.players.get(this.getMyId());
     if (me && this.localSpeakingDetector) {
       me.isSpeaking = isSpeaking(this.localSpeakingDetector);

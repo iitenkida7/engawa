@@ -24,6 +24,20 @@ export function computeFrameDt(lastFrameMs: number, nowMs: number): number {
   return Math.min(MAX_FRAME_DT, (nowMs - lastFrameMs) / 1000);
 }
 
+// Foreground frame-rate cap. requestAnimationFrame follows the display, so a
+// 120/144Hz screen would step and redraw the whole map two or more times as
+// often as a 60Hz one, with no visible gain for a top-down map. The tolerance
+// absorbs rAF timestamp jitter so a 60Hz display still runs every frame.
+export const MAX_FOREGROUND_FPS = 60;
+const FRAME_JITTER_MS = 2;
+
+// Whether a foreground rAF tick should run a step, given the last step's time
+// (0 = none yet).
+export function shouldRunFrame(lastFrameMs: number, nowMs: number): boolean {
+  if (!lastFrameMs) return true;
+  return nowMs - lastFrameMs >= 1000 / MAX_FOREGROUND_FPS - FRAME_JITTER_MS;
+}
+
 // Whether closing the tab/window should be confirmed. We only want the browser's
 // native "leave site?" prompt once the user has actually entered a workspace
 // (joined), so an accidental close mid-call doesn't silently drop the session.

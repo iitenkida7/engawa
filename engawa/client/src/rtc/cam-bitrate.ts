@@ -27,11 +27,15 @@ export const CAM_THROTTLE_MIN_PEERS = 3;
 export const CAM_BITRATE_SPEAKING = 1_000_000;
 export const CAM_BITRATE_QUIET = 250_000;
 
-// Camera framerate / resolution-downscale ceilings. The quiet (throttled) state
-// halves the framerate and each spatial dimension; the capture itself stays at
-// its full rate so a speaker gets the smooth/sharp picture immediately.
-export const CAM_FPS_SPEAKING = 30;
-export const CAM_FPS_QUIET = 15;
+// Camera framerate: 15fps everywhere — the capture (media.ts), the virtual
+// background (vbg.ts), every SFU layer and the mesh sender. A talking head reads
+// smoothly at 15, and capturing at the rate we actually send halves the camera
+// pipeline (capture, background segmentation, encoder input) compared with
+// capturing 30 and dropping every other frame.
+export const CAM_FPS = 15;
+
+// Camera resolution-downscale ceilings. The quiet (throttled) state halves each
+// spatial dimension.
 export const CAM_SCALE_SPEAKING = 1;
 export const CAM_SCALE_QUIET = 2;
 
@@ -124,9 +128,8 @@ export type CamEncoding = {
 // Pure: the camera encoding ceiling for the given peer count and whether the
 // local user counts as a (recent) speaker.
 //
-// Bitrate and framerate follow the speaker state (small groups or recent
-// speakers get the high rate), and both are seamless to change via
-// setParameters. The *resolution* downscale, however, is NOT seamless — a
+// Bitrate follows the speaker state (small groups or recent speakers get the
+// high rate), which is seamless to change via setParameters. The *resolution* downscale, however, is NOT seamless — a
 // scaleResolutionDownBy change reinitializes the encoder and the receiver
 // blacks out until the next keyframe (issue #311). So resolution depends ONLY
 // on the (rarely-changing) peer count, never on the speaker state: toggling
@@ -138,7 +141,7 @@ export function computeCamEncoding(peerCount: number, isSpeaking: boolean): CamE
   const high = small || isSpeaking;
   return {
     maxBitrate: high ? CAM_BITRATE_SPEAKING : CAM_BITRATE_QUIET,
-    maxFramerate: high ? CAM_FPS_SPEAKING : CAM_FPS_QUIET,
+    maxFramerate: CAM_FPS,
     scaleResolutionDownBy: small ? CAM_SCALE_SPEAKING : CAM_SCALE_QUIET,
   };
 }
@@ -185,14 +188,13 @@ export type SimulcastLayer = {
 // (270p), q = quarter (135p). The full layer is only pulled for a big tile (a
 // maximized window, a 2-3 person gallery), so it is capped well under the mesh
 // "speaking" ceiling: 500kbps still reads as a sharp 540p face, at half the
-// uplink (#314). Every layer runs at 15fps (the mesh "quiet" rate): a talking
+// uplink (#314). Every layer runs at CAM_FPS (15fps): a talking
 // head looks smooth enough there, and on the full layer the saved frames buy a
 // sharper picture per frame plus lighter encode/decode (issue #269). The quarter
 // layer only feeds tiles under 320px and unwatched video, so 50kbps keeps its
 // 135p picture intact while halving the downlink of a crowded meeting room's
 // filmstrip. Per sender the whole ladder is ~0.7Mbps up.
 export const SFU_CAM_FULL_BITRATE = 500_000;
-export const SFU_CAM_FULL_FPS = 15;
 export const SFU_CAM_HALF_BITRATE = 150_000;
 export const SFU_CAM_QUARTER_BITRATE = 50_000;
 export const SFU_CAM_LAYERS: SimulcastLayer[] = [
@@ -200,19 +202,19 @@ export const SFU_CAM_LAYERS: SimulcastLayer[] = [
     rid: 'f',
     scaleResolutionDownBy: 1,
     maxBitrate: SFU_CAM_FULL_BITRATE,
-    maxFramerate: SFU_CAM_FULL_FPS,
+    maxFramerate: CAM_FPS,
   },
   {
     rid: 'h',
     scaleResolutionDownBy: 2,
     maxBitrate: SFU_CAM_HALF_BITRATE,
-    maxFramerate: CAM_FPS_QUIET,
+    maxFramerate: CAM_FPS,
   },
   {
     rid: 'q',
     scaleResolutionDownBy: 4,
     maxBitrate: SFU_CAM_QUARTER_BITRATE,
-    maxFramerate: CAM_FPS_QUIET,
+    maxFramerate: CAM_FPS,
   },
 ];
 

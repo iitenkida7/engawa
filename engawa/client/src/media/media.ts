@@ -12,7 +12,7 @@ import {
   VBG_OFF,
   VirtualBackground,
 } from '@/media/vbg';
-import { SCREEN_CAPTURE_CONSTRAINTS } from '@/rtc/cam-bitrate';
+import { CAM_FPS, SCREEN_CAPTURE_CONSTRAINTS } from '@/rtc/cam-bitrate';
 
 type MediaListener = () => void;
 
@@ -288,8 +288,9 @@ export class MediaManager {
           // bounded by the cam-bitrate throttle / SFU simulcast ladder.
           width: { ideal: 960 },
           height: { ideal: 540 },
-          // Higher fps target keeps per-frame interval short → less wait.
-          frameRate: { ideal: 30, max: 30 },
+          // Capture at the rate we send (CAM_FPS): frames above it would only
+          // be captured, segmented and handed to the encoder to be dropped.
+          frameRate: { ideal: CAM_FPS, max: CAM_FPS },
           ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
         },
       }));

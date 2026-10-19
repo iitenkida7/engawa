@@ -2,8 +2,10 @@ import { describe, expect, it } from 'bun:test';
 import {
   computeFrameDt,
   DEFAULT_FRAME_DT,
+  MAX_FOREGROUND_FPS,
   MAX_FRAME_DT,
   shouldConfirmUnload,
+  shouldRunFrame,
 } from '@/core/lifecycle';
 
 describe('computeFrameDt', () => {
@@ -27,5 +29,24 @@ describe('shouldConfirmUnload', () => {
 
   it('does not confirm before joining', () => {
     expect(shouldConfirmUnload(false)).toBe(false);
+  });
+});
+
+describe('shouldRunFrame', () => {
+  const interval = 1000 / MAX_FOREGROUND_FPS;
+
+  it('always runs the first frame', () => {
+    expect(shouldRunFrame(0, 1000)).toBe(true);
+  });
+
+  it('runs every frame of a 60Hz display, even a little early', () => {
+    expect(shouldRunFrame(1000, 1000 + interval)).toBe(true);
+    expect(shouldRunFrame(1000, 1000 + interval - 1)).toBe(true);
+  });
+
+  it('skips every other frame of a 120Hz display', () => {
+    const frame120 = 1000 / 120;
+    expect(shouldRunFrame(1000, 1000 + frame120)).toBe(false);
+    expect(shouldRunFrame(1000, 1000 + 2 * frame120)).toBe(true);
   });
 });

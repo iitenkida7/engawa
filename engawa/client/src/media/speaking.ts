@@ -9,8 +9,14 @@
 // Average frequency magnitude (0-255 scale) above which a frame counts as
 // "speaking".
 const SPEAKING_THRESHOLD = 15;
-// Analyser FFT smoothing — higher values steady the reading across frames.
-const SPEAKING_SMOOTHING = 0.85;
+// How often the detectors are read (ui/remote-media.ts updateSpeaking). A
+// speaking ring doesn't need the display's frame rate, and each read is an
+// analyser pull per person plus a class toggle on every tile.
+export const SPEAKING_POLL_MS = 1000 / 30;
+// Analyser FFT smoothing — higher values steady the reading across reads. The
+// smoothing is applied per read, so it is tuned to SPEAKING_POLL_MS: 0.72 per
+// 33ms read gives the same ~100ms response that 0.85 gave at 60 reads/s.
+const SPEAKING_SMOOTHING = 0.72;
 
 export type SpeakingDetector = {
   analyser: AnalyserNode;
