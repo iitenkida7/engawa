@@ -13,11 +13,7 @@
 // split out so they can be unit-tested without a canvas or WebGL, following the
 // same pattern as proximity.ts / panels.ts.
 
-import type {
-  DrawingUtils,
-  ImageSegmenter,
-  ImageSegmenterResult,
-} from '@mediapipe/tasks-vision';
+import type { DrawingUtils, ImageSegmenter, ImageSegmenterResult } from '@mediapipe/tasks-vision';
 import { t } from '@/core/i18n';
 import { fitRect } from '@/media/compositor';
 import { FrameDriver } from '@/media/frame-driver';
