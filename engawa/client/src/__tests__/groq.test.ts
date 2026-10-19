@@ -5,6 +5,7 @@ import {
   isHallucinated,
   parseGroqKey,
   parseGroqModel,
+  retryDelayMs,
 } from '@/media/groq';
 
 // The Groq Whisper client's pure parts: settings parsing and the filters that
@@ -72,5 +73,30 @@ describe('isHallucinated', () => {
     expect(isHallucinated([])).toBe(false);
     expect(isHallucinated([{}])).toBe(false);
     expect(isHallucinated('nonsense')).toBe(false);
+  });
+});
+
+describe('retryDelayMs', () => {
+  it('backs off exponentially, capped at 30s', () => {
+    expect(retryDelayMs(1)).toBe(800);
+    expect(retryDelayMs(2)).toBe(1_600);
+    expect(retryDelayMs(3)).toBe(3_200);
+    expect(retryDelayMs(20)).toBe(30_000);
+  });
+
+  it('honours Retry-After in seconds', () => {
+    expect(retryDelayMs(1, '7')).toBe(7_000);
+    expect(retryDelayMs(5, '0')).toBe(0);
+    expect(retryDelayMs(1, '3600')).toBe(30_000);
+  });
+
+  it('honours Retry-After as an HTTP date', () => {
+    const now = Date.parse('2026-10-19T00:00:00Z');
+    expect(retryDelayMs(1, 'Mon, 19 Oct 2026 00:00:05 GMT', now)).toBe(5_000);
+  });
+
+  it('falls back to the backoff for a malformed or past Retry-After', () => {
+    expect(retryDelayMs(2, 'soon')).toBe(1_600);
+    expect(retryDelayMs(2, '-5')).toBe(1_600);
   });
 });

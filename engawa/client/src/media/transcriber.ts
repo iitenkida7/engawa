@@ -156,14 +156,21 @@ export class TranscriberManager {
     this.enqueue(userId, samples, startedAt);
   }
 
+  // Encode now, not when the request goes out: a queued segment then waits as
+  // the 16kHz 16-bit WAV it will be sent as (about 1/6 of the 48kHz float
+  // samples), held in a Blob rather than on the JS heap. A backlog while the API
+  // is rate-limiting or the network is down stays small without dropping
+  // anything.
   private enqueue(userId: string, samples: Float32Array, startedAt: number) {
     const signal = this.abort?.signal;
+    const rate = getSharedAudioContext().sampleRate;
+    const wav = new Blob([encodeWav(downsample(samples, rate), TRANSCRIBE_SAMPLE_RATE)], {
+      type: 'audio/wav',
+    });
     this.queue = this.queue.then(async () => {
       if (!this.running || signal?.aborted) return;
       const apiKey = this.opts.getApiKey();
       if (!apiKey) return;
-      const ctx = getSharedAudioContext();
-      const wav = encodeWav(downsample(samples, ctx.sampleRate), TRANSCRIBE_SAMPLE_RATE);
       try {
         const text = await transcribeAudio(wav, {
           apiKey,
