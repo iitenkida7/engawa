@@ -104,7 +104,9 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 - `logic.ts` — **副作用のない純粋関数**（座標クランプ、スポーン生成、名前/workspace 正規化、
   パスワード検証/パース、**近接グループ判定 `computeProximityGroups`**）。グループ判定は位置＋zone
   から連結成分を求め、会議室=常時 SFU・屋外は `SFU_PROMOTE_AT` 人で SFU 昇格（既定 2＝実質すべて SFU。
-  一方向ラッチ）を割り当てる純粋関数。閾値の正規化も純粋関数 `normalizeSfuPromoteAt`。
+  一方向ラッチ）を割り当てる純粋関数。**開放フロアで新しく会話が始まるには双方が静止している（直近
+  `PROXIMITY_STILL_MS`=700ms 位置が変わっていない）ことが必要**（すれ違いで通知音が鳴らないように。既存グループの維持・
+  会議室は対象外）。停止後はサーバーのタイマー（`scheduleStillRegroup`）が再判定する。閾値の正規化も純粋関数 `normalizeSfuPromoteAt`。
 - `turn.ts` — Cloudflare API を叩いて短期 ICE クレデンシャルを発行。**API キーはサーバーのみ保持**。
 - `sfu.ts` — Cloudflare Realtime SFU の制御プレーン（セッション/トラック）を**プロキシ**する。
   App ID/Token はサーバーのみ保持しブラウザに渡さない（turn.ts と同じ作法）。転送先パスはホワイト

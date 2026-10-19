@@ -81,6 +81,7 @@ const server = Bun.serve({
           mediaToken: null,
           resumeToken: null,
           lastGroupAt: 0,
+          lastMoveAt: 0,
           joined: false,
           away: false,
         } satisfies WsData,

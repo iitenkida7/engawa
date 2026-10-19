@@ -19,6 +19,7 @@ import {
   normalizeVelocity,
   normalizeWorkspace,
   PROXIMITY_DISCONNECT_RADIUS,
+  PROXIMITY_STILL_MS,
   type ProximityGroup,
   sanitizeOutfit,
   sfuLatchSeeds,
@@ -96,6 +97,7 @@ function broadcastGroups(
   clients: Map<string, ServerWebSocket<WsData>>,
   workspace: string,
   groupState: GroupState,
+  nowMs: number,
 ): Map<string, ProximityGroup> {
   const members: GroupMember[] = [];
   const wsClients: ServerWebSocket<WsData>[] = [];
@@ -109,6 +111,7 @@ function broadcastGroups(
       y: c.data.y,
       zoneId: c.data.zoneId,
       seated: c.data.seated,
+      moving: nowMs - c.data.lastMoveAt < PROXIMITY_STILL_MS,
     });
     wsClients.push(c);
   }
@@ -192,6 +195,25 @@ export function createWebSocketHandler(
   // process); reset on restart, never persisted (invariant #2).
   const groupState: GroupState = new Map();
 
+  // One pending regroup per connection, fired just after its still window ends
+  // (PROXIMITY_STILL_MS), so two people who both stopped actually get connected.
+  // Restarted on every position change; short-lived and memory-only.
+  const stillTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  function scheduleStillRegroup(ws: ServerWebSocket<WsData>) {
+    const userId = ws.data.userId;
+    const prev = stillTimers.get(userId);
+    if (prev) clearTimeout(prev);
+    stillTimers.set(
+      userId,
+      setTimeout(() => {
+        stillTimers.delete(userId);
+        // Gone or replaced meanwhile: nothing to regroup around.
+        if (clients.get(userId) !== ws || !ws.data.joined || ws.data.away) return;
+        broadcastGroups(clients, ws.data.workspace, groupState, now());
+      }, PROXIMITY_STILL_MS + 20),
+    );
+  }
+
   // Leaves awaiting finalization, keyed by resume token (issue #187). The
   // closed socket stays in `clients` (holding its position/group presence)
   // until the timer fires; a resume cancels the timer and adopts the identity.
@@ -229,7 +251,7 @@ export function createWebSocketHandler(
     }
     clients.delete(ws.data.userId);
     broadcast(clients, ws.data.workspace, { type: 'player-left', userId: ws.data.userId });
-    broadcastGroups(clients, ws.data.workspace, groupState);
+    broadcastGroups(clients, ws.data.workspace, groupState, now());
     console.log(`[ws] leave finalized ${ws.data.userId} (clients=${clients.size})`);
   }
 
@@ -352,7 +374,7 @@ export function createWebSocketHandler(
             });
             // No player-joined broadcast — peers never saw us leave. Groups are
             // recomputed in case topology changed during the gap.
-            broadcastGroups(clients, ws.data.workspace, groupState);
+            broadcastGroups(clients, ws.data.workspace, groupState, now());
             console.log(`[ws] resumed ${ws.data.userId} as "${ws.data.name}"`);
             break;
           }
@@ -413,7 +435,7 @@ export function createWebSocketHandler(
             { type: 'player-joined', player: playerFromWs(ws) },
             ws.data.userId,
           );
-          broadcastGroups(clients, ws.data.workspace, groupState);
+          broadcastGroups(clients, ws.data.workspace, groupState, now());
           console.log(`[ws] joined ${ws.data.userId} as "${ws.data.name}"`);
           break;
         }
@@ -437,7 +459,7 @@ export function createWebSocketHandler(
               { type: 'player-left', userId: ws.data.userId },
               ws.data.userId,
             );
-            broadcastGroups(clients, ws.data.workspace, groupState);
+            broadcastGroups(clients, ws.data.workspace, groupState, now());
             break;
           }
           if (!nowAway && wasAway) {
@@ -464,7 +486,7 @@ export function createWebSocketHandler(
             },
             ws.data.userId,
           );
-          if (!nowAway && wasAway) broadcastGroups(clients, ws.data.workspace, groupState);
+          if (!nowAway && wasAway) broadcastGroups(clients, ws.data.workspace, groupState, now());
           break;
         }
 
@@ -489,8 +511,10 @@ export function createWebSocketHandler(
           const { x, y } = clampPosition(msg.x, msg.y, MAP_WIDTH, MAP_HEIGHT);
           const vx = normalizeVelocity(msg.vx);
           const vy = normalizeVelocity(msg.vy);
+          const moved = x !== ws.data.x || y !== ws.data.y;
           ws.data.x = x;
           ws.data.y = y;
+          if (moved) ws.data.lastMoveAt = now();
           ws.data.zoneId = msg.zoneId ?? null;
           ws.data.seated = msg.seated ?? false;
           // Away clients are invisible (#220): keep their position current for
@@ -508,8 +532,11 @@ export function createWebSocketHandler(
           const t = now();
           if (t - ws.data.lastGroupAt >= GROUP_RECOMPUTE_MIN_INTERVAL_MS) {
             ws.data.lastGroupAt = t;
-            broadcastGroups(clients, ws.data.workspace, groupState);
+            broadcastGroups(clients, ws.data.workspace, groupState, now());
           }
+          // Standing still forms a conversation, but no further `move` arrives
+          // once someone stops — so regroup right after the still window ends.
+          if (moved) scheduleStillRegroup(ws);
           break;
         }
 
@@ -700,7 +727,7 @@ export function createWebSocketHandler(
       clients.delete(ws.data.userId);
       if (ws.data.joined) {
         broadcast(clients, ws.data.workspace, { type: 'player-left', userId: ws.data.userId });
-        broadcastGroups(clients, ws.data.workspace, groupState);
+        broadcastGroups(clients, ws.data.workspace, groupState, now());
       }
       console.log(`[ws] close ${ws.data.userId} (clients=${clients.size})`);
     },
