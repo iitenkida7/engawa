@@ -188,6 +188,10 @@ export type WsData = {
   // burst of `move` messages from one socket can't force the O(n²) recompute at
   // wire speed. Position updates and player-moved broadcasts are never throttled.
   lastGroupAt: number;
+  // Last time (ms) this connection's position actually changed. Proximity uses it
+  // to tell "walking past" from "standing still": a new open-floor conversation
+  // only starts once both sides have stopped (logic.ts PROXIMITY_STILL_MS).
+  lastMoveAt: number;
   joined: boolean;
   // Away mode (#220): a joined client that has stepped away. Stays connected and
   // keeps receiving broadcasts, but is hidden from peers (treated like a leave:
