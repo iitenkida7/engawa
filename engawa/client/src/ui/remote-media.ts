@@ -12,15 +12,6 @@ import {
 import { AutoplayGate } from '@/ui/autoplay';
 import { type FaceEntry, FacePipView, isFacePipSupported } from '@/ui/face-pip';
 import {
-  clampGain,
-  gainToPercent,
-  PEER_GAIN_DEFAULT,
-  PEER_GAIN_MAX,
-  PEER_VOLUME_STORAGE_KEY,
-  parseVolumeMap,
-  percentToGain,
-} from '@/ui/peer-volume';
-import {
   applyPanelGeometry,
   CAM_ASPECT,
   clampFilmstripWidth,
@@ -42,6 +33,15 @@ import {
   minimizedSidebarWidth,
   PANEL_BOTTOM_RESERVED,
 } from '@/ui/panels';
+import {
+  clampGain,
+  gainToPercent,
+  PEER_GAIN_DEFAULT,
+  PEER_GAIN_MAX,
+  PEER_VOLUME_STORAGE_KEY,
+  parseVolumeMap,
+  percentToGain,
+} from '@/ui/peer-volume';
 import {
   classifyStall,
   STALL_ATTACH_GRACE_MS,
