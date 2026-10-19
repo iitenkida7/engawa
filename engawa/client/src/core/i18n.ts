@@ -44,6 +44,7 @@ export function setLang(lang: Lang): void {
 const STR: Record<string, Record<Lang, string>> = {
   // -- shared ---------------------------------------------------------------
   'common.close': { ja: '閉じる', en: 'Close' },
+  'common.cancel': { ja: 'キャンセル', en: 'Cancel' },
   'common.you': { ja: 'あなた', en: 'You' },
   'common.none': { ja: 'なし', en: 'None' },
   'common.barefoot': { ja: 'はだし', en: 'Barefoot' },
@@ -297,6 +298,61 @@ const STR: Record<string, Record<Lang, string>> = {
   },
   'notify.help.openSettings': { ja: '⚙ 通知設定を開く', en: '⚙ Open notification settings' },
   'notify.help.retest': { ja: 'もう一度テスト', en: 'Test again' },
+
+  // -- transcript (Groq speech-to-text) -------------------------------------
+  'toolbar.transcriptTitle': { ja: '文字起こし', en: 'Transcribe' },
+  'toolbar.transcriptOn': { ja: '文字起こしを停止', en: 'Stop transcribing' },
+  'transcript.title': { ja: '\u{1F4DD} 文字起こし', en: '\u{1F4DD} Transcript' },
+  'transcript.copy': { ja: '全文をコピー', en: 'Copy transcript' },
+  'transcript.save': { ja: 'テキストで保存', en: 'Save as text' },
+  'transcript.started': {
+    ja: '{name} さんが文字起こしを開始しました',
+    en: '{name} started transcribing',
+  },
+  'transcript.stopped': {
+    ja: '{name} さんが文字起こしを終了しました',
+    en: '{name} stopped transcribing',
+  },
+  'transcript.othersTip': { ja: '文字起こし中: {names}', en: 'Transcribing: {names}' },
+  'transcript.alreadyRunning': {
+    ja: '{name} さんが文字起こし中です。結果はこのパネルに届きます。',
+    en: '{name} is already transcribing — their results appear in this panel.',
+  },
+  'transcript.unsupported': {
+    ja: 'このブラウザでは文字起こしを利用できません',
+    en: 'Transcription is not supported in this browser',
+  },
+  'transcript.error': { ja: '文字起こしでエラー: {message}', en: 'Transcription error: {message}' },
+  'transcript.authError': {
+    ja: 'Groq の API キーが拒否されました。設定し直してください。',
+    en: 'Groq rejected the API key. Please set it again.',
+  },
+  'transcript.needsMic': {
+    ja: 'マイクか通話相手がいないと文字起こしできません',
+    en: 'Turn on your mic or join a call before transcribing',
+  },
+  // -- transcript setup dialog ----------------------------------------------
+  'transcript.setupTitle': { ja: '文字起こしの設定', en: 'Transcription settings' },
+  'transcript.setupDesc': {
+    ja: '通話中の音声を Groq の Whisper API で文字起こしします。音声はブラウザから Groq へ直接送信され、engawa のサーバーは経由しません。API キーはこのブラウザにのみ保存されます。',
+    en: 'Transcribes the call with Groq\u2019s Whisper API. Audio goes from your browser straight to Groq and never passes through the engawa server. The API key is stored only in this browser.',
+  },
+  'transcript.setupPrivacy': {
+    ja: '通話相手の音声も送信されるため、開始すると全員に通知されます。',
+    en: 'Your call partners\u2019 audio is sent too, so everyone is notified when you start.',
+  },
+  'transcript.keyLabel': { ja: 'Groq API キー', en: 'Groq API key' },
+  'transcript.keyHelp': { ja: 'console.groq.com で発行', en: 'Create one at console.groq.com' },
+  'transcript.modelLabel': { ja: 'モデル', en: 'Model' },
+  'transcript.modelTurbo': { ja: '高速・安価（$0.04/時）', en: 'Fast & cheap ($0.04/hr)' },
+  'transcript.modelLarge': { ja: '高精度（$0.111/時）', en: 'Most accurate ($0.111/hr)' },
+  'transcript.invalidKey': {
+    ja: 'キーの形式が正しくないようです（gsk_ で始まります）',
+    en: 'That does not look like a Groq key (they start with gsk_)',
+  },
+  'transcript.setupStart': { ja: '開始', en: 'Start' },
+  'transcript.setupSave': { ja: '保存', en: 'Save' },
+  'transcript.clearKey': { ja: 'キーを削除', en: 'Remove key' },
 
   // -- debug console --------------------------------------------------------
   'debug.title': { ja: '🐛 デバッグ — RTC 接続', en: '🐛 Debug — RTC connections' },

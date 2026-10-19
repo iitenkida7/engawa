@@ -535,6 +535,221 @@
         display: block;
       }
 
+      /* Transcribe button: blue while running (.active, like screenshare) and a
+         badge when someone ELSE in the call is transcribing. */
+      #toolbar button#btn-transcript {
+        position: relative;
+      }
+
+      #toolbar button#btn-transcript .transcript-badge {
+        display: none;
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #4aa3ff;
+        border: 1.5px solid rgba(20, 23, 30, 0.9);
+        box-shadow: 0 0 5px rgba(74, 163, 255, 0.9);
+      }
+
+      #toolbar button#btn-transcript.others-transcribing .transcript-badge {
+        display: block;
+      }
+
+      /* Transcript panel: same shell as the debug console (fixed, draggable by
+         its header, scrolling body), parked on the left so both can be open. */
+      #transcript {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        width: 400px;
+        max-width: calc(100vw - 32px);
+        max-height: calc(100vh - 140px);
+        display: flex;
+        flex-direction: column;
+        background: rgba(14, 16, 20, 0.96);
+        border: 1px solid #353a47;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        z-index: 1100;
+        font-size: 13px;
+        color: #c9ced8;
+        overflow: hidden;
+      }
+
+      #transcript-header {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 8px 12px;
+        border-bottom: 1px solid #2a2f3a;
+        background: rgba(0, 0, 0, 0.25);
+        font-size: 13px;
+        color: #e6e8ee;
+        flex-shrink: 0;
+        cursor: grab;
+        user-select: none;
+      }
+
+      #transcript-header > span {
+        flex: 1;
+      }
+
+      #transcript-header button {
+        background: transparent;
+        border: none;
+        color: #9da3b0;
+        font-size: 14px;
+        cursor: pointer;
+        padding: 2px 6px;
+      }
+
+      #transcript-header button:hover {
+        color: #fff;
+      }
+
+      #transcript-body {
+        padding: 8px 12px 12px;
+        overflow-y: auto;
+        line-height: 1.6;
+      }
+
+      .transcript-row {
+        display: grid;
+        grid-template-columns: auto auto 1fr;
+        gap: 6px;
+        margin-bottom: 4px;
+        align-items: baseline;
+      }
+
+      .transcript-time {
+        color: #6b7280;
+        font-variant-numeric: tabular-nums;
+        font-size: 11px;
+      }
+
+      .transcript-who {
+        color: #7fd4a8;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .transcript-text {
+        color: #dfe3ea;
+        overflow-wrap: anywhere;
+      }
+
+      /* Transcription setup: a small modal for the user's own Groq API key. */
+      #transcript-setup {
+        position: fixed;
+        inset: 0;
+        z-index: 1200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.55);
+      }
+
+      #transcript-setup.hidden {
+        display: none;
+      }
+
+      #transcript-setup .setup-card {
+        width: 420px;
+        max-width: calc(100vw - 32px);
+        background: #171a21;
+        border: 1px solid #353a47;
+        border-radius: 12px;
+        padding: 20px;
+        color: #c9ced8;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      #transcript-setup h2 {
+        margin: 0 0 10px;
+        font-size: 16px;
+        color: #e6e8ee;
+      }
+
+      #transcript-setup p {
+        margin: 0 0 10px;
+        color: #9da3b0;
+        font-size: 12px;
+      }
+
+      #transcript-setup label {
+        display: block;
+        margin: 14px 0 4px;
+        color: #c9ced8;
+        font-size: 12px;
+      }
+
+      #transcript-setup input[type='password'],
+      #transcript-setup select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        background: #0f1116;
+        border: 1px solid #3a4050;
+        border-radius: 8px;
+        color: #e6e8ee;
+        font-size: 13px;
+        font-family: inherit;
+      }
+
+      #transcript-setup .setup-help {
+        margin-top: 4px;
+        font-size: 11px;
+        color: #6b7280;
+      }
+
+      #transcript-setup .setup-help a {
+        color: #7fb4ff;
+      }
+
+      #transcript-setup .setup-error {
+        margin-top: 8px;
+        color: #ff8a8c;
+        font-size: 12px;
+        min-height: 1.2em;
+      }
+
+      #transcript-setup .setup-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 18px;
+      }
+
+      #transcript-setup .setup-actions button {
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 1px solid #3a4050;
+        background: #222733;
+        color: #d7dbe3;
+        font-size: 13px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+
+      #transcript-setup .setup-actions button.primary {
+        background: #2f6fd0;
+        border-color: #2f6fd0;
+        color: #fff;
+      }
+
+      #transcript-setup .setup-actions button.danger {
+        margin-right: auto;
+        color: #ff8a8c;
+      }
+
+      #transcript-setup .setup-actions button:hover {
+        filter: brightness(1.15);
+      }
+
       .device-menu {
         position: absolute;
         bottom: calc(100% + 6px);
@@ -2206,6 +2421,15 @@
                recording (toggled via .others-recording in JS). -->
           <span class="rec-badge" aria-hidden="true"></span>
         </button>
+        <button id="btn-transcript" class="icon-toggle" data-i18n-tip="toolbar.transcriptTitle" data-tip="文字起こし" aria-label="文字起こし">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="M7 11h6M7 15h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
+          <!-- Privacy badge: shown when SOMEONE ELSE in the call is transcribing
+               (toggled via .others-transcribing in JS), mirroring the record one. -->
+          <span class="transcript-badge" aria-hidden="true"></span>
+        </button>
         <button id="btn-status" data-i18n-tip="roster.status" data-tip="ステータス" aria-label="ステータス">🟢</button>
         <div class="btn-group">
           <button id="btn-reaction" data-i18n-tip="toolbar.reactions" data-tip="リアクション" aria-label="リアクション">😀</button>
@@ -2275,6 +2499,36 @@
       <!-- Screenshare stages are created dynamically (one per sharing user) by
            remote-media.ts and appended here under #app, as siblings of
            #remote-videos / #self-preview. -->
+      <div id="transcript" class="hidden">
+        <div id="transcript-header">
+          <span data-i18n="transcript.title">📝 文字起こし</span>
+          <button id="transcript-close" data-i18n-title="common.close" title="閉じる">✕</button>
+        </div>
+        <div id="transcript-body"></div>
+      </div>
+      <!-- Groq API key setup. The key is the user's own and stays in this
+           browser's localStorage; audio goes browser -> Groq directly, never
+           through our server (invariant #1). -->
+      <div id="transcript-setup" class="hidden">
+        <div class="setup-card">
+          <h2 data-i18n="transcript.setupTitle">文字起こしの設定</h2>
+          <p data-i18n="transcript.setupDesc"></p>
+          <p data-i18n="transcript.setupPrivacy"></p>
+          <label for="transcript-key" data-i18n="transcript.keyLabel">Groq API キー</label>
+          <input id="transcript-key" type="password" autocomplete="off" spellcheck="false" placeholder="gsk_..." />
+          <div class="setup-help">
+            <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" data-i18n="transcript.keyHelp">console.groq.com</a>
+          </div>
+          <label for="transcript-model" data-i18n="transcript.modelLabel">モデル</label>
+          <select id="transcript-model"></select>
+          <div class="setup-error" id="transcript-setup-error"></div>
+          <div class="setup-actions">
+            <button type="button" id="transcript-forget" class="danger" data-i18n="transcript.clearKey">キーを削除</button>
+            <button type="button" id="transcript-cancel" data-i18n="common.cancel">キャンセル</button>
+            <button type="button" id="transcript-confirm" class="primary" data-i18n="transcript.setupStart">開始</button>
+          </div>
+        </div>
+      </div>
       <div id="debug-console" class="hidden">
         <div id="debug-header">
           <span data-i18n="debug.title">🐛 デバッグ — RTC 接続</span>

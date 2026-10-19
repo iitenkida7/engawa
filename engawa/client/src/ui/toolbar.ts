@@ -65,6 +65,8 @@ export class ToolbarController {
   private onTestNotify: () => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
+  private onToggleTranscript: () => void;
+  private isTranscribing: () => boolean;
   private onUserCamToggle: () => void;
 
   // Experimental features master switch (#323): persisted, off by default. The
@@ -87,6 +89,7 @@ export class ToolbarController {
   private btnCam: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
+  private btnTranscript: HTMLButtonElement;
   private btnReaction: HTMLButtonElement;
   private reactionMenu: HTMLDivElement;
   private btnMore: HTMLButtonElement;
@@ -111,6 +114,10 @@ export class ToolbarController {
     onTestNotify: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
+    // Start/stop transcribing the call. The toolbar only reports the click; the
+    // App owns the key check, the privacy announcement and the transcriber.
+    onToggleTranscript: () => void;
+    isTranscribing: () => boolean;
     // Fired on a MANUAL camera-button toggle (not setCamEnabled), so the App's
     // bandwidth automation (#185) can stand down when the user takes over.
     onUserCamToggle: () => void;
@@ -130,12 +137,15 @@ export class ToolbarController {
     this.onTestNotify = opts.onTestNotify;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
+    this.onToggleTranscript = opts.onToggleTranscript;
+    this.isTranscribing = opts.isTranscribing;
     this.onUserCamToggle = opts.onUserCamToggle;
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
+    this.btnTranscript = document.getElementById('btn-transcript') as HTMLButtonElement;
     this.btnReaction = document.getElementById('btn-reaction') as HTMLButtonElement;
     this.reactionMenu = document.getElementById('reaction-menu') as HTMLDivElement;
     this.btnMore = document.getElementById('btn-more') as HTMLButtonElement;
@@ -175,6 +185,7 @@ export class ToolbarController {
     });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
+    this.btnTranscript.addEventListener('click', () => this.onToggleTranscript());
     this.setupLayoutControls();
   }
 
@@ -264,6 +275,18 @@ export class ToolbarController {
     // and swaps its dot for a stop square. Both are icon-only.
     this.btnScreen.classList.toggle('active', this.media.screenOn);
     this.btnRec.classList.toggle('recording', this.recorder.recording);
+    this.btnTranscript.classList.toggle('active', this.isTranscribing());
+  }
+
+  // Show/clear the "someone else in the call is transcribing" badge, with their
+  // names in the tooltip. Mirrors setOthersRecording: the audio of everyone in
+  // the call is being sent to a transcription service, so everyone is told.
+  setOthersTranscribing(names: string[]) {
+    const on = names.length > 0;
+    this.btnTranscript.classList.toggle('others-transcribing', on);
+    this.btnTranscript.dataset.tip = on
+      ? t('transcript.othersTip', { names: names.join(', ') })
+      : t('toolbar.transcriptTitle');
   }
 
   // ---- Mic/cam enable & disable flows (shared by toolbar and device switch) ----

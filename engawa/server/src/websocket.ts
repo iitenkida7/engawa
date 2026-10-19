@@ -16,11 +16,14 @@ import {
   normalizeSfuPromoteAt,
   normalizeSfuTracks,
   normalizeStreamId,
+  normalizeTranscriptAt,
+  normalizeTranscriptText,
   normalizeVelocity,
   normalizeWorkspace,
   PROXIMITY_DISCONNECT_RADIUS,
   PROXIMITY_STILL_MS,
   type ProximityGroup,
+  parseGroupMembers,
   sanitizeOutfit,
   sfuLatchSeeds,
   verifyAccessPassword,
@@ -646,6 +649,48 @@ export function createWebSocketHandler(
             name: ws.data.name,
             accept: !!msg.accept,
           });
+          break;
+        }
+
+        case 'transcript': {
+          if (!ws.data.joined) return;
+          const text = normalizeTranscriptText(msg.text);
+          if (!text) return;
+          // Relayed only to the sender's own call, never the whole workspace:
+          // what was said belongs to that conversation, not the floor.
+          const members = parseGroupMembers(ws.data.groupKey);
+          if (members.length === 0) return;
+          // The line is about `speakerId`, which is usually a peer — one client
+          // transcribes the whole group. Fall back to the sender for a line
+          // about someone who is no longer connected.
+          const speakerId = typeof msg.speakerId === 'string' ? msg.speakerId : ws.data.userId;
+          const speakerName = clients.get(speakerId)?.data.name ?? '';
+          const at = normalizeTranscriptAt(msg.at, now());
+          for (const c of clients.values()) {
+            if (c.data.userId === ws.data.userId) continue;
+            if (!c.data.joined || c.data.workspace !== ws.data.workspace) continue;
+            if (!members.includes(c.data.userId)) continue;
+            send(c, { type: 'transcript', speakerId, speakerName, text, at });
+          }
+          break;
+        }
+
+        case 'transcribing': {
+          if (!ws.data.joined) return;
+          // Same privacy notice as `recording`: everyone whose voice may be sent
+          // to a transcription service is told, and the client surfaces it only
+          // for peers actually in its call.
+          broadcast(
+            clients,
+            ws.data.workspace,
+            {
+              type: 'player-transcribing',
+              userId: ws.data.userId,
+              name: ws.data.name,
+              transcribing: !!msg.transcribing,
+            },
+            ws.data.userId,
+          );
           break;
         }
 

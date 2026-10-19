@@ -164,6 +164,12 @@ export class RemoteMediaView {
   // the user has no cam (no video tile yet). userId → audio element.
   private remoteAudios = new Map<string, RemoteAudio>();
 
+  // Set by the App so the transcriber can follow remote mics as they come and
+  // go (media/transcriber.ts taps one stream per speaker). A callback rather
+  // than a reference keeps this view unaware of the subsystem, like the rest of
+  // the Manager-callback wiring.
+  private onRemoteAudio: ((userId: string, stream: MediaStream | null) => void) | null = null;
+
   // Per-person volume. The chosen gain lives on the tile (RemoteTile.gain), so it
   // lasts the conversation and no longer. At the default the <audio> element
   // plays untouched; only a changed gain routes the voice through a Web Audio
@@ -562,6 +568,7 @@ export class RemoteMediaView {
       this.dropGainRoute(userId);
       this.remoteAudios.delete(userId);
       this.recorder.removeAudioStream(streamId);
+      this.onRemoteAudio?.(userId, null);
       // Clean up speaking detector
       const det = this.remoteSpeakingDetectors.get(userId);
       if (det) {
@@ -759,6 +766,7 @@ export class RemoteMediaView {
     if (this.recorder.recording) {
       this.recorder.addAudioStream(stream);
     }
+    this.onRemoteAudio?.(userId, stream);
   }
 
   // Ensure every member of the current conversation group has a tile — even with
@@ -902,6 +910,7 @@ export class RemoteMediaView {
       // until the recording stopped.
       this.recorder.removeAudioStream(a.streamId);
       this.remoteAudios.delete(userId);
+      this.onRemoteAudio?.(userId, null);
     }
     const det = this.remoteSpeakingDetectors.get(userId);
     if (det) {
@@ -1159,6 +1168,22 @@ export class RemoteMediaView {
       if (tile) tile.container.classList.toggle('speaking', p?.isSpeaking ?? false);
       if (this.facePip.isOpen()) this.facePip.setSpeaking(userId, p?.isSpeaking ?? false);
     }
+  }
+
+  setOnRemoteAudio(fn: (userId: string, stream: MediaStream | null) => void) {
+    this.onRemoteAudio = fn;
+  }
+
+  // The live remote mic streams with their owners, for transcribing each
+  // speaker separately. The sibling below stays owner-less: the recording mixes
+  // everyone into one track and has no use for the ids.
+  getRemoteMicStreams(): { userId: string; stream: MediaStream }[] {
+    const out: { userId: string; stream: MediaStream }[] = [];
+    for (const [userId, entry] of this.remoteAudios) {
+      const stream = entry.audio.srcObject as MediaStream | null;
+      if (stream) out.push({ userId, stream });
+    }
+    return out;
   }
 
   // The live remote mic streams, for mixing into a recording.

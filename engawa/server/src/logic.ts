@@ -555,3 +555,49 @@ export function sfuLatchSeeds(groups: ProximityGroup[]): string[][] {
     .filter((g) => g.method === 'sfu' && !g.isMeeting && g.memberIds.length >= 2)
     .map((g) => g.memberIds);
 }
+
+// Max characters in one shared transcript line. Whisper returns a sentence or
+// two per utterance; anything near this is a malformed or hostile client.
+export const TRANSCRIPT_MAX_LENGTH = 2_000;
+
+/**
+ * Validate one transcript line before relaying it to the rest of the call.
+ * Control characters become spaces (the text is rendered as a DOM text node, so
+ * this is about layout, not injection: a stray newline would break the log's
+ * one-line-per-utterance shape), and anything empty or over-long is dropped by
+ * returning null.
+ */
+export function normalizeTranscriptText(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: replacing them is the point
+  const text = raw.replace(/[\x00-\x1f\x7f]/g, ' ').trim();
+  if (!text || text.length > TRANSCRIPT_MAX_LENGTH) return null;
+  return text;
+}
+
+/**
+ * Member ids out of a group signature ("mesh:id1,id2" / "sfu:id1,id2"), for
+ * relaying something to exactly the people in a client's current call. Returns
+ * an empty list when the client isn't in a group yet.
+ */
+export function parseGroupMembers(groupKey: string | null | undefined): string[] {
+  if (!groupKey) return [];
+  const colon = groupKey.indexOf(':');
+  if (colon < 0) return [];
+  const rest = groupKey.slice(colon + 1);
+  if (!rest) return [];
+  return rest.split(',').filter((id) => id.length > 0);
+}
+
+// How far a client-supplied transcript timestamp may sit from the server's own
+// clock before we stop trusting it. Lines are stamped when the utterance
+// *started*, a few seconds back, so the window is generous; beyond it the
+// sender's clock is simply wrong and would scramble the log's order.
+export const TRANSCRIPT_CLOCK_SKEW_MS = 60_000;
+
+/** Clamp a client transcript timestamp to something plausible. */
+export function normalizeTranscriptAt(raw: unknown, now: number): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return now;
+  if (Math.abs(raw - now) > TRANSCRIPT_CLOCK_SKEW_MS) return now;
+  return raw;
+}

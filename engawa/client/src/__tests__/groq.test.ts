@@ -1,0 +1,76 @@
+import { describe, expect, it } from 'bun:test';
+import {
+  cleanTranscript,
+  DEFAULT_GROQ_MODEL,
+  isHallucinated,
+  parseGroqKey,
+  parseGroqModel,
+} from '@/media/groq';
+
+// The Groq Whisper client's pure parts: settings parsing and the filters that
+// keep invented text out of the transcript.
+
+describe('parseGroqKey', () => {
+  it('accepts a plausible key and trims it', () => {
+    expect(parseGroqKey('  gsk_abcdefghijklmnopqrstuv  ')).toBe('gsk_abcdefghijklmnopqrstuv');
+  });
+
+  it('rejects anything that is not a Groq key', () => {
+    expect(parseGroqKey(null)).toBeNull();
+    expect(parseGroqKey('')).toBeNull();
+    expect(parseGroqKey('sk-openai-style-key-here')).toBeNull();
+    expect(parseGroqKey('gsk_short')).toBeNull();
+    expect(parseGroqKey(12345)).toBeNull();
+  });
+});
+
+describe('parseGroqModel', () => {
+  it('falls back to the default for anything unrecognised', () => {
+    expect(parseGroqModel(null)).toBe(DEFAULT_GROQ_MODEL);
+    expect(parseGroqModel('whisper-large-v4')).toBe(DEFAULT_GROQ_MODEL);
+    expect(parseGroqModel('whisper-large-v3')).toBe('whisper-large-v3');
+  });
+});
+
+describe('cleanTranscript', () => {
+  it('keeps real speech, trimmed', () => {
+    expect(cleanTranscript('  こんにちは  ')).toBe('こんにちは');
+  });
+
+  it('drops the caption boilerplate Whisper invents from silence', () => {
+    expect(cleanTranscript('ご視聴ありがとうございました')).toBe('');
+    expect(cleanTranscript('Thank you for watching!')).toBe('');
+    expect(cleanTranscript('  thanks for watching!  ')).toBe('');
+  });
+
+  it('keeps a boilerplate phrase that is part of a longer sentence', () => {
+    const text = 'ご視聴ありがとうございました、と言って締めましょう';
+    expect(cleanTranscript(text)).toBe(text);
+  });
+
+  it('drops empty output', () => {
+    expect(cleanTranscript('   ')).toBe('');
+  });
+});
+
+describe('isHallucinated', () => {
+  const invented = { no_speech_prob: 0.95, avg_logprob: -1.2 };
+  const real = { no_speech_prob: 0.05, avg_logprob: -0.2 };
+
+  it('flags output where every segment looks like it came from silence', () => {
+    expect(isHallucinated([invented])).toBe(true);
+    expect(isHallucinated([invented, invented])).toBe(true);
+  });
+
+  it('keeps output with any confident speech in it', () => {
+    expect(isHallucinated([invented, real])).toBe(false);
+    expect(isHallucinated([real])).toBe(false);
+  });
+
+  it('keeps output when the scores are missing or malformed', () => {
+    expect(isHallucinated(undefined)).toBe(false);
+    expect(isHallucinated([])).toBe(false);
+    expect(isHallucinated([{}])).toBe(false);
+    expect(isHallucinated('nonsense')).toBe(false);
+  });
+});
