@@ -1,6 +1,11 @@
 import BackgroundTicker from '@/core/background-ticker?worker';
 import { getLang, t } from '@/core/i18n';
-import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
+import {
+  BACKGROUND_TICK_INTERVAL_MS,
+  computeFrameDt,
+  shouldConfirmUnload,
+  shouldRunFrame,
+} from '@/core/lifecycle';
 import { setMediaToken } from '@/core/media-auth';
 import { logNet, QUALITY_SAMPLE_INTERVAL_MS } from '@/core/netlog';
 import { NetworkClient } from '@/core/network';
@@ -1547,7 +1552,9 @@ export class App {
   // resumes the instant the tab is shown again.
   private loop = (nowMs?: number) => {
     if (this.disposed) return;
-    if (!document.hidden) this.step(nowMs ?? performance.now(), true);
+    const now = nowMs ?? performance.now();
+    // Capped at MAX_FOREGROUND_FPS: a high-refresh display skips the extra ticks.
+    if (!document.hidden && shouldRunFrame(this.lastFrameMs, now)) this.step(now, true);
     requestAnimationFrame(this.loop);
   };
 

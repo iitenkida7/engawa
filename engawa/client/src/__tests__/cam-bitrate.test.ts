@@ -2,8 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   CAM_BITRATE_QUIET,
   CAM_BITRATE_SPEAKING,
-  CAM_FPS_QUIET,
-  CAM_FPS_SPEAKING,
+  CAM_FPS,
   CAM_SCALE_QUIET,
   CAM_SCALE_SPEAKING,
   CAM_THROTTLE_MIN_PEERS,
@@ -41,12 +40,12 @@ import {
 describe('computeCamEncoding', () => {
   const HIGH = {
     maxBitrate: CAM_BITRATE_SPEAKING,
-    maxFramerate: CAM_FPS_SPEAKING,
+    maxFramerate: CAM_FPS,
     scaleResolutionDownBy: CAM_SCALE_SPEAKING,
   };
   const QUIET = {
     maxBitrate: CAM_BITRATE_QUIET,
-    maxFramerate: CAM_FPS_QUIET,
+    maxFramerate: CAM_FPS,
     scaleResolutionDownBy: CAM_SCALE_QUIET,
   };
 
@@ -58,19 +57,19 @@ describe('computeCamEncoding', () => {
     }
   });
 
-  it('throttles non-speakers (bitrate + fps + resolution) once the group is large', () => {
+  it('throttles non-speakers (bitrate + resolution) once the group is large', () => {
     expect(computeCamEncoding(CAM_THROTTLE_MIN_PEERS, false)).toEqual(QUIET);
     expect(computeCamEncoding(19, false)).toEqual(QUIET);
   });
 
-  it('gives a large-group speaker the high bitrate/fps but keeps the half resolution', () => {
+  it('gives a large-group speaker the high bitrate but keeps the half resolution', () => {
     // Issue #311: resolution follows the (rarely-changing) peer count only, so
     // toggling speech never flips scaleResolutionDownBy (which would black out
     // the receiver until the next keyframe). A big-group speaker gets the high
-    // bitrate/fps at half resolution.
+    // bitrate at half resolution.
     const SPEAKING_BIG = {
       maxBitrate: CAM_BITRATE_SPEAKING,
-      maxFramerate: CAM_FPS_SPEAKING,
+      maxFramerate: CAM_FPS,
       scaleResolutionDownBy: CAM_SCALE_QUIET,
     };
     expect(computeCamEncoding(CAM_THROTTLE_MIN_PEERS, true)).toEqual(SPEAKING_BIG);
@@ -78,7 +77,7 @@ describe('computeCamEncoding', () => {
   });
 
   it('never changes resolution on a speaker toggle within the same group size', () => {
-    // The whole point of #311: only bitrate/fps may differ between speaking and
+    // The whole point of #311: only bitrate may differ between speaking and
     // quiet; the resolution must be identical so no keyframe-blackout occurs.
     for (const n of [0, 2, CAM_THROTTLE_MIN_PEERS, 5, 19]) {
       expect(computeCamEncoding(n, true).scaleResolutionDownBy).toBe(
@@ -89,7 +88,6 @@ describe('computeCamEncoding', () => {
 
   it('the quiet encoding is meaningfully lighter than the speaking one', () => {
     expect(CAM_BITRATE_QUIET).toBeLessThan(CAM_BITRATE_SPEAKING);
-    expect(CAM_FPS_QUIET).toBeLessThan(CAM_FPS_SPEAKING);
     expect(CAM_SCALE_QUIET).toBeGreaterThan(CAM_SCALE_SPEAKING);
   });
 });
@@ -345,7 +343,7 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
     expect(full?.scaleResolutionDownBy).toBe(1);
     expect(full?.maxBitrate).toBe(SFU_CAM_FULL_BITRATE);
     expect(full?.maxBitrate).toBeLessThan(CAM_BITRATE_SPEAKING);
-    expect(full?.maxFramerate).toBeLessThan(CAM_FPS_SPEAKING);
+    expect(full?.maxFramerate).toBe(CAM_FPS);
   });
 
   it('keeps the screen share ceiling between the mesh throttled and high tiers (#324)', () => {
@@ -367,9 +365,9 @@ describe('SFU_CAM_LAYERS (simulcast ladder)', () => {
     expect(rids).toContain(SFU_CAM_QUARTER_RID);
   });
 
-  it('runs every camera layer at the 15fps quiet rate', () => {
+  it('runs every camera layer at the camera capture rate', () => {
     for (const layer of SFU_CAM_LAYERS) {
-      expect(layer.maxFramerate).toBe(CAM_FPS_QUIET);
+      expect(layer.maxFramerate).toBe(CAM_FPS);
     }
   });
 

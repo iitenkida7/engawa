@@ -4,7 +4,7 @@
 // Presets come straight from SFU_CAM_LAYERS, so the lab always shows what is
 // shipped. Each preset is a single encoding (an approximation of the 3-layer
 // simulcast send) and nothing leaves the browser.
-import { SFU_CAM_LAYERS } from '@/rtc/cam-bitrate';
+import { CAM_FPS, SFU_CAM_LAYERS } from '@/rtc/cam-bitrate';
 
 type Cfg = { label: string; scale: number; kbps: number; fps: number; editable?: boolean };
 
@@ -71,7 +71,7 @@ function getSource(): Promise<MediaStream> {
       width: { ideal: 960 },
       height: { ideal: 540 },
       aspectRatio: { ideal: 16 / 9 },
-      frameRate: { ideal: 30, max: 30 },
+      frameRate: { ideal: CAM_FPS, max: CAM_FPS },
     },
     audio: false,
   });

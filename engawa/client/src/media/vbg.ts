@@ -17,6 +17,7 @@ import type { ImageSegmenter, ImageSegmenterResult } from '@mediapipe/tasks-visi
 import { t } from '@/core/i18n';
 import { fitRect } from '@/media/compositor';
 import { FrameDriver } from '@/media/frame-driver';
+import { CAM_FPS } from '@/rtc/cam-bitrate';
 
 // Whether the 2D context supports the `filter` property (checked on the prototype
 // so a per-instance expando can't give a false positive). Safari < 18 and some
@@ -25,9 +26,10 @@ import { FrameDriver } from '@/media/frame-driver';
 const CTX_FILTER_SUPPORTED =
   typeof CanvasRenderingContext2D !== 'undefined' && 'filter' in CanvasRenderingContext2D.prototype;
 
-// Segmentation runs at most this often. The output captureStream is 30fps, so
-// running the (GPU-heavy) segmenter on every 60/120Hz rAF tick was pure waste.
-const SEG_INTERVAL_MS = 1000 / 30;
+// Segmentation runs at most this often: the camera rate (CAM_FPS), which is
+// also what the output captureStream and the encoder run at. Segmenting more
+// often would only re-process the same camera frame.
+const SEG_INTERVAL_MS = 1000 / CAM_FPS;
 
 // A background choice is a single string: the reserved values 'off'/'blur', or a
 // preset id (including 'custom' for a user-uploaded image). Stored as-is.
@@ -311,7 +313,7 @@ export class VirtualBackground {
     // the raw stream so the camera still works.
     this.segmenter = await createSegmenter();
 
-    this.outStream = this.out.captureStream(30);
+    this.outStream = this.out.captureStream(CAM_FPS);
     for (const t of this.outStream.getVideoTracks()) t.contentHint = 'motion';
     this.running = true;
     this.driver.start();
