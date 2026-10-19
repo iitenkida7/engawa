@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ServerWebSocket } from 'bun';
-import type { Outfit, ServerMessage, WsData } from '../types';
 import { PROXIMITY_STILL_MS } from '../logic';
+import type { Outfit, ServerMessage, WsData } from '../types';
 import { createWebSocketHandler } from '../websocket';
 
 // Minimal fake of ServerWebSocket<WsData> that records everything the handler
