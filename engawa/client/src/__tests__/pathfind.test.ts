@@ -175,10 +175,14 @@ describe('findPath on the real office map', () => {
   const free: TileCost = () => 0;
 
   it('takes the aisle between the desk islands instead of clipping a rug', () => {
-    // Down the left island of the top band: row 14 is the aisle above it, row
-    // 22 the corridor below, and the only way through is the col 14-15 aisle.
-    const from = center(12, 14);
-    const to = center(12, 22);
+    // Straight down the leftmost island of the top band: three rows above its
+    // desks is the aisle, five below is the corridor, and the only way between
+    // them that is not rug is the aisle beside the island. Taken off the desk
+    // data, so a map that shifts (the president's office did, #358) cannot
+    // quietly move these points onto a rug.
+    const island = OPEN_DESK_CHAIRS[0];
+    const from = center(island.col, island.row - 3);
+    const to = center(island.col, island.row + 5);
     expect(costs(findPath(from, to, defaultTileWalkable, free)).some((c) => c > 0)).toBe(true);
     const path = findPath(from, to);
     expect(path[path.length - 1]).toEqual(to);
@@ -186,8 +190,11 @@ describe('findPath on the real office map', () => {
   });
 
   it('walks around the café rather than through it', () => {
-    const from = center(3, 17);
-    const to = center(3, 27);
+    // Down the café's middle column, from two rows above it to two below.
+    const cafe = LOUNGE_RECTS[0];
+    const col = Math.floor((cafe.x + cafe.w / 2) / TILE_SIZE);
+    const from = center(col, Math.floor(cafe.y / TILE_SIZE) - 2);
+    const to = center(col, Math.floor((cafe.y + cafe.h) / TILE_SIZE) + 2);
     expect(costs(findPath(from, to, defaultTileWalkable, free)).some((c) => c > 0)).toBe(true);
     const path = findPath(from, to);
     expect(path[path.length - 1]).toEqual(to);

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { t } from '@/core/i18n';
 import type { MediaManager } from '@/media/media';
 import type { RecorderManager } from '@/media/recorder';
@@ -144,26 +144,6 @@ function makeCamStream(id: string) {
   return { stream, setMuted };
 }
 
-// The view stamps frame times with performance.now() while the test passes its
-// own `now` to tickStalls. Pin the clock so both come from round numbers: with
-// the real clock, (t + 200 + STALL_CLEAR_MS) - (t + 200) is not exactly
-// STALL_CLEAR_MS for every t, and the hold's `>=` lands a hair short.
-const T0 = 10_000;
-
-function fakeClock(start: number) {
-  const real = performance.now.bind(performance);
-  let t = start;
-  performance.now = () => t;
-  return {
-    at: (v: number) => {
-      t = v;
-    },
-    restore: () => {
-      performance.now = real;
-    },
-  };
-}
-
 type FrameCb = () => void;
 // happy-dom has no requestVideoFrameCallback: install one that hands the
 // callback back to the test so it can "render" frames on demand.
@@ -223,35 +203,34 @@ const reasonOf = (userId: string) =>
 describe('RemoteMediaView stall overlay (issue #312)', () => {
   let view: RemoteMediaView;
   let players: Map<string, PlayerState>;
-  let clock: ReturnType<typeof fakeClock>;
 
   beforeEach(() => {
-    clock = fakeClock(T0);
     ({ view, players } = setup());
     players.set('a', player('a', 'Alice'));
-  });
-
-  afterEach(() => {
-    clock.restore();
   });
 
   it('labels a muted track as the peer not delivering, and clears on unmute', () => {
     const { stream, setMuted } = makeCamStream('cam-a');
     view.attachRemoteStream('a', stream, 'cam');
-    view.tickStalls(T0, 0);
+    // Whole milliseconds. The label clears on now - clearingSince >=
+    // STALL_CLEAR_MS, and off a fractional clock that sum rounds an ulp short
+    // (549.1787919999999 + 1500 - 549.1787919999999 = 1499.9999999999998),
+    // leaving the overlay up on roughly one run in twenty.
+    const now = Math.ceil(performance.now());
+    view.tickStalls(now, 0);
     expect(tileOf('a').classList.contains('stalled')).toBe(false);
 
     setMuted(true);
-    view.tickStalls(T0 + 100, 0);
+    view.tickStalls(now + 100, 0);
     expect(tileOf('a').classList.contains('stalled')).toBe(true);
     expect(stallLabel('a')).toBe(t('media.stall.peer-network'));
 
     // Unmuting does not drop the overlay straight away: frames have to keep
     // coming for STALL_CLEAR_MS, or a flapping track blinks the label.
     setMuted(false);
-    view.tickStalls(T0 + 200, 0);
+    view.tickStalls(now + 200, 0);
     expect(tileOf('a').classList.contains('stalled')).toBe(true);
-    view.tickStalls(T0 + 200 + STALL_CLEAR_MS, 0);
+    view.tickStalls(now + 200 + STALL_CLEAR_MS, 0);
     expect(tileOf('a').classList.contains('stalled')).toBe(false);
     expect(stallLabel('a')).toBe('');
   });
@@ -260,7 +239,7 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
     const { stream, setMuted } = makeCamStream('cam-a');
     view.attachRemoteStream('a', stream, 'cam');
     setMuted(true);
-    view.tickStalls(T0, 2);
+    view.tickStalls(performance.now(), 2);
     expect(stallLabel('a')).toBe(t('media.stall.my-network'));
   });
 
@@ -269,16 +248,20 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
     view.attachRemoteStream('a', stream, 'cam');
     view.noteLayerSwitch('a');
     setMuted(true);
-    view.tickStalls(T0 + 10, 0);
+    view.tickStalls(performance.now() + 10, 0);
     expect(stallLabel('a')).toBe(t('media.stall.layer-switch'));
   });
 
   it('detects missing frames through the frame callback, with an attach grace', () => {
     const frames = installFrameCallback();
-    const t0 = T0;
     try {
       const { stream } = makeCamStream('cam-a');
       view.attachRemoteStream('a', stream, 'cam');
+      // AFTER the attach, which is what stamps the grace off the real clock
+      // (lastFrameAt = now + STALL_ATTACH_GRACE_MS). Reading the clock before it
+      // left the second assertion below true only while the attach itself took
+      // under 1ms — fine on an idle machine, flaky on a loaded CI runner.
+      const t0 = performance.now();
       expect(frames.pending()).toBe(1);
 
       // No frame yet, but still within the attach grace: not a stall.
@@ -290,13 +273,13 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
 
       // A rendered frame re-arms the callback, but a single frame is not a
       // recovery: the label waits out STALL_CLEAR_MS of steady frames.
-      const back = t0 + 20_000;
-      clock.at(back);
       frames.frame();
       expect(frames.pending()).toBe(1);
+      // (frames.frame() stamps the real clock, so tick from there too.)
+      // Whole milliseconds again, for the STALL_CLEAR_MS boundary below.
+      const back = Math.ceil(performance.now());
       view.tickStalls(back, 0);
       expect(tileOf('a').classList.contains('stalled')).toBe(true);
-      clock.at(back + STALL_CLEAR_MS);
       frames.frame();
       view.tickStalls(back + STALL_CLEAR_MS, 0);
       expect(tileOf('a').classList.contains('stalled')).toBe(false);
