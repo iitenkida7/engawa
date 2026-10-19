@@ -7,6 +7,12 @@
 - ファイル名がそのままプリセット名になります（`-` / `_` は空白に、各単語の先頭を大文字化）。
   - 例: `aoyama-cafe.jpg` → メニュー表示「Aoyama Cafe」
 - 横長（16:9 程度）・長辺 1280〜1920px 推奨。カメラ映像に cover-fit で描画されます。
+- 背景メニューのタイル用に、**同じファイル名の縮小版を `thumbs/` に置いてください**（幅 160px・メタデータなし、数 KB 程度）。
+  無ければ原寸画像がタイルに使われます（動きますがメニューが重くなります。テストで欠けを検出します）。
+  macOS なら次のように作れます（BMP を経由して EXIF/XMP を落とす）:
+  ```bash
+  sips -s format bmp --resampleWidth 160 foo.jpg --out /tmp/t.bmp && sips -s format jpeg -s formatOptions 70 /tmp/t.bmp --out thumbs/foo.jpg
+  ```
 
 ## ライセンス（重要）
 engawa の素材方針（CLAUDE.md）に従い、**CC0 など再配布可能なライセンスの画像のみ**を置いてください。

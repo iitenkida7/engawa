@@ -796,6 +796,55 @@
         letter-spacing: 0.05em;
       }
 
+      /* Virtual-background picker in the cam menu: 5-column thumbnail grid. The
+         menu scrolls instead of clipping on short screens. */
+      #cam-menu {
+        width: 440px;
+        max-width: calc(100vw - 24px);
+        max-height: calc(100vh - 96px);
+        overflow-y: auto;
+      }
+
+      .device-menu .bg-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 6px;
+        padding: 2px 6px 6px;
+      }
+
+      .device-menu .bg-tile {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        padding: 0;
+        border: 2px solid transparent;
+        border-radius: 6px;
+        background: #353a47;
+        color: #e6e8ee;
+        font-size: 22px;
+        line-height: 1;
+        cursor: pointer;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .device-menu .bg-tile:hover {
+        border-color: #5a6275;
+      }
+
+      .device-menu .bg-tile.selected {
+        border-color: #4f8cff;
+      }
+
+      .device-menu .bg-tile img,
+      .device-menu .bg-tile canvas {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
       /* Reaction picker: emoji buttons laid out in a compact row. */
       #reaction-menu {
         min-width: 0;

@@ -116,6 +116,9 @@ export interface BgImagePreset {
   id: string;
   label: string;
   url: string;
+  // Small preview for the picker tile (assets/backgrounds/thumbs/<same name>).
+  // Falls back to the full image when no thumbnail was added.
+  thumbUrl: string;
 }
 
 // `import.meta.glob` is a Vite build-time macro (undefined under bun test), so
@@ -124,24 +127,47 @@ export interface BgImagePreset {
 let imagePresetCache: BgImagePreset[] | null = null;
 export function imagePresets(): BgImagePreset[] {
   if (imagePresetCache) return imagePresetCache;
-  let map: Record<string, string> = {};
+  let full: Record<string, string> = {};
+  let thumbs: Record<string, string> = {};
   try {
-    map = import.meta.glob('@/assets/backgrounds/*.{jpg,jpeg,png,webp}', {
+    full = import.meta.glob('@/assets/backgrounds/*.{jpg,jpeg,png,webp}', {
+      eager: true,
+      query: '?url',
+      import: 'default',
+    }) as Record<string, string>;
+    thumbs = import.meta.glob('@/assets/backgrounds/thumbs/*.{jpg,jpeg,png,webp}', {
       eager: true,
       query: '?url',
       import: 'default',
     }) as Record<string, string>;
   } catch {
-    map = {};
+    full = {};
   }
-  imagePresetCache = Object.entries(map)
+  imagePresetCache = buildImagePresets(full, thumbs);
+  return imagePresetCache;
+}
+
+// Pair each bundled image (path → URL) with its same-named thumbnail. Pure, so
+// the naming/fallback rules are testable without Vite.
+export function buildImagePresets(
+  full: Record<string, string>,
+  thumbs: Record<string, string>,
+): BgImagePreset[] {
+  const fileName = (path: string) => path.split('/').pop() ?? path;
+  const thumbByName = new Map(Object.entries(thumbs).map(([path, url]) => [fileName(path), url]));
+  return Object.entries(full)
     .map(([path, url]) => {
-      const base = (path.split('/').pop() ?? path).replace(/\.[^.]+$/, '');
+      const name = fileName(path);
+      const base = name.replace(/\.[^.]+$/, '');
       const label = base.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-      return { id: `${VBG_IMAGE_PREFIX}${base}`, label, url };
+      return {
+        id: `${VBG_IMAGE_PREFIX}${base}`,
+        label,
+        url,
+        thumbUrl: thumbByName.get(name) ?? url,
+      };
     })
     .sort((a, b) => a.id.localeCompare(b.id));
-  return imagePresetCache;
 }
 
 // Bundled image preset ids are namespaced so they never collide with the
