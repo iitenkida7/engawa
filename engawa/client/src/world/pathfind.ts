@@ -4,9 +4,19 @@
 
 import type { Point } from '@/core/proximity';
 import { COLLISION_RADIUS } from '@/core/types';
-import { canOccupy, MAP_COLS, MAP_ROWS, TILE_SIZE } from '@/world/tilemap';
+import {
+  canOccupy,
+  isDeskSeat,
+  MAP_COLS,
+  MAP_ROWS,
+  officeMap,
+  TILE_SIZE,
+  Tile,
+} from '@/world/tilemap';
 
 export type TileWalkable = (col: number, row: number) => boolean;
+/** Extra cost (in tiles) for stepping onto a tile, on top of the step itself. */
+export type TileCost = (col: number, row: number) => number;
 
 /** A tile is walkable when a player centered on it (radius included) fits. */
 export function defaultTileWalkable(col: number, row: number): boolean {
@@ -14,6 +24,21 @@ export function defaultTileWalkable(col: number, row: number): boolean {
   const cx = col * TILE_SIZE + TILE_SIZE / 2;
   const cy = row * TILE_SIZE + TILE_SIZE / 2;
   return canOccupy(cx, cy, COLLISION_RADIUS);
+}
+
+// Floors an auto-walk should route around: a desk's pod rug (someone's private
+// seat — stepping on it marks you seated) and a café (a zone, so walking across
+// it drops you straight into that café's call, with no stillness check). Both
+// stay walkable: this is a preference, not a wall, so a route with no aisle —
+// or a goal that IS the rug/café — just pays the cost. 4 = worth a detour of up
+// to four tiles per tile stepped on.
+export const AVOID_COST = 4;
+
+export function defaultTileCost(col: number, row: number): number {
+  if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) return 0;
+  if (officeMap[row][col] === Tile.LOUNGE) return AVOID_COST;
+  const { x, y } = tileCenter(col, row);
+  return isDeskSeat(x, y) ? AVOID_COST : 0;
 }
 
 function tileCenter(col: number, row: number): Point {
@@ -39,12 +64,16 @@ const NEIGHBORS: Array<[number, number, number]> = [
  *
  * Movement is 8-directional with corner-cutting disallowed: a diagonal step is
  * only allowed when both shared orthogonal tiles are also walkable, so the
- * player never clips a wall/desk corner.
+ * player never clips a wall/desk corner. `tileCost` adds a per-tile surcharge
+ * (see defaultTileCost) so the route prefers the aisles over other people's
+ * rugs and the cafés; it is paid on entering a tile, so the tile we start on is
+ * always free.
  */
 export function findPath(
   start: Point,
   goal: Point,
   isWalkable: TileWalkable = defaultTileWalkable,
+  tileCost: TileCost = defaultTileCost,
 ): Point[] {
   const sCol = Math.floor(start.x / TILE_SIZE);
   const sRow = Math.floor(start.y / TILE_SIZE);
@@ -62,7 +91,8 @@ export function findPath(
   const cameFrom = new Map<number, number>();
   const open = new Set<number>([startKey]);
 
-  // Octile distance heuristic — admissible for 8-directional movement.
+  // Octile distance heuristic — admissible for 8-directional movement (the
+  // tileCost surcharges only ever raise the real cost, so it stays admissible).
   const heuristic = (c: number, r: number) => {
     const dc = Math.abs(c - gCol);
     const dr = Math.abs(r - gRow);
@@ -109,7 +139,7 @@ export function findPath(
       if (dc !== 0 && dr !== 0 && (!isWalkable(cc + dc, cr) || !isWalkable(cc, cr + dr))) continue;
 
       const nk = key(nc, nr);
-      const tentative = (gScore.get(current) ?? Infinity) + cost;
+      const tentative = (gScore.get(current) ?? Infinity) + cost + tileCost(nc, nr);
       if (tentative < (gScore.get(nk) ?? Infinity)) {
         cameFrom.set(nk, current);
         gScore.set(nk, tentative);
