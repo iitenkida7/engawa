@@ -252,8 +252,12 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
     const frames = installFrameCallback();
     try {
       const { stream } = makeCamStream('cam-a');
-      const t0 = performance.now();
       view.attachRemoteStream('a', stream, 'cam');
+      // AFTER the attach, which is what stamps the grace off the real clock
+      // (lastFrameAt = now + STALL_ATTACH_GRACE_MS). Reading the clock before it
+      // left the second assertion below true only while the attach itself took
+      // under 1ms — fine on an idle machine, flaky on a loaded CI runner.
+      const t0 = performance.now();
       expect(frames.pending()).toBe(1);
 
       // No frame yet, but still within the attach grace: not a stall.
