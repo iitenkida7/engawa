@@ -431,6 +431,20 @@ export function isDeskSeat(px: number, py: number): boolean {
   return SEAT_TILES.has(`${col},${row}`);
 }
 
+/**
+ * The pod rug (a seat's 3×3 rect) that (px,py) sits on, or null. Used to focus
+ * just your own desk island while a desk-side conversation is active — the same
+ * dim veil as a meeting room (#223) but scoped to one person's private rug.
+ * The two facing rugs of an island are 3 tiles apart, so a point maps to at
+ * most one rug.
+ */
+export function podRugAt(px: number, py: number): Rect | null {
+  for (const rug of POD_RUGS) {
+    if (px >= rug.x && px < rug.x + rug.w && py >= rug.y && py < rug.y + rug.h) return rug;
+  }
+  return null;
+}
+
 // Outdoor cafés (#263 follow-up): casual social spots moved OUT of the building
 // onto the grass beside each side gate, freeing the interior for a full bottom
 // desk band. Building-local coords deliberately fall in the outdoor margin

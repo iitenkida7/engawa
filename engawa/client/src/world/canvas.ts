@@ -34,6 +34,7 @@ import {
   officeMap,
   POD_RUGS,
   POND_RECT,
+  podRugAt,
   ROOM_FURNITURE,
   type RoomFurniture,
   seatFacingAt,
@@ -455,6 +456,9 @@ export class CanvasRenderer {
     // Draw the media-reach ring only when the local user is actually publishing
     // something (mic / camera / screen). With nothing on it's just noise.
     mediaActive = false,
+    // True while we're in a proximity conversation (any group peer). Used to
+    // focus just our own desk pod rug with the same veil as a meeting room.
+    inConversation = false,
   ) {
     const ctx = this.ctx;
     const w = this.viewW;
@@ -574,6 +578,14 @@ export class CanvasRenderer {
     // zone-focus veil (#223), which dims everything outside the room you're in.
     if (selfAway) this.drawAwayOverlay(ctx, w, h);
     else if (selfZone) this.drawZoneFocusOverlay(ctx, w, h, selfZone);
+    else if (inConversation && self) {
+      // Desk-side chat (#223 follow-up): when a conversation forms on an open-floor
+      // desk pod, dim everything outside your own rug so the island reads as a
+      // focused little call bubble, just like a meeting room — but scoped to one
+      // person's private 3×3 rug (no zone involved).
+      const rug = podRugAt(self.x, self.y);
+      if (rug) this.drawZoneFocusOverlay(ctx, w, h, rug);
+    }
 
     // Name labels last, in screen space at a constant size (#227), so you can
     // read who is where even zoomed out — and on top of the veil above.

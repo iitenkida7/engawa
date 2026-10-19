@@ -19,8 +19,10 @@ import {
   OPEN_DESK_CHAIRS,
   OUTDOOR_MARGIN,
   officeMap,
+  POD_RUGS,
   POND,
   POND_RECT,
+  podRugAt,
   SOLID,
   seatFacingAt,
   TILE_SIZE,
@@ -241,6 +243,27 @@ describe('isDeskSeat (private one-person desk seats)', () => {
         expect(cheby).toBeGreaterThanOrEqual(2);
       }
     }
+  });
+});
+
+describe('podRugAt (desk-pod focus veil)', () => {
+  it('returns the enclosing rug on every seat tile, matching isDeskSeat', () => {
+    for (const ch of OPEN_DESK_CHAIRS) {
+      const seatRow = ch.row + (ch.facesSouth ? -1 : 1);
+      const { x, y } = center(ch.col, seatRow);
+      const rug = podRugAt(x, y);
+      expect(rug).not.toBeNull();
+      // The returned rug is one of the exported POD_RUGS and actually contains it.
+      expect(POD_RUGS).toContain(rug!);
+      expect(x).toBeGreaterThanOrEqual(rug!.x);
+      expect(x).toBeLessThan(rug!.x + rug!.w);
+      expect(y).toBeGreaterThanOrEqual(rug!.y);
+      expect(y).toBeLessThan(rug!.y + rug!.h);
+    }
+  });
+
+  it('is null on open aisle floor away from any desk', () => {
+    expect(podRugAt(TILE_SIZE / 2, TILE_SIZE / 2)).toBeNull();
   });
 });
 

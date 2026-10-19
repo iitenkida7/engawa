@@ -1480,7 +1480,17 @@ export class App {
       const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
       // Show the media-reach ring only while we're actually publishing something.
       const mediaActive = this.media.micOn || this.media.camOn || this.media.screenOn;
-      this.renderer.render(this.me, this.players.values(), dest, this.focusedId, mediaActive);
+      // In a conversation when we share a proximity group with anyone — drives the
+      // desk-pod focus veil (same as a meeting room, scoped to our own rug).
+      const inConversation = this.inProximity.size > 0;
+      this.renderer.render(
+        this.me,
+        this.players.values(),
+        dest,
+        this.focusedId,
+        mediaActive,
+        inConversation,
+      );
     }
   }
 
