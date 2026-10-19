@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   ARMCHAIR_SPOTS,
+  COL_OFF,
   canOccupy,
   FLOOR_COLOR_COUNT,
   FLOOR_PATTERNS,
@@ -23,8 +24,9 @@ import {
   POND,
   POND_RECT,
   podRugAt,
+  ROW_OFF,
   SOLID,
-  seatFacingAt,
+  seatAt,
   TILE_SIZE,
   Tile,
   ZONES,
@@ -105,9 +107,9 @@ describe('canOccupy', () => {
   });
 
   it('returns false when a corner overlaps a wall', () => {
-    // The building's top outer wall is at row OUTDOOR_MARGIN; a point just inside
+    // The building's top outer wall is at row ROW_OFF; a point just inside
     // it with a large radius has its top corner cross into the wall.
-    const { x, y } = center(OUTDOOR_MARGIN + 2, OUTDOOR_MARGIN + 1);
+    const { x, y } = center(COL_OFF + 2, ROW_OFF + 1);
     expect(canOccupy(x, y, TILE_SIZE)).toBe(false);
   });
 
@@ -247,10 +249,21 @@ describe('isDeskSeat (private one-person desk seats)', () => {
 });
 
 describe('podRugAt (desk-pod focus veil)', () => {
+  // The pods are the open-office desks. The president's desk (#358) stands in a
+  // zone instead, and POD_RUGS deliberately leaves it out: its office already
+  // dims as a room (#223), so it needs no rug of its own.
+  const seatCentre = (ch: { col: number; row: number; facesSouth: boolean }) =>
+    center(ch.col, ch.row + (ch.facesSouth ? -1 : 1));
+  const inZone = (ch: { col: number; row: number; facesSouth: boolean }) => {
+    const { x, y } = seatCentre(ch);
+    return zoneAt(x, y) !== null;
+  };
+
   it('returns the enclosing rug on every seat tile, matching isDeskSeat', () => {
-    for (const ch of OPEN_DESK_CHAIRS) {
-      const seatRow = ch.row + (ch.facesSouth ? -1 : 1);
-      const { x, y } = center(ch.col, seatRow);
+    const podChairs = OPEN_DESK_CHAIRS.filter((ch) => !inZone(ch));
+    expect(podChairs.length).toBe(POD_RUGS.length);
+    for (const ch of podChairs) {
+      const { x, y } = seatCentre(ch);
       const rug = podRugAt(x, y);
       expect(rug).not.toBeNull();
       // The returned rug is one of the exported POD_RUGS and actually contains it.
@@ -265,41 +278,53 @@ describe('podRugAt (desk-pod focus veil)', () => {
   it('is null on open aisle floor away from any desk', () => {
     expect(podRugAt(TILE_SIZE / 2, TILE_SIZE / 2)).toBeNull();
   });
+
+  it("is null at a desk inside a room, which that room's own veil covers", () => {
+    const exec = OPEN_DESK_CHAIRS.filter(inZone);
+    expect(exec.length).toBeGreaterThan(0);
+    for (const ch of exec) {
+      const { x, y } = seatCentre(ch);
+      expect(podRugAt(x, y)).toBeNull();
+    }
+  });
 });
 
 describe('floor styles (randomised rugs)', () => {
-  const M = OUTDOOR_MARGIN;
   const same = (a: { pattern: string; color: number }, b: { pattern: string; color: number }) =>
     a.pattern === b.pattern && a.color === b.color;
 
   it('gives every room a valid style, and open floor none', () => {
-    const s = floorStyleAt(1 + M, 1 + M); // ceo office
+    const s = floorStyleAt(1 + COL_OFF, 1 + ROW_OFF); // ceo office
     expect(s).not.toBeNull();
     expect(FLOOR_PATTERNS).toContain(s!.pattern);
     expect(s!.color).toBeGreaterThanOrEqual(0);
     expect(s!.color).toBeLessThan(FLOOR_COLOR_COUNT);
     // The central corridor (building row 13) is open floor — no rug.
-    expect(floorStyleAt(16 + M, 13 + M)).toBeNull();
+    expect(floorStyleAt(16 + COL_OFF, 13 + ROW_OFF)).toBeNull();
   });
 
   it('never repeats pattern+colour across adjacent top-strip rooms', () => {
     // Use non-desk interior tiles (desk tiles carry no zone).
-    const ceo = floorStyleAt(1 + M, 1 + M)!;
-    const allHands = floorStyleAt(8 + M, 2 + M)!;
-    const meeting1 = floorStyleAt(19 + M, 1 + M)!;
+    const ceo = floorStyleAt(1 + COL_OFF, 1 + ROW_OFF)!;
+    const allHands = floorStyleAt(8 + COL_OFF, 2 + ROW_OFF)!;
+    const meeting1 = floorStyleAt(19 + COL_OFF, 1 + ROW_OFF)!;
     expect(same(ceo, allHands)).toBe(false);
     expect(same(allHands, meeting1)).toBe(false);
   });
 
   it('never repeats a colour within the top room strip', () => {
-    const cols = [1, 8, 19, 24, 29].map((c) => floorStyleAt(c + M, 1 + M)?.color);
+    const cols = [1, 8, 19, 24, 29].map((c) => floorStyleAt(c + COL_OFF, 1 + ROW_OFF)?.color);
     expect(cols.every((c) => c !== undefined)).toBe(true);
     expect(new Set(cols).size).toBe(cols.length); // all distinct
   });
 
   it('gives the two cafés different styles', () => {
-    const left = floorStyleAt(3, 22)!; // cafe-left (map cols 1-6, rows 20-24)
-    const right = floorStyleAt(45, 22)!; // cafe-right (map cols 43-48)
+    const mid = (i: number) => ({
+      c: LOUNGES[i].c + COL_OFF + Math.floor(LOUNGES[i].w / 2),
+      r: LOUNGES[i].r + ROW_OFF + Math.floor(LOUNGES[i].h / 2),
+    });
+    const left = floorStyleAt(mid(0).c, mid(0).r)!; // cafe-left (in the left wing)
+    const right = floorStyleAt(mid(1).c, mid(1).r)!; // cafe-right (in the right wing)
     expect(left).not.toBeNull();
     expect(right).not.toBeNull();
     expect(same(left, right)).toBe(false);
@@ -330,11 +355,11 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     { col: 21, row: 23 }, // 商談ブース2
     { col: 25, row: 23 }, // 商談ブース3
     { col: 29, row: 23 }, // 商談ブース4
-    { col: 36, row: 23 }, // 離れ (detached annex, out on the grass)
+    { col: 36, row: 23 }, // 離れ (the wide room at the end of the strip)
   ];
 
   it('derives one zone per walled-off MEETING room, plus the cafés', () => {
-    // One zone per room sample + the outdoor cafés (conversation-restricted zones).
+    // One zone per room sample + the two cafés (conversation-restricted zones).
     expect(ZONES).toHaveLength(roomSamples.length + LOUNGES.length);
   });
 
@@ -364,8 +389,8 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
   it('groups each room into a single distinct zone', () => {
     // roomSamples are building-local coords; shift into the map (#229).
     const ids = roomSamples.map((s) => {
-      const cx = (s.col + OUTDOOR_MARGIN) * TILE_SIZE + TILE_SIZE / 2;
-      const cy = (s.row + OUTDOOR_MARGIN) * TILE_SIZE + TILE_SIZE / 2;
+      const cx = (s.col + COL_OFF) * TILE_SIZE + TILE_SIZE / 2;
+      const cy = (s.row + ROW_OFF) * TILE_SIZE + TILE_SIZE / 2;
       const z = zoneAt(cx, cy);
       expect(z).not.toBeNull();
       return z!.id;
@@ -391,7 +416,7 @@ describe('isMeetingRoom', () => {
   });
 });
 
-describe('seatFacingAt (sitting spots)', () => {
+describe('seatAt (sitting spots)', () => {
   const TS = TILE_SIZE;
   const centre = (col: number, row: number) => [col * TS + TS / 2, row * TS + TS / 2] as const;
 
@@ -399,26 +424,39 @@ describe('seatFacingAt (sitting spots)', () => {
     for (const d of OPEN_DESK_CHAIRS) {
       // The chair is one tile in front of the desk centre tile.
       const [x, y] = centre(d.col, d.row + (d.facesSouth ? -1 : 1));
-      expect(seatFacingAt(x, y)).toBe(d.facesSouth ? 'down' : 'up');
+      expect(seatAt(x, y)?.facing).toBe(d.facesSouth ? 'down' : 'up');
+    }
+  });
+
+  it('lifts a chair below its desk half a tile, so the occupant lands on it', () => {
+    // drawDeskChair tucks every chair against its desk: for a chair below the
+    // desk that is the far edge of the seat tile, a tile above where a standing
+    // avatar's feet are. Chairs above their desk already line up.
+    for (const d of OPEN_DESK_CHAIRS) {
+      const [x, y] = centre(d.col, d.row + (d.facesSouth ? -1 : 1));
+      expect(seatAt(x, y)?.lift).toBe(d.facesSouth ? 0 : TILE_SIZE / 2);
     }
   });
 
   it('the rug beside the chair and the desk row itself are not seats', () => {
     const d = OPEN_DESK_CHAIRS[0];
     const [cx, cy] = centre(d.col, d.row + (d.facesSouth ? -1 : 1));
-    expect(seatFacingAt(cx + TS, cy)).toBeNull();
-    expect(seatFacingAt(cx - TS, cy)).toBeNull();
-    expect(seatFacingAt(...centre(d.col, d.row))).toBeNull();
+    expect(seatAt(cx + TS, cy)).toBeNull();
+    expect(seatAt(cx - TS, cy)).toBeNull();
+    expect(seatAt(...centre(d.col, d.row))).toBeNull();
   });
 
-  it('café armchairs seat their occupant facing the table', () => {
+  it('café armchairs seat their occupant facing the table, with no lift', () => {
     expect(ARMCHAIR_SPOTS.length).toBeGreaterThan(0);
-    for (const a of ARMCHAIR_SPOTS) expect(seatFacingAt(a.x, a.y)).toBe(a.facing);
+    for (const a of ARMCHAIR_SPOTS) {
+      expect(seatAt(a.x, a.y)?.facing).toBe(a.facing);
+      expect(seatAt(a.x, a.y)?.lift).toBe(0); // the armchair is centred on its spot
+    }
     // Armchairs above the table face down, below face up.
     expect(new Set(ARMCHAIR_SPOTS.map((a) => a.facing))).toEqual(new Set(['down', 'up']));
   });
 
   it('open floor is not a seat', () => {
-    expect(seatFacingAt(0, 0)).toBeNull();
+    expect(seatAt(0, 0)).toBeNull();
   });
 });
