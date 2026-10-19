@@ -6,6 +6,7 @@ import type { RecorderManager } from '@/media/recorder';
 import {
   createSpeakingDetector,
   destroySpeakingDetector,
+  getSharedAudioContext,
   isSpeaking,
   type SpeakingDetector,
 } from '@/media/speaking';
@@ -37,6 +38,14 @@ import {
   type PanelGeometry,
 } from '@/ui/panels';
 import {
+  clampGain,
+  gainToPercent,
+  PEER_GAIN_DEFAULT,
+  PEER_GAIN_MAX,
+  percentToGain,
+  snapPercent,
+} from '@/ui/peer-volume';
+import {
   classifyStall,
   INITIAL_STALL_STATE,
   STALL_ATTACH_GRACE_MS,
@@ -56,6 +65,9 @@ type RemoteTile = {
   label: HTMLSpanElement;
   camStreamId?: string;
   hasCam: boolean;
+  // Playback gain for this person's voice, for this conversation only: the tile
+  // goes when the conversation does, and the volume goes with it.
+  gain: number;
   // Stall tracking for the live camera (#312): performance.now() of the last
   // rendered frame (+grace right after attach), whether the receive track is
   // muted (no RTP), when we last requested another SFU layer, the overlay's
@@ -151,6 +163,16 @@ export class RemoteMediaView {
   // Mic audio is attached to dedicated <audio> elements so it plays even when
   // the user has no cam (no video tile yet). userId → audio element.
   private remoteAudios = new Map<string, RemoteAudio>();
+
+  // Per-person volume. The chosen gain lives on the tile (RemoteTile.gain), so it
+  // lasts the conversation and no longer. At the default the <audio> element
+  // plays untouched; only a changed gain routes the voice through a Web Audio
+  // GainNode (the element stays attached but muted, which WebRTC streams need to
+  // keep flowing).
+  private gainRoutes = new Map<
+    string,
+    { source: MediaStreamAudioSourceNode; gain: GainNode; streamId: string }
+  >();
 
   // Each sharing user gets their own stage panel, keyed by userId. Map insertion
   // order is share order (oldest first). `mainScreenshareUserId` is the featured
@@ -537,6 +559,7 @@ export class RemoteMediaView {
         /* noop */
       }
       audio.audio.remove();
+      this.dropGainRoute(userId);
       this.remoteAudios.delete(userId);
       this.recorder.removeAudioStream(streamId);
       // Clean up speaking detector
@@ -585,6 +608,133 @@ export class RemoteMediaView {
     this.reflowLayout();
   }
 
+  // ---- Per-person volume ----
+
+  // The gain chosen for this person in the conversation on screen (default 1).
+  private gainFor(userId: string): number {
+    return this.remoteTiles.get(userId)?.gain ?? PEER_GAIN_DEFAULT;
+  }
+
+  // Slider → remember for as long as the tile lives, and apply to the live voice.
+  private setPeerGain(userId: string, gain: number) {
+    const g = clampGain(gain);
+    const tile = this.remoteTiles.get(userId);
+    if (tile) tile.gain = g;
+    this.applyPeerGain(userId, g);
+  }
+
+  // Make the live voice match the gain: untouched element at the default, a
+  // GainNode route otherwise.
+  private applyPeerGain(userId: string, gain: number = this.gainFor(userId)) {
+    const entry = this.remoteAudios.get(userId);
+    if (!entry) return;
+    const stream = entry.audio.srcObject as MediaStream | null;
+    if (gain === PEER_GAIN_DEFAULT || !stream || typeof AudioContext === 'undefined') {
+      this.dropGainRoute(userId);
+      entry.audio.muted = false;
+      return;
+    }
+    let route = this.gainRoutes.get(userId);
+    if (route && route.streamId !== stream.id) {
+      this.dropGainRoute(userId);
+      route = undefined;
+    }
+    // The context the speaking detectors already run in: one per tab, not one
+    // per subsystem (see getSharedAudioContext). Fetched on every change, not
+    // just when building the route: a context created behind the autoplay gate
+    // starts suspended, and the getter resumes it — the slider drag that got us
+    // here is the gesture that lets it.
+    const ctx = getSharedAudioContext();
+    if (!route) {
+      const source = ctx.createMediaStreamSource(stream);
+      const node = ctx.createGain();
+      source.connect(node);
+      node.connect(ctx.destination);
+      route = { source, gain: node, streamId: stream.id };
+      this.gainRoutes.set(userId, route);
+    }
+    route.gain.gain.value = gain;
+    // The element only keeps the stream flowing now; the sound comes from the node.
+    entry.audio.muted = true;
+  }
+
+  private dropGainRoute(userId: string) {
+    const route = this.gainRoutes.get(userId);
+    if (!route) return;
+    try {
+      route.source.disconnect();
+      route.gain.disconnect();
+    } catch {
+      /* noop */
+    }
+    this.gainRoutes.delete(userId);
+  }
+
+  // The volume control in a remote tile's header: a speaker, the slider, and the
+  // percentage whenever it is not the default.
+  //
+  // The speaker is always visible (dimmed until you hover the tile), because a
+  // control that only exists on hover is a control nobody finds — and because a
+  // peer you silenced has to look different from a peer who is simply not
+  // talking. The slider magnets onto 100% (see snapPercent) so putting someone
+  // back to normal is a drag, not a pixel hunt.
+  private createVolumeControl(userId: string): HTMLElement {
+    const wrap = document.createElement('span');
+    wrap.className = 'vol';
+
+    const icon = document.createElement('span');
+    icon.className = 'vol-icon';
+    icon.setAttribute('aria-hidden', 'true');
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'vol-slider';
+    slider.min = '0';
+    slider.max = String(PEER_GAIN_MAX * 100);
+    slider.step = '1';
+
+    const pct = document.createElement('span');
+    pct.className = 'vol-pct';
+
+    const show = (g: number) => {
+      const p = gainToPercent(g);
+      slider.value = String(p);
+      // The track fills itself from this (see the --vol-fill rules): the slider
+      // spans 0–200%, so the filled share is half the percentage.
+      slider.style.setProperty('--vol-fill', `${p / 2}%`);
+      slider.title = t('media.volume', { pct: p });
+      slider.setAttribute('aria-label', slider.title);
+      icon.textContent = p === 0 ? '🔇' : '🔊';
+      // Only a changed volume is worth the ink; the default reads as "normal".
+      pct.textContent = g === PEER_GAIN_DEFAULT ? '' : `${p}%`;
+      wrap.classList.toggle('muted', p === 0);
+      wrap.classList.toggle('changed', g !== PEER_GAIN_DEFAULT);
+    };
+    show(this.gainFor(userId));
+
+    // Arrow keys must step freely, or every step inside the magnet band would
+    // snap back and the slider would be stuck at 100% for keyboard users.
+    let fromKey = false;
+    slider.addEventListener('keydown', () => {
+      fromKey = true;
+    });
+    slider.addEventListener('input', () => {
+      const raw = Number(slider.value);
+      const g = percentToGain(fromKey ? raw : snapPercent(raw));
+      fromKey = false;
+      show(g);
+      this.setPeerGain(userId, g);
+    });
+    // The header is the drag handle (and the maximize button's neighbour): keep
+    // slider gestures from starting a panel drag.
+    slider.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    wrap.appendChild(icon);
+    wrap.appendChild(slider);
+    wrap.appendChild(pct);
+    return wrap;
+  }
+
   private attachRemoteMic(userId: string, stream: MediaStream) {
     let entry = this.remoteAudios.get(userId);
     if (!entry) {
@@ -604,6 +754,7 @@ export class RemoteMediaView {
     entry.streamId = stream.id;
     entry.audio.srcObject = stream;
     this.autoplay.play(entry.audio);
+    this.applyPeerGain(userId);
     // If recording is active, add this stream to the mix
     if (this.recorder.recording) {
       this.recorder.addAudioStream(stream);
@@ -676,6 +827,7 @@ export class RemoteMediaView {
     left.appendChild(ptt);
     left.appendChild(label);
     header.appendChild(left);
+    header.appendChild(this.createVolumeControl(userId));
     header.appendChild(createFocusButton());
     container.appendChild(header);
 
@@ -709,6 +861,7 @@ export class RemoteMediaView {
       reason,
       label,
       hasCam: false,
+      gain: PEER_GAIN_DEFAULT,
       lastFrameAt: Number.POSITIVE_INFINITY,
       trackMuted: false,
       layerSwitchAt: null,
@@ -741,6 +894,7 @@ export class RemoteMediaView {
         /* noop */
       }
       a.audio.remove();
+      this.dropGainRoute(userId);
       // Drop this peer's mic from the recording mix. removePeer is the common
       // path (proximity walk-away, mesh→SFU switch, abrupt disconnect) and, unlike
       // detachRemoteStream, previously never told the recorder — so the source
