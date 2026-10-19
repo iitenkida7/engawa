@@ -804,6 +804,27 @@
 
       /* Left side of a panel header: the muted mic icon + the name, grouped so
          the maximize button stays at the far right. */
+      /* Per-person volume slider in a remote tile's header: shown on hover or
+         keyboard focus (always on touch screens, which have no hover). */
+      .panel-header .vol-slider {
+        width: 64px;
+        height: 14px;
+        margin: 0 6px;
+        opacity: 0;
+        transition: opacity 0.15s;
+        cursor: pointer;
+        flex: none;
+      }
+      .remote-tile:hover .vol-slider,
+      .vol-slider:focus-visible {
+        opacity: 1;
+      }
+      @media (hover: none) {
+        .panel-header .vol-slider {
+          opacity: 1;
+        }
+      }
+
       .panel-header .header-left {
         display: flex;
         align-items: center;

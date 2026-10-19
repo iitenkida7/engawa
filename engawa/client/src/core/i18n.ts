@@ -246,6 +246,10 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: 'ダブルクリックでメイン表示に切り替え',
     en: 'Double-click to make this the main view',
   },
+  'media.volume': {
+    ja: '音量 {pct}%（ダブルクリックで100%に戻す）',
+    en: 'Volume {pct}% (double-click to reset)',
+  },
   'media.focus': { ja: '拡大表示', en: 'Maximize' },
   'media.reconnecting': { ja: '再接続中…', en: 'Reconnecting…' },
   'facePip.empty': { ja: '通話相手がいません', en: 'No one in the call' },

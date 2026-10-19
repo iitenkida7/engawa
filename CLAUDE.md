@@ -144,6 +144,9 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   サブシステムをまたぐ変更はコールバックで App に戻す。
 - `ui/remote-media.ts`（`RemoteMediaView`）— リモートのビデオタイル/マイク音声/画面共有ステージ/
   自分のプレビューの DOM 管理。発話検出器を保持する。
+- `ui/peer-volume.ts` — **相手ごとの音量**（純粋関数: gain の範囲・変換・保存値のパース）。リモートタイルのヘッダーのスライダー（0〜200%）が
+  `RemoteMediaView` 経由で適用する。**既定の 100% では `<audio>` をそのまま再生**し、変更時だけ Web Audio の GainNode
+  経由にする（このとき要素は muted のまま流しておく）。値は**表示名キー**で localStorage（`engawa-peer-volume`）に保存（userId は接続ごとに変わるため）。
 - `ui/panels.ts` — フローティングパネルのプリセットと純粋関数 `computePanelPreset()`。
 - `ui/face-pip.ts`（`FacePipView`）— **画面共有中に相手の顔タイルを Document Picture-in-Picture の常時最前面小窓へミラー**する（#318）。
   タイルは移動せず同じ MediaStream を 2 つ目の `<video>` に流すだけなので、レイアウト・SFU レイヤ選択・録画は無変更。

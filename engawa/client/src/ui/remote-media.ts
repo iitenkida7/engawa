@@ -12,6 +12,15 @@ import {
 import { AutoplayGate } from '@/ui/autoplay';
 import { type FaceEntry, FacePipView, isFacePipSupported } from '@/ui/face-pip';
 import {
+  clampGain,
+  gainToPercent,
+  PEER_GAIN_DEFAULT,
+  PEER_GAIN_MAX,
+  PEER_VOLUME_STORAGE_KEY,
+  parseVolumeMap,
+  percentToGain,
+} from '@/ui/peer-volume';
+import {
   applyPanelGeometry,
   CAM_ASPECT,
   clampFilmstripWidth,
@@ -143,6 +152,17 @@ export class RemoteMediaView {
   // the user has no cam (no video tile yet). userId → audio element.
   private remoteAudios = new Map<string, RemoteAudio>();
 
+  // Per-person volume. gainsByName is the persisted choice (keyed by display
+  // name, see ui/peer-volume.ts). At the default gain the <audio> element plays
+  // untouched; only a changed gain routes the voice through a Web Audio GainNode
+  // (the element stays attached but muted, which WebRTC streams need to flow).
+  private gainsByName: Record<string, number> = {};
+  private audioCtx: AudioContext | null = null;
+  private gainRoutes = new Map<
+    string,
+    { source: MediaStreamAudioSourceNode; gain: GainNode; streamId: string }
+  >();
+
   // Each sharing user gets their own stage panel, keyed by userId. Map insertion
   // order is share order (oldest first). `mainScreenshareUserId` is the featured
   // share — it gets the large main area in the presentation layout and a "main"
@@ -234,6 +254,11 @@ export class RemoteMediaView {
     this.media = opts.media;
     this.recorder = opts.recorder;
     this.getMyId = opts.getMyId;
+    try {
+      this.gainsByName = parseVolumeMap(localStorage.getItem(PEER_VOLUME_STORAGE_KEY));
+    } catch {
+      /* ignore private-mode storage errors */
+    }
     this.autoplay = new AutoplayGate({
       onBlocked: () => opts.onAutoplayBlocked(this.autoplay.unlock),
       onUnlocked: opts.onAutoplayUnlocked,
@@ -497,6 +522,7 @@ export class RemoteMediaView {
         /* noop */
       }
       audio.audio.remove();
+      this.dropGainRoute(userId);
       this.remoteAudios.delete(userId);
       this.recorder.removeAudioStream(streamId);
       // Clean up speaking detector
@@ -545,6 +571,107 @@ export class RemoteMediaView {
     this.reflowLayout();
   }
 
+  // ---- Per-person volume ----
+
+  // The gain for this person (default 1), looked up by display name.
+  private gainFor(userId: string): number {
+    const name = this.players.get(userId)?.name;
+    return name ? (this.gainsByName[name] ?? PEER_GAIN_DEFAULT) : PEER_GAIN_DEFAULT;
+  }
+
+  // Slider → remember (by name, persisted) and apply to the live voice.
+  private setPeerGain(userId: string, gain: number) {
+    const name = this.players.get(userId)?.name;
+    const g = clampGain(gain);
+    if (name) {
+      if (g === PEER_GAIN_DEFAULT) delete this.gainsByName[name];
+      else this.gainsByName[name] = g;
+      try {
+        localStorage.setItem(PEER_VOLUME_STORAGE_KEY, JSON.stringify(this.gainsByName));
+      } catch {
+        /* ignore private-mode storage errors */
+      }
+    }
+    this.applyPeerGain(userId, g);
+  }
+
+  // Make the live voice match the gain: untouched element at the default, a
+  // GainNode route otherwise.
+  private applyPeerGain(userId: string, gain: number = this.gainFor(userId)) {
+    const entry = this.remoteAudios.get(userId);
+    if (!entry) return;
+    const stream = entry.audio.srcObject as MediaStream | null;
+    if (gain === PEER_GAIN_DEFAULT || !stream || typeof AudioContext === 'undefined') {
+      this.dropGainRoute(userId);
+      entry.audio.muted = false;
+      return;
+    }
+    let route = this.gainRoutes.get(userId);
+    if (route && route.streamId !== stream.id) {
+      this.dropGainRoute(userId);
+      route = undefined;
+    }
+    if (!route) {
+      const ctx = this.audioCtx ?? new AudioContext();
+      this.audioCtx = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      const node = ctx.createGain();
+      source.connect(node);
+      node.connect(ctx.destination);
+      route = { source, gain: node, streamId: stream.id };
+      this.gainRoutes.set(userId, route);
+    }
+    route.gain.gain.value = gain;
+    // The element only keeps the stream flowing now; the sound comes from the node.
+    entry.audio.muted = true;
+    // A context created without a user gesture starts suspended; the slider drag
+    // that triggered this is a gesture, and a restored setting resumes on the
+    // next one (AutoplayGate covers the element, not the context).
+    if (this.audioCtx?.state === 'suspended') void this.audioCtx.resume().catch(() => {});
+  }
+
+  private dropGainRoute(userId: string) {
+    const route = this.gainRoutes.get(userId);
+    if (!route) return;
+    try {
+      route.source.disconnect();
+      route.gain.disconnect();
+    } catch {
+      /* noop */
+    }
+    this.gainRoutes.delete(userId);
+  }
+
+  // The header slider on a remote tile. Percent scale so the tooltip reads
+  // naturally; double-click resets to 100%.
+  private createVolumeSlider(userId: string): HTMLInputElement {
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'vol-slider';
+    slider.min = '0';
+    slider.max = String(PEER_GAIN_MAX * 100);
+    slider.step = '10';
+    const show = (g: number) => {
+      slider.value = String(gainToPercent(g));
+      slider.title = t('media.volume', { pct: gainToPercent(g) });
+      slider.setAttribute('aria-label', slider.title);
+    };
+    show(this.gainFor(userId));
+    slider.addEventListener('input', () => {
+      const g = percentToGain(Number(slider.value));
+      show(g);
+      this.setPeerGain(userId, g);
+    });
+    slider.addEventListener('dblclick', () => {
+      show(PEER_GAIN_DEFAULT);
+      this.setPeerGain(userId, PEER_GAIN_DEFAULT);
+    });
+    // The header is the drag handle (and the maximize button's neighbour): keep
+    // slider gestures from starting a panel drag.
+    slider.addEventListener('mousedown', (e) => e.stopPropagation());
+    return slider;
+  }
+
   private attachRemoteMic(userId: string, stream: MediaStream) {
     let entry = this.remoteAudios.get(userId);
     if (!entry) {
@@ -564,6 +691,7 @@ export class RemoteMediaView {
     entry.streamId = stream.id;
     entry.audio.srcObject = stream;
     this.autoplay.play(entry.audio);
+    this.applyPeerGain(userId);
     // If recording is active, add this stream to the mix
     if (this.recorder.recording) {
       this.recorder.addAudioStream(stream);
@@ -629,6 +757,7 @@ export class RemoteMediaView {
     left.appendChild(mic);
     left.appendChild(label);
     header.appendChild(left);
+    header.appendChild(this.createVolumeSlider(userId));
     header.appendChild(createFocusButton());
     container.appendChild(header);
 
@@ -693,6 +822,7 @@ export class RemoteMediaView {
         /* noop */
       }
       a.audio.remove();
+      this.dropGainRoute(userId);
       // Drop this peer's mic from the recording mix. removePeer is the common
       // path (proximity walk-away, mesh→SFU switch, abrupt disconnect) and, unlike
       // detachRemoteStream, previously never told the recorder — so the source
