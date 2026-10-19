@@ -18,6 +18,8 @@ import { CharacterSheet } from '@/world/character';
 import { propFor } from '@/world/decor';
 import type { PlayerState } from '@/world/player';
 import {
+  ARMCHAIR_DX,
+  ARMCHAIR_GAP,
   type FloorPattern,
   type FloorStyle,
   floorStyleAt,
@@ -34,6 +36,7 @@ import {
   POND_RECT,
   ROOM_FURNITURE,
   type RoomFurniture,
+  seatFacingAt,
   TILE_SIZE,
   Tile,
   TREES,
@@ -977,8 +980,8 @@ export class CanvasRenderer {
     // Single-seat armchairs, each a spot you stand on to look "seated" (like the
     // meeting-room chairs) — backrest on the side away from the table. Three above
     // (facing down) and three below (facing up).
-    const gap = 26; // chair centre offset from the table edge
-    for (const dx of [-52, 0, 52]) {
+    const gap = ARMCHAIR_GAP; // chair centre offset from the table edge
+    for (const dx of ARMCHAIR_DX) {
       this.drawArmchair(cx, cxp + dx, ty - gap, 'down');
       this.drawArmchair(cx, cxp + dx, ty + th + gap, 'up');
     }
@@ -1770,14 +1773,19 @@ export class CanvasRenderer {
 
     // Composited avatar sprite (#141). Falls back to the original colored circle
     // + initials until the sprite layers load.
+    // Standing still on a chair (desk chair / café armchair) draws the seated
+    // pose, facing the way the chair faces; walking off stands back up.
+    const col = p.walkCol();
+    const seat = col === 0 ? seatFacingAt(p.x, p.y) : null;
     const drewSprite = this.characters.draw(
       ctx,
       p.outfit,
-      p.facing,
-      p.walkCol(),
+      seat ?? p.facing,
+      col,
       p.x,
       footY,
       SPRITE_SCALE,
+      seat !== null,
     );
     if (!drewSprite) {
       // body circle

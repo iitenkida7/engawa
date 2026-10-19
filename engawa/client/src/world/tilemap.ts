@@ -1,4 +1,5 @@
 import { t } from '@/core/i18n';
+import type { Direction } from '@/world/outfit';
 
 export const TILE_SIZE = 50;
 // The building itself is a compact 34×24 floor; the world adds an outdoor grass
@@ -671,6 +672,53 @@ export const LOUNGE_TABLE_RECTS: Rect[] = LOUNGE_RECTS.map((r) => ({
   w: r.w * 0.46,
   h: r.h * 0.2,
 }));
+
+// ===== Sitting spots =====
+// Where an avatar is drawn seated (world/canvas.ts): standing still on a desk
+// chair's tile or on a café armchair. It is a pure position → facing lookup, so
+// every viewer derives the same pose from the positions that are already synced
+// — nothing extra goes over the wire, and the server's `seated` flag (the whole
+// desk rug, see isDeskSeat) is untouched.
+
+// Armchair layout around each café's coffee table: three above (facing down) and
+// three below (facing up), `ARMCHAIR_GAP` from the table edge. The renderer
+// (canvas.ts drawLounge) draws the chairs from these same numbers.
+export const ARMCHAIR_GAP = 26;
+export const ARMCHAIR_DX = [-52, 0, 52];
+export const ARMCHAIR_SPOTS: { x: number; y: number; facing: Direction }[] = LOUNGE_RECTS.flatMap(
+  (f, i) => {
+    const table = LOUNGE_TABLE_RECTS[i];
+    const cx = f.x + f.w / 2;
+    return ARMCHAIR_DX.flatMap((dx): { x: number; y: number; facing: Direction }[] => [
+      { x: cx + dx, y: table.y - ARMCHAIR_GAP, facing: 'down' },
+      { x: cx + dx, y: table.y + table.h + ARMCHAIR_GAP, facing: 'up' },
+    ]);
+  },
+);
+// How close to an armchair's centre counts as sitting in it.
+const ARMCHAIR_SEAT_RADIUS = 25;
+
+// The chair tile of every desk (map coords) → the way its occupant faces: the
+// desk is in front of the chair, so a south-facing unit (chair above) faces down.
+const DESK_CHAIR_FACING = new Map<string, Direction>(
+  OPEN_DESK_UNITS.map((u): [string, Direction] => {
+    const [sc, sr] = seatOf(u);
+    return [`${sc + OUTDOOR_MARGIN},${sr + OUTDOOR_MARGIN}`, u.facing === 'south' ? 'down' : 'up'];
+  }),
+);
+
+/**
+ * The direction to face when sitting at (px,py), or null when it is not a chair.
+ * Pure geometry; the caller decides *when* to sit (standing still).
+ */
+export function seatFacingAt(px: number, py: number): Direction | null {
+  const desk = DESK_CHAIR_FACING.get(`${Math.floor(px / TILE_SIZE)},${Math.floor(py / TILE_SIZE)}`);
+  if (desk) return desk;
+  for (const a of ARMCHAIR_SPOTS) {
+    if (Math.hypot(px - a.x, py - a.y) <= ARMCHAIR_SEAT_RADIUS) return a.facing;
+  }
+  return null;
+}
 
 // ===== Randomised rug styles (#263 follow-up) =====
 // Every room, café and desk island gets a (pattern, colour) rug, assigned

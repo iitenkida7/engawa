@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  ARMCHAIR_SPOTS,
   canOccupy,
   FLOOR_COLOR_COUNT,
   FLOOR_PATTERNS,
@@ -21,6 +22,7 @@ import {
   POND,
   POND_RECT,
   SOLID,
+  seatFacingAt,
   TILE_SIZE,
   Tile,
   ZONES,
@@ -363,5 +365,37 @@ describe('isMeetingRoom', () => {
     expect(isMeetingRoom('booth-1')).toBe(false);
     expect(isMeetingRoom('cafe-left')).toBe(false);
     expect(isMeetingRoom(null)).toBe(false);
+  });
+});
+
+describe('seatFacingAt (sitting spots)', () => {
+  const TS = TILE_SIZE;
+  const centre = (col: number, row: number) => [col * TS + TS / 2, row * TS + TS / 2] as const;
+
+  it('a desk chair faces its desk: chair above a south desk faces down, below a north desk faces up', () => {
+    for (const d of OPEN_DESK_CHAIRS) {
+      // The chair is one tile in front of the desk centre tile.
+      const [x, y] = centre(d.col, d.row + (d.facesSouth ? -1 : 1));
+      expect(seatFacingAt(x, y)).toBe(d.facesSouth ? 'down' : 'up');
+    }
+  });
+
+  it('the rug beside the chair and the desk row itself are not seats', () => {
+    const d = OPEN_DESK_CHAIRS[0];
+    const [cx, cy] = centre(d.col, d.row + (d.facesSouth ? -1 : 1));
+    expect(seatFacingAt(cx + TS, cy)).toBeNull();
+    expect(seatFacingAt(cx - TS, cy)).toBeNull();
+    expect(seatFacingAt(...centre(d.col, d.row))).toBeNull();
+  });
+
+  it('café armchairs seat their occupant facing the table', () => {
+    expect(ARMCHAIR_SPOTS.length).toBeGreaterThan(0);
+    for (const a of ARMCHAIR_SPOTS) expect(seatFacingAt(a.x, a.y)).toBe(a.facing);
+    // Armchairs above the table face down, below face up.
+    expect(new Set(ARMCHAIR_SPOTS.map((a) => a.facing))).toEqual(new Set(['down', 'up']));
+  });
+
+  it('open floor is not a seat', () => {
+    expect(seatFacingAt(0, 0)).toBeNull();
   });
 });
