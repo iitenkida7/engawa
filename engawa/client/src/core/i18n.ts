@@ -303,8 +303,6 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.transcriptStart': { ja: '📝 文字起こしを開始', en: '📝 Start transcribing' },
   'toolbar.transcriptStop': { ja: '⏹ 文字起こしを停止', en: '⏹ Stop transcribing' },
   'toolbar.transcriptSettings': { ja: '📝 文字起こしの設定', en: '📝 Transcription settings' },
-  'toolbar.transcriptShow': { ja: '📄 文字起こしを表示', en: '📄 Show transcript' },
-  'toolbar.transcriptHide': { ja: '📄 文字起こしを閉じる', en: '📄 Hide transcript' },
   'transcript.title': { ja: '\u{1F4DD} 文字起こし', en: '\u{1F4DD} Transcript' },
   'transcript.copy': { ja: '全文をコピー', en: 'Copy transcript' },
   'transcript.save': { ja: 'テキストで保存', en: 'Save as text' },

@@ -68,8 +68,6 @@ export class ToolbarController {
   private onToggleTranscript: () => void;
   private isTranscribing: () => boolean;
   private onOpenTranscriptSettings: () => void;
-  private toggleTranscriptPanel: () => void;
-  private isTranscriptPanelOpen: () => boolean;
   private getTranscribingPeerNames: () => string[];
   private onUserCamToggle: () => void;
 
@@ -124,8 +122,6 @@ export class ToolbarController {
     onToggleTranscript: () => void;
     isTranscribing: () => boolean;
     onOpenTranscriptSettings: () => void;
-    toggleTranscriptPanel: () => void;
-    isTranscriptPanelOpen: () => boolean;
     // Peers in this call who are transcribing, so the menu carries the privacy
     // notice after the toast that announced it has gone.
     getTranscribingPeerNames: () => string[];
@@ -151,8 +147,6 @@ export class ToolbarController {
     this.onToggleTranscript = opts.onToggleTranscript;
     this.isTranscribing = opts.isTranscribing;
     this.onOpenTranscriptSettings = opts.onOpenTranscriptSettings;
-    this.toggleTranscriptPanel = opts.toggleTranscriptPanel;
-    this.isTranscriptPanelOpen = opts.isTranscriptPanelOpen;
     this.getTranscribingPeerNames = opts.getTranscribingPeerNames;
     this.onUserCamToggle = opts.onUserCamToggle;
 
@@ -825,15 +819,13 @@ export class ToolbarController {
     );
     // Camera quality lab: a standalone page comparing the SFU simulcast layers.
     addItem(t('toolbar.cameraLab'), () => window.open('/camera-lab.html', '_blank'));
-    // Transcription (#364): start/stop, the log panel, and the Groq key — the
-    // settings item is always here so a stored key can be changed or removed.
+    // Transcription (#364): start/stop and the Groq key. The settings item is
+    // always here so a stored key can be changed or removed. The log panel has
+    // no item of its own — starting opens it, a peer's announcement toast
+    // offers it, and closing it discards the log on purpose.
     addItem(
       this.isTranscribing() ? t('toolbar.transcriptStop') : t('toolbar.transcriptStart'),
       () => this.onToggleTranscript(),
-    );
-    addItem(
-      this.isTranscriptPanelOpen() ? t('toolbar.transcriptHide') : t('toolbar.transcriptShow'),
-      () => this.toggleTranscriptPanel(),
     );
     addItem(t('toolbar.transcriptSettings'), () => this.onOpenTranscriptSettings());
     // Privacy: who in this call is sending its audio to a transcription service.

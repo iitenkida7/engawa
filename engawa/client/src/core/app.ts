@@ -519,8 +519,6 @@ export class App {
       onToggleTranscript: () => this.toggleTranscript(),
       isTranscribing: () => this.transcriber.active,
       onOpenTranscriptSettings: () => this.transcriptSetup.open(),
-      toggleTranscriptPanel: () => this.transcriptPanel.toggle(),
-      isTranscriptPanelOpen: () => this.transcriptPanel.isOpen(),
       getTranscribingPeerNames: () => this.transcribingPeerNames(),
       // A manual camera toggle overrides the tier-3 auto-pause (#185): the user
       // turning the camera on (or off) while paused takes it out of automation.
