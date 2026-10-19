@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'bun:test';
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { t } from '@/core/i18n';
 import {
   allChoices,
   BG_PRESETS,
+  buildImagePresets,
   choiceLabel,
   downscaleSize,
   isProcessingChoice,
@@ -91,5 +94,37 @@ describe('downscaleSize', () => {
 
   it('never rounds a positive dimension down to zero', () => {
     expect(downscaleSize(3000, 1, 10)).toEqual({ w: 10, h: 1 });
+  });
+});
+
+describe('buildImagePresets', () => {
+  it('derives id/label from the filename and pairs the same-named thumbnail', () => {
+    const presets = buildImagePresets(
+      {
+        '/src/assets/backgrounds/lake-dock.jpg': '/a/lake-dock.jpg',
+        '/src/assets/backgrounds/beach_tent.png': '/a/beach_tent.png',
+      },
+      { '/src/assets/backgrounds/thumbs/lake-dock.jpg': '/a/thumbs/lake-dock.jpg' },
+    );
+    expect(presets).toEqual([
+      {
+        id: 'bg:beach_tent',
+        label: 'Beach Tent',
+        url: '/a/beach_tent.png',
+        thumbUrl: '/a/beach_tent.png',
+      },
+      {
+        id: 'bg:lake-dock',
+        label: 'Lake Dock',
+        url: '/a/lake-dock.jpg',
+        thumbUrl: '/a/thumbs/lake-dock.jpg',
+      },
+    ]);
+  });
+
+  it('every bundled background has a thumbnail (so the picker stays light)', () => {
+    const dir = join(import.meta.dir, '../assets/backgrounds');
+    const images = (d: string) => readdirSync(d).filter((f) => /\.(jpe?g|png|webp)$/i.test(f));
+    expect(images(join(dir, 'thumbs')).sort()).toEqual(images(dir).sort());
   });
 });

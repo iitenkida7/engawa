@@ -763,34 +763,69 @@ export class ToolbarController {
     label.textContent = t('toolbar.bg');
     menu.appendChild(label);
 
+    // Background choices as a compact thumbnail grid (5 per row) so the menu
+    // stays short on low screens; names live in the tooltip.
+    const grid = document.createElement('div');
+    grid.className = 'bg-grid';
+    menu.appendChild(grid);
     const current = this.media.bgChoice;
-    const addBg = (text: string, onPick: () => void, selectedId?: string) => {
-      const item = document.createElement('button');
-      item.className = 'device-item';
-      const isSelected = selectedId !== undefined && selectedId === current;
-      if (isSelected) item.classList.add('selected');
-      item.textContent = (isSelected ? '✓ ' : '') + text;
-      item.addEventListener('click', (e) => {
+    const addTile = (
+      title: string,
+      preview: HTMLElement | string,
+      onPick: () => void,
+      selectedId?: string,
+    ) => {
+      const tile = document.createElement('button');
+      tile.className = 'bg-tile';
+      tile.title = title;
+      tile.setAttribute('aria-label', title);
+      if (selectedId !== undefined && selectedId === current) tile.classList.add('selected');
+      if (typeof preview === 'string') tile.textContent = preview;
+      else tile.appendChild(preview);
+      tile.addEventListener('click', (e) => {
         e.stopPropagation();
         menu.classList.add('hidden');
         onPick();
       });
-      menu.appendChild(item);
+      grid.appendChild(tile);
+    };
+    const img = (src: string) => {
+      const el = document.createElement('img');
+      el.src = src;
+      el.alt = '';
+      el.loading = 'lazy';
+      return el;
     };
 
-    addBg(t('toolbar.bgOff'), () => void this.setBackground(VBG_OFF), VBG_OFF);
-    addBg(t('toolbar.bgBlur'), () => void this.setBackground(VBG_BLUR), VBG_BLUR);
+    addTile(t('toolbar.bgOff'), '🚫', () => void this.setBackground(VBG_OFF), VBG_OFF);
+    addTile(t('toolbar.bgBlur'), '🌫', () => void this.setBackground(VBG_BLUR), VBG_BLUR);
     for (const preset of BG_PRESETS) {
-      addBg(preset.label, () => void this.setBackground(preset.id), preset.id);
+      // Gradients are painted programmatically, so draw the same paint() small.
+      const canvas = document.createElement('canvas');
+      canvas.width = 96;
+      canvas.height = 54;
+      const ctx = canvas.getContext('2d');
+      if (ctx) preset.paint(ctx, canvas.width, canvas.height);
+      addTile(preset.label, canvas, () => void this.setBackground(preset.id), preset.id);
     }
     // Bundled image backgrounds (#233): auto-listed from assets/backgrounds/.
     for (const preset of imagePresets()) {
-      addBg(preset.label, () => void this.setBackground(preset.id), preset.id);
+      addTile(
+        preset.label,
+        img(preset.thumbUrl),
+        () => void this.setBackground(preset.id),
+        preset.id,
+      );
     }
     if (this.media.customBgDataUrl) {
-      addBg(t('toolbar.bgCustom'), () => void this.setBackground(VBG_CUSTOM), VBG_CUSTOM);
+      addTile(
+        t('toolbar.bgCustom'),
+        img(this.media.customBgDataUrl),
+        () => void this.setBackground(VBG_CUSTOM),
+        VBG_CUSTOM,
+      );
     }
-    addBg(t('toolbar.bgUpload'), () => this.bgFileInput.click());
+    addTile(t('toolbar.bgUpload'), '📁', () => this.bgFileInput.click());
   }
 
   // The "⋯" overflow menu: low-frequency actions. アバター編集（in-room の
