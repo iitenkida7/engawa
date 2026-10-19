@@ -13,7 +13,11 @@
 // split out so they can be unit-tested without a canvas or WebGL, following the
 // same pattern as proximity.ts / panels.ts.
 
-import type { ImageSegmenter, ImageSegmenterResult } from '@mediapipe/tasks-vision';
+import type {
+  DrawingUtils,
+  ImageSegmenter,
+  ImageSegmenterResult,
+} from '@mediapipe/tasks-vision';
 import { t } from '@/core/i18n';
 import { fitRect } from '@/media/compositor';
 import { FrameDriver } from '@/media/frame-driver';
@@ -241,42 +245,62 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-// Lazily import MediaPipe and build a VIDEO-mode segmenter. Kept out of the
-// static import graph so the WASM only downloads when a background is first
-// turned on.
-async function createSegmenter(): Promise<ImageSegmenter> {
+// Background blur is drawn at 1/BLUR_DOWNSCALE of the output and stretched back
+// up by the GPU, so the 2D blur filter only ever touches a small canvas; the
+// upscale itself adds softness. BLUR_PX is the blur at full output scale.
+const BLUR_DOWNSCALE = 4;
+const BLUR_PX = 8;
+
+type Pipeline = {
+  segmenter: ImageSegmenter;
+  drawer: DrawingUtils;
+};
+
+// Lazily import MediaPipe and build a VIDEO-mode segmenter bound to `canvas`, plus
+// a DrawingUtils on the same WebGL2 context. Sharing the context keeps the mask a
+// GPU texture that drawConfidenceMask blends with directly — no GPU→CPU readback
+// per frame. Kept out of the static import graph so the WASM only downloads when
+// a background is first turned on.
+async function createPipeline(
+  canvas: HTMLCanvasElement,
+  gl: WebGL2RenderingContext,
+): Promise<Pipeline> {
   const vision = await import('@mediapipe/tasks-vision');
   const fileset = await vision.FilesetResolver.forVisionTasks(WASM_BASE);
-  return vision.ImageSegmenter.createFromOptions(fileset, {
+  const segmenter = await vision.ImageSegmenter.createFromOptions(fileset, {
     baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+    canvas,
     runningMode: 'VIDEO',
     outputConfidenceMasks: true,
     outputCategoryMask: false,
   });
+  return { segmenter, drawer: new vision.DrawingUtils(gl) };
 }
 
 // Wraps a raw camera stream and produces a processed one. Lifecycle: construct →
-// start() (async; may throw if the model/WASM can't load) → setSpec() to change
-// the background live (no track swap) → stop().
+// start() (async; may throw if the model/WASM/WebGL2 can't load) → setSpec() to
+// change the background live (no track swap) → stop().
+//
+// Per frame: the segmenter writes the person mask as a texture on the output
+// canvas's WebGL2 context, and drawConfidenceMask blends background → camera by
+// it in one GPU pass straight onto that canvas, which is the captured stream.
 export class VirtualBackground {
   private srcVideo = document.createElement('video');
+  // WebGL2 output canvas: shared with the segmenter and captured as the stream.
   private out = document.createElement('canvas');
-  private octx: CanvasRenderingContext2D;
-  // Person layer at output resolution, and the segmentation mask as alpha.
-  private person = document.createElement('canvas');
-  private pctx: CanvasRenderingContext2D;
-  private maskCanvas = document.createElement('canvas');
-  private mctx: CanvasRenderingContext2D;
-  private segmenter: ImageSegmenter | null = null;
+  // 2D canvas holding the background layer handed to the GPU blend: the
+  // downscaled blurred camera, or the painted image/gradient.
+  private bg = document.createElement('canvas');
+  private bctx: CanvasRenderingContext2D;
+  // An image/gradient background only needs painting once per setSpec.
+  private bgPainted = false;
+  private pipeline: Pipeline | null = null;
   private outStream: MediaStream | null = null;
   private running = false;
   // rAF while visible, timer while hidden, so the outgoing camera doesn't freeze
   // on the last frame when the user switches tabs during a call (C7).
   private driver = new FrameDriver(() => this.tick(), SEG_INTERVAL_MS);
   private lastSegMs = 0;
-  // Reused per-frame mask ImageData (re-allocated only when the mask size
-  // changes), so we don't churn ~0.5MB/frame of garbage.
-  private maskData: ImageData | null = null;
   private w = 320;
   private h = 240;
 
@@ -284,15 +308,14 @@ export class VirtualBackground {
     private srcStream: MediaStream,
     private spec: BgSpec,
   ) {
-    this.octx = ctx2d(this.out);
-    this.pctx = ctx2d(this.person);
-    this.mctx = ctx2d(this.maskCanvas);
+    this.bctx = ctx2d(this.bg);
   }
 
   // Swap the background drawing without touching the output track, so toggling
   // blur↔image↔preset never triggers an RTC renegotiation.
   setSpec(spec: BgSpec) {
     this.spec = spec;
+    this.bgPainted = false;
   }
 
   async start(): Promise<MediaStream> {
@@ -306,12 +329,19 @@ export class VirtualBackground {
     this.h = settings.height || this.srcVideo.videoHeight || 240;
     this.out.width = this.w;
     this.out.height = this.h;
-    this.person.width = this.w;
-    this.person.height = this.h;
 
-    // May throw (offline / CDN blocked / no WebGL) — the caller falls back to
+    // Create the context ourselves, before MediaPipe asks for one on the same
+    // canvas, so the attributes are ours: opaque output, and a drawing buffer
+    // that survives until captured (the hidden-tab timer draws outside rAF).
+    const gl = this.out.getContext('webgl2', {
+      alpha: false,
+      antialias: false,
+      preserveDrawingBuffer: true,
+    });
+    // May throw (offline / CDN blocked / no WebGL2) — the caller falls back to
     // the raw stream so the camera still works.
-    this.segmenter = await createSegmenter();
+    if (!gl) throw new Error('WebGL2 not available');
+    this.pipeline = await createPipeline(this.out, gl);
 
     this.outStream = this.out.captureStream(CAM_FPS);
     for (const t of this.outStream.getVideoTracks()) t.contentHint = 'motion';
@@ -328,11 +358,12 @@ export class VirtualBackground {
       this.outStream = null;
     }
     try {
-      this.segmenter?.close();
+      this.pipeline?.drawer.close();
+      this.pipeline?.segmenter.close();
     } catch {
       /* already closed */
     }
-    this.segmenter = null;
+    this.pipeline = null;
     this.srcVideo.srcObject = null;
   }
 
@@ -344,82 +375,62 @@ export class VirtualBackground {
     if (now - this.lastSegMs < SEG_INTERVAL_MS) return;
     this.lastSegMs = now;
     const v = this.srcVideo;
-    if (!this.segmenter || v.readyState < 2 || v.videoWidth === 0) return;
+    if (!this.pipeline || v.readyState < 2 || v.videoWidth === 0) return;
     try {
-      this.segmenter.segmentForVideo(v, now, (res) => this.onResult(res));
+      this.pipeline.segmenter.segmentForVideo(v, now, (res) => this.onResult(res));
     } catch {
       // A dropped/late frame is harmless; the next tick retries.
     }
   };
 
+  // The mask is only valid inside the segmenter callback, so blend right here.
+  // No mask this frame: keep the previous composite on the canvas rather than
+  // showing the raw camera, which would expose the room the user chose to hide.
   private onResult(res: ImageSegmenterResult) {
     const mask = res.confidenceMasks?.[0];
-    if (!mask) {
-      // No mask this frame: show the plain camera so we never freeze.
-      this.octx.drawImage(this.srcVideo, 0, 0, this.w, this.h);
-      res.close();
-      return;
+    if (mask && this.pipeline) {
+      this.paintBackground();
+      // Low confidence → background, high → the camera (the person).
+      this.pipeline.drawer.drawConfidenceMask(mask, this.bg, this.srcVideo);
     }
-    const mw = mask.width;
-    const mh = mask.height;
-    const conf = mask.getAsFloat32Array(); // person confidence in [0,1] per pixel
-
-    if (this.maskCanvas.width !== mw || this.maskCanvas.height !== mh) {
-      this.maskCanvas.width = mw;
-      this.maskCanvas.height = mh;
-      this.maskData = null; // size changed → the cached buffer no longer fits
-    }
-    // Reuse one ImageData across frames (only its alpha channel changes), instead
-    // of allocating a fresh mw×mh buffer every frame.
-    const id = this.maskData ?? this.mctx.createImageData(mw, mh);
-    this.maskData = id;
-    for (let i = 0; i < conf.length; i++) {
-      id.data[i * 4 + 3] = Math.round(conf[i] * 255); // encode mask into alpha
-    }
-    this.mctx.putImageData(id, 0, 0);
-
-    const { w, h } = this;
-    // Person layer: the live frame, keyed to the (upscaled, smoothed) mask alpha.
-    this.pctx.clearRect(0, 0, w, h);
-    this.pctx.drawImage(this.srcVideo, 0, 0, w, h);
-    this.pctx.save();
-    this.pctx.globalCompositeOperation = 'destination-in';
-    this.pctx.imageSmoothingEnabled = true;
-    // Feather the low-res (≈256px) segmentation mask as it's upscaled, so the
-    // person's edge is a soft gradient instead of the jagged stair-step the raw
-    // mask produces at 720p (#233). Scaled to the output so it's consistent.
-    if (CTX_FILTER_SUPPORTED) this.pctx.filter = `blur(${Math.max(2, Math.round(h / 180))}px)`;
-    this.pctx.drawImage(this.maskCanvas, 0, 0, w, h);
-    this.pctx.restore();
-
-    // Output = background, then the masked person on top.
-    this.octx.clearRect(0, 0, w, h);
-    this.paintBackground(w, h);
-    this.octx.drawImage(this.person, 0, 0);
-
-    mask.close();
     res.close();
   }
 
-  private paintBackground(w: number, h: number) {
-    const ctx = this.octx;
+  private paintBackground() {
+    const ctx = this.bctx;
     if (this.spec.kind === 'blur') {
+      const bw = Math.max(1, Math.round(this.w / BLUR_DOWNSCALE));
+      const bh = Math.max(1, Math.round(this.h / BLUR_DOWNSCALE));
+      if (this.bg.width !== bw || this.bg.height !== bh) {
+        this.bg.width = bw;
+        this.bg.height = bh;
+      }
       if (CTX_FILTER_SUPPORTED) {
+        const px = BLUR_PX / BLUR_DOWNSCALE;
+        // Overscan so the blur doesn't pull transparent canvas in at the edges.
+        const o = px * 1.5;
         ctx.save();
-        ctx.filter = 'blur(8px)';
-        // Overscan so the blur doesn't reveal transparent canvas at the edges.
-        ctx.drawImage(this.srcVideo, -12, -12, w + 24, h + 24);
+        ctx.filter = `blur(${px}px)`;
+        ctx.drawImage(this.srcVideo, -o, -o, bw + 2 * o, bh + 2 * o);
         ctx.restore();
       } else {
         // No 2D-context filter support (older Safari/WebViews): a raw drawImage
         // here would expose the un-blurred room the user asked to hide. Fall back
         // to an opaque fill so privacy is never silently broken.
         ctx.fillStyle = '#1a1d24';
-        ctx.fillRect(0, 0, w, h);
+        ctx.fillRect(0, 0, bw, bh);
       }
-    } else {
-      this.spec.paint(ctx, w, h);
+      return;
     }
+    if (this.bgPainted) return;
+    const { w, h } = this;
+    if (this.bg.width !== w || this.bg.height !== h) {
+      this.bg.width = w;
+      this.bg.height = h;
+    }
+    ctx.clearRect(0, 0, w, h);
+    this.spec.paint(ctx, w, h);
+    this.bgPainted = true;
   }
 }
 
