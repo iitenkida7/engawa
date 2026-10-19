@@ -67,6 +67,10 @@ export class ToolbarController {
   private isDebugOpen: () => boolean;
   private onToggleTranscript: () => void;
   private isTranscribing: () => boolean;
+  private onOpenTranscriptSettings: () => void;
+  private toggleTranscriptPanel: () => void;
+  private isTranscriptPanelOpen: () => boolean;
+  private getTranscribingPeerNames: () => string[];
   private onUserCamToggle: () => void;
 
   // Experimental features master switch (#323): persisted, off by default. The
@@ -89,7 +93,6 @@ export class ToolbarController {
   private btnCam: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
-  private btnTranscript: HTMLButtonElement;
   private btnReaction: HTMLButtonElement;
   private reactionMenu: HTMLDivElement;
   private btnMore: HTMLButtonElement;
@@ -114,10 +117,18 @@ export class ToolbarController {
     onTestNotify: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
-    // Start/stop transcribing the call. The toolbar only reports the click; the
-    // App owns the key check, the privacy announcement and the transcriber.
+    // Transcription (#364). The toolbar only reports the clicks; the App owns
+    // the key check, the privacy announcement and the transcriber itself. All
+    // of it lives in the "⋯" menu rather than on the toolbar while the feature
+    // is being tried out.
     onToggleTranscript: () => void;
     isTranscribing: () => boolean;
+    onOpenTranscriptSettings: () => void;
+    toggleTranscriptPanel: () => void;
+    isTranscriptPanelOpen: () => boolean;
+    // Peers in this call who are transcribing, so the menu carries the privacy
+    // notice after the toast that announced it has gone.
+    getTranscribingPeerNames: () => string[];
     // Fired on a MANUAL camera-button toggle (not setCamEnabled), so the App's
     // bandwidth automation (#185) can stand down when the user takes over.
     onUserCamToggle: () => void;
@@ -139,13 +150,16 @@ export class ToolbarController {
     this.isDebugOpen = opts.isDebugOpen;
     this.onToggleTranscript = opts.onToggleTranscript;
     this.isTranscribing = opts.isTranscribing;
+    this.onOpenTranscriptSettings = opts.onOpenTranscriptSettings;
+    this.toggleTranscriptPanel = opts.toggleTranscriptPanel;
+    this.isTranscriptPanelOpen = opts.isTranscriptPanelOpen;
+    this.getTranscribingPeerNames = opts.getTranscribingPeerNames;
     this.onUserCamToggle = opts.onUserCamToggle;
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
-    this.btnTranscript = document.getElementById('btn-transcript') as HTMLButtonElement;
     this.btnReaction = document.getElementById('btn-reaction') as HTMLButtonElement;
     this.reactionMenu = document.getElementById('reaction-menu') as HTMLDivElement;
     this.btnMore = document.getElementById('btn-more') as HTMLButtonElement;
@@ -185,7 +199,6 @@ export class ToolbarController {
     });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
-    this.btnTranscript.addEventListener('click', () => this.onToggleTranscript());
     this.setupLayoutControls();
   }
 
@@ -275,18 +288,6 @@ export class ToolbarController {
     // and swaps its dot for a stop square. Both are icon-only.
     this.btnScreen.classList.toggle('active', this.media.screenOn);
     this.btnRec.classList.toggle('recording', this.recorder.recording);
-    this.btnTranscript.classList.toggle('active', this.isTranscribing());
-  }
-
-  // Show/clear the "someone else in the call is transcribing" badge, with their
-  // names in the tooltip. Mirrors setOthersRecording: the audio of everyone in
-  // the call is being sent to a transcription service, so everyone is told.
-  setOthersTranscribing(names: string[]) {
-    const on = names.length > 0;
-    this.btnTranscript.classList.toggle('others-transcribing', on);
-    this.btnTranscript.dataset.tip = on
-      ? t('transcript.othersTip', { names: names.join(', ') })
-      : t('toolbar.transcriptTitle');
   }
 
   // ---- Mic/cam enable & disable flows (shared by toolbar and device switch) ----
@@ -824,6 +825,26 @@ export class ToolbarController {
     );
     // Camera quality lab: a standalone page comparing the SFU simulcast layers.
     addItem(t('toolbar.cameraLab'), () => window.open('/camera-lab.html', '_blank'));
+    // Transcription (#364): start/stop, the log panel, and the Groq key — the
+    // settings item is always here so a stored key can be changed or removed.
+    addItem(
+      this.isTranscribing() ? t('toolbar.transcriptStop') : t('toolbar.transcriptStart'),
+      () => this.onToggleTranscript(),
+    );
+    addItem(
+      this.isTranscriptPanelOpen() ? t('toolbar.transcriptHide') : t('toolbar.transcriptShow'),
+      () => this.toggleTranscriptPanel(),
+    );
+    addItem(t('toolbar.transcriptSettings'), () => this.onOpenTranscriptSettings());
+    // Privacy: who in this call is sending its audio to a transcription service.
+    const transcribers = this.getTranscribingPeerNames();
+    if (transcribers.length > 0) {
+      const who = document.createElement('div');
+      who.className = 'menu-label';
+      who.textContent = t('transcript.othersTip', { names: transcribers.join(', ') });
+      menu.appendChild(who);
+    }
+
     // Language switch (issue #172): label shows the language you'd switch TO;
     // setLang persists the choice and reloads.
     const other: Lang = getLang() === 'ja' ? 'en' : 'ja';

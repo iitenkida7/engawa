@@ -535,29 +535,6 @@
         display: block;
       }
 
-      /* Transcribe button: blue while running (.active, like screenshare) and a
-         badge when someone ELSE in the call is transcribing. */
-      #toolbar button#btn-transcript {
-        position: relative;
-      }
-
-      #toolbar button#btn-transcript .transcript-badge {
-        display: none;
-        position: absolute;
-        top: 3px;
-        right: 3px;
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        background: #4aa3ff;
-        border: 1.5px solid rgba(20, 23, 30, 0.9);
-        box-shadow: 0 0 5px rgba(74, 163, 255, 0.9);
-      }
-
-      #toolbar button#btn-transcript.others-transcribing .transcript-badge {
-        display: block;
-      }
-
       /* Transcript panel: same shell as the debug console (fixed, draggable by
          its header, scrolling body), parked on the left so both can be open. */
       #transcript {
@@ -2420,15 +2397,6 @@
           <!-- Privacy badge: a red dot shown when SOMEONE ELSE in the call is
                recording (toggled via .others-recording in JS). -->
           <span class="rec-badge" aria-hidden="true"></span>
-        </button>
-        <button id="btn-transcript" class="icon-toggle" data-i18n-tip="toolbar.transcriptTitle" data-tip="文字起こし" aria-label="文字起こし">
-          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="2" />
-            <path d="M7 11h6M7 15h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-          </svg>
-          <!-- Privacy badge: shown when SOMEONE ELSE in the call is transcribing
-               (toggled via .others-transcribing in JS), mirroring the record one. -->
-          <span class="transcript-badge" aria-hidden="true"></span>
         </button>
         <button id="btn-status" data-i18n-tip="roster.status" data-tip="ステータス" aria-label="ステータス">🟢</button>
         <div class="btn-group">

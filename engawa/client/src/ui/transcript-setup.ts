@@ -48,6 +48,7 @@ export class TranscriptSetup {
   private input: HTMLInputElement;
   private select: HTMLSelectElement;
   private error: HTMLElement;
+  private confirmBtn: HTMLButtonElement;
   private onConfirm: ((key: string, model: GroqModel) => void) | null = null;
 
   constructor() {
@@ -55,6 +56,7 @@ export class TranscriptSetup {
     this.input = document.getElementById('transcript-key') as HTMLInputElement;
     this.select = document.getElementById('transcript-model') as HTMLSelectElement;
     this.error = document.getElementById('transcript-setup-error') as HTMLElement;
+    this.confirmBtn = document.getElementById('transcript-confirm') as HTMLButtonElement;
 
     for (const model of GROQ_MODELS) {
       const opt = document.createElement('option');
@@ -64,7 +66,7 @@ export class TranscriptSetup {
     }
 
     document.getElementById('transcript-cancel')?.addEventListener('click', () => this.close());
-    document.getElementById('transcript-confirm')?.addEventListener('click', () => this.confirm());
+    this.confirmBtn.addEventListener('click', () => this.confirm());
     document.getElementById('transcript-forget')?.addEventListener('click', () => {
       persist(null, parseGroqModel(this.select.value));
       this.input.value = '';
@@ -79,8 +81,12 @@ export class TranscriptSetup {
     });
   }
 
-  open(onConfirm: (key: string, model: GroqModel) => void) {
-    this.onConfirm = onConfirm;
+  // `onConfirm` is given when the dialog stands between the user and starting a
+  // transcription; opened from the menu to edit a stored key it is omitted, and
+  // the button just saves.
+  open(onConfirm?: (key: string, model: GroqModel) => void) {
+    this.onConfirm = onConfirm ?? null;
+    this.confirmBtn.textContent = t(onConfirm ? 'transcript.setupStart' : 'transcript.setupSave');
     this.input.value = loadGroqKey() ?? '';
     this.select.value = loadGroqModel();
     this.error.textContent = '';

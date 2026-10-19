@@ -518,6 +518,10 @@ export class App {
       isDebugOpen: () => this.debug.isOpen(),
       onToggleTranscript: () => this.toggleTranscript(),
       isTranscribing: () => this.transcriber.active,
+      onOpenTranscriptSettings: () => this.transcriptSetup.open(),
+      toggleTranscriptPanel: () => this.transcriptPanel.toggle(),
+      isTranscriptPanelOpen: () => this.transcriptPanel.isOpen(),
+      getTranscribingPeerNames: () => this.transcribingPeerNames(),
       // A manual camera toggle overrides the tier-3 auto-pause (#185): the user
       // turning the camera on (or off) while paused takes it out of automation.
       onUserCamToggle: () => {
@@ -1456,17 +1460,23 @@ export class App {
         if (this.inProximity.has(msg.userId)) {
           const name = msg.name || this.players.get(msg.userId)?.name || t('knock.someone');
           if (msg.transcribing) {
+            // Offer the panel straight from the notice: their lines land in ours
+            // whether or not it is open, and the toast is the moment it matters.
             if (!this.transcribingPeers.has(msg.userId)) {
-              this.toasts.info(t('transcript.started', { name }));
+              this.toasts.action(t('transcript.started', { name }), [
+                {
+                  label: t('transcript.showAction'),
+                  primary: true,
+                  onClick: () => this.transcriptPanel.open(),
+                },
+              ]);
             }
             this.transcribingPeers.add(msg.userId);
           } else if (this.transcribingPeers.delete(msg.userId)) {
             this.toasts.info(t('transcript.stopped', { name }));
           }
-          this.refreshTranscribingBadge();
         } else if (!msg.transcribing) {
           this.transcribingPeers.delete(msg.userId);
-          this.refreshTranscribingBadge();
         }
         break;
       }
@@ -1670,6 +1680,14 @@ export class App {
     if (shouldDisableOnZoneExit(this.lastZoneId, zoneId, this.anyLocalMediaOn())) {
       this.toolbar.disableAllMedia();
       this.toasts.info(t('app.zoneLeftMediaOff'));
+    }
+    // Transcription stops on the way out too (#364). It was transcribing THAT
+    // room's conversation, and unlike recording it streams other people's
+    // voices to an outside service, so leaving it running in the hallway is
+    // exactly the accident worth preventing. The panel stays open to be saved.
+    if (this.transcriber.active && this.lastZoneId !== null && zoneId === null) {
+      this.stopTranscribing();
+      this.toasts.info(t('transcript.zoneLeftStopped'));
     }
     this.lastZoneId = zoneId;
 
@@ -1894,9 +1912,7 @@ export class App {
   // this needs the user's own key and everyone in the call is told.
   private toggleTranscript() {
     if (this.transcriber.active) {
-      this.transcriber.stop();
-      this.net.send({ type: 'transcribing', transcribing: false });
-      this.toolbar.refresh();
+      this.stopTranscribing();
       return;
     }
     // Someone here is already transcribing and sharing their lines with us, so
@@ -1931,7 +1947,15 @@ export class App {
     }
     this.net.send({ type: 'transcribing', transcribing: true });
     this.transcriptPanel.open();
-    this.toolbar.refresh();
+  }
+
+  // Stop transcribing and tell the call. The panel deliberately stays open:
+  // the log is only in memory, and nothing here knows whether it has been
+  // saved yet — closing it is the user's own call (and asks first).
+  private stopTranscribing() {
+    if (!this.transcriber.active) return;
+    this.transcriber.stop();
+    this.net.send({ type: 'transcribing', transcribing: false });
   }
 
   // One of our own recognised lines: show it, then share it with the call so
@@ -1945,9 +1969,9 @@ export class App {
     this.net.send({ type: 'transcript', speakerId, text, at });
   }
 
-  // Refresh the "someone else is transcribing" badge, dropping peers who have
-  // left our call. Mirrors refreshRecordingBadge.
-  private refreshTranscribingBadge() {
+  // Peers in our call who are transcribing, for the privacy notice in the "⋯"
+  // menu. Peers who have since left the call are dropped on the way past.
+  private transcribingPeerNames(): string[] {
     const names: string[] = [];
     for (const id of [...this.transcribingPeers]) {
       if (!this.inProximity.has(id)) {
@@ -1956,7 +1980,7 @@ export class App {
       }
       names.push(this.players.get(id)?.name ?? t('knock.someone'));
     }
-    this.toolbar.setOthersTranscribing(names);
+    return names;
   }
 
   private broadcastStatus() {

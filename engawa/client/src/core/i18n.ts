@@ -300,8 +300,11 @@ const STR: Record<string, Record<Lang, string>> = {
   'notify.help.retest': { ja: 'もう一度テスト', en: 'Test again' },
 
   // -- transcript (Groq speech-to-text) -------------------------------------
-  'toolbar.transcriptTitle': { ja: '文字起こし', en: 'Transcribe' },
-  'toolbar.transcriptOn': { ja: '文字起こしを停止', en: 'Stop transcribing' },
+  'toolbar.transcriptStart': { ja: '📝 文字起こしを開始', en: '📝 Start transcribing' },
+  'toolbar.transcriptStop': { ja: '⏹ 文字起こしを停止', en: '⏹ Stop transcribing' },
+  'toolbar.transcriptSettings': { ja: '📝 文字起こしの設定', en: '📝 Transcription settings' },
+  'toolbar.transcriptShow': { ja: '📄 文字起こしを表示', en: '📄 Show transcript' },
+  'toolbar.transcriptHide': { ja: '📄 文字起こしを閉じる', en: '📄 Hide transcript' },
   'transcript.title': { ja: '\u{1F4DD} 文字起こし', en: '\u{1F4DD} Transcript' },
   'transcript.copy': { ja: '全文をコピー', en: 'Copy transcript' },
   'transcript.save': { ja: 'テキストで保存', en: 'Save as text' },
@@ -314,6 +317,15 @@ const STR: Record<string, Record<Lang, string>> = {
     en: '{name} stopped transcribing',
   },
   'transcript.othersTip': { ja: '文字起こし中: {names}', en: 'Transcribing: {names}' },
+  'transcript.showAction': { ja: '表示', en: 'Show' },
+  'transcript.confirmClose': {
+    ja: '文字起こしを閉じると、保存していない内容は失われます。閉じますか？',
+    en: 'Closing the transcript discards it. Anything unsaved will be lost. Close it?',
+  },
+  'transcript.zoneLeftStopped': {
+    ja: '会議室を出たので文字起こしを終了しました',
+    en: 'Left the room — transcription stopped',
+  },
   'transcript.alreadyRunning': {
     ja: '{name} さんが文字起こし中です。結果はこのパネルに届きます。',
     en: '{name} is already transcribing — their results appear in this panel.',

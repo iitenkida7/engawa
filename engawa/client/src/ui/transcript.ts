@@ -46,7 +46,15 @@ export class TranscriptPanel {
     this.body = document.getElementById('transcript-body') as HTMLElement;
 
     const closeBtn = document.getElementById('transcript-close');
-    closeBtn?.addEventListener('click', () => this.close());
+    // Closing discards the log, and nothing here can tell whether it was saved
+    // first — so ask, unless there is nothing to lose. Stopping the
+    // transcription deliberately does NOT close the panel, so the text stays
+    // around to be copied or saved after the meeting.
+    closeBtn?.addEventListener('click', () => {
+      if (this.entries.length > 0 && !confirm(t('transcript.confirmClose'))) return;
+      this.clear();
+      this.close();
+    });
     const header = document.getElementById('transcript-header');
     if (header) makeDraggable(this.root, { handle: header });
 
