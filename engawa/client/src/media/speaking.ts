@@ -18,15 +18,18 @@ export type SpeakingDetector = {
   buf: Uint8Array<ArrayBuffer>;
 };
 
-// One AudioContext shared by every detector. A 5-person SFU group would otherwise
-// open ~6-8 contexts (one per remote mic + local + recorder), a range where
-// browsers cap/throw. Also resumed on each use: a context created while the
-// autoplay gate is closed starts 'suspended' and reads all-zero frequency data,
-// so the speaking ring would silently never light (recorder.ts does the same).
+// One AudioContext shared by every detector, and by anything else that taps a
+// remote stream for playback or analysis (ui/remote-media's per-person volume
+// routes). A 5-person SFU group would otherwise open ~6-8 contexts (one per
+// remote mic + local + recorder), a range where browsers cap/throw. Also resumed
+// on each use: a context created while the autoplay gate is closed starts
+// 'suspended' and reads all-zero frequency data, so the speaking ring would
+// silently never light (recorder.ts does the same). The resume is allowed to
+// fail — without a user gesture yet it just stays suspended until the next use.
 let sharedCtx: AudioContext | null = null;
-function getSharedAudioContext(): AudioContext {
+export function getSharedAudioContext(): AudioContext {
   if (!sharedCtx) sharedCtx = new AudioContext();
-  if (sharedCtx.state === 'suspended') void sharedCtx.resume();
+  if (sharedCtx.state === 'suspended') void sharedCtx.resume().catch(() => {});
   return sharedCtx;
 }
 

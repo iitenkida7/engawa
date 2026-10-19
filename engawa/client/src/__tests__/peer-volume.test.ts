@@ -3,8 +3,9 @@ import {
   clampGain,
   gainToPercent,
   PEER_GAIN_MAX,
-  parseVolumeMap,
+  PEER_SNAP_PCT,
   percentToGain,
+  snapPercent,
 } from '@/ui/peer-volume';
 
 describe('clampGain', () => {
@@ -41,24 +42,21 @@ describe('percent conversion', () => {
   });
 });
 
-describe('parseVolumeMap', () => {
-  it('returns empty for missing or corrupt input', () => {
-    expect(parseVolumeMap(null)).toEqual({});
-    expect(parseVolumeMap('')).toEqual({});
-    expect(parseVolumeMap('not json')).toEqual({});
-    expect(parseVolumeMap('[1,2]')).toEqual({});
-    expect(parseVolumeMap('"x"')).toEqual({});
+describe('snapPercent', () => {
+  it('magnets onto the default from either side', () => {
+    expect(snapPercent(100)).toBe(100);
+    expect(snapPercent(100 - PEER_SNAP_PCT)).toBe(100);
+    expect(snapPercent(100 + PEER_SNAP_PCT)).toBe(100);
   });
 
-  it('keeps valid entries and clamps them', () => {
-    expect(parseVolumeMap('{"Alice":1.5,"Bob":0.3,"Eve":9}')).toEqual({
-      Alice: 1.5,
-      Bob: 0.3,
-      Eve: PEER_GAIN_MAX,
-    });
+  it('leaves everything outside the magnet alone', () => {
+    expect(snapPercent(100 - PEER_SNAP_PCT - 1)).toBe(100 - PEER_SNAP_PCT - 1);
+    expect(snapPercent(100 + PEER_SNAP_PCT + 1)).toBe(100 + PEER_SNAP_PCT + 1);
+    expect(snapPercent(0)).toBe(0);
+    expect(snapPercent(200)).toBe(200);
   });
 
-  it('drops non-numeric and default-valued entries', () => {
-    expect(parseVolumeMap('{"A":"loud","B":1,"C":null,"D":0.5}')).toEqual({ D: 0.5 });
+  it('rounds a fractional position to whole percent', () => {
+    expect(snapPercent(149.6)).toBe(150);
   });
 });
