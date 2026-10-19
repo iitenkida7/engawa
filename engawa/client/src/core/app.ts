@@ -467,6 +467,33 @@ export class App {
       },
     };
 
+    // Live transcription (Groq Whisper). One tap per speaker, posted straight
+    // from the browser to the API with the user's own key — our server only ever
+    // sees the resulting text, and only to relay it to the same call.
+    this.transcriber = new TranscriberManager({
+      getApiKey: () => loadGroqKey(),
+      getModel: () => loadGroqModel(),
+      getLanguage: () => getLang(),
+      onTranscript: (speakerId, text, at) => this.onOwnTranscript(speakerId, text, at),
+      onError: (message, fatal) => {
+        // Transient failures already retried inside; only a rejected key is
+        // worth interrupting for, and it stops the run.
+        if (!fatal) {
+          console.warn('[transcript]', message);
+          return;
+        }
+        this.toasts.error(t('transcript.authError'));
+        this.net.send({ type: 'transcribing', transcribing: false });
+        this.toolbar.refresh();
+        this.transcriptSetup.open(() => void this.startTranscribing());
+      },
+    });
+    // Follow remote mics as people join and leave the call.
+    this.view.setOnRemoteAudio((userId, stream) => {
+      if (stream) this.transcriber.addStream(userId, stream);
+      else this.transcriber.removeStream(userId);
+    });
+
     this.toolbar = new ToolbarController({
       media: this.media,
       rtc: this.mediaSink,
@@ -528,33 +555,6 @@ export class App {
     this.debug = new DebugConsole({
       collect: () => this.collectRtcStats(),
       resolveName: (id) => this.players.get(id)?.name ?? '',
-    });
-
-    // Live transcription (Groq Whisper). One tap per speaker, posted straight
-    // from the browser to the API with the user's own key — our server only ever
-    // sees the resulting text, and only to relay it to the same call.
-    this.transcriber = new TranscriberManager({
-      getApiKey: () => loadGroqKey(),
-      getModel: () => loadGroqModel(),
-      getLanguage: () => getLang(),
-      onTranscript: (speakerId, text, at) => this.onOwnTranscript(speakerId, text, at),
-      onError: (message, fatal) => {
-        // Transient failures already retried inside; only a rejected key is
-        // worth interrupting for, and it stops the run.
-        if (!fatal) {
-          console.warn('[transcript]', message);
-          return;
-        }
-        this.toasts.error(t('transcript.authError'));
-        this.net.send({ type: 'transcribing', transcribing: false });
-        this.toolbar.refresh();
-        this.transcriptSetup.open(() => void this.startTranscribing());
-      },
-    });
-    // Follow remote mics as people join and leave the call.
-    this.view.setOnRemoteAudio((userId, stream) => {
-      if (stream) this.transcriber.addStream(userId, stream);
-      else this.transcriber.removeStream(userId);
     });
 
     // Media changes refresh both the toolbar buttons and the self preview;
