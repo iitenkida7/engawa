@@ -48,6 +48,10 @@ const manifest = manifestJson as unknown as Manifest;
 const P = manifest.parts;
 
 const FRAME = manifest.frame; // 64
+// Seated pose (see CharacterRenderer.draw `sit`): how many source rows of the
+// 64px frame to keep (down to the upper thighs) and how far to sink it.
+const SIT_CUT = 46;
+const SIT_DROP = 8;
 /** Frames per walk row (col 0 = standing; 1–8 = the walk cycle). */
 export const COLS = manifest.cols; // 9
 const SEX_NAMES = ['male', 'female'] as const;
@@ -342,6 +346,10 @@ export class CharacterSheet {
    * at `footY`, scaled by `scale`. Returns false (caller falls back to a circle)
    * until the composite is ready. `imageSmoothingEnabled` is forced off for
    * crisp pixel art and restored afterward.
+   *
+   * `sit` draws the standing frame as a seated pose: only the upper body is
+   * drawn (the legs vanish under the desk / into the chair) and it sinks a few
+   * pixels, since the sheet has no sitting frames.
    */
   draw(
     ctx: CanvasRenderingContext2D,
@@ -351,6 +359,7 @@ export class CharacterSheet {
     centerX: number,
     footY: number,
     scale: number,
+    sit = false,
   ): boolean {
     const sheet = this.getComposite(outfit);
     if (!sheet) return false;
@@ -362,7 +371,22 @@ export class CharacterSheet {
     const dy = footY - dh;
     const prev = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(sheet, c * FRAME, row * FRAME, FRAME, FRAME, dx, dy, dw, dh);
+    if (sit) {
+      // Seated: standing frame cut at the thighs, lowered by SIT_DROP px.
+      ctx.drawImage(
+        sheet,
+        c * FRAME,
+        row * FRAME,
+        FRAME,
+        SIT_CUT,
+        dx,
+        dy + SIT_DROP * scale,
+        dw,
+        SIT_CUT * scale,
+      );
+    } else {
+      ctx.drawImage(sheet, c * FRAME, row * FRAME, FRAME, FRAME, dx, dy, dw, dh);
+    }
     ctx.imageSmoothingEnabled = prev;
     return true;
   }

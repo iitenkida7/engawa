@@ -157,7 +157,7 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   `engawa-face-pip` が `1` のときだけ有効 #323）でチェックした人だけ使う。試験的な機能のトグルは今後もこの区画に並べる。
   **`requestWindow()` は操作許可を消費する**ため、必ず `getDisplayMedia` の**後**に開く（逆順だと共有自体が失敗しうる）。
   `media/speaking.ts` — `SpeakingDetector` と純粋なしきい値判定 `isLoud()`。
-- `world/tilemap.ts` — オフィスのタイルマップと `canOccupy`（衝突判定）。`world/pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
+- `world/tilemap.ts` — オフィスのタイルマップと `canOccupy`（衝突判定）。**座る姿勢**は位置だけで決まる純粋関数 `seatFacingAt()`（デスクの椅子タイル／カフェのアームチェア → 向き）。`canvas.ts` が静止中のみ座り姿（`CharacterSheet.draw` の `sit`: 立ちフレームを太ももで切って少し沈める。シートに座りフレームが無いため）で描く。位置から全員が同じ姿を導けるので通信は増えない。`world/pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
 - `world/canvas.ts` — Canvas 2D 描画。`world/input.ts` — キー入力。`world/player.ts` — プレイヤー状態。
   `ui/draggable.ts` — ビデオ/画面共有パネルのドラッグ。`media/compositor.ts` — 録画用の映像合成。`ui/sounds.ts` — 効果音。
 - `core/types.ts` — クライアント側の共有定数/型。`core/main.ts` — エントリ。
