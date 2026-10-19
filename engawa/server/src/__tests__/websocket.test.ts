@@ -1034,6 +1034,9 @@ describe('createWebSocketHandler — move group-recompute throttle', () => {
     // still and only the throttle decides whether the pair is regrouped.
     mover.data.x = 140;
     mover.data.y = 100;
+    // Both settled long ago (their setup moves above counted as movement).
+    mover.data.lastMoveAt = 0;
+    peer.data.lastMoveAt = 0;
     deliver(h, mover, { type: 'move', x: 140, y: 100, vx: 0, vy: 0 });
     expect(peer.sent.some((m) => m.type === 'player-moved')).toBe(true);
     expect(groupMembersLen(mover)).toBe(1);
