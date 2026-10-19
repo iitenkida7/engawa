@@ -252,6 +252,13 @@ export function zoomFromWheel(
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
 }
 
+// Density cap for the baked map. The cache holds the whole map (2600×2150 world
+// px), so its memory grows with the square of the density: 2× (a Retina screen)
+// is ~89MB of bitmap held for the whole session, 1.5× ~50MB. At 1:1 zoom a
+// Retina screen upsamples it by 1.33×, which the flat procedural tiles absorb;
+// zoomed in it was already upsampled before this cap.
+const MAP_CACHE_MAX_DPR = 1.5;
+
 export class CanvasRenderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -506,7 +513,7 @@ export class CanvasRenderer {
     // Static map layer: baked once into an offscreen cache and blitted. The cache
     // is full-map world space, so drawing it under the existing camera translate
     // lets the browser clip the offscreen part for free.
-    const dpr = Math.min(this.dpr, 2);
+    const dpr = Math.min(this.dpr, MAP_CACHE_MAX_DPR);
     // Rebuild when the device-pixel ratio changes OR the baked image no longer
     // matches the current map size — the latter guards against a stale cache
     // after the map dimensions change (e.g. a hot-reload that widened the outdoor
