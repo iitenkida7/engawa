@@ -89,6 +89,13 @@ export type ClientMessage =
   // SFU: announce/replace the tracks this client has published to its Cloudflare
   // session, so the server can relay them to the group as a track directory.
   | { type: 'sfu-publish'; sessionId: string; tracks: SfuTrack[] }
+  // Live transcription (Groq Whisper, run in the browser): one recognised
+  // utterance, shared with the rest of the caller's group. Text only — the audio
+  // goes from the browser straight to the API and never reaches our server.
+  | { type: 'transcript'; speakerId: string; text: string; at: number }
+  // Transcription state change (privacy): relayed like `recording`, so everyone
+  // in the call learns their audio is being sent to a transcription service.
+  | { type: 'transcribing'; transcribing: boolean }
   // App-level heartbeat (issue #183): the client pings on a fixed cadence and
   // treats a missing pong as a dead socket (browsers expose no protocol ping).
   | { type: 'ping' };
@@ -146,6 +153,13 @@ export type ServerMessage =
   // talks to exactly these members (members includes self) via mesh or SFU.
   // Meeting-room groups are always 'sfu'; outdoor groups promote at 4 and latch.
   | { type: 'group-update'; method: GroupMethod; members: string[] }
+  // One transcript line from someone in our call. `speakerId` is who was
+  // speaking (not necessarily the sender — one client may transcribe the whole
+  // group); `speakerName` is resolved by the server so it survives them leaving.
+  | { type: 'transcript'; speakerId: string; speakerName: string; text: string; at: number }
+  // A workspace peer's transcription state changed. Shown (toast + button badge)
+  // only when that peer is currently in our call.
+  | { type: 'player-transcribing'; userId: string; name: string; transcribing: boolean }
   // SFU: a group peer's published track directory, so the recipient can pull
   // their tracks by (sessionId, trackName).
   | { type: 'sfu-peer-tracks'; userId: string; sessionId: string; tracks: SfuTrack[] };

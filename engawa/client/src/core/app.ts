@@ -1,5 +1,5 @@
 import BackgroundTicker from '@/core/background-ticker?worker';
-import { t } from '@/core/i18n';
+import { getLang, t } from '@/core/i18n';
 import { BACKGROUND_TICK_INTERVAL_MS, computeFrameDt, shouldConfirmUnload } from '@/core/lifecycle';
 import { setMediaToken } from '@/core/media-auth';
 import { logNet, QUALITY_SAMPLE_INTERVAL_MS } from '@/core/netlog';
@@ -39,6 +39,7 @@ import { shouldDisableOnZoneExit } from '@/core/zone-media';
 import { SceneCompositor } from '@/media/compositor';
 import { MediaManager } from '@/media/media';
 import { RecorderManager } from '@/media/recorder';
+import { TranscriberManager } from '@/media/transcriber';
 import {
   computeCamEncoding,
   computeScreenEncoding,
@@ -84,6 +85,8 @@ import { RosterPanel } from '@/ui/roster';
 import { SoundManager } from '@/ui/sounds';
 import { StatusMenu } from '@/ui/status-menu';
 import { type MediaSink, ToolbarController } from '@/ui/toolbar';
+import { TranscriptPanel } from '@/ui/transcript';
+import { loadGroqKey, loadGroqModel, TranscriptSetup } from '@/ui/transcript-setup';
 import { CanvasRenderer } from '@/world/canvas';
 import { OUTFIT_COUNTS } from '@/world/character';
 import { stepTarget } from '@/world/grid';
@@ -132,6 +135,12 @@ export class App {
   private toolbar: ToolbarController;
   private statusMenu: StatusMenu;
   private debug: DebugConsole;
+  private transcriber: TranscriberManager;
+  private transcriptPanel = new TranscriptPanel();
+  private transcriptSetup = new TranscriptSetup();
+  // Peers who announced they are transcribing. Drives the button badge and
+  // stops us starting a second, duplicate transcription of the same call.
+  private transcribingPeers = new Set<string>();
   private toasts = new Toasts();
   private reactionToasts = new ReactionToasts();
   private roster = new RosterPanel({ getPlayers: () => this.players });
@@ -458,6 +467,33 @@ export class App {
       },
     };
 
+    // Live transcription (Groq Whisper). One tap per speaker, posted straight
+    // from the browser to the API with the user's own key — our server only ever
+    // sees the resulting text, and only to relay it to the same call.
+    this.transcriber = new TranscriberManager({
+      getApiKey: () => loadGroqKey(),
+      getModel: () => loadGroqModel(),
+      getLanguage: () => getLang(),
+      onTranscript: (speakerId, text, at) => this.onOwnTranscript(speakerId, text, at),
+      onError: (message, fatal) => {
+        // Transient failures already retried inside; only a rejected key is
+        // worth interrupting for, and it stops the run.
+        if (!fatal) {
+          console.warn('[transcript]', message);
+          return;
+        }
+        this.toasts.error(t('transcript.authError'));
+        this.net.send({ type: 'transcribing', transcribing: false });
+        this.toolbar.refresh();
+        this.transcriptSetup.open(() => void this.startTranscribing());
+      },
+    });
+    // Follow remote mics as people join and leave the call.
+    this.view.setOnRemoteAudio((userId, stream) => {
+      if (stream) this.transcriber.addStream(userId, stream);
+      else this.transcriber.removeStream(userId);
+    });
+
     this.toolbar = new ToolbarController({
       media: this.media,
       rtc: this.mediaSink,
@@ -480,6 +516,10 @@ export class App {
       // resolve lazily on click, so referencing this.debug (built below) is fine.
       toggleDebug: () => this.debug.toggle(),
       isDebugOpen: () => this.debug.isOpen(),
+      onToggleTranscript: () => this.toggleTranscript(),
+      isTranscribing: () => this.transcriber.active,
+      onOpenTranscriptSettings: () => this.transcriptSetup.open(),
+      getTranscribingPeerNames: () => this.transcribingPeerNames(),
       // A manual camera toggle overrides the tier-3 auto-pause (#185): the user
       // turning the camera on (or off) while paused takes it out of automation.
       onUserCamToggle: () => {
@@ -524,6 +564,10 @@ export class App {
     this.media.on(() => {
       this.toolbar.refresh();
       this.view.refreshSelfPreview();
+      // micStream is a different object after a toggle or device switch, so the
+      // tap has to be re-pointed (addStream replaces an existing one).
+      if (this.media.micStream) this.transcriber.addStream(this.myId, this.media.micStream);
+      else this.transcriber.removeStream(this.myId);
     });
     // Recorder changes also drive the persistent "recording" pill + tab title
     // (#315), so a forgotten stop is visible before the tab gets closed.
@@ -1395,6 +1439,45 @@ export class App {
         }
         break;
       }
+      case 'transcript': {
+        // A line someone else in our call transcribed. Rendered as a text node
+        // (ui/transcript.ts) — it is model output relayed through a peer.
+        this.transcriptPanel.add({
+          speakerId: msg.speakerId,
+          speakerName:
+            msg.speakerName || this.players.get(msg.speakerId)?.name || t('knock.someone'),
+          text: msg.text,
+          at: msg.at,
+        });
+        break;
+      }
+      case 'player-transcribing': {
+        // Privacy notice, same shape as player-recording: only surface it for
+        // someone actually in our call, since they are the one sending our audio
+        // to a transcription service.
+        if (this.inProximity.has(msg.userId)) {
+          const name = msg.name || this.players.get(msg.userId)?.name || t('knock.someone');
+          if (msg.transcribing) {
+            // Offer the panel straight from the notice: their lines land in ours
+            // whether or not it is open, and the toast is the moment it matters.
+            if (!this.transcribingPeers.has(msg.userId)) {
+              this.toasts.action(t('transcript.started', { name }), [
+                {
+                  label: t('transcript.showAction'),
+                  primary: true,
+                  onClick: () => this.transcriptPanel.open(),
+                },
+              ]);
+            }
+            this.transcribingPeers.add(msg.userId);
+          } else if (this.transcribingPeers.delete(msg.userId)) {
+            this.toasts.info(t('transcript.stopped', { name }));
+          }
+        } else if (!msg.transcribing) {
+          this.transcribingPeers.delete(msg.userId);
+        }
+        break;
+      }
       case 'knock': {
         this.knocks.received(msg.from, msg.name);
         const level = knockAlertLevel({
@@ -1595,6 +1678,14 @@ export class App {
     if (shouldDisableOnZoneExit(this.lastZoneId, zoneId, this.anyLocalMediaOn())) {
       this.toolbar.disableAllMedia();
       this.toasts.info(t('app.zoneLeftMediaOff'));
+    }
+    // Transcription stops on the way out too (#364). It was transcribing THAT
+    // room's conversation, and unlike recording it streams other people's
+    // voices to an outside service, so leaving it running in the hallway is
+    // exactly the accident worth preventing. The panel stays open to be saved.
+    if (this.transcriber.active && this.lastZoneId !== null && zoneId === null) {
+      this.stopTranscribing();
+      this.toasts.info(t('transcript.zoneLeftStopped'));
     }
     this.lastZoneId = zoneId;
 
@@ -1813,6 +1904,81 @@ export class App {
       names.push(this.players.get(id)?.name ?? t('knock.someone'));
     }
     this.toolbar.setOthersRecording(names);
+  }
+
+  // Start/stop transcribing the call. The audio leaves the browser for Groq, so
+  // this needs the user's own key and everyone in the call is told.
+  private toggleTranscript() {
+    if (this.transcriber.active) {
+      this.stopTranscribing();
+      return;
+    }
+    // Someone here is already transcribing and sharing their lines with us, so
+    // a second run would duplicate every line and double the cost. Show them
+    // the transcript that is already filling instead.
+    const other = [...this.transcribingPeers].find((id) => this.inProximity.has(id));
+    if (other) {
+      const name = this.players.get(other)?.name ?? t('knock.someone');
+      this.toasts.info(t('transcript.alreadyRunning', { name }));
+      this.transcriptPanel.open();
+      return;
+    }
+    if (!loadGroqKey()) {
+      this.transcriptSetup.open(() => void this.startTranscribing());
+      return;
+    }
+    void this.startTranscribing();
+  }
+
+  private async startTranscribing() {
+    const streams = this.view.getRemoteMicStreams();
+    if (this.media.micStream) {
+      streams.push({ userId: this.myId, stream: this.media.micStream });
+    }
+    if (streams.length === 0) {
+      this.toasts.error(t('transcript.needsMic'));
+      return;
+    }
+    if (!(await this.transcriber.start(streams))) {
+      this.toasts.error(t('transcript.unsupported'));
+      return;
+    }
+    this.net.send({ type: 'transcribing', transcribing: true });
+    this.transcriptPanel.open();
+  }
+
+  // Stop transcribing and tell the call. The panel deliberately stays open:
+  // the log is only in memory, and nothing here knows whether it has been
+  // saved yet — closing it is the user's own call (and asks first).
+  private stopTranscribing() {
+    if (!this.transcriber.active) return;
+    this.transcriber.stop();
+    this.net.send({ type: 'transcribing', transcribing: false });
+  }
+
+  // One of our own recognised lines: show it, then share it with the call so
+  // everyone reads the same transcript even though one person is paying for it.
+  private onOwnTranscript(speakerId: string, text: string, at: number) {
+    const name =
+      speakerId === this.myId
+        ? (this.me?.name ?? t('common.you'))
+        : (this.players.get(speakerId)?.name ?? t('knock.someone'));
+    this.transcriptPanel.add({ speakerId, speakerName: name, text, at });
+    this.net.send({ type: 'transcript', speakerId, text, at });
+  }
+
+  // Peers in our call who are transcribing, for the privacy notice in the "⋯"
+  // menu. Peers who have since left the call are dropped on the way past.
+  private transcribingPeerNames(): string[] {
+    const names: string[] = [];
+    for (const id of [...this.transcribingPeers]) {
+      if (!this.inProximity.has(id)) {
+        this.transcribingPeers.delete(id);
+        continue;
+      }
+      names.push(this.players.get(id)?.name ?? t('knock.someone'));
+    }
+    return names;
   }
 
   private broadcastStatus() {

@@ -65,6 +65,10 @@ export class ToolbarController {
   private onTestNotify: () => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
+  private onToggleTranscript: () => void;
+  private isTranscribing: () => boolean;
+  private onOpenTranscriptSettings: () => void;
+  private getTranscribingPeerNames: () => string[];
   private onUserCamToggle: () => void;
 
   // Experimental features master switch (#323): persisted, off by default. The
@@ -111,6 +115,16 @@ export class ToolbarController {
     onTestNotify: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
+    // Transcription (#364). The toolbar only reports the clicks; the App owns
+    // the key check, the privacy announcement and the transcriber itself. All
+    // of it lives in the "⋯" menu rather than on the toolbar while the feature
+    // is being tried out.
+    onToggleTranscript: () => void;
+    isTranscribing: () => boolean;
+    onOpenTranscriptSettings: () => void;
+    // Peers in this call who are transcribing, so the menu carries the privacy
+    // notice after the toast that announced it has gone.
+    getTranscribingPeerNames: () => string[];
     // Fired on a MANUAL camera-button toggle (not setCamEnabled), so the App's
     // bandwidth automation (#185) can stand down when the user takes over.
     onUserCamToggle: () => void;
@@ -130,6 +144,10 @@ export class ToolbarController {
     this.onTestNotify = opts.onTestNotify;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
+    this.onToggleTranscript = opts.onToggleTranscript;
+    this.isTranscribing = opts.isTranscribing;
+    this.onOpenTranscriptSettings = opts.onOpenTranscriptSettings;
+    this.getTranscribingPeerNames = opts.getTranscribingPeerNames;
     this.onUserCamToggle = opts.onUserCamToggle;
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
@@ -801,6 +819,24 @@ export class ToolbarController {
     );
     // Camera quality lab: a standalone page comparing the SFU simulcast layers.
     addItem(t('toolbar.cameraLab'), () => window.open('/camera-lab.html', '_blank'));
+    // Transcription (#364): start/stop and the Groq key. The settings item is
+    // always here so a stored key can be changed or removed. The log panel has
+    // no item of its own — starting opens it, a peer's announcement toast
+    // offers it, and closing it discards the log on purpose.
+    addItem(
+      this.isTranscribing() ? t('toolbar.transcriptStop') : t('toolbar.transcriptStart'),
+      () => this.onToggleTranscript(),
+    );
+    addItem(t('toolbar.transcriptSettings'), () => this.onOpenTranscriptSettings());
+    // Privacy: who in this call is sending its audio to a transcription service.
+    const transcribers = this.getTranscribingPeerNames();
+    if (transcribers.length > 0) {
+      const who = document.createElement('div');
+      who.className = 'menu-label';
+      who.textContent = t('transcript.othersTip', { names: transcribers.join(', ') });
+      menu.appendChild(who);
+    }
+
     // Language switch (issue #172): label shows the language you'd switch TO;
     // setLang persists the choice and reloads.
     const other: Lang = getLang() === 'ja' ? 'en' : 'ja';
