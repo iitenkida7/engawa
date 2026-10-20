@@ -385,7 +385,7 @@ export class App {
     this.input = new InputManager();
     this.media = new MediaManager();
     this.recorder = new RecorderManager();
-    this.compositor = new SceneCompositor(this.canvas);
+    this.compositor = new SceneCompositor(this.renderer);
 
     this.view = new RemoteMediaView({
       players: this.players,

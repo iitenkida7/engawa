@@ -236,6 +236,29 @@ export function worldFromScreen(
 }
 
 /**
+ * The part of the map the viewport shows, in world px, clamped to the map and
+ * widened to whole pixels. Pure (no DOM) so the camera math is unit-testable.
+ * render() blits only this slice of the baked map: handing drawImage the whole
+ * 2600×2150 cache and relying on clipping still makes the browser touch far more
+ * of the bitmap than is visible, which dominated frame time on HiDPI screens.
+ * Returns null when nothing of the map is on screen.
+ */
+export function visibleMapRect(
+  view: { w: number; h: number },
+  cam: Point,
+  zoom: number,
+): { x: number; y: number; w: number; h: number } | null {
+  const halfW = view.w / 2 / zoom;
+  const halfH = view.h / 2 / zoom;
+  const x0 = Math.max(0, Math.floor(cam.x - halfW));
+  const y0 = Math.max(0, Math.floor(cam.y - halfH));
+  const x1 = Math.min(MAP_WIDTH, Math.ceil(cam.x + halfW));
+  const y1 = Math.min(MAP_HEIGHT, Math.ceil(cam.y + halfH));
+  if (x1 <= x0 || y1 <= y0) return null;
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
  * New zoom level after a wheel/pinch event, clamped to [ZOOM_MIN, ZOOM_MAX].
  * Pure (no DOM) so the gesture math is unit-testable. The step is exponential so
  * every notch is a uniform multiplicative change; scrolling toward the top of
@@ -262,10 +285,40 @@ export function zoomFromWheel(
 // zoomed in it was already upsampled before this cap.
 const MAP_CACHE_MAX_DPR = 1.5;
 
+// Slack, in CSS px, that the background layer is drawn beyond each viewport
+// edge. While the camera drifts less than this the layer is just slid with a CSS
+// transform (compositor work, no raster); past it the layer is redrawn once.
+const BG_MARGIN = 160;
+// Beyond the map edge, the grounds green the page background shows (#229).
+const OFF_MAP_BG = '#d2e5bf';
+// An unchanged scene is not redrawn (see sceneKey), but never left alone longer
+// than this — a safety net for state the key doesn't cover (e.g. a sprite sheet
+// finishing loading, or an outfit change).
+const IDLE_REDRAW_MS = 500;
+
 export class CanvasRenderer {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private dpr: number;
+  // Background layer under `canvas`: the baked map plus the room frames. It is
+  // redrawn only when the zoom, the room we're in or the size changes, or the
+  // camera drifts past BG_MARGIN; in between it is slid with a CSS transform.
+  // `canvas` itself is transparent and holds only what moves (avatars, labels).
+  private bg: HTMLCanvasElement;
+  private bgCtx: CanvasRenderingContext2D;
+  private bgValid = false;
+  private bgCamX = 0;
+  private bgCamY = 0;
+  private bgZoom = 0;
+  private bgZoneId: string | null = null;
+  private bgTransform = '';
+  // Viewport size in CSS px, refreshed in resize() — reading clientWidth every
+  // frame would force a layout whenever anything else touched the DOM.
+  private viewWidth = 0;
+  private viewHeight = 0;
+  // What the avatar layer last drew, and when (see sceneKey / IDLE_REDRAW_MS).
+  private lastSceneKey = '';
+  private lastDrawAt = 0;
 
   // The static map (floors/walls/furniture/border) is baked once into this
   // offscreen world-space canvas and blitted per frame, so a richer map is
@@ -316,9 +369,27 @@ export class CanvasRenderer {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('2d context not available');
     this.ctx = ctx;
+    this.bg = document.createElement('canvas');
+    this.bg.setAttribute('aria-hidden', 'true');
+    Object.assign(this.bg.style, {
+      position: 'absolute',
+      left: '0',
+      top: '0',
+      pointerEvents: 'none',
+      willChange: 'transform',
+    });
+    const bgCtx = this.bg.getContext('2d', { alpha: false });
+    if (!bgCtx) throw new Error('2d context not available');
+    this.bgCtx = bgCtx;
+    // Positioned so it stacks above the absolutely positioned background layer
+    // inserted right before it (and still below every later overlay).
+    canvas.style.position = 'relative';
+    canvas.before(this.bg);
     this.dpr = window.devicePixelRatio || 1;
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    // Layout changes that don't resize the window (e.g. the meeting layout) too.
+    new ResizeObserver(() => this.resize()).observe(canvas);
     this.setupPan();
     this.setupZoom();
   }
@@ -408,16 +479,27 @@ export class CanvasRenderer {
     }
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
+    this.viewWidth = w;
+    this.viewHeight = h;
     this.canvas.width = Math.floor(w * this.dpr);
     this.canvas.height = Math.floor(h * this.dpr);
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    const bw = w + BG_MARGIN * 2;
+    const bh = h + BG_MARGIN * 2;
+    this.bg.width = Math.floor(bw * this.dpr);
+    this.bg.height = Math.floor(bh * this.dpr);
+    this.bg.style.width = `${bw}px`;
+    this.bg.style.height = `${bh}px`;
+    this.bgValid = false;
+    // Resizing clears the canvas, so the next frame must draw.
+    this.lastSceneKey = '';
   }
 
   get viewW() {
-    return this.canvas.clientWidth;
+    return this.viewWidth;
   }
   get viewH() {
-    return this.canvas.clientHeight;
+    return this.viewHeight;
   }
 
   // Mouse wheel and trackpad pinch zoom the map about the camera center (self
@@ -474,7 +556,6 @@ export class CanvasRenderer {
     const ctx = this.ctx;
     const w = this.viewW;
     const h = this.viewH;
-    ctx.clearRect(0, 0, w, h);
 
     // Ease the zoom toward its target each frame so the one-button controls
     // animate like a pinch (#231). ~0.2/frame ≈ a ~200ms glide; snap when close.
@@ -505,6 +586,22 @@ export class CanvasRenderer {
     const centerX = this.camX;
     const centerY = this.camY;
 
+    // Static layer (map + room frames) lives on the background canvas.
+    const selfZone = self ? zoneAt(self.x, self.y) : null;
+    this.updateBackground(selfZone?.id ?? null);
+
+    // Most of the time nobody moves: skip the redraw when the frame would come
+    // out identical to the one already on screen.
+    const sortedPlayers = [...players].sort((a, b) => a.y - b.y);
+    const key = this.sceneKey(sortedPlayers, moveTarget, highlightId, mediaActive, inConversation);
+    const now = performance.now();
+    if (key !== null && key === this.lastSceneKey && now - this.lastDrawAt < IDLE_REDRAW_MS) {
+      return;
+    }
+    this.lastSceneKey = key ?? '';
+    this.lastDrawAt = now;
+    ctx.clearRect(0, 0, w, h);
+
     ctx.save();
     // Move origin to the viewport center, scale, then put the camera center at the
     // origin, so it stays centered and only the scale changes (inverse:
@@ -512,28 +609,6 @@ export class CanvasRenderer {
     ctx.translate(w / 2, h / 2);
     ctx.scale(zoom, zoom);
     ctx.translate(-centerX, -centerY);
-
-    // Static map layer: baked once into an offscreen cache and blitted. The cache
-    // is full-map world space, so drawing it under the existing camera translate
-    // lets the browser clip the offscreen part for free.
-    const dpr = Math.min(this.dpr, MAP_CACHE_MAX_DPR);
-    // Rebuild when the device-pixel ratio changes OR the baked image no longer
-    // matches the current map size — the latter guards against a stale cache
-    // after the map dimensions change (e.g. a hot-reload that widened the outdoor
-    // margin), which would otherwise leave the grass/border drawn to the old edge.
-    const wantW = Math.round(MAP_WIDTH * dpr);
-    if (!this.mapCache || this.mapCacheDpr !== dpr || this.mapCache.width !== wantW) {
-      this.buildMapCache(dpr);
-    }
-    // Blit at LOGICAL map size — the destination ctx is already dpr-scaled, so
-    // passing device px here would double-scale.
-    ctx.drawImage(this.mapCache as HTMLCanvasElement, 0, 0, MAP_WIDTH, MAP_HEIGHT);
-
-    // Meeting-room zones: frame + name label, highlighted while self is inside.
-    const selfZone = self ? zoneAt(self.x, self.y) : null;
-    for (const zone of ZONES) {
-      this.drawZone(ctx, zone, selfZone?.id === zone.id);
-    }
 
     // Self proximity ring — shown only while publishing media (the reach is
     // meaningless otherwise), and hidden inside a meeting room, where the call is
@@ -572,7 +647,6 @@ export class CanvasRenderer {
 
     // players
     const selfAway = self?.status === 'away';
-    const sortedPlayers = [...players].sort((a, b) => a.y - b.y);
     for (const p of sortedPlayers) {
       // While away (#220) our own avatar is hidden; we only spectate others.
       if (p.isSelf && selfAway) continue;
@@ -602,6 +676,131 @@ export class CanvasRenderer {
     // Name labels last, in screen space at a constant size (#227), so you can
     // read who is where even zoomed out — and on top of the veil above.
     this.drawNameLabels(ctx, sortedPlayers, w, h, selfAway);
+  }
+
+  // Everything the avatar layer's pixels depend on, as a string; render() skips
+  // the frame when it matches the last drawn one. null = animating (a pulsing
+  // focus ring, a speech bubble, a floating reaction, a walk cycle), which
+  // always redraws.
+  private sceneKey(
+    players: PlayerState[],
+    moveTarget: Point | null,
+    highlightId: string | null,
+    mediaActive: boolean,
+    inConversation: boolean,
+  ): string | null {
+    if (highlightId !== null || this.reactions.length > 0) return null;
+    // Positions to 1/20 px: below that nothing visibly moves, and it lets a
+    // remote avatar's exponential ease settle into a stable key.
+    const q = (v: number) => Math.round(v * 20);
+    let key = `${q(this.camX)},${q(this.camY)},${this.zoomLevel},${this.viewWidth}x${this.viewHeight},${mediaActive},${inConversation}`;
+    if (moveTarget) key += `|t${q(moveTarget.x)},${q(moveTarget.y)}`;
+    for (const p of players) {
+      // Mid-stride (the next draw settles the pose) or a pulsing speech bubble.
+      if (p.walkCol() !== 0 || (p.isSpeaking && !p.isSelf)) return null;
+      key += `|${p.userId},${q(p.x)},${q(p.y)},${p.facing},${p.status},${p.isSharingScreen},${p.isSpeaking},${p.name}`;
+    }
+    return key;
+  }
+
+  // Keep the background layer in step with the camera. Redraws it only when the
+  // zoom, the room we're in, the size or the map cache changed, or the camera has
+  // drifted past the drawn margin; otherwise it only slides the layer with a CSS
+  // transform, which costs no raster work at all.
+  private updateBackground(zoneId: string | null) {
+    const zoom = this.zoomLevel;
+    const dpr = Math.min(this.dpr, MAP_CACHE_MAX_DPR);
+    // Rebuild when the device-pixel ratio changes OR the baked image no longer
+    // matches the current map size — the latter guards against a stale cache
+    // after the map dimensions change (e.g. a hot-reload that widened the outdoor
+    // margin), which would otherwise leave the grass/border drawn to the old edge.
+    const wantW = Math.round(MAP_WIDTH * dpr);
+    if (!this.mapCache || this.mapCacheDpr !== dpr || this.mapCache.width !== wantW) {
+      this.buildMapCache(dpr);
+      this.bgValid = false;
+    }
+    const driftX = (this.camX - this.bgCamX) * zoom;
+    const driftY = (this.camY - this.bgCamY) * zoom;
+    if (
+      !this.bgValid ||
+      zoom !== this.bgZoom ||
+      zoneId !== this.bgZoneId ||
+      Math.abs(driftX) > BG_MARGIN ||
+      Math.abs(driftY) > BG_MARGIN
+    ) {
+      this.drawBackground(zoneId, dpr);
+    }
+    // Slide by the drift, snapped to device pixels so the map stays crisp.
+    const px = (v: number) => Math.round(v * this.dpr) / this.dpr;
+    const tx = px(-BG_MARGIN - (this.camX - this.bgCamX) * zoom);
+    const ty = px(-BG_MARGIN - (this.camY - this.bgCamY) * zoom);
+    const transform = `translate(${tx}px, ${ty}px)`;
+    if (transform !== this.bgTransform) {
+      this.bgTransform = transform;
+      this.bg.style.transform = transform;
+    }
+  }
+
+  private drawBackground(zoneId: string | null, cacheDpr: number) {
+    const ctx = this.bgCtx;
+    const zoom = this.zoomLevel;
+    const w = this.viewWidth + BG_MARGIN * 2;
+    const h = this.viewHeight + BG_MARGIN * 2;
+    this.bgCamX = this.camX;
+    this.bgCamY = this.camY;
+    this.bgZoom = zoom;
+    this.bgZoneId = zoneId;
+    this.bgValid = true;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.fillStyle = OFF_MAP_BG;
+    ctx.fillRect(0, 0, w, h);
+    ctx.translate(w / 2, h / 2);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-this.camX, -this.camY);
+    // Source rect in cache px, destination in LOGICAL world px — the destination
+    // ctx is already dpr-scaled, so passing device px there would double-scale.
+    const vis = visibleMapRect({ w, h }, { x: this.camX, y: this.camY }, zoom);
+    if (vis && this.mapCache) {
+      ctx.drawImage(
+        this.mapCache,
+        vis.x * cacheDpr,
+        vis.y * cacheDpr,
+        vis.w * cacheDpr,
+        vis.h * cacheDpr,
+        vis.x,
+        vis.y,
+        vis.w,
+        vis.h,
+      );
+    }
+    // Meeting-room zones: frame + name label, highlighted while self is inside.
+    for (const zone of ZONES) {
+      this.drawZone(ctx, zone, zoneId === zone.id);
+    }
+  }
+
+  /**
+   * Paint what the user currently sees (background layer + avatars) into
+   * `ctx` at the given box — for the recording compositor, which used to blit
+   * the single floor canvas and now needs both layers.
+   */
+  drawViewInto(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+    const sx = w / this.viewWidth;
+    const sy = h / this.viewHeight;
+    const off = (v: number, drift: number) => -BG_MARGIN - drift * this.zoomLevel + v;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+    ctx.drawImage(
+      this.bg,
+      x + off(0, this.camX - this.bgCamX) * sx,
+      y + off(0, this.camY - this.bgCamY) * sy,
+      (this.bg.width / this.dpr) * sx,
+      (this.bg.height / this.dpr) * sy,
+    );
+    ctx.drawImage(this.canvas, x, y, w, h);
+    ctx.restore();
   }
 
   // Draw every player's name label in SCREEN space at a fixed size, so labels

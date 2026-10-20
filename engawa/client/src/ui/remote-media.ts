@@ -1074,16 +1074,24 @@ export class RemoteMediaView {
       this.selfVideoEl.style.display = '';
       this.selfNoVideoEl.style.display = 'none';
     } else {
-      try {
-        this.selfVideoEl.srcObject = null;
-      } catch {
-        /* noop */
+      // This runs every frame (via setConversationMembers), so each write is
+      // guarded: re-setting srcObject or textContent dirties the DOM and costs a
+      // style + layout pass even when nothing changed.
+      if (this.selfVideoEl.srcObject !== null) {
+        try {
+          this.selfVideoEl.srcObject = null;
+        } catch {
+          /* noop */
+        }
       }
       // Camera off: render the initials placeholder (matching remote tiles).
       const me = this.players.get(this.getMyId());
       const name = me?.name || t('common.you');
-      this.selfNoVideoInitialsEl.textContent = me ? me.initials() : name.slice(0, 2).toUpperCase();
-      this.selfNoVideoNameEl.textContent = name;
+      const initials = me ? me.initials() : name.slice(0, 2).toUpperCase();
+      if (this.selfNoVideoInitialsEl.textContent !== initials) {
+        this.selfNoVideoInitialsEl.textContent = initials;
+      }
+      if (this.selfNoVideoNameEl.textContent !== name) this.selfNoVideoNameEl.textContent = name;
       this.selfVideoEl.style.display = 'none';
       this.selfNoVideoEl.style.display = show ? '' : 'none';
     }

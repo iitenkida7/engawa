@@ -130,6 +130,13 @@ const FPS = 15;
 const FRAME_INTERVAL_MS = 1000 / FPS;
 const FLOOR_BG = '#1a1d24';
 
+// The live map view (the renderer's layers), painted into the recording frame.
+export interface FloorView {
+  readonly viewW: number;
+  readonly viewH: number;
+  drawViewInto(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void;
+}
+
 // Fixed 16:9 recording frame (logical px). The backing store is always
 // REC_SCALE× this (2560×1440), independent of the device pixel ratio: the
 // screenshare stage (~74% of the width) then holds an FHD share at ~1:1 and a
@@ -153,7 +160,7 @@ export class SceneCompositor {
   private width = REC_WIDTH;
   private height = REC_HEIGHT;
 
-  constructor(private floorCanvas: HTMLCanvasElement) {
+  constructor(private floor: FloorView) {
     const ctx = this.canvas.getContext('2d');
     if (!ctx) throw new Error('2d context not available');
     this.ctx = ctx;
@@ -252,16 +259,16 @@ export class SceneCompositor {
   }
 
   private drawMap(box: Box) {
-    const fc = this.floorCanvas;
+    const fv = this.floor;
     this.drawBox(box, FLOOR_BG);
-    if (fc.width <= 0 || fc.height <= 0) return;
-    const d = fitRect(fc.width, fc.height, box.x, box.y, box.w, box.h, 'contain');
+    if (fv.viewW <= 0 || fv.viewH <= 0) return;
+    const d = fitRect(fv.viewW, fv.viewH, box.x, box.y, box.w, box.h, 'contain');
     const { ctx } = this;
     ctx.save();
     ctx.beginPath();
     ctx.rect(box.x, box.y, box.w, box.h);
     ctx.clip();
-    ctx.drawImage(fc, d.x, d.y, d.w, d.h);
+    fv.drawViewInto(ctx, d.x, d.y, d.w, d.h);
     ctx.restore();
   }
 
