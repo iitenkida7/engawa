@@ -10,14 +10,11 @@
 const GROQ_TRANSCRIPTION_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 
 export const GROQ_KEY_STORAGE = 'engawa-groq-key';
-export const GROQ_MODEL_STORAGE = 'engawa-groq-model';
 
 // turbo is ~3× cheaper and faster than the full model at slightly lower
 // accuracy ($0.04 vs $0.111 per audio hour); for meeting notes that trade is
-// worth it, so it is the default.
-export const GROQ_MODELS = ['whisper-large-v3-turbo', 'whisper-large-v3'] as const;
-export type GroqModel = (typeof GROQ_MODELS)[number];
-export const DEFAULT_GROQ_MODEL: GroqModel = 'whisper-large-v3-turbo';
+// worth it, so it is the only model offered.
+const GROQ_MODEL = 'whisper-large-v3-turbo';
 
 // Groq keys are issued with this prefix. Checked only to catch a mis-paste
 // before the first request, never to gate the request itself.
@@ -58,12 +55,6 @@ export function parseGroqKey(raw: unknown): string | null {
   const key = raw.trim();
   if (!key.startsWith(KEY_PREFIX) || key.length < KEY_MIN_LENGTH) return null;
   return key;
-}
-
-// Pure: fall back to the default for anything we don't recognise, so a stale
-// model name in localStorage can't wedge the feature.
-export function parseGroqModel(raw: unknown): GroqModel {
-  return GROQ_MODELS.includes(raw as GroqModel) ? (raw as GroqModel) : DEFAULT_GROQ_MODEL;
 }
 
 // Whisper was trained on captioned video, and when handed audio with no speech
@@ -125,7 +116,6 @@ class GroqFatalRequestError extends Error {}
 
 export type TranscribeOptions = {
   apiKey: string;
-  model: GroqModel;
   // ISO-639-1 ('ja', 'en'). Naming the language measurably beats letting the
   // model guess it, especially on short segments.
   language?: string;
@@ -142,7 +132,7 @@ export type TranscribeOptions = {
 export async function transcribeAudio(wav: Blob, opts: TranscribeOptions): Promise<string> {
   const form = new FormData();
   form.append('file', wav, 'audio.wav');
-  form.append('model', opts.model);
+  form.append('model', GROQ_MODEL);
   // verbose_json carries the per-segment confidence scores that hallucination
   // filtering needs; temperature 0 makes the model far less inventive on the
   // near-silent segments where it invents text in the first place.

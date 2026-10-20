@@ -2548,6 +2548,15 @@
                recording (toggled via .others-recording in JS). -->
           <span class="rec-badge" aria-hidden="true"></span>
         </button>
+        <!-- Transcribe (#364): goes red (.recording) while we are transcribing. -->
+        <button id="btn-transcript" class="icon-toggle" data-i18n-tip="toolbar.transcriptTitle" data-tip="文字起こし" aria-label="文字起こし">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 3h9l4 4v14H6z" />
+            <path d="M15 3v4h4" />
+            <line x1="9" y1="12" x2="16" y2="12" />
+            <line x1="9" y1="16" x2="14" y2="16" />
+          </svg>
+        </button>
         <button id="btn-status" data-i18n-tip="roster.status" data-tip="ステータス" aria-label="ステータス">🟢</button>
         <div class="btn-group">
           <button id="btn-reaction" data-i18n-tip="toolbar.reactions" data-tip="リアクション" aria-label="リアクション">😀</button>
@@ -2645,8 +2654,6 @@
           <div class="setup-help">
             <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" data-i18n="transcript.keyHelp">console.groq.com</a>
           </div>
-          <label for="transcript-model" data-i18n="transcript.modelLabel">モデル</label>
-          <select id="transcript-model"></select>
           <div class="setup-error" id="transcript-setup-error"></div>
           <div class="setup-actions">
             <button type="button" id="transcript-forget" class="danger" data-i18n="transcript.clearKey">キーを削除</button>
