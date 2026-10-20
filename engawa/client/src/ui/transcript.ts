@@ -171,9 +171,12 @@ export class TranscriptPanel {
     this.summaryBody.textContent = t('transcript.summarizing');
     try {
       const text = await summarize(toSummaryInput(this.entries), getLang(), (fraction) => {
-        this.summaryBody.textContent = t('transcript.summaryDownloading', {
-          percent: Math.round(fraction * 100),
-        });
+        // Once the download completes the model starts summarising; say so
+        // instead of leaving "100%" up for the whole run.
+        this.summaryBody.textContent =
+          fraction < 1
+            ? t('transcript.summaryDownloading', { percent: Math.round(fraction * 100) })
+            : t('transcript.summarizing');
       });
       this.summaryBody.textContent = text.trim();
     } catch (err) {

@@ -82,9 +82,10 @@ export async function canSummarize(lang: Lang): Promise<boolean> {
   }
 }
 
-// Summarise `text`. `onDownload` reports model download progress (0..1) the
-// first time. Must be called from a click: creating the summarizer may start
-// that download, which needs user activation.
+// Summarise `text`. `onDownload` reports model download progress (0..1), only
+// while the model is actually missing: Chrome fires 0 and 1 progress events
+// even when it is already on disk. Must be called from a click: creating the
+// summarizer may start that download, which needs user activation.
 export async function summarize(
   text: string,
   lang: Lang,
@@ -92,9 +93,11 @@ export async function summarize(
 ): Promise<string> {
   const s = api();
   if (!s) throw new Error('Summarizer unavailable');
+  const needsDownload = (await s.availability(options(lang))) !== 'available';
   const summarizer = await s.create({
     ...options(lang),
     monitor: (m) => {
+      if (!needsDownload) return;
       m.addEventListener('downloadprogress', (e) => onDownload((e as ProgressEvent).loaded));
     },
   });
