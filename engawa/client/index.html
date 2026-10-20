@@ -587,7 +587,11 @@
         color: #fff;
       }
 
+      /* min-height: 0 lets the flex child shrink below its content so the
+         body scrolls inside the panel instead of being clipped by it. */
       #transcript-body {
+        flex: 1 1 auto;
+        min-height: 0;
         padding: 8px 12px 12px;
         overflow-y: auto;
         line-height: 1.6;
