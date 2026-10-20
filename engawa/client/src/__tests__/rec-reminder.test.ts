@@ -6,7 +6,7 @@ import {
   stepRecReminder,
 } from '@/ui/rec-reminder';
 
-const base = { roomId: 'meeting-1', peers: 1, anyoneRecording: false };
+const base = { roomId: 'meeting-1', activePeople: 2, anyoneRecording: false };
 
 describe('parseRecReminderSetting', () => {
   it('is off unless explicitly enabled', () => {
@@ -25,12 +25,20 @@ describe('stepRecReminder', () => {
     expect(stepRecReminder(s, { ...base, now: REC_REMINDER_DELAY_MS * 5 })).toBe(false);
   });
 
-  it('does not count time spent alone', () => {
+  it('does not count time without two people on mic or camera', () => {
     const s = newRecReminderState();
-    stepRecReminder(s, { ...base, peers: 0, now: 0 });
-    stepRecReminder(s, { ...base, peers: 0, now: REC_REMINDER_DELAY_MS * 2 });
+    stepRecReminder(s, { ...base, activePeople: 1, now: 0 });
+    stepRecReminder(s, { ...base, activePeople: 1, now: REC_REMINDER_DELAY_MS * 2 });
     expect(stepRecReminder(s, { ...base, now: REC_REMINDER_DELAY_MS * 2 })).toBe(false);
     expect(stepRecReminder(s, { ...base, now: REC_REMINDER_DELAY_MS * 3 })).toBe(true);
+  });
+
+  it('stays quiet while people sit in the room with mic and camera off', () => {
+    const s = newRecReminderState();
+    stepRecReminder(s, { ...base, activePeople: 0, now: 0 });
+    expect(stepRecReminder(s, { ...base, activePeople: 0, now: REC_REMINDER_DELAY_MS * 3 })).toBe(
+      false,
+    );
   });
 
   it('never asks during a visit where someone recorded', () => {

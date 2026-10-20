@@ -1,12 +1,17 @@
 // "Forgot to record?" reminder for meeting rooms. Opt-in from the "⋯" menu
-// (off by default): once you have been in a meeting room with at least one
-// other person for a minute and nobody in the call is recording, a toast asks
-// whether to start. Asked at most once per room visit, so declining (or
-// recording and then stopping) never nags again until you leave and come back.
+// (off by default): once a meeting room has had at least two people with their
+// mic or camera on (you included) for a minute and nobody in the call is
+// recording, a toast asks whether to start. A lone person, or people sitting
+// there with everything off, is not a meeting worth recording. Asked at most
+// once per room visit, so declining (or recording and then stopping) never nags
+// again until you leave and come back.
 
 export const REC_REMINDER_STORAGE_KEY = 'engawa-rec-reminder';
 
 export const REC_REMINDER_DELAY_MS = 60_000;
+
+// People with mic or camera on (us included) needed before the clock runs.
+export const REC_REMINDER_MIN_ACTIVE = 2;
 
 // Off unless explicitly enabled: only '1' turns the reminder on.
 export function parseRecReminderSetting(stored: string | null): boolean {
@@ -16,7 +21,7 @@ export function parseRecReminderSetting(stored: string | null): boolean {
 export type RecReminderState = {
   // Meeting room we are in, or null outside one.
   roomId: string | null;
-  // When "in the room with others, nobody recording" last became true.
+  // When "enough active people, nobody recording" last became true.
   since: number | null;
   // Already asked (or someone recorded) during this visit.
   done: boolean;
@@ -29,8 +34,8 @@ export function newRecReminderState(): RecReminderState {
 export type RecReminderInput = {
   // Meeting room we are in, or null outside one.
   roomId: string | null;
-  // People in our call besides us.
-  peers: number;
+  // People in our call, us included, whose mic or camera is on.
+  activePeople: number;
   // Whether we or anyone in our call is recording.
   anyoneRecording: boolean;
   now: number;
@@ -49,7 +54,7 @@ export function stepRecReminder(state: RecReminderState, input: RecReminderInput
     state.done = true;
     return false;
   }
-  if (input.peers < 1) {
+  if (input.activePeople < REC_REMINDER_MIN_ACTIVE) {
     state.since = null;
     return false;
   }

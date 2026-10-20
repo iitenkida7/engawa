@@ -1902,7 +1902,8 @@ export class App {
   }
 
   // Ask once per meeting-room visit whether to record, when the reminder is on
-  // and a minute has passed with others in the call and nobody recording.
+  // and a minute has passed with two or more people on mic or camera and nobody
+  // recording.
   // The open toast closes itself once someone starts or we leave the room.
   private tickRecReminder(now: number) {
     const zoneId = this.me && callZoneAt(this.me.x, this.me.y);
@@ -1912,9 +1913,14 @@ export class App {
       this.recReminderDismiss();
       this.recReminderDismiss = null;
     }
+    let activePeople = this.media.micOn || this.media.camOn ? 1 : 0;
+    for (const id of this.inProximity) {
+      const p = this.players.get(id);
+      if (p && (!p.isMuted || p.isVideoOn)) activePeople++;
+    }
     const show = stepRecReminder(this.recReminder, {
       roomId,
-      peers: this.inProximity.size,
+      activePeople,
       anyoneRecording,
       now,
     });
