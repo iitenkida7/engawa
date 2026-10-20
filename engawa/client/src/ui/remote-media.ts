@@ -335,6 +335,10 @@ export class RemoteMediaView {
         if (key) this.toggleFocus(key);
         return;
       }
+      // The per-person volume control lives in the tile header: dragging its
+      // slider ends in a click, which must not also pin / unpin the tile (that
+      // resized the windows every time the volume was touched).
+      if (target?.closest?.('.vol')) return;
       if (e.detail > 1) return;
       const panel = target?.closest?.<HTMLElement>(
         '.panel.meeting-pinnable, .panel.meeting-pinned',
