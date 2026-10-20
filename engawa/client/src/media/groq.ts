@@ -109,6 +109,40 @@ export function isHallucinated(raw: unknown): boolean {
   });
 }
 
+// Which limit a 429 hit and how long until it clears, as far as the error body
+// says. Groq reports remaining quota in x-ratelimit-* headers, but doesn't
+// expose them (or Retry-After) to cross-origin JavaScript, so the body is the
+// only exact figure the browser gets.
+export type RateLimit = {
+  // Groq's own abbreviation: RPM / RPD (requests), ASH / ASD (audio seconds).
+  kind: string | null;
+  waitSec: number | null;
+};
+
+// Pure: read a 429 body such as `{"error":{"message":"Rate limit reached for
+// model ... on audio seconds per hour (ASH): Limit 7200, Used 7195, Requested
+// 20. Please try again in 6m12.5s. ..."}}`. Fields it can't find are null.
+export function parseRateLimit(body: string): RateLimit {
+  let message = body;
+  try {
+    const data = JSON.parse(body) as { error?: { message?: unknown } };
+    if (typeof data.error?.message === 'string') message = data.error.message;
+  } catch {
+    /* not JSON: search the raw text */
+  }
+  const kind = /\((RPM|RPD|ASH|ASD)\)/.exec(message)?.[1] ?? null;
+  const wait = /try again in ((?:\d+(?:\.\d+)?[hms])+)/.exec(message)?.[1];
+  let waitSec: number | null = null;
+  if (wait) {
+    const scale: Record<string, number> = { h: 3600, m: 60, s: 1 };
+    waitSec = 0;
+    for (const [, n, unit] of wait.matchAll(/(\d+(?:\.\d+)?)([hms])/g)) {
+      waitSec += Number(n) * scale[unit];
+    }
+  }
+  return { kind, waitSec };
+}
+
 export class GroqAuthError extends Error {}
 
 // A request the API refused for a reason retrying won't fix (other than the key).
@@ -123,6 +157,8 @@ export type TranscribeOptions = {
   // so names and jargon stay spelled consistently across segments.
   prompt?: string;
   signal?: AbortSignal;
+  // Called on each 429. The request is still retried until it goes through.
+  onRateLimited?: (limit: RateLimit) => void;
 };
 
 // POST one WAV to Groq and return the recognised text ('' when there was
@@ -168,6 +204,7 @@ export async function transcribeAudio(wav: Blob, opts: TranscribeOptions): Promi
         const err = new Error(`Groq transcription failed: ${res.status} ${detail.slice(0, 200)}`);
         if (!RETRY_STATUSES.includes(res.status)) throw new GroqFatalRequestError(err.message);
         retryAfter = res.headers.get('retry-after');
+        if (res.status === 429) opts.onRateLimited?.(parseRateLimit(detail));
         console.warn('[transcript]', err.message);
       } else {
         const data = (await res.json()) as { text?: unknown; segments?: unknown };
