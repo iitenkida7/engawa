@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   FLOOR_PATTERNS,
+  type FloorStyle,
   floorStyleAt,
   islandFloorStyle,
   MAP_COLS,
@@ -21,8 +22,8 @@ describe('generated layout is unchanged by the tilemap split', () => {
   });
 
   test('floor styles for every tile, island and the team area', () => {
-    const code = (s: { pattern: string; color: number } | null) =>
-      s ? `${FLOOR_PATTERNS.indexOf(s.pattern as (typeof FLOOR_PATTERNS)[number])}${s.color}` : '--';
+    const code = (s: FloorStyle | null) =>
+      s ? `${FLOOR_PATTERNS.indexOf(s.pattern)}${s.color}` : '--';
     const grid: string[] = [];
     for (let r = 0; r < MAP_ROWS; r++) {
       let line = '';
