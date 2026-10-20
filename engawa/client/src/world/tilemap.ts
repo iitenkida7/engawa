@@ -371,7 +371,14 @@ type DeskUnit = { col: number; row: number; facing: 'south' | 'north' };
 // desk rows face each other (upper row south → chair above, lower row north →
 // chair below); centres are ≥5 apart so a chair never lands in a neighbour's ring.
 const TOP_ISLAND_COLS = [4, 9, 14, 19, 24, 29];
-const BOTTOM_ISLAND_COLS = [4, 9, 14, 19, 24, 29]; // lounge moved outdoors, so full width
+const BOTTOM_ISLAND_COLS = [4, 9, 14];
+// The bottom-right team area: three islands packed edge to edge (pitch 3, so the
+// desks join into one 9-tile row) on a single shared rug (TEAM_AREA). Everyone
+// on it is in one call, like a room, but it is NOT a zone on the client: it
+// looks and behaves like a pod rug (no meeting layout, frame or exit mute) and
+// only reports a call zone id to the server for grouping (callZoneAt).
+const TEAM_ISLAND_COLS = [21, 24, 27];
+const TEAM_AREA = { id: 'team-area', c: 20, r: 15, w: 9, h: 6 };
 
 const OPEN_DESK_UNITS: DeskUnit[] = [
   ...TOP_ISLAND_COLS.flatMap((col): DeskUnit[] => [
@@ -384,14 +391,21 @@ const OPEN_DESK_UNITS: DeskUnit[] = [
   ]),
 ];
 
+// The team area's desks share its rug instead of getting private pod rugs.
+const TEAM_DESK_UNITS: DeskUnit[] = TEAM_ISLAND_COLS.flatMap((col): DeskUnit[] => [
+  { col, row: 17, facing: 'south' },
+  { col, row: 18, facing: 'north' },
+]);
+
 // The president's desk (#357 follow-up): the same 3-tile desk + chair unit as the
 // open office, but inside the president's office. Facing south puts the chair
 // behind the desk against the top wall, so the president faces the door.
 const EXEC_DESK_UNITS: DeskUnit[] = [{ col: 3, row: 2, facing: 'south' }];
 
-// Every desk unit on the map. POD_RUGS below deliberately stays on the open-office
-// ones — the exec desk sits on the president's office rug, not its own pod.
-const DESK_UNITS: DeskUnit[] = [...OPEN_DESK_UNITS, ...EXEC_DESK_UNITS];
+// Every desk unit on the map. POD_RUGS below deliberately stays on the pod desks —
+// the exec desk sits on the president's office rug and the team-area desks on the
+// team area's, not their own pods.
+const DESK_UNITS: DeskUnit[] = [...OPEN_DESK_UNITS, ...TEAM_DESK_UNITS, ...EXEC_DESK_UNITS];
 
 // The chair tile sits one row in front of the desk's centre (south → above,
 // north → below), building-local.
@@ -460,14 +474,14 @@ export function isDeskSeat(px: number, py: number): boolean {
 }
 
 /**
- * The pod rug (a seat's 3×3 rect) that (px,py) sits on, or null. Used to focus
- * just your own desk island while a desk-side conversation is active — the same
- * dim veil as a meeting room (#223) but scoped to one person's private rug.
- * The two facing rugs of an island are 3 tiles apart, so a point maps to at
- * most one rug.
+ * The pod rug (a seat's 3×3 rect, or the shared team-area rug) that (px,py)
+ * sits on, or null. Used to focus just your own desk island while a desk-side
+ * conversation is active — the same dim veil as a meeting room (#223) but
+ * scoped to the rug. The two facing rugs of an island are 3 tiles apart, so a
+ * point maps to at most one rug.
  */
 export function podRugAt(px: number, py: number): Rect | null {
-  for (const rug of POD_RUGS) {
+  for (const rug of [...POD_RUGS, TEAM_AREA_RECT]) {
     if (px >= rug.x && px < rug.x + rug.w && py >= rug.y && py < rug.y + rug.h) return rug;
   }
   return null;
@@ -873,6 +887,11 @@ function computeFloorStyles(): Map<string, FloorStyle> {
   strip(ROOMS.filter((r) => r.r < 10 && inBuilding(r)));
   strip(ROOMS.filter((r) => r.r >= 10 && inBuilding(r)));
   for (const r of ROOMS) ensure(r.id);
+  // The team area differs from the island beside it and the ones above it.
+  edge(TEAM_AREA.id, islandId(TOP_ISLAND_COLS.length + BOTTOM_ISLAND_COLS.length - 1));
+  TOP_ISLAND_COLS.forEach((col, i) => {
+    if (col + 1 >= TEAM_AREA.c) edge(TEAM_AREA.id, islandId(i));
+  });
   // Cafés: the two sit opposite each other — just make them differ.
   if (LOUNGES.length === 2) edge(LOUNGES[0].id, LOUNGES[1].id);
   else {
@@ -923,6 +942,30 @@ export function islandFloorStyle(rugIndex: number): FloorStyle {
 // Impassable sub-tile props, checked by isSolid in addition to the SOLID tile
 // kinds. Pixel rects so props that don't fill a whole tile still block.
 const SOLID_RECTS: Rect[] = [...LOUNGE_TABLE_RECTS];
+
+// The team area's shared rug (pixel rect) and its style.
+export const TEAM_AREA_RECT: Rect = {
+  x: TEAM_AREA.c * TILE_SIZE + OFF_X,
+  y: TEAM_AREA.r * TILE_SIZE + OFF_Y,
+  w: TEAM_AREA.w * TILE_SIZE,
+  h: TEAM_AREA.h * TILE_SIZE,
+};
+export function teamAreaFloorStyle(): FloorStyle {
+  return FLOOR_STYLES.get(TEAM_AREA.id) ?? { pattern: 'none', color: 0 };
+}
+
+function inTeamArea(px: number, py: number): boolean {
+  const r = TEAM_AREA_RECT;
+  return px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h;
+}
+
+/**
+ * The call zone id to report to the server for grouping: the zone at (px,py),
+ * or the team area (one shared call, though the client treats it as a rug).
+ */
+export function callZoneAt(px: number, py: number): string | null {
+  return zoneAt(px, py)?.id ?? (inTeamArea(px, py) ? TEAM_AREA.id : null);
+}
 
 // One accent rug per SEAT — a 3×3 block centred on the chair, i.e. the exact
 // "connect zone" (the seat + its 8 adjacent tiles, SEAT_CONNECT_RADIUS). It
