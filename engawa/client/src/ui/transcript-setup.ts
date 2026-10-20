@@ -7,15 +7,7 @@
 // point of invariant #1, which keeps the audio off it in the first place).
 
 import { t } from '@/core/i18n';
-import {
-  DEFAULT_GROQ_MODEL,
-  GROQ_KEY_STORAGE,
-  GROQ_MODEL_STORAGE,
-  GROQ_MODELS,
-  type GroqModel,
-  parseGroqKey,
-  parseGroqModel,
-} from '@/media/groq';
+import { GROQ_KEY_STORAGE, parseGroqKey } from '@/media/groq';
 
 export function loadGroqKey(): string | null {
   try {
@@ -25,19 +17,10 @@ export function loadGroqKey(): string | null {
   }
 }
 
-export function loadGroqModel(): GroqModel {
-  try {
-    return parseGroqModel(localStorage.getItem(GROQ_MODEL_STORAGE));
-  } catch {
-    return DEFAULT_GROQ_MODEL;
-  }
-}
-
-function persist(key: string | null, model: GroqModel) {
+function persist(key: string | null) {
   try {
     if (key) localStorage.setItem(GROQ_KEY_STORAGE, key);
     else localStorage.removeItem(GROQ_KEY_STORAGE);
-    localStorage.setItem(GROQ_MODEL_STORAGE, model);
   } catch {
     /* ignore private-mode storage errors */
   }
@@ -46,29 +29,20 @@ function persist(key: string | null, model: GroqModel) {
 export class TranscriptSetup {
   private root: HTMLElement;
   private input: HTMLInputElement;
-  private select: HTMLSelectElement;
   private error: HTMLElement;
   private confirmBtn: HTMLButtonElement;
-  private onConfirm: ((key: string, model: GroqModel) => void) | null = null;
+  private onConfirm: ((key: string) => void) | null = null;
 
   constructor() {
     this.root = document.getElementById('transcript-setup') as HTMLElement;
     this.input = document.getElementById('transcript-key') as HTMLInputElement;
-    this.select = document.getElementById('transcript-model') as HTMLSelectElement;
     this.error = document.getElementById('transcript-setup-error') as HTMLElement;
     this.confirmBtn = document.getElementById('transcript-confirm') as HTMLButtonElement;
-
-    for (const model of GROQ_MODELS) {
-      const opt = document.createElement('option');
-      opt.value = model;
-      opt.textContent = `${model} — ${t(model === DEFAULT_GROQ_MODEL ? 'transcript.modelTurbo' : 'transcript.modelLarge')}`;
-      this.select.appendChild(opt);
-    }
 
     document.getElementById('transcript-cancel')?.addEventListener('click', () => this.close());
     this.confirmBtn.addEventListener('click', () => this.confirm());
     document.getElementById('transcript-forget')?.addEventListener('click', () => {
-      persist(null, parseGroqModel(this.select.value));
+      persist(null);
       this.input.value = '';
       this.close();
     });
@@ -84,11 +58,10 @@ export class TranscriptSetup {
   // `onConfirm` is given when the dialog stands between the user and starting a
   // transcription; opened from the menu to edit a stored key it is omitted, and
   // the button just saves.
-  open(onConfirm?: (key: string, model: GroqModel) => void) {
+  open(onConfirm?: (key: string) => void) {
     this.onConfirm = onConfirm ?? null;
     this.confirmBtn.textContent = t(onConfirm ? 'transcript.setupStart' : 'transcript.setupSave');
     this.input.value = loadGroqKey() ?? '';
-    this.select.value = loadGroqModel();
     this.error.textContent = '';
     this.root.classList.remove('hidden');
     this.input.focus();
@@ -105,10 +78,9 @@ export class TranscriptSetup {
       this.error.textContent = t('transcript.invalidKey');
       return;
     }
-    const model = parseGroqModel(this.select.value);
-    persist(key, model);
+    persist(key);
     const done = this.onConfirm;
     this.close();
-    done?.(key, model);
+    done?.(key);
   }
 }

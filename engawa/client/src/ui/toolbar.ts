@@ -95,6 +95,7 @@ export class ToolbarController {
   private btnCam: HTMLButtonElement;
   private btnScreen: HTMLButtonElement;
   private btnRec: HTMLButtonElement;
+  private btnTranscript: HTMLButtonElement;
   private btnReaction: HTMLButtonElement;
   private reactionMenu: HTMLDivElement;
   private btnMore: HTMLButtonElement;
@@ -158,6 +159,7 @@ export class ToolbarController {
     this.btnCam = document.getElementById('btn-cam') as HTMLButtonElement;
     this.btnScreen = document.getElementById('btn-screen') as HTMLButtonElement;
     this.btnRec = document.getElementById('btn-rec') as HTMLButtonElement;
+    this.btnTranscript = document.getElementById('btn-transcript') as HTMLButtonElement;
     this.btnReaction = document.getElementById('btn-reaction') as HTMLButtonElement;
     this.reactionMenu = document.getElementById('reaction-menu') as HTMLDivElement;
     this.btnMore = document.getElementById('btn-more') as HTMLButtonElement;
@@ -198,6 +200,7 @@ export class ToolbarController {
     });
     this.btnScreen.addEventListener('click', () => this.toggleScreen());
     this.btnRec.addEventListener('click', () => this.toggleRecord());
+    this.btnTranscript.addEventListener('click', () => this.onToggleTranscript());
     this.setupLayoutControls();
   }
 
@@ -287,6 +290,8 @@ export class ToolbarController {
     // and swaps its dot for a stop square. Both are icon-only.
     this.btnScreen.classList.toggle('active', this.media.screenOn);
     this.btnRec.classList.toggle('recording', this.recorder.recording);
+    // Transcribe goes red the same way while we are transcribing.
+    this.btnTranscript.classList.toggle('recording', this.isTranscribing());
   }
 
   // ---- Mic/cam enable & disable flows (shared by toolbar and device switch) ----
@@ -882,14 +887,8 @@ export class ToolbarController {
     );
     // Camera quality lab: a standalone page comparing the SFU simulcast layers.
     addItem(t('toolbar.cameraLab'), () => window.open('/camera-lab.html', '_blank'));
-    // Transcription (#364): start/stop and the Groq key. The settings item is
-    // always here so a stored key can be changed or removed. The log panel has
-    // no item of its own — starting opens it, a peer's announcement toast
-    // offers it, and closing it discards the log on purpose.
-    addItem(
-      this.isTranscribing() ? t('toolbar.transcriptStop') : t('toolbar.transcriptStart'),
-      () => this.onToggleTranscript(),
-    );
+    // Transcription (#364): start/stop lives on the toolbar button; the Groq key
+    // setting stays here so a stored key can be changed or removed.
     addItem(t('toolbar.transcriptSettings'), () => this.onOpenTranscriptSettings());
     addItem((this.recReminderEnabled ? '✓ ' : '') + t('toolbar.recReminder'), () =>
       this.toggleRecReminder(),

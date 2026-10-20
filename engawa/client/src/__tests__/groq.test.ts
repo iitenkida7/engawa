@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  cleanTranscript,
-  DEFAULT_GROQ_MODEL,
-  isHallucinated,
-  parseGroqKey,
-  parseGroqModel,
-  retryDelayMs,
-} from '@/media/groq';
+import { cleanTranscript, isHallucinated, parseGroqKey, retryDelayMs } from '@/media/groq';
 
 // The Groq Whisper client's pure parts: settings parsing and the filters that
 // keep invented text out of the transcript.
@@ -22,14 +15,6 @@ describe('parseGroqKey', () => {
     expect(parseGroqKey('sk-openai-style-key-here')).toBeNull();
     expect(parseGroqKey('gsk_short')).toBeNull();
     expect(parseGroqKey(12345)).toBeNull();
-  });
-});
-
-describe('parseGroqModel', () => {
-  it('falls back to the default for anything unrecognised', () => {
-    expect(parseGroqModel(null)).toBe(DEFAULT_GROQ_MODEL);
-    expect(parseGroqModel('whisper-large-v4')).toBe(DEFAULT_GROQ_MODEL);
-    expect(parseGroqModel('whisper-large-v3')).toBe('whisper-large-v3');
   });
 });
 

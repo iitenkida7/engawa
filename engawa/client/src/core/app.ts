@@ -92,7 +92,7 @@ import { SoundManager } from '@/ui/sounds';
 import { StatusMenu } from '@/ui/status-menu';
 import { type MediaSink, ToolbarController } from '@/ui/toolbar';
 import { TranscriptPanel } from '@/ui/transcript';
-import { loadGroqKey, loadGroqModel, TranscriptSetup } from '@/ui/transcript-setup';
+import { loadGroqKey, TranscriptSetup } from '@/ui/transcript-setup';
 import { CanvasRenderer } from '@/world/canvas';
 import { OUTFIT_COUNTS } from '@/world/character';
 import { stepTarget } from '@/world/grid';
@@ -482,7 +482,6 @@ export class App {
     // sees the resulting text, and only to relay it to the same call.
     this.transcriber = new TranscriberManager({
       getApiKey: () => loadGroqKey(),
-      getModel: () => loadGroqModel(),
       getLanguage: () => getLang(),
       isSpeaking: (userId) => this.players.get(userId)?.isSpeaking ?? false,
       onTranscript: (speakerId, text, at) => this.onOwnTranscript(speakerId, text, at),
@@ -1994,6 +1993,7 @@ export class App {
       return;
     }
     this.net.send({ type: 'transcribing', transcribing: true });
+    this.toolbar.refresh();
     this.transcriptPanel.open();
   }
 
@@ -2004,6 +2004,7 @@ export class App {
     if (!this.transcriber.active) return;
     this.transcriber.stop();
     this.net.send({ type: 'transcribing', transcribing: false });
+    this.toolbar.refresh();
   }
 
   // One of our own recognised lines: show it, then share it with the call so

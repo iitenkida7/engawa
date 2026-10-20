@@ -306,8 +306,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'notify.help.retest': { ja: 'もう一度テスト', en: 'Test again' },
 
   // -- transcript (Groq speech-to-text) -------------------------------------
-  'toolbar.transcriptStart': { ja: '📝 文字起こしを開始', en: '📝 Start transcribing' },
-  'toolbar.transcriptStop': { ja: '⏹ 文字起こしを停止', en: '⏹ Stop transcribing' },
+  'toolbar.transcriptTitle': { ja: '文字起こし', en: 'Transcribe' },
   'toolbar.transcriptSettings': { ja: '📝 文字起こしの設定', en: '📝 Transcription settings' },
   'toolbar.recReminder': {
     ja: '⏺ 会議室で録画を忘れていたら知らせる',
@@ -381,9 +380,6 @@ const STR: Record<string, Record<Lang, string>> = {
   },
   'transcript.keyLabel': { ja: 'Groq API キー', en: 'Groq API key' },
   'transcript.keyHelp': { ja: 'console.groq.com で発行', en: 'Create one at console.groq.com' },
-  'transcript.modelLabel': { ja: 'モデル', en: 'Model' },
-  'transcript.modelTurbo': { ja: '高速・安価（$0.04/時）', en: 'Fast & cheap ($0.04/hr)' },
-  'transcript.modelLarge': { ja: '高精度（$0.111/時）', en: 'Most accurate ($0.111/hr)' },
   'transcript.invalidKey': {
     ja: 'キーの形式が正しくないようです（gsk_ で始まります）',
     en: 'That does not look like a Groq key (they start with gsk_)',

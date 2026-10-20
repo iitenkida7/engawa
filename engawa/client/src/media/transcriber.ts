@@ -11,7 +11,7 @@
 // here would stack on top of the detectors and volume routes already tapping
 // the same streams, and a 5-person call would hit the browser's context cap.
 
-import { GroqAuthError, type GroqModel, transcribeAudio } from '@/media/groq';
+import { GroqAuthError, transcribeAudio } from '@/media/groq';
 import type { PcmBlockMessage } from '@/media/pcm-tap-worklet';
 import pcmTapWorkletUrl from '@/media/pcm-tap-worklet?worker&url';
 import {
@@ -46,7 +46,6 @@ export type TranscriberOptions = {
   // Called when transcription had to stop (bad key, repeated failures).
   onError: (message: string, fatal: boolean) => void;
   getApiKey: () => string | null;
-  getModel: () => GroqModel;
   getLanguage: () => string;
   // Whether this person's tile is lit green right now (media/speaking.ts).
   // Audio only counts as speech while it is, so transcription hears exactly
@@ -180,7 +179,6 @@ export class TranscriberManager {
       try {
         const text = await transcribeAudio(wav, {
           apiKey,
-          model: this.opts.getModel(),
           language: this.opts.getLanguage(),
           prompt: this.recent.join(' ').slice(-PROMPT_MAX_CHARS) || undefined,
           signal,
