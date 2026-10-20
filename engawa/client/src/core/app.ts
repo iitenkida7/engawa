@@ -1463,16 +1463,11 @@ export class App {
         if (this.inProximity.has(msg.userId)) {
           const name = msg.name || this.players.get(msg.userId)?.name || t('knock.someone');
           if (msg.transcribing) {
-            // Offer the panel straight from the notice: their lines land in ours
-            // whether or not it is open, and the toast is the moment it matters.
+            // Open the panel for everyone in the call, not just the transcriber:
+            // their lines land in ours anyway, and seeing them is the point.
             if (!this.transcribingPeers.has(msg.userId)) {
-              this.toasts.action(t('transcript.started', { name }), [
-                {
-                  label: t('transcript.showAction'),
-                  primary: true,
-                  onClick: () => this.transcriptPanel.open(),
-                },
-              ]);
+              this.toasts.info(t('transcript.started', { name }));
+              this.transcriptPanel.open();
             }
             this.transcribingPeers.add(msg.userId);
           } else if (this.transcribingPeers.delete(msg.userId)) {

@@ -315,7 +315,6 @@ const STR: Record<string, Record<Lang, string>> = {
     en: '{name} stopped transcribing',
   },
   'transcript.othersTip': { ja: '文字起こし中: {names}', en: 'Transcribing: {names}' },
-  'transcript.showAction': { ja: '表示', en: 'Show' },
   'transcript.confirmClose': {
     ja: '文字起こしを閉じると、保存していない内容は失われます。閉じますか？',
     en: 'Closing the transcript discards it. Anything unsaved will be lost. Close it?',

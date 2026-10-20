@@ -543,7 +543,8 @@
         left: 16px;
         width: 400px;
         max-width: calc(100vw - 32px);
-        max-height: calc(100vh - 140px);
+        /* Kept short so it doesn't cover the call; older lines scroll. */
+        max-height: min(240px, calc(100vh - 140px));
         display: flex;
         flex-direction: column;
         background: rgba(14, 16, 20, 0.96);
