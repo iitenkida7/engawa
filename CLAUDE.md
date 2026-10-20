@@ -121,7 +121,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 - **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`, `diag.ts`（デバッグコンソールの接続判定・原因推定・Claude 用診断レポート。純粋関数）
 - **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`, `noise.ts`, `noise-worklet.ts`, `rnnoise-wasm.ts`, `voice-gate.ts`, `lowpass.ts`
 - **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`
-- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `rec-indicator.ts`, `debug-console.ts`, `sounds.ts`, `video-stall.ts`（映像停止の理由判定。純粋関数）, `face-pip.ts`, `experimental.ts`, `camera-lab.ts`（⋯メニューから別タブで開く `camera-lab.html` のロジック。`SFU_CAM_LAYERS` をループバック接続で実エンコードして見比べる画質ラボ）
+- **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `rec-indicator.ts`, `debug-console.ts`, `sounds.ts`, `video-stall.ts`（映像停止の理由判定。純粋関数）, `face-pip.ts`, `camera-lab.ts`（⋯メニューから別タブで開く `camera-lab.html` のロジック。`SFU_CAM_LAYERS` をループバック接続で実エンコードして見比べる画質ラボ）
 
 `core/app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・移動・近接判定・
 サーバーメッセージのルーティング・各サブシステムの配線を担う。サブシステム同士は直接参照せず
@@ -160,8 +160,8 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
 - `ui/panels.ts` — フローティングパネルのプリセットと純粋関数 `computePanelPreset()`。
 - `ui/face-pip.ts`（`FacePipView`）— **画面共有中に相手の顔タイルを Document Picture-in-Picture の常時最前面小窓へミラー**する（#318）。
   タイルは移動せず同じ MediaStream を 2 つ目の `<video>` に流すだけなので、レイアウト・SFU レイヤ選択・録画は無変更。
-  Chrome / Edge デスクトップのみ。**実験的機能（既定オフ）**: ⋯メニューの「🧪 実験的機能」区画のトグル（localStorage
-  `engawa-face-pip` が `1` のときだけ有効 #323）でチェックした人だけ使う。試験的な機能のトグルは今後もこの区画に並べる。
+  Chrome / Edge デスクトップのみ。**既定オフ**: ⋯メニューのトグル（localStorage `engawa-face-pip` が `1` のときだけ有効）で
+  チェックした人だけ使う。
   **`requestWindow()` は操作許可を消費する**ため、必ず `getDisplayMedia` の**後**に開く（逆順だと共有自体が失敗しうる）。
   `media/speaking.ts` — `SpeakingDetector` と純粋なしきい値判定 `isLoud()`。
 - `world/tilemap.ts` — オフィスのタイルマップと `canOccupy`（衝突判定）。**座る姿勢**は位置だけで決まる純粋関数 `seatAt()`（デスクの椅子タイル／カフェのアームチェア → 向き＋`lift`）。`canvas.ts` が静止中のみ座り姿（`CharacterSheet.draw` の `sit`: シートに座りフレームが無いため、立ちフレームをそのまま少し沈めて描く）で描く。`lift` は椅子の絵が机に寄せて描かれるぶんの補正で、**机の下側の椅子（上向き）だけ半タイル持ち上げる**（1タイルだと机に乗って見える）。スプライト・名前ラベル・吹き出しが同じ `lift` で動くので一体のまま。位置から全員が同じ姿を導けるので通信は増えない。`world/pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。

@@ -551,7 +551,7 @@ svg .mono { font-family: var(--f-mono); font-size: 11px; }
           <li><b>取り込み</b>：長辺 1920px・15fps に制限し、音声は取り込みません。トラックには <code>contentHint = 'detail'</code> を付けます。</li>
           <li><b>送信</b>：<code>degradationPreference</code> は <code>maintain-resolution</code> で、混雑時はフレームレートから削ります。SFU では simulcast せず、1 本・2Mbps・長辺 1920px・15fps で送ります（<a href="https://github.com/iitenkida7/engawa/pull/325">#325</a>）。メッシュでは相手が 3 人未満なら 3Mbps、それ以上は 1.5Mbps です。8 人以上なら 10fps・長辺 1280px に下げます。メッシュでは回線の段階に応じてさらに下げます（tier 1 で 70%、tier 2 で 800kbps・8fps・1280px、tier 3 で 500kbps・5fps）。SFU ではこの上限調整はせず、ブラウザの帯域推定に任せます。</li>
           <li><b>開始と停止</b>：共有をオフにしてから再びオンにすると相手に届かない不具合を、SFU のトランシーバを使い回して直しました（<a href="https://github.com/iitenkida7/engawa/pull/151">#151</a>）。OS の「共有を停止」でもツールバーのボタンと同じ後片付けをします。</li>
-          <li><b>見る側</b>：共有中は、相手の顔タイルを常に最前面の小窓（Document Picture-in-Picture）に映せます（<a href="https://github.com/iitenkida7/engawa/pull/318">#318</a>、実験的機能）。小窓を開く API もクリックの権利を使うので、必ず <code>getDisplayMedia</code> の後に開きます。</li>
+          <li><b>見る側</b>：共有中は、相手の顔タイルを常に最前面の小窓（Document Picture-in-Picture）に映せます（<a href="https://github.com/iitenkida7/engawa/pull/318">#318</a>、⋯メニューで有効化。既定オフ）。小窓を開く API もクリックの権利を使うので、必ず <code>getDisplayMedia</code> の後に開きます。</li>
           <li><b>録画</b>：録画した画面共有の文字が読めなかった問題を、合成の解像度を固定の 2 倍にし、高品質な縮小を使って直しました（<a href="https://github.com/iitenkida7/engawa/pull/292">#292</a>）。</li>
         </ul>
       </div>

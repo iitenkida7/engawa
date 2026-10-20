@@ -18,11 +18,11 @@ import type { PlayerState } from '@/world/player';
 // The always-on-top face window while screen sharing (issue #318).
 
 describe('parseFacePipSetting', () => {
-  it('defaults to on, only an explicit "0" disables it', () => {
-    expect(parseFacePipSetting(null)).toBe(true);
-    expect(parseFacePipSetting('1')).toBe(true);
-    expect(parseFacePipSetting('garbage')).toBe(true);
+  it('defaults to off, only an explicit "1" enables it', () => {
+    expect(parseFacePipSetting(null)).toBe(false);
+    expect(parseFacePipSetting('garbage')).toBe(false);
     expect(parseFacePipSetting('0')).toBe(false);
+    expect(parseFacePipSetting('1')).toBe(true);
   });
 });
 
