@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   cleanTranscript,
+  collapseRepeats,
   DEFAULT_GROQ_MODEL,
   isHallucinated,
   parseGroqKey,
@@ -51,6 +52,30 @@ describe('cleanTranscript', () => {
 
   it('drops empty output', () => {
     expect(cleanTranscript('   ')).toBe('');
+  });
+});
+
+describe('collapseRepeats', () => {
+  it('cuts a runaway loop back to one copy', () => {
+    expect(collapseRepeats(`はい、${'うん'.repeat(80)}`)).toBe('はい、うん');
+    expect(collapseRepeats('ありがとうございます。'.repeat(6))).toBe('ありがとうございます。');
+  });
+
+  it('collapses nested loops of already-collapsed units', () => {
+    const loop = `${'うん'.repeat(30)}、`.repeat(5);
+    expect(collapseRepeats(`${loop}ね。`)).toBe('うん、ね。');
+  });
+
+  it('leaves ordinary repetition alone', () => {
+    for (const text of ['うんうんうん、そうですね', 'はいはいはいはい', '1111番です']) {
+      expect(collapseRepeats(text)).toBe(text);
+    }
+  });
+});
+
+describe('cleanTranscript loops', () => {
+  it('collapses a repetition loop in the API result', () => {
+    expect(cleanTranscript(`  ${'うん'.repeat(50)}  `)).toBe('うん');
   });
 });
 

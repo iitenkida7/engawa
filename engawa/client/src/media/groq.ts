@@ -90,10 +90,28 @@ const HALLUCINATIONS = [
   'Bye.',
 ];
 
+// Whisper's other classic failure: once it emits a short phrase it can lock
+// into repeating it until the token limit ("うんうんうん…" for a whole line).
+// A unit of up to 40 characters repeated five or more times in a row is that
+// loop, not speech; it is cut back to a single copy. Applied before the text is
+// fed back as the next segment's prompt, so one loop can't seed the next.
+const REPEAT_LOOP = /(.{1,40}?)\1{4,}/gsu;
+
+// Pure: collapse runaway repetition loops. Repeats until stable, because a run
+// of collapsed units ("うん、うん、…") can itself form the next loop.
+export function collapseRepeats(text: string): string {
+  let prev = text;
+  for (;;) {
+    const next = prev.replace(REPEAT_LOOP, '$1');
+    if (next === prev) return next;
+    prev = next;
+  }
+}
+
 // Pure: tidy one API result and decide whether it is worth keeping. Returns an
 // empty string for anything that should be dropped.
 export function cleanTranscript(raw: string): string {
-  const text = raw.trim();
+  const text = collapseRepeats(raw).trim();
   if (!text) return '';
   if (HALLUCINATIONS.some((h) => h.toLowerCase() === text.toLowerCase())) return '';
   return text;
