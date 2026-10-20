@@ -564,9 +564,9 @@ export class ToolbarController {
     this.btnRec.classList.toggle('others-recording', on);
     // Swap the tooltip to who's recording while the badge shows; restore the plain
     // "録画" label when it clears.
-    this.btnRec.dataset.tip = on
-      ? t('rec.othersTip', { names: names.join(', ') })
-      : t('toolbar.recTitle');
+    // Called every frame: only touch the attribute when the text changes.
+    const tip = on ? t('rec.othersTip', { names: names.join(', ') }) : t('toolbar.recTitle');
+    if (this.btnRec.dataset.tip !== tip) this.btnRec.dataset.tip = tip;
   }
 
   // ============= Device menus + "more" overflow =============
