@@ -170,9 +170,6 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
   'toolbar.shortcuts': { ja: '⌨ キーバインド一覧', en: '⌨ Keyboard shortcuts' },
   'toolbar.testNotify': { ja: '🔔 通知をテスト', en: '🔔 Test notification' },
-  // "⋯" menu: experimental features master switch (#323). Opt-in, off by
-  // default; the per-feature toggles appear beneath it once ticked.
-  'toolbar.experimental': { ja: '🧪 実験的機能を使う', en: '🧪 Use experimental features' },
   'toolbar.facePip': {
     ja: '🪟 画面共有中に顔を小窓に出す（Chrome / Edge）',
     en: '🪟 Faces in a floating window while sharing (Chrome / Edge)',

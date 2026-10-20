@@ -17,12 +17,9 @@ import { t } from '@/core/i18n';
 
 export const FACE_PIP_STORAGE_KEY = 'engawa-face-pip';
 
-// Per-feature switch, default on: only an explicit '0' disables it (same
-// convention as the noise setting). It only matters once the user has opted
-// into experimental features as a whole (ui/experimental.ts, #323): the window
-// opens only when BOTH the master switch and this one are on.
+// Opt-in, default off: only an explicit '1' enables it.
 export function parseFacePipSetting(stored: string | null): boolean {
-  return stored !== '0';
+  return stored === '1';
 }
 
 // Minimal typing of the Document PiP API, which lib.dom does not carry yet.

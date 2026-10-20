@@ -15,11 +15,6 @@ import {
   VBG_OFF,
   VBG_STORAGE_KEY,
 } from '@/media/vbg';
-import {
-  EXPERIMENTAL_STORAGE_KEY,
-  isExperimentActive,
-  parseExperimentalSetting,
-} from '@/ui/experimental';
 import { FACE_PIP_STORAGE_KEY, parseFacePipSetting } from '@/ui/face-pip';
 import type { Toasts } from '@/ui/notify';
 import type { LayoutMode } from '@/ui/panels';
@@ -72,14 +67,10 @@ export class ToolbarController {
   private getTranscribingPeerNames: () => string[];
   private onUserCamToggle: () => void;
 
-  // Experimental features master switch (#323): persisted, off by default. The
-  // per-feature toggles below only take effect while this is on.
-  private experimentalEnabled = false;
-
   // Face window while sharing (issue #318): the persisted per-feature toggle
-  // (default on, gated by experimentalEnabled), the once-per-session hint, and
+  // (default off), the once-per-session hint, and
   // the dismisser of the "open it" fallback toast.
-  private facePipEnabled = true;
+  private facePipEnabled = false;
   private facePipHintShown = false;
   private facePipToastDismiss: (() => void) | null = null;
 
@@ -178,7 +169,6 @@ export class ToolbarController {
 
     this.loadBgSettings();
     this.loadNoiseSetting();
-    this.loadExperimentalSetting();
     this.loadFacePipSetting();
     this.loadPttSetting();
     this.loadRecReminderSetting();
@@ -380,7 +370,7 @@ export class ToolbarController {
   // share dialog can outlive the activation — then the window can't open
   // silently and a toast offers a button (a fresh gesture) instead.
   private async maybeOpenFacePip() {
-    if (!this.facePipActive() || !this.view.facePipSupported()) return;
+    if (!this.facePipEnabled || !this.view.facePipSupported()) return;
     if (await this.view.openFacePip()) {
       this.showFacePipHint();
       return;
@@ -414,26 +404,11 @@ export class ToolbarController {
     this.toasts.info(t('toolbar.facePipHint'), 7000);
   }
 
-  // The face window is in effect only when experiments are on AND its own
-  // toggle is on (#323).
-  private facePipActive(): boolean {
-    return isExperimentActive(this.experimentalEnabled, this.facePipEnabled);
-  }
-
   // The "⋯" menu toggle. Takes effect immediately on a running share: enabling
   // opens the window (the menu click is a user activation), disabling closes it.
   private toggleFacePip() {
     this.facePipEnabled = !this.facePipEnabled;
     this.persistFacePipSetting();
-    this.applyFacePipNow();
-  }
-
-  // The experimental master switch (#323). Flipping it applies every experiment
-  // at once; today that is the face window, so a running share opens / closes
-  // it right away (the menu click is a user activation for the open).
-  private toggleExperimental() {
-    this.experimentalEnabled = !this.experimentalEnabled;
-    this.persistExperimentalSetting();
     this.applyFacePipNow();
   }
 
@@ -508,26 +483,8 @@ export class ToolbarController {
 
   private applyFacePipNow() {
     if (!this.media.screenOn) return;
-    if (this.facePipActive()) void this.maybeOpenFacePip();
+    if (this.facePipEnabled) void this.maybeOpenFacePip();
     else this.closeFacePip();
-  }
-
-  private loadExperimentalSetting() {
-    let stored: string | null = null;
-    try {
-      stored = localStorage.getItem(EXPERIMENTAL_STORAGE_KEY);
-    } catch {
-      /* ignore private-mode storage errors */
-    }
-    this.experimentalEnabled = parseExperimentalSetting(stored);
-  }
-
-  private persistExperimentalSetting() {
-    try {
-      localStorage.setItem(EXPERIMENTAL_STORAGE_KEY, this.experimentalEnabled ? '1' : '0');
-    } catch {
-      /* ignore private-mode storage errors */
-    }
   }
 
   private closeFacePip() {
@@ -908,24 +865,10 @@ export class ToolbarController {
     const other: Lang = getLang() === 'ja' ? 'en' : 'ja';
     addItem(other === 'ja' ? '🌐 日本語' : '🌐 English', () => setLang(other));
 
-    // 🧪 Experimental features (#323), two levels: a master switch (off by
-    // default) and, once it is ticked, the per-feature toggles beneath it. A
-    // feature is active only when both are on. Each feature is listed only
-    // where the browser supports it, so the menu never offers a switch that
-    // does nothing.
-    const sep = document.createElement('div');
-    sep.className = 'menu-separator';
-    menu.appendChild(sep);
-    addItem((this.experimentalEnabled ? '✓ ' : '') + t('toolbar.experimental'), () =>
-      this.toggleExperimental(),
-    );
-    if (this.experimentalEnabled) {
-      // Face window while sharing (#318): Document PiP, Chrome / Edge desktop only.
-      if (this.view.facePipSupported()) {
-        addItem(`　${this.facePipEnabled ? '✓ ' : ''}${t('toolbar.facePip')}`, () =>
-          this.toggleFacePip(),
-        );
-      }
+    // Face window while sharing (#318): Document PiP, Chrome / Edge desktop
+    // only, so it is listed only where it can work. Off by default.
+    if (this.view.facePipSupported()) {
+      addItem((this.facePipEnabled ? '✓ ' : '') + t('toolbar.facePip'), () => this.toggleFacePip());
     }
   }
 
