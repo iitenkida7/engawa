@@ -130,6 +130,10 @@ export class AvatarEditor {
     );
     const credits = document.getElementById('avatar-credits') as HTMLAnchorElement;
     credits.href = LPC_CREDITS_URL;
+
+    // Start building our own avatar while the join screen is up, so the map
+    // shows the sprite (not the placeholder circle) the moment we join.
+    this.sheet.getComposite(loadOutfit());
   }
 
   /** Build one collapsible category: a clickable header + a hidden options grid. */

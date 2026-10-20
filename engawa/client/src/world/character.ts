@@ -228,11 +228,15 @@ function sameRamp(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((v, i) => v.toLowerCase() === b[i].toLowerCase());
 }
 
+// Finished composites, shared by every CharacterSheet: a sheet depends only on
+// the outfit, so one built for the join screen is ready when the map renderer
+// (created on join) first draws our avatar.
+const composites = new Map<string, HTMLCanvasElement>();
+
 export class CharacterSheet {
   private images = new Map<string, HTMLImageElement | null>();
   private loading = new Map<string, Promise<HTMLImageElement | null>>();
   private recolors = new Map<string, HTMLCanvasElement>();
-  private composites = new Map<string, HTMLCanvasElement>();
   private building = new Set<string>();
   private onUpdate: (() => void) | null;
 
@@ -309,7 +313,7 @@ export class CharacterSheet {
 
   private async build(o: Outfit): Promise<void> {
     const key = sig(o);
-    if (this.composites.has(key) || this.building.has(key)) return;
+    if (composites.has(key) || this.building.has(key)) return;
     this.building.add(key);
     const layers = resolveLayers(o);
     const imgs = await Promise.all(layers.map((l) => this.loadImage(l.url)));
@@ -328,14 +332,14 @@ export class CharacterSheet {
         cx.drawImage(drawable, 0, 0);
       }
     }
-    this.composites.set(key, c);
+    composites.set(key, c);
     this.building.delete(key);
     this.onUpdate?.();
   }
 
   /** The composite sheet for an outfit, or null while it builds (kicks off build). */
   getComposite(o: Outfit): HTMLCanvasElement | null {
-    const hit = this.composites.get(sig(o));
+    const hit = composites.get(sig(o));
     if (hit) return hit;
     void this.build(o);
     return null;

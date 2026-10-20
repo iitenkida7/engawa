@@ -326,7 +326,11 @@ export class CanvasRenderer {
   // ratio changes (it is otherwise viewport-independent). null = needs (re)build.
   // Modular avatar sprites (#141). Until it loads, drawPlayer falls back to the
   // colored circle + initials below.
-  private characters = new CharacterSheet();
+  // A sprite finishing its build must show at once: the unchanged-frame skip
+  // (sceneKey) can't see it, so force the next frame to draw.
+  private characters = new CharacterSheet(() => {
+    this.lastSceneKey = '';
+  });
   private mapCache: HTMLCanvasElement | null = null;
   private mapCacheDpr = 0;
   // Repeating houndstooth fill for the booth floors, built with the cache context.
