@@ -9,28 +9,18 @@ import {
 import { setMediaToken } from '@/core/media-auth';
 import { logNet, QUALITY_SAMPLE_INTERVAL_MS } from '@/core/netlog';
 import { NetworkClient } from '@/core/network';
-import type { Point } from '@/core/proximity';
 import { isInitiator } from '@/core/proximity';
 import {
-  computePeerRetryDelay,
   computeReconnectDelay,
-  PEER_CONNECT_STALL_MS,
-  PEER_DISCONNECTED_TIMEOUT_MS,
   RECONNECT_MAX_MS,
   RECONNECT_STEADY_AFTER_ATTEMPTS,
 } from '@/core/reconnect';
 import { evaluateBoot, ReloadBanner } from '@/core/reload';
 import { resolveShortcut } from '@/core/shortcuts';
 import {
-  CLICK_MOVE_ARRIVE_THRESHOLD,
-  CLICK_MOVE_MULTIPLIER,
-  COLLISION_RADIUS,
   type GroupMethod,
-  MAP_HEIGHT,
-  MAP_WIDTH,
   type Outfit,
   PLAYER_RADIUS,
-  PLAYER_SPEED,
   type Player,
   type PlayerStatus,
   POSITION_SEND_INTERVAL_MS,
@@ -38,7 +28,6 @@ import {
   REACTION_EMOJIS,
   type ServerMessage,
   type SfuTrack,
-  STEP_DURATION_MS,
 } from '@/core/types';
 import { shouldDisableOnZoneExit } from '@/core/zone-media';
 import { SceneCompositor } from '@/media/compositor';
@@ -53,6 +42,7 @@ import {
   isHeldSpeaking,
 } from '@/rtc/cam-bitrate';
 import { diagnoseConns, peerQualityRows } from '@/rtc/diag';
+import { MeshRecovery } from '@/rtc/mesh-recovery';
 import {
   applyNetTierToCam,
   applyNetTierToScreen,
@@ -65,14 +55,8 @@ import {
 import { type RtcConn, summarizeConnQuality } from '@/rtc/rtcstats';
 import { setPreferRedAudio } from '@/rtc/sdp';
 import { SFU_UPSTREAM_ID, SfuManager } from '@/rtc/sfu';
-import {
-  localPublishRoute,
-  partitionMembers,
-  SFU_REBUILD_RESET_MS,
-  SFU_RECONNECT_NOTICE_FROM,
-  SFU_STALE_STREAM_GRACE_MS,
-  sfuRebuildDelayMs,
-} from '@/rtc/sfu-logic';
+import { localPublishRoute, partitionMembers } from '@/rtc/sfu-logic';
+import { SfuRecovery } from '@/rtc/sfu-recovery';
 import { computeJitterTargetMs } from '@/rtc/tune';
 import { WebRtcManager } from '@/rtc/webrtc';
 import type { AvatarEditor } from '@/ui/avatar-editor';
@@ -95,10 +79,9 @@ import { TranscriptPanel } from '@/ui/transcript';
 import { loadGroqKey, TranscriptSetup } from '@/ui/transcript-setup';
 import { CanvasRenderer } from '@/world/canvas';
 import { OUTFIT_COUNTS } from '@/world/character';
-import { stepTarget } from '@/world/grid';
 import { InputManager } from '@/world/input';
+import { MovementController } from '@/world/movement';
 import { normalizeOutfit } from '@/world/outfit';
-import { findPath } from '@/world/pathfind';
 import { PlayerState } from '@/world/player';
 import {
   callZoneAt,
@@ -171,20 +154,7 @@ export class App {
   private lastSentVx = 0;
   private lastSentVy = 0;
 
-  // Click-to-move: remaining waypoint tile-centers and the current index.
-  private movePath: Point[] | null = null;
-  private moveIndex = 0;
-
-  // Grid-step keyboard movement (issue #206): the active one-tile slide, or null
-  // when idle. While a step is in progress new keyboard input is ignored, so the
-  // avatar always comes to rest on a tile center.
-  private gridStep: {
-    fromX: number;
-    fromY: number;
-    toX: number;
-    toY: number;
-    elapsed: number;
-  } | null = null;
+  private movement = new MovementController();
 
   // The roster row the user last clicked: that avatar gets a highlight ring on
   // the map. Cleared when the player leaves or the same row is clicked again.
@@ -226,18 +196,9 @@ export class App {
   // relays directories on group changes / publishes, so a transport rebuild
   // re-feeds them from this cache instead of waiting for a topology change.
   private sfuDirectory = new Map<string, { sessionId: string; tracks: SfuTrack[] }>();
-  // SFU transport recovery (issue #254; see onSfuFailed). `sfuFailures` counts
-  // consecutive rebuilds for the backoff; `sfuRebuildAt` is the deadline of the
-  // pending one (null = none pending), pumped by tickNetwork like the WS retry.
-  // `sfuConnectedAt` is when the transport last reached 'connected'.
-  private sfuFailures = 0;
-  private sfuRebuildAt: number | null = null;
-  private sfuConnectedAt = Number.NEGATIVE_INFINITY;
-  private dismissSfuToast: (() => void) | null = null;
-  // Remote streams frozen in place by a rebuild (closeAll keepTiles), swept at
-  // `staleSweepAt` unless a re-pull replaced them first (detach is then a no-op).
-  private staleSfuStreams: { userId: string; streamId: string }[] = [];
-  private staleSweepAt: number | null = null;
+
+  // SFU transport rebuild with backoff (issue #254; see onSfuFailed).
+  private sfuRecovery: SfuRecovery;
 
   // Speaker-aware send policy. `lastLoudAtMs` is the last frame our mic was loud
   // (drives the post-speech hold). The computed camera encoding / screen bitrate
@@ -279,18 +240,8 @@ export class App {
   // so the downlink serves audio; cleared on recovery.
   private autoRecvAudioOnly = false;
 
-  // Mesh-peer recovery state (issue #184), all keyed by peer userId and driven
-  // from tickPeerRecovery in the game loop:
-  //  - peerRetryAt: performance.now deadline of the pending rebuild.
-  //  - peerRetryAttempts: consecutive failures, for the backoff (reset on connect).
-  //  - peerStallAt: deadline by which a created peer must reach 'connect'.
-  //  - peerDisconnectedSince: when iceConnectionState went 'disconnected'.
-  //  - rtcRestartHandledAt: debounce for inbound rtc-restart nudges.
-  private peerRetryAt = new Map<string, number>();
-  private peerRetryAttempts = new Map<string, number>();
-  private peerStallAt = new Map<string, number>();
-  private peerDisconnectedSince = new Map<string, number>();
-  private rtcRestartHandledAt = new Map<string, number>();
+  // Mesh-peer rebuilds with backoff (issue #184), pumped from tickNetwork.
+  private meshRecovery: MeshRecovery;
 
   // Background ticker: a Worker that keeps update() running while the tab is
   // hidden (requestAnimationFrame is paused there). Created in start(); the
@@ -425,28 +376,20 @@ export class App {
         this.view.removePeer(userId);
         // A peer that died while still in our group gets rebuilt (issue #184);
         // one that left the group has its recovery state dropped.
-        this.schedulePeerRecovery(userId);
+        this.meshRecovery.onPeerClosed(userId);
       },
-      onPeerConnected: (userId) => {
-        // Fully up: recovery bookkeeping resets so the next failure starts a
-        // fresh backoff, and the stall/disconnected watchdogs disarm.
-        this.peerRetryAttempts.delete(userId);
-        this.peerRetryAt.delete(userId);
-        this.peerStallAt.delete(userId);
-        this.peerDisconnectedSince.delete(userId);
-      },
-      onPeerIceState: (userId, state) => {
-        // Track sustained 'disconnected' (see tickPeerRecovery). 'failed'/'closed'
-        // need no handling here — simple-peer destroys the pair, which lands in
-        // onPeerClosed above.
-        if (state === 'disconnected') {
-          if (!this.peerDisconnectedSince.has(userId)) {
-            this.peerDisconnectedSince.set(userId, performance.now());
-          }
-        } else if (state === 'connected' || state === 'completed') {
-          this.peerDisconnectedSince.delete(userId);
-        }
-      },
+      onPeerConnected: (userId) => this.meshRecovery.onPeerConnected(userId),
+      onPeerIceState: (userId, state) => this.meshRecovery.onIceState(userId, state),
+    });
+
+    this.meshRecovery = new MeshRecovery({
+      getMyId: () => this.myId,
+      isMeshMember: (userId) => this.currentMethod === 'mesh' && this.meshMembers.has(userId),
+      hasPeer: (userId) => this.rtc.hasPeer(userId),
+      isPeerReady: (userId) => this.rtc.isPeerReady(userId),
+      createPeer: (userId, initiator) => void this.rtc.createPeer(userId, initiator),
+      closePeer: (userId) => this.rtc.closePeer(userId),
+      sendRestart: (userId) => this.net.send({ type: 'rtc-restart', to: userId }),
     });
 
     // SFU transport. Shares the same remote-media event surface as the mesh, so
@@ -458,7 +401,15 @@ export class App {
       onPeerClosed: (userId) => this.view.removePeer(userId),
       onPublished: (sessionId, tracks) => this.net.send({ type: 'sfu-publish', sessionId, tracks }),
       onFailed: () => this.onSfuFailed(),
-      onConnected: () => this.onSfuConnected(),
+      onConnected: () => this.sfuRecovery.onConnected(),
+    });
+
+    this.sfuRecovery = new SfuRecovery({
+      closeKeepTiles: () => this.sfu.closeAll({ keepTiles: true }),
+      rebuild: () => this.rebuildSfu(),
+      setReconnecting: (on) => this.view.setReconnecting(on),
+      detachStream: (userId, streamId) => this.view.detachRemoteStream(userId, streamId),
+      showNotice: () => this.toasts.action(t('app.sfuReconnecting'), [], 0),
     });
 
     // Routes the toolbar's publish/unpublish to whichever transport is active.
@@ -467,14 +418,14 @@ export class App {
     // skips it, and the rebuild only publishes live streams).
     this.mediaSink = {
       addLocalStream: (stream, kind) => {
-        const route = localPublishRoute(this.currentMethod, this.sfuRebuildAt != null);
+        const route = localPublishRoute(this.currentMethod, this.sfuRecovery.pending);
         if (route === 'mesh') this.rtc.addLocalStream(stream, kind);
         else if (route === 'sfu') this.sfu.addLocalStream(stream, kind);
       },
       removeLocalStream: (stream) =>
         (this.currentMethod === 'sfu' ? this.sfu : this.rtc).removeLocalStream(stream),
       replaceLocalStream: (oldStream, newStream, kind) => {
-        const route = localPublishRoute(this.currentMethod, this.sfuRebuildAt != null);
+        const route = localPublishRoute(this.currentMethod, this.sfuRecovery.pending);
         if (route === 'mesh') this.rtc.replaceLocalStream(oldStream, newStream, kind);
         else if (route === 'sfu') this.sfu.replaceLocalStream(oldStream, newStream, kind);
       },
@@ -679,13 +630,7 @@ export class App {
     const world = this.renderer.screenToWorld(e.clientX, e.clientY, this.me);
     // Snap a click on a wall/desk to the nearest walkable tile.
     const goal = findWalkableSpawn(world.x, world.y, PLAYER_RADIUS);
-    const path = findPath({ x: this.me.x, y: this.me.y }, goal);
-    if (path.length === 0) {
-      this.movePath = null;
-      return;
-    }
-    this.movePath = path;
-    this.moveIndex = 0;
+    this.movement.walkTo(this.me, goal);
   }
 
   // Single click: if it landed on another avatar (body or name), open the action
@@ -765,13 +710,7 @@ export class App {
     // read as "teleported onto them" on a knock-accept). One tile away still
     // connects via proximity (#263 follow-up).
     const goal = findAdjacentSpawn(target.x, target.y, this.me.x, this.me.y, PLAYER_RADIUS);
-    const path = findPath({ x: this.me.x, y: this.me.y }, goal);
-    if (path.length === 0) {
-      this.movePath = null;
-      return;
-    }
-    this.movePath = path;
-    this.moveIndex = 0;
+    if (!this.movement.walkTo(this.me, goal)) return;
     // Keep them highlighted while walking over so they're easy to spot.
     this.focusedId = userId;
   }
@@ -885,10 +824,10 @@ export class App {
     // a session reset must not schedule rebuilds of the peers it is dropping.
     this.meshMembers.clear();
     this.sfuMembers.clear();
-    this.clearPeerRecovery();
+    this.meshRecovery.clear();
     this.rtc.closeAll();
     this.sfu.closeAll();
-    this.endSfuRecovery();
+    this.sfuRecovery.end();
     this.knownSfuPeers.clear();
     this.sfuDirectory.clear();
     this.inProximity.clear();
@@ -1006,9 +945,9 @@ export class App {
   // directories on those): the SFU transport rebuild (#186) and the video-pull
   // resume (#188). A no-op while a rebuild is pending (#258): re-feeding would
   // reopen the closed transport before its backoff deadline, and the rebuild
-  // re-feeds the cache itself (rebuildSfu runs after sfuRebuildAt is cleared).
+  // re-feeds the cache itself (rebuildSfu runs once the rebuild is no longer pending).
   private refeedSfuDirectories() {
-    if (this.sfuRebuildAt != null) return;
+    if (this.sfuRecovery.pending) return;
     for (const [id, dir] of this.sfuDirectory) {
       if (id === this.myId || !this.sfuMembers.has(id)) continue;
       this.knownSfuPeers.add(id);
@@ -1169,95 +1108,8 @@ export class App {
       this.reconnectAt = null;
       this.net.connect();
     }
-    if (this.sfuRebuildAt != null && now >= this.sfuRebuildAt) {
-      this.sfuRebuildAt = null;
-      this.rebuildSfu();
-    }
-    if (this.staleSweepAt != null && now >= this.staleSweepAt) {
-      this.staleSweepAt = null;
-      this.sweepStaleSfuStreams();
-    }
-    this.tickPeerRecovery(now);
-  }
-
-  // ─── Mesh-peer recovery (issue #184) ──────────────────────────────────────
-  // A mesh pair that dies mid-call (ICE failure after a Wi-Fi roam, TURN
-  // allocation expiry, …) never comes back on its own: the server re-sends
-  // group-update only on topology changes, and simple-peer does not resend
-  // offers. So the App rebuilds dead pairs itself, with a per-peer backoff.
-
-  // Create one mesh peer and arm the stall watchdog: if it never reaches
-  // 'connect' the recovery loop tears it down and retries. All mesh createPeer
-  // call sites (group reconcile, recovery, restart nudges) go through here.
-  private createMeshPeer(userId: string, initiator: boolean) {
-    this.peerStallAt.set(userId, performance.now() + PEER_CONNECT_STALL_MS);
-    void this.rtc.createPeer(userId, initiator);
-  }
-
-  // A peer closed. If it should still be in our call, schedule a rebuild with
-  // backoff; otherwise clear its recovery state. Deliberate closes (group
-  // reconcile, mesh→SFU, session reset) pass the guards because membership is
-  // updated *before* the close in those paths.
-  private schedulePeerRecovery(userId: string) {
-    this.peerStallAt.delete(userId);
-    this.peerDisconnectedSince.delete(userId);
-    if (this.currentMethod !== 'mesh' || !this.meshMembers.has(userId)) {
-      this.peerRetryAt.delete(userId);
-      this.peerRetryAttempts.delete(userId);
-      return;
-    }
-    if (this.peerRetryAt.has(userId)) return;
-    const attempt = (this.peerRetryAttempts.get(userId) ?? 0) + 1;
-    this.peerRetryAttempts.set(userId, attempt);
-    const delay = computePeerRetryDelay(attempt);
-    logNet('mesh-retry-scheduled', { peer: userId, attempt, delayMs: delay });
-    this.peerRetryAt.set(userId, performance.now() + delay);
-  }
-
-  // The recovery pump, run every simulation step: fires due rebuilds, tears
-  // down peers stuck in 'disconnected' or stalled short of 'connect'. Teardowns
-  // land back in schedulePeerRecovery via onPeerClosed, bumping the backoff.
-  private tickPeerRecovery(now: number) {
-    for (const [userId, at] of this.peerRetryAt) {
-      if (now < at) continue;
-      this.peerRetryAt.delete(userId);
-      if (this.currentMethod !== 'mesh' || !this.meshMembers.has(userId)) continue;
-      if (this.rtc.hasPeer(userId)) continue;
-      const initiator = isInitiator(this.myId, userId);
-      logNet('mesh-retry', { peer: userId, initiator });
-      this.createMeshPeer(userId, initiator);
-      // Only the elected initiator can send the fresh offer; the other side
-      // nudges it (rtc-restart) in case it hasn't noticed the pair is dead.
-      if (!initiator) this.net.send({ type: 'rtc-restart', to: userId });
-    }
-    for (const [userId, since] of this.peerDisconnectedSince) {
-      if (now - since < PEER_DISCONNECTED_TIMEOUT_MS) continue;
-      this.peerDisconnectedSince.delete(userId);
-      logNet('mesh-disconnected-timeout', { peer: userId });
-      this.rtc.closePeer(userId);
-    }
-    for (const [userId, at] of this.peerStallAt) {
-      if (now < at) continue;
-      this.peerStallAt.delete(userId);
-      if (!this.rtc.hasPeer(userId) || this.rtc.isPeerReady(userId)) continue;
-      logNet('mesh-connect-stall', { peer: userId });
-      this.rtc.closePeer(userId);
-    }
-  }
-
-  // Drop every per-peer recovery record for peers outside `keep` (or all).
-  private clearPeerRecovery(keep?: Set<string>) {
-    for (const map of [
-      this.peerRetryAt,
-      this.peerRetryAttempts,
-      this.peerStallAt,
-      this.peerDisconnectedSince,
-      this.rtcRestartHandledAt,
-    ]) {
-      for (const id of [...map.keys()]) {
-        if (!keep?.has(id)) map.delete(id);
-      }
-    }
+    this.sfuRecovery.tick(now);
+    this.meshRecovery.tick(now);
   }
 
   // User asked to retry (manual button), returned to a backgrounded tab whose
@@ -1409,21 +1261,8 @@ export class App {
         break;
       }
       case 'rtc-restart': {
-        // A group peer detected our pair is dead and asks us — their elected
-        // initiator — to rebuild it with a fresh offer (issue #184). Debounced:
-        // their retry loop may nudge several times while we renegotiate. Only
-        // honored when the deterministic election really makes us the
-        // initiator: otherwise a misbehaving peer could tear a healthy pair
-        // down into offer-glare (two initiators) every few seconds.
-        if (this.currentMethod !== 'mesh' || !this.meshMembers.has(msg.from)) break;
-        if (!isInitiator(this.myId, msg.from)) break;
-        const now = performance.now();
-        const last = this.rtcRestartHandledAt.get(msg.from);
-        if (last != null && now - last < 3000) break;
-        this.rtcRestartHandledAt.set(msg.from, now);
-        logNet('rtc-restart-received', { peer: msg.from });
-        this.rtc.closePeer(msg.from);
-        this.createMeshPeer(msg.from, true);
+        // A group peer asks us to rebuild our dead pair (issue #184).
+        this.meshRecovery.onRestartRequest(msg.from);
         break;
       }
       case 'group-update': {
@@ -1531,7 +1370,7 @@ export class App {
         // would resurrect a ghost SFU PeerConnection while we run mesh.
         if (this.currentMethod !== 'sfu') break;
         // A rebuild is pending: its re-feed pulls from the cache updated above.
-        if (this.sfuRebuildAt != null) break;
+        if (this.sfuRecovery.pending) break;
         this.knownSfuPeers.add(msg.userId);
         this.sfu.setPeerTracks(msg.userId, msg.sessionId, msg.tracks);
         break;
@@ -1559,7 +1398,7 @@ export class App {
     // If we have no peer for this user, create as non-initiator. Arm the same
     // connect-stall watchdog as the outbound paths (#184).
     if (!this.rtc.hasPeer(from)) {
-      this.peerStallAt.set(from, performance.now() + PEER_CONNECT_STALL_MS);
+      this.meshRecovery.armStall(from);
       await this.rtc.createPeer(from, false);
     }
     this.rtc.signal(from, data);
@@ -1588,7 +1427,7 @@ export class App {
     this.tickRecReminder(nowMs);
     this.update(dt);
     if (render) {
-      const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
+      const dest = this.movement.destination;
       // Show the media-reach ring only while we're actually publishing something.
       const mediaActive = this.media.micOn || this.media.camOn || this.media.screenOn;
       // In a conversation when we share a proximity group with anyone — drives the
@@ -1614,36 +1453,9 @@ export class App {
       // Grid-step movement (issue #206): a step in progress slides to the next
       // tile center; only once it finishes do we read input for the next step,
       // so the avatar always rests on a tile (never between tiles).
-      if (this.gridStep) {
-        const v = this.advanceStep(dt);
-        selfVx = v.vx;
-        selfVy = v.vy;
-      } else {
-        const { dx, dy } = this.input.getStepDirection();
-        if (dx !== 0 || dy !== 0) {
-          // Manual keyboard input cancels click-to-move and takes over.
-          this.movePath = null;
-          // Turn to face the pressed direction even if the next tile is blocked.
-          this.me.updateFacing(dx, dy);
-          const target = stepTarget(this.me.x, this.me.y, dx, dy);
-          if (target) {
-            this.gridStep = {
-              fromX: this.me.x,
-              fromY: this.me.y,
-              toX: target.x,
-              toY: target.y,
-              elapsed: 0,
-            };
-            const v = this.advanceStep(dt);
-            selfVx = v.vx;
-            selfVy = v.vy;
-          }
-        } else if (this.movePath) {
-          const v = this.followPath(dt);
-          selfVx = v.vx;
-          selfVy = v.vy;
-        }
-      }
+      const v = this.movement.update(this.me, dt, () => this.input.getStepDirection());
+      selfVx = v.vx;
+      selfVy = v.vy;
       // Face the way we're moving so our own avatar's sprite turns (remote
       // players turn via setTarget). Idle keeps the last facing.
       this.me.updateFacing(selfVx, selfVy);
@@ -1827,69 +1639,6 @@ export class App {
     const tier = this.netTierState.tier;
     this.rtc.setCamEncoding(applyNetTierToCam(computeCamEncoding(peerCount, speaking), tier));
     this.rtc.setScreenEncoding(applyNetTierToScreen(computeScreenEncoding(peerCount), tier));
-  }
-
-  // Moves self by a velocity for one frame, sliding along walls (per-axis
-  // canOccupy). Returns whether the position actually changed.
-  private applyVelocity(vx: number, vy: number, dt: number): boolean {
-    if (!this.me || (vx === 0 && vy === 0)) return false;
-    const prevX = this.me.x;
-    const prevY = this.me.y;
-    const newX = clamp(this.me.x + vx * dt, PLAYER_RADIUS, MAP_WIDTH - PLAYER_RADIUS);
-    const newY = clamp(this.me.y + vy * dt, PLAYER_RADIUS, MAP_HEIGHT - PLAYER_RADIUS);
-    if (canOccupy(newX, this.me.y, COLLISION_RADIUS)) this.me.x = newX;
-    if (canOccupy(this.me.x, newY, COLLISION_RADIUS)) this.me.y = newY;
-    this.me.targetX = this.me.x;
-    this.me.targetY = this.me.y;
-    return this.me.x !== prevX || this.me.y !== prevY;
-  }
-
-  // Advances the active grid step for one frame, linearly interpolating from the
-  // step's origin tile toward the destination tile center over STEP_DURATION_MS.
-  // Clears the step (snapping exactly onto the target) when it completes.
-  // Returns the velocity applied this frame so the caller can broadcast it.
-  private advanceStep(dt: number): { vx: number; vy: number } {
-    const s = this.gridStep;
-    const me = this.me;
-    if (!s || !me) return { vx: 0, vy: 0 };
-    s.elapsed += dt;
-    const dur = STEP_DURATION_MS / 1000;
-    const p = Math.min(1, s.elapsed / dur);
-    const prevX = me.x;
-    const prevY = me.y;
-    me.x = s.fromX + (s.toX - s.fromX) * p;
-    me.y = s.fromY + (s.toY - s.fromY) * p;
-    me.targetX = me.x;
-    me.targetY = me.y;
-    const vx = dt > 0 ? (me.x - prevX) / dt : 0;
-    const vy = dt > 0 ? (me.y - prevY) / dt : 0;
-    if (p >= 1) this.gridStep = null;
-    return { vx, vy };
-  }
-
-  // Advances along the click-to-move waypoints at boosted speed. Returns the
-  // velocity applied this frame (zero on arrival) so the caller can broadcast it.
-  private followPath(dt: number): { vx: number; vy: number } {
-    if (!this.me || !this.movePath) return { vx: 0, vy: 0 };
-    const target = this.movePath[this.moveIndex];
-    const ddx = target.x - this.me.x;
-    const ddy = target.y - this.me.y;
-    const dist = Math.hypot(ddx, ddy);
-    if (dist <= CLICK_MOVE_ARRIVE_THRESHOLD) {
-      this.moveIndex++;
-      if (this.moveIndex >= this.movePath.length) this.movePath = null;
-      return { vx: 0, vy: 0 };
-    }
-    // Cap the speed so a large frame step never overshoots the waypoint.
-    const speed = Math.min(PLAYER_SPEED * CLICK_MOVE_MULTIPLIER, dist / dt);
-    const vx = (ddx / dist) * speed;
-    const vy = (ddy / dist) * speed;
-    if (!this.applyVelocity(vx, vy, dt)) {
-      // Unexpectedly blocked: abandon the route and stop.
-      this.movePath = null;
-      return { vx: 0, vy: 0 };
-    }
-    return { vx, vy };
   }
 
   // Last time we sent a reaction, for the debounce below.
@@ -2113,7 +1862,7 @@ export class App {
     this.toolbar.disableAllMedia();
     this.rtc.closeAll();
     this.sfu.closeAll();
-    this.endSfuRecovery();
+    this.sfuRecovery.end();
     this.meshMembers.clear();
     this.sfuMembers.clear();
     this.inProximity.clear();
@@ -2131,7 +1880,7 @@ export class App {
       this.currentMethod = 'sfu';
       this.sfuMembers = new Set(members);
       this.meshMembers.clear();
-      this.clearPeerRecovery();
+      this.meshRecovery.clear();
       if (wasMesh) {
         // mesh → SFU: drop every mesh peer, then publish our live streams to the
         // SFU. Remote media comes back via sfu-peer-tracks → pull. (meshMembers
@@ -2148,20 +1897,17 @@ export class App {
       }
       // Frozen tiles (pending rebuild) of members who left: their removePeer above
       // can't reach the UI — knownSfuPeers was cleared and the chain is closed.
-      for (const { userId } of this.staleSfuStreams) {
-        if (!this.sfuMembers.has(userId)) {
-          this.view.removePeer(userId);
-          this.sfuDirectory.delete(userId);
-        }
+      for (const userId of this.sfuRecovery.pruneDeparted((id) => this.sfuMembers.has(id))) {
+        this.view.removePeer(userId);
+        this.sfuDirectory.delete(userId);
       }
-      this.staleSfuStreams = this.staleSfuStreams.filter((s) => this.sfuMembers.has(s.userId));
     } else {
       // Always tear the SFU transport down when running mesh — even mesh→mesh — so
       // a ghost PC that a stray sfu-peer-tracks might have resurrected can't linger
       // pulling media next to the mesh path. closeAll is idempotent and cheap, and
       // group-updates only arrive on real topology changes (not every move).
       this.sfu.closeAll();
-      this.endSfuRecovery();
+      this.sfuRecovery.end();
       this.knownSfuPeers.clear();
       this.sfuDirectory.clear();
       this.currentMethod = 'mesh';
@@ -2173,11 +1919,11 @@ export class App {
       // "left the group" (drop recovery state) from "died mid-call" (rebuild).
       const next = new Set(members.filter((id) => id !== this.myId));
       this.meshMembers = next;
-      this.clearPeerRecovery(next);
+      this.meshRecovery.clear(next);
       const { toClose, toOpen } = partitionMembers(this.rtc.peerIds(), next);
       for (const id of toClose) this.rtc.closePeer(id);
       for (const id of toOpen) {
-        this.createMeshPeer(id, isInitiator(this.myId, id));
+        this.meshRecovery.createPeer(id, isInitiator(this.myId, id));
       }
     }
   }
@@ -2203,26 +1949,8 @@ export class App {
       this.sfu.closeAll();
       return;
     }
-    if (this.sfuRebuildAt != null) return; // a rebuild is already pending
-    const now = performance.now();
-    // A failure long after the last good connection is a new outage. One with
-    // no connection since the last rebuild (-∞) continues the current backoff.
-    if (now - this.sfuConnectedAt > SFU_REBUILD_RESET_MS && this.sfuConnectedAt > -Infinity) {
-      this.sfuFailures = 0;
-    }
-    this.sfuConnectedAt = Number.NEGATIVE_INFINITY;
-    this.sfuFailures++;
-    const delay = sfuRebuildDelayMs(this.sfuFailures);
-    logNet('sfu-rebuild', { attempt: this.sfuFailures, delayMs: delay });
-    console.warn(`[sfu] transport failed; rebuilding in ${delay}ms`);
-    this.staleSfuStreams.push(...this.sfu.closeAll({ keepTiles: true }));
-    this.staleSweepAt = null;
-    this.knownSfuPeers.clear();
-    this.view.setReconnecting(true);
-    if (this.sfuFailures >= SFU_RECONNECT_NOTICE_FROM && !this.dismissSfuToast) {
-      this.dismissSfuToast = this.toasts.action(t('app.sfuReconnecting'), [], 0);
-    }
-    this.sfuRebuildAt = now + delay;
+    // The closed transport took its pulls with it; the rebuild re-feeds them.
+    if (this.sfuRecovery.onFailed()) this.knownSfuPeers.clear();
   }
 
   private rebuildSfu() {
@@ -2231,7 +1959,7 @@ export class App {
     this.refeedSfuDirectories();
     // Nothing to publish or pull means no PC gets built (and no 'connected'
     // will come): the rebuild is trivially done.
-    if (!this.sfu.active && !this.hasSfuWork()) this.onSfuConnected();
+    if (!this.sfu.active && !this.hasSfuWork()) this.sfuRecovery.onConnected();
   }
 
   private hasSfuWork(): boolean {
@@ -2240,38 +1968,6 @@ export class App {
       if (this.sfuMembers.has(id) && dir.tracks.length > 0) return true;
     }
     return false;
-  }
-
-  // The (re)built SFU transport connected: clear the reconnecting UI and give
-  // re-pulls a grace period to replace the frozen streams before sweeping.
-  private onSfuConnected() {
-    this.sfuConnectedAt = performance.now();
-    this.dismissSfuToast?.();
-    this.dismissSfuToast = null;
-    this.view.setReconnecting(false);
-    if (this.staleSfuStreams.length > 0) {
-      this.staleSweepAt = performance.now() + SFU_STALE_STREAM_GRACE_MS;
-    }
-  }
-
-  // Detach the frozen streams no re-pull replaced (a no-op for replaced ones,
-  // since detachRemoteStream matches the stream id).
-  private sweepStaleSfuStreams() {
-    const stale = this.staleSfuStreams;
-    this.staleSfuStreams = [];
-    for (const { userId, streamId } of stale) this.view.detachRemoteStream(userId, streamId);
-  }
-
-  // Leaving SFU (group change, away, session reset): drop all recovery state.
-  private endSfuRecovery() {
-    this.sfuRebuildAt = null;
-    this.sfuFailures = 0;
-    this.sfuConnectedAt = Number.NEGATIVE_INFINITY;
-    this.dismissSfuToast?.();
-    this.dismissSfuToast = null;
-    this.view.setReconnecting(false);
-    this.staleSweepAt = null;
-    this.sweepStaleSfuStreams();
   }
 
   // Pick each SFU camera's simulcast layer by its rendered tile width (issue
@@ -2297,10 +1993,6 @@ export class App {
       if (this.sfu.setPreferredLayer(userId, 'cam', rid)) this.view.noteLayerSwitch(userId);
     }
   }
-}
-
-function clamp(v: number, lo: number, hi: number) {
-  return v < lo ? lo : v > hi ? hi : v;
 }
 
 // Whether a key event lands in a text field (where keys are typing, not
