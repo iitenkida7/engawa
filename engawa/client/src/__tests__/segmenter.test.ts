@@ -72,6 +72,17 @@ describe('pushBlock', () => {
     expect(action.type).toBe('discard');
   });
 
+  it('discards blips with near silence between them', () => {
+    // Two short sounds, each pause just under SILENCE_MS: the span from first
+    // to last is long, but almost none of it is speech.
+    const state = newSegmentState();
+    pushBlock(state, block(), LOUD);
+    feed(state, SILENCE_MS / BLOCK_MS - 1, QUIET);
+    pushBlock(state, block(), LOUD);
+    const action = feed(state, SILENCE_MS / BLOCK_MS, QUIET);
+    expect(action.type).toBe('discard');
+  });
+
   it('cuts a monologue at the maximum segment length', () => {
     const state = newSegmentState();
     const action = feed(state, MAX_SEGMENT_MS / BLOCK_MS, LOUD);
