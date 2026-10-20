@@ -206,7 +206,10 @@ export class MediaManager {
       const raw = await this.getUserMediaFor('mic', (deviceId) => ({
         audio: {
           echoCancellation: true,
-          noiseSuppression: true,
+          // The browser's own suppressor only when RNNoise is off: stacking
+          // them feeds RNNoise the browser's residual "musical noise", which it
+          // turns into a glassy ringing on voices.
+          noiseSuppression: !this.noiseSuppression,
           autoGainControl: true,
           channelCount: 1,
           // Hint to the audio capture stack to keep its buffer short.
@@ -240,6 +243,10 @@ export class MediaManager {
         return processed;
       } catch (e) {
         console.warn('noise suppression unavailable, using raw mic', e);
+        // Best effort: fall back to the browser's suppressor instead.
+        for (const t of raw.getAudioTracks()) {
+          t.applyConstraints({ ...t.getConstraints(), noiseSuppression: true }).catch(() => {});
+        }
         this.noiseSuppressor = null;
         this.rawMic = null;
         this.micStream = raw;

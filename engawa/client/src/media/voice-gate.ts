@@ -43,6 +43,18 @@ export const GATE_RELEASE_SAMPLES = 2_880; // 60ms
 // worklet's).
 export const GATE_LOOKAHEAD_FRAMES = 2;
 
+// Share of the raw (un-denoised) mic mixed back into the denoised output while
+// the gate is open, ≈ -16dB. RNNoise carves the gaps between voice harmonics
+// hard, which on higher-pitched (often female) voices leaves a glassy, ringing
+// "musical noise"; a little of the original fills those gaps back in and masks
+// it. While someone is speaking the voice itself masks the noise this lets
+// back in, and between utterances the gate mutes it along with everything else.
+export const DRY_MIX = 0.15;
+
+// RNNoise's output lags its input by exactly one frame (overlap-add synthesis),
+// so the dry signal is taken from the previous frame to stay phase-aligned —
+// mixing it misaligned would itself comb-filter the voice.
+
 export type GateState = { open: boolean; hold: number };
 
 export const GATE_CLOSED: GateState = { open: false, hold: 0 };
@@ -74,8 +86,15 @@ export class GatedDenoiser {
   private writePos: number;
   private gate: GateState = GATE_CLOSED;
   private gain = 0;
+  // Raw copy of the previous input frame: the dry signal aligned with the
+  // current denoised frame (see DRY_MIX).
+  private prevRaw = new Float32Array(RNNOISE_FRAME);
+  private curRaw = new Float32Array(RNNOISE_FRAME);
 
-  constructor(private denoise: DenoiseFrame) {
+  constructor(
+    private denoise: DenoiseFrame,
+    private dryMix = DRY_MIX,
+  ) {
     // Prime the output with silence: one frame so a 128-sample read never runs
     // ahead of the 480-sample frames, plus the lookahead.
     this.writePos = RNNOISE_FRAME * (1 + GATE_LOOKAHEAD_FRAMES);
@@ -106,11 +125,14 @@ export class GatedDenoiser {
   }
 
   private flushFrame() {
+    this.curRaw.set(this.frame);
     const vad = this.denoise(this.frame);
     this.gate = nextGate(this.gate, vad);
     for (let i = 0; i < RNNOISE_FRAME; i++) {
-      this.ring[(this.writePos + i) & (RING_SIZE - 1)] = this.frame[i];
+      this.ring[(this.writePos + i) & (RING_SIZE - 1)] =
+        this.frame[i] + this.dryMix * this.prevRaw[i];
     }
+    [this.prevRaw, this.curRaw] = [this.curRaw, this.prevRaw];
     this.writePos += RNNOISE_FRAME;
     this.frameLen = 0;
   }

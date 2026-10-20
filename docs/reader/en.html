@@ -495,14 +495,14 @@ svg .mono { font-family: var(--f-mono); font-size: 11px; }
       <div class="engawa"><span class="tag">In engawa</span>
         <b>Delivery</b>: Opus is mono, 20 ms, with in-band FEC on and DTX off, and RED is added when the connection degrades (tier 2 and up). On the mesh path audio is capped at 64 kbps. On the SFU path audio has the highest send priority, and video is cut first under congestion. On reconnect, everyone's microphones are received first in one batch, and at tier 3 video reception stops so the whole download goes to audio.
         <br><br>
-        <b>Noise suppression</b> (on by default): audio first goes through the browser's built-in echo cancellation, noise suppression and AGC, then through RNNoise (WASM) running in engawa's own AudioWorklet. The voice gate is configured as follows.
+        <b>Noise suppression</b> (on by default): after the browser's built-in echo cancellation and AGC, audio goes through RNNoise (WASM) running in engawa's own AudioWorklet. The browser's own noise suppression is not stacked on top (doing both makes RNNoise turn the leftover "musical noise" into a glassy ringing). So the gaps between harmonics of higher-pitched voices aren't carved out too hard, 15% (about -16 dB) of the original signal, delayed one frame to stay phase-aligned, is mixed back in. The voice gate is configured as follows.
         <ul style="margin:8px 0 6px">
           <li>Opens when VAD reaches 0.6 and closes below 0.3 (two thresholds prevent flapping)</li>
           <li>Stays open for 300 ms after the close condition is met (so word endings and short pauses aren't cut)</li>
           <li>Fades in over 5 ms when opening and out over 60 ms when closing (no clicks)</li>
           <li>Looks two frames ahead before deciding to open or close (so word onsets aren't lost). Total latency is 30 ms as a result</li>
         </ul>
-        If the WASM hasn't loaded within 5 seconds, engawa falls back to the raw, unprocessed microphone. The model and the audio never leave the device (no CDN either).
+        If the WASM hasn't loaded within 5 seconds, engawa falls back to the microphone with only the browser's built-in noise suppression. The model and the audio never leave the device (no CDN either).
       </div>
     </section>
 
@@ -652,7 +652,7 @@ svg .mono { font-family: var(--f-mono); font-size: 11px; }
           <tr><td>Jitter buffer</td><td>Auto-adjusted between 100 and 300 ms</td></tr>
           <tr><td>Audio first</td><td>Highest send priority. Microphones received first on reconnect</td></tr>
           <tr><td>Screen sharing</td><td>contentHint=detail, resolution first, one stream at 2 Mbps, 1920px, 15 fps (SFU)</td></tr>
-          <tr><td>Noise suppression</td><td>Browser built-in + RNNoise (AudioWorklet) + voice gate. 30 ms latency</td></tr>
+          <tr><td>Noise suppression</td><td>RNNoise (AudioWorklet) + 15% dry signal + voice gate. 30 ms latency</td></tr>
           <tr><td>Failure isolation</td><td>Per-peer retries. Your own connection counts as healthy while others' media arrives</td></tr>
           <tr><td>Perceived-quality measurement</td><td>None (technical metrics are in the netlog)</td></tr>
           <tr><td>SFU cascading / regional distribution</td><td>Left to Cloudflare</td></tr>

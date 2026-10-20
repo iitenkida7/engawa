@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  DRY_MIX,
   GATE_ATTACK_SAMPLES,
   GATE_CLOSE_VAD,
   GATE_CLOSED,
@@ -60,14 +61,15 @@ function run(d: GatedDenoiser, frames: number, value = 0.5) {
 
 const LATENCY = RNNOISE_FRAME * (1 + GATE_LOOKAHEAD_FRAMES);
 
+// The gate tests pass dryMix 0 so the output is exactly the gated denoiser output.
 describe('GatedDenoiser', () => {
   it('mutes noise completely while nobody speaks', () => {
-    const out = run(new GatedDenoiser(scripted([])), 20);
+    const out = run(new GatedDenoiser(scripted([]), 0), 20);
     expect(out.every((v) => v === 0)).toBe(true);
   });
 
   it('passes speech through after the fixed latency', () => {
-    const out = run(new GatedDenoiser(scripted(Array(20).fill(1))), 20);
+    const out = run(new GatedDenoiser(scripted(Array(20).fill(1)), 0), 20);
     // Primed silence first…
     expect(out.subarray(0, LATENCY).every((v) => v === 0)).toBe(true);
     // …then the signal at full gain once the attack ramp is done.
@@ -78,7 +80,7 @@ describe('GatedDenoiser', () => {
   it('opens before the first speech frame comes out (lookahead)', () => {
     // 5 noise frames, then speech.
     const vads = [0, 0, 0, 0, 0, 1, 1, 1, 1, 1];
-    const out = run(new GatedDenoiser(scripted(vads)), 10);
+    const out = run(new GatedDenoiser(scripted(vads), 0), 10);
     // The first speech frame's samples leave at its input position + latency;
     // the gate (decided when that frame was processed) is already fully open.
     const firstSpeechOut = 5 * RNNOISE_FRAME + LATENCY;
@@ -90,7 +92,7 @@ describe('GatedDenoiser', () => {
 
   it('holds through a short pause, then fades out without a click', () => {
     const vads = [1, ...Array(GATE_HOLD_FRAMES + 20).fill(0)];
-    const d = new GatedDenoiser(scripted(vads));
+    const d = new GatedDenoiser(scripted(vads), 0);
     const out = run(d, vads.length);
     // Still open well into the hold.
     const midHold = LATENCY + (GATE_HOLD_FRAMES / 2) * RNNOISE_FRAME;
@@ -110,7 +112,29 @@ describe('GatedDenoiser', () => {
       for (let i = 0; i < f.length; i++) f[i] *= 0.5;
       return 1;
     };
-    const out = run(new GatedDenoiser(halve), 10, 0.8);
+    const out = run(new GatedDenoiser(halve, 0), 10, 0.8);
     expect(out[out.length - 1]).toBeCloseTo(0.4, 6);
+  });
+
+  it('mixes the raw input back in, delayed one frame to match RNNoise', () => {
+    // Fake denoiser that removes everything but reports speech: the output is
+    // then only the dry signal, which must be the input one frame later.
+    const silence = (f: Float32Array) => {
+      f.fill(0);
+      return 1;
+    };
+    const d = new GatedDenoiser(silence);
+    const frames = 10;
+    const total = frames * RNNOISE_FRAME;
+    const input = new Float32Array(total).map((_, i) => Math.sin(i / 7));
+    const out = new Float32Array(total);
+    for (let pos = 0; pos < total; pos += 128) {
+      const n = Math.min(128, total - pos);
+      d.process(input.subarray(pos, pos + n), out.subarray(pos, pos + n));
+    }
+    const delay = LATENCY + RNNOISE_FRAME;
+    for (let i = delay + GATE_ATTACK_SAMPLES; i < total; i++) {
+      expect(out[i]).toBeCloseTo(DRY_MIX * input[i - delay], 6);
+    }
   });
 });
