@@ -19,6 +19,8 @@ export const BLOCK_MS = 100;
 // Loudness (RMS, 0..1) above which a block counts as speech. Deliberately low:
 // this only has to beat a quiet room, because the mic we tap has already been
 // through RNNoise and the voice gate, which mute non-speech outright.
+// The transcriber also zeroes a block's level while the speaker's tile isn't lit
+// green (media/speaking.ts), so this is a floor, not the main speech test.
 export const SPEECH_RMS = 0.01;
 
 // Silence this long ends an utterance. Long enough to ride over the pauses

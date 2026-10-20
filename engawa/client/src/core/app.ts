@@ -479,6 +479,7 @@ export class App {
       getApiKey: () => loadGroqKey(),
       getModel: () => loadGroqModel(),
       getLanguage: () => getLang(),
+      isSpeaking: (userId) => this.players.get(userId)?.isSpeaking ?? false,
       onTranscript: (speakerId, text, at) => this.onOwnTranscript(speakerId, text, at),
       onError: (message, fatal) => {
         // Transient failures already retried inside; only a rejected key is

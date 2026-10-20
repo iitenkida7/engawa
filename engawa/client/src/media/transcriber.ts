@@ -48,6 +48,11 @@ export type TranscriberOptions = {
   getApiKey: () => string | null;
   getModel: () => GroqModel;
   getLanguage: () => string;
+  // Whether this person's tile is lit green right now (media/speaking.ts).
+  // Audio only counts as speech while it is, so transcription hears exactly
+  // what the call UI calls talking — near-silence that slips past the RMS
+  // threshold is never uploaded.
+  isSpeaking: (userId: string) => boolean;
 };
 
 export class TranscriberManager {
@@ -148,7 +153,8 @@ export class TranscriberManager {
 
   private onBlock(userId: string, tap: Tap, block: PcmBlockMessage) {
     if (!this.running) return;
-    const action = pushBlock(tap.state, block.samples, block.rms);
+    const level = this.opts.isSpeaking(userId) ? block.rms : 0;
+    const action = pushBlock(tap.state, block.samples, level);
     if (action.type !== 'emit') return;
     const samples = concatBlocks(action.blocks);
     // Timestamp the start of the utterance, not the moment it was recognised.
