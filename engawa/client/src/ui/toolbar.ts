@@ -850,6 +850,11 @@ export class ToolbarController {
     addItem((this.recReminderEnabled ? '✓ ' : '') + t('toolbar.recReminder'), () =>
       this.toggleRecReminder(),
     );
+    // Face window while sharing (#318): Document PiP, Chrome / Edge desktop
+    // only, so it is listed only where it can work. Off by default.
+    if (this.view.facePipSupported()) {
+      addItem((this.facePipEnabled ? '✓ ' : '') + t('toolbar.facePip'), () => this.toggleFacePip());
+    }
     // Privacy: who in this call is sending its audio to a transcription service.
     const transcribers = this.getTranscribingPeerNames();
     if (transcribers.length > 0) {
@@ -863,12 +868,6 @@ export class ToolbarController {
     // setLang persists the choice and reloads.
     const other: Lang = getLang() === 'ja' ? 'en' : 'ja';
     addItem(other === 'ja' ? '🌐 日本語' : '🌐 English', () => setLang(other));
-
-    // Face window while sharing (#318): Document PiP, Chrome / Edge desktop
-    // only, so it is listed only where it can work. Off by default.
-    if (this.view.facePipSupported()) {
-      addItem((this.facePipEnabled ? '✓ ' : '') + t('toolbar.facePip'), () => this.toggleFacePip());
-    }
   }
 
   private async switchMic(deviceId: string) {
