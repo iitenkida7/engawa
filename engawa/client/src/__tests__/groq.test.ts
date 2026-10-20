@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { cleanTranscript, isHallucinated, parseGroqKey, retryDelayMs } from '@/media/groq';
+import {
+  cleanTranscript,
+  isHallucinated,
+  parseGroqKey,
+  parseRateLimit,
+  retryDelayMs,
+} from '@/media/groq';
 
 // The Groq Whisper client's pure parts: settings parsing and the filters that
 // keep invented text out of the transcript.
@@ -83,5 +89,41 @@ describe('retryDelayMs', () => {
   it('falls back to the backoff for a malformed or past Retry-After', () => {
     expect(retryDelayMs(2, 'soon')).toBe(1_600);
     expect(retryDelayMs(2, '-5')).toBe(1_600);
+  });
+});
+
+describe('parseRateLimit', () => {
+  const body = (message: string) =>
+    JSON.stringify({ error: { message, type: 'tokens', code: 'rate_limit_exceeded' } });
+
+  it('reads the limit and the wait from a Groq 429 body', () => {
+    expect(
+      parseRateLimit(
+        body(
+          'Rate limit reached for model `whisper-large-v3-turbo` in organization `org_x` service tier `on_demand` on audio seconds per hour (ASH): Limit 7200, Used 7195, Requested 20. Please try again in 6m12.5s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing',
+        ),
+      ),
+    ).toEqual({ kind: 'ASH', waitSec: 372.5 });
+  });
+
+  it('adds up hours, minutes and seconds', () => {
+    expect(
+      parseRateLimit(
+        body('... on requests per day (RPD): Limit 2000, Used 2000. Please try again in 1h2m3s.'),
+      ),
+    ).toEqual({ kind: 'RPD', waitSec: 3723 });
+    expect(parseRateLimit(body('... (RPM): Limit 20. Please try again in 2.4s.'))).toEqual({
+      kind: 'RPM',
+      waitSec: 2.4,
+    });
+  });
+
+  it('leaves out what it cannot find', () => {
+    expect(parseRateLimit(body('Too many requests'))).toEqual({ kind: null, waitSec: null });
+    expect(parseRateLimit('')).toEqual({ kind: null, waitSec: null });
+    expect(parseRateLimit('upstream (ASD) busy, try again in 30s')).toEqual({
+      kind: 'ASD',
+      waitSec: 30,
+    });
   });
 });

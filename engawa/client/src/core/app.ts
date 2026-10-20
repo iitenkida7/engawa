@@ -148,6 +148,9 @@ export class App {
   // Peers who announced they are transcribing. Drives the button badge and
   // stops us starting a second, duplicate transcription of the same call.
   private transcribingPeers = new Set<string>();
+  // Groq limits this run already told the user about: while one holds, every
+  // queued segment hits the same 429, and once per limit is enough.
+  private rateLimitsNotified = new Set<string>();
   private toasts = new Toasts();
   private reactionToasts = new ReactionToasts();
   private roster = new RosterPanel({ getPlayers: () => this.players });
@@ -496,6 +499,23 @@ export class App {
         this.net.send({ type: 'transcribing', transcribing: false });
         this.toolbar.refresh();
         this.transcriptSetup.open(() => void this.startTranscribing());
+      },
+      onRateLimited: ({ kind, waitSec }) => {
+        // A wait under a minute (the per-minute limit in a busy call) clears
+        // through the retries before anyone would notice the delay.
+        if (waitSec !== null && waitSec < 60) return;
+        const key = kind ?? '';
+        if (this.rateLimitsNotified.has(key)) return;
+        this.rateLimitsNotified.add(key);
+        const what = kind ? t(`transcript.limit.${kind}`) : t('transcript.limit.unknown');
+        const minutes = waitSec === null ? null : Math.ceil(waitSec / 60);
+        const wait =
+          minutes === null
+            ? t('transcript.wait.unknown')
+            : minutes >= 120
+              ? t('transcript.wait.hours', { n: Math.round(minutes / 60) })
+              : t('transcript.wait.minutes', { n: minutes });
+        this.toasts.error(t('transcript.rateLimited', { what, wait }), 12_000);
       },
     });
     // Follow remote mics as people join and leave the call.
@@ -1995,6 +2015,7 @@ export class App {
     this.net.send({ type: 'transcribing', transcribing: true });
     this.toolbar.refresh();
     this.transcriptPanel.open();
+    this.rateLimitsNotified.clear();
   }
 
   // Stop transcribing and tell the call. The panel deliberately stays open:
