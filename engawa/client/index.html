@@ -597,12 +597,21 @@
         line-height: 1.6;
       }
 
+      /* Each line is a speech bubble under a "name  time" header; consecutive
+         lines from the same speaker stack without repeating the header. */
       .transcript-row {
-        display: grid;
-        grid-template-columns: auto auto 1fr;
-        gap: 6px;
-        margin-bottom: 4px;
+        margin-top: 10px;
+      }
+
+      .transcript-row.continued {
+        margin-top: 4px;
+      }
+
+      .transcript-meta {
+        display: flex;
         align-items: baseline;
+        gap: 6px;
+        margin: 0 0 4px 4px;
       }
 
       .transcript-time {
@@ -618,8 +627,30 @@
       }
 
       .transcript-text {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+        box-sizing: border-box;
+        padding: 6px 10px;
+        background: #262b36;
+        border-radius: 12px;
         color: #dfe3ea;
         overflow-wrap: anywhere;
+      }
+
+      /* The tail points up at the speaker's name, only on a group's first bubble. */
+      .transcript-row:not(.continued) .transcript-text {
+        border-top-left-radius: 4px;
+      }
+
+      .transcript-row:not(.continued) .transcript-text::before {
+        content: '';
+        position: absolute;
+        top: -5px;
+        left: 10px;
+        border: 5px solid transparent;
+        border-top: 0;
+        border-bottom-color: #262b36;
       }
 
       /* Transcription setup: a small modal for the user's own Groq API key. */
