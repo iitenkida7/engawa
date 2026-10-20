@@ -6,46 +6,16 @@ import type { RecorderManager } from '@/media/recorder';
 import {
   createSpeakingDetector,
   destroySpeakingDetector,
-  getSharedAudioContext,
   isSpeaking,
   SPEAKING_POLL_MS,
   type SpeakingDetector,
 } from '@/media/speaking';
 import { AutoplayGate } from '@/ui/autoplay';
 import { type FaceEntry, FacePipView, isFacePipSupported } from '@/ui/face-pip';
-import {
-  applyPanelGeometry,
-  CAM_ASPECT,
-  clampFilmstripWidth,
-  clampMeetingSplit,
-  computeFilmstripColumns,
-  computeFocusLayout,
-  computeGridLayout,
-  computeMeetingGallery,
-  computeMeetingPresentation,
-  computeMinimizedSidebar,
-  computePresentationLayout,
-  computeSidebarLayout,
-  type LayoutItem,
-  type LayoutMode,
-  MEETING_FILMSTRIP_MAX_VISIBLE_ROWS,
-  MEETING_FILMSTRIP_SEP,
-  MEETING_FILMSTRIP_TILE_W,
-  MEETING_SPLIT_DEFAULT,
-  MINIMIZED_SIDEBAR_MAX_VISIBLE,
-  meetingFilmstripColWidth,
-  minimizedSidebarWidth,
-  PANEL_BOTTOM_RESERVED,
-  type PanelGeometry,
-} from '@/ui/panels';
-import {
-  clampGain,
-  gainToPercent,
-  PEER_GAIN_DEFAULT,
-  PEER_GAIN_MAX,
-  percentToGain,
-  snapPercent,
-} from '@/ui/peer-volume';
+import { createFocusButton, type LayoutPanel, MediaLayout } from '@/ui/media-layout';
+import { CAM_ASPECT, type LayoutMode } from '@/ui/panels';
+import { createVolumeControl, PeerGainRoutes } from '@/ui/peer-gain';
+import { clampGain, PEER_GAIN_DEFAULT } from '@/ui/peer-volume';
 import {
   classifyStall,
   INITIAL_STALL_STATE,
@@ -106,36 +76,12 @@ type Screenshare = {
   cleanup: () => void;
 };
 
-// Chevron used by the filmstrip show-more button; rotated 180° (via the
-// `.expanded` class) for the fold-back direction, so up and down are the exact
-// same shape mirrored — not two differently-drawn text glyphs.
-const CHEVRON_SVG = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5" /></svg>';
-
-// Icons for the meeting minimize/restore toggle: a windowed-screen glyph for
-// "show the map" and outward corners for "back to the full-screen meeting".
-const MAP_ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg>';
-const EXPAND_ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" /></svg>';
-
 // Mic-with-strike glyph shown (red, via CSS) next to a name while that person is
 // muted. Matches the toolbar mic icon.
 const MIC_OFF_SVG =
   '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" />' +
   '<path d="M6 11a6 6 0 0 0 12 0" /><line x1="12" y1="17" x2="12" y2="21" />' +
   '<line x1="8" y1="21" x2="16" y2="21" /><line x1="4" y1="20" x2="20" y2="4" /></svg>';
-
-// The maximize (⤢) button that sits at the right end of every panel header.
-// Clicks are caught by one delegated handler on #app, so the button carries no
-// listener of its own and needs no cleanup when its panel is removed.
-function createFocusButton(): HTMLButtonElement {
-  const btn = document.createElement('button');
-  btn.className = 'panel-focus-btn';
-  btn.type = 'button';
-  btn.textContent = '⤢';
-  btn.title = t('media.focus');
-  return btn;
-}
 
 // Owns every media panel in the DOM: the floating remote camera tiles, the
 // per-user mic <audio> elements, the screenshare stage, and the self preview.
@@ -173,15 +119,9 @@ export class RemoteMediaView {
   // the Manager-callback wiring.
   private onRemoteAudio: ((userId: string, stream: MediaStream | null) => void) | null = null;
 
-  // Per-person volume. The chosen gain lives on the tile (RemoteTile.gain), so it
-  // lasts the conversation and no longer. At the default the <audio> element
-  // plays untouched; only a changed gain routes the voice through a Web Audio
-  // GainNode (the element stays attached but muted, which WebRTC streams need to
-  // keep flowing).
-  private gainRoutes = new Map<
-    string,
-    { source: MediaStreamAudioSourceNode; gain: GainNode; streamId: string }
-  >();
+  // Per-person volume routing. The chosen gain lives on the tile (RemoteTile.gain),
+  // so it lasts the conversation and no longer.
+  private gainRoutes = new PeerGainRoutes();
 
   // Each sharing user gets their own stage panel, keyed by userId. Map insertion
   // order is share order (oldest first). `mainScreenshareUserId` is the featured
@@ -202,25 +142,6 @@ export class RemoteMediaView {
   private localSpeakingDetector: SpeakingDetector | null = null;
   private remoteSpeakingDetectors = new Map<string, SpeakingDetector>();
 
-  // The active window-layout mode. 'sidebar' (default) stacks cameras in a
-  // compact side column so approaching someone doesn't slam two full-screen
-  // previews up; a screenshare auto-switches to 'presentation' and reverts to
-  // 'sidebar' when the last share stops (issue #175). Every mode auto-arranges
-  // and re-flows on viewport/membership/screenshare changes — no manual placement.
-  private layoutMode: LayoutMode = 'sidebar';
-  // Fired whenever layoutMode changes (toolbar selection OR the screenshare
-  // auto-switch) so the toolbar can re-highlight the active layout button.
-  private onLayoutModeChange: ((mode: LayoutMode) => void) | null = null;
-  // Fired from reflowLayout with the current count of laid-out windows, so the
-  // toolbar can hide the grid/sidebar toggle when there is nothing to arrange
-  // (no camera tiles, screenshares or self-preview) — the toggle only does
-  // anything with ≥1 window, so showing it while idle just reads as "broken".
-  private onPanelsChange: ((count: number) => void) | null = null;
-
-  // The maximized window's panel key ('cam:<id>' / 'screen:<id>' / 'self'), or
-  // null when nothing is maximized. An override on top of layoutMode rather than
-  // a mode of its own, so clearing it drops straight back to the active mode.
-  private focusedKey: string | null = null;
   // True while the SFU transport is being rebuilt (issue #254): remote panels
   // stay up, frozen, under a "reconnecting" overlay until the re-pull lands.
   private reconnecting = false;
@@ -228,35 +149,8 @@ export class RemoteMediaView {
   // #188): video-less tiles say so instead of looking like a camera-off (#312).
   private recvVideoPaused = false;
 
-  // Immersive meeting mode (issue #263): on only while the local user stands in a
-  // zone — room, booth or café (the App drives it via setMeetingMode). When on, the media
-  // windows fill the screen edge-to-edge over a black backdrop (Gather-style)
-  // instead of floating over the 2D map. Orthogonal to layoutMode — it overrides
-  // the arrangement while active and restores the floating layout when it clears.
-  private meetingMode = false;
-  // Whether the camera filmstrip (presentation mode) shows everyone or just the
-  // collapsed set. Toggled by the ⬇️ button; reset when meeting mode ends.
-  private filmstripExpanded = false;
-  // Filmstrip column width (px) in presentation mode, dragged via the seam
-  // handle (#288). Per-meeting only: not persisted, reset when the meeting ends.
-  private filmstripWidth = MEETING_FILMSTRIP_TILE_W;
-  // The window pinned under the featured share (presentation mode): clicking a
-  // filmstrip tile moves it here, splitting the main area top (share) / bottom
-  // (pinned). `meetingSplit` is the top pane's height fraction, dragged via the
-  // horizontal seam. Both per-meeting only, reset when the meeting ends.
-  private meetingPinnedKey: string | null = null;
-  private meetingSplit = MEETING_SPLIT_DEFAULT;
-  // Minimized: in a meeting zone but temporarily dropped back to floating tiles
-  // so the map (and the way out of the room) is reachable. Reset on leaving.
-  private meetingMinimized = false;
-  // Whether the minimize/restore control is currently offered (i.e. we're in a
-  // meeting). Gates the keyboard shortcut — see toggleMeetingView.
-  private meetingControlsVisible = false;
-  private appEl: HTMLElement;
-  private filmstripToggleEl: HTMLButtonElement;
-  private filmstripResizerEl: HTMLDivElement;
-  private splitResizerEl: HTMLDivElement;
-  private meetingMinimizeEl: HTMLButtonElement;
+  // Layout modes, the maximized window and the immersive meeting view.
+  private layout: MediaLayout;
 
   // Replays remote media the autoplay policy refused on the next user gesture
   // (issue #201); the App shows / hides the "enable audio" prompt.
@@ -288,26 +182,16 @@ export class RemoteMediaView {
 
     this.remoteVideosEl = document.getElementById('remote-videos') as HTMLDivElement;
     this.stageLayerEl = this.remoteVideosEl.parentElement as HTMLElement;
-    this.appEl = document.getElementById('app') as HTMLElement;
-    this.filmstripToggleEl = document.getElementById('filmstrip-toggle') as HTMLButtonElement;
-    this.filmstripToggleEl.innerHTML = CHEVRON_SVG;
-    this.filmstripToggleEl.addEventListener('click', () => {
-      this.filmstripExpanded = !this.filmstripExpanded;
-      this.reflowLayout();
+    this.layout = new MediaLayout({
+      appEl: document.getElementById('app') as HTMLElement,
+      stageLayerEl: this.stageLayerEl,
+      collectPanels: () => this.collectPanels(),
+      // Every tile add / remove / cam change lands in a reflow, so this is the
+      // one place the face window needs to re-sync (issue #318).
+      beforeReflow: () => {
+        if (this.facePip.isOpen()) this.facePip.sync(this.faceEntries());
+      },
     });
-    this.filmstripResizerEl = document.getElementById('filmstrip-resizer') as HTMLDivElement;
-    this.filmstripResizerEl.title = t('media.filmstripResize');
-    this.bindFilmstripResizer();
-    // Built here rather than in index.html: it only ever exists alongside the
-    // meeting presentation layout this class owns.
-    this.splitResizerEl = document.createElement('div');
-    this.splitResizerEl.id = 'meeting-split-resizer';
-    this.splitResizerEl.style.display = 'none';
-    this.splitResizerEl.title = t('media.filmstripResize');
-    this.appEl.appendChild(this.splitResizerEl);
-    this.bindSplitResizer();
-    this.meetingMinimizeEl = document.getElementById('meeting-minimize') as HTMLButtonElement;
-    this.meetingMinimizeEl.addEventListener('click', () => this.toggleMeetingView());
     this.selfPreviewEl = document.getElementById('self-preview') as HTMLDivElement;
     this.selfPreviewLabelEl = document.getElementById('self-preview-label') as HTMLSpanElement;
     this.selfVideoEl = document.getElementById('self-video') as HTMLVideoElement;
@@ -321,50 +205,6 @@ export class RemoteMediaView {
     // dynamic panels get theirs at creation.
     this.selfPreviewEl.dataset.focusKey = 'self';
     this.selfPreviewEl.querySelector('.panel-header')?.appendChild(createFocusButton());
-    // One delegated click handler for every maximize button: panels come and go
-    // constantly (peers, shares), and #app outlives all of them, so delegation
-    // keeps this free of per-panel listener bookkeeping.
-    // The same handler pins a meeting filmstrip tile under the share (or unpins
-    // the pinned one) on a plain click. Only the first click of a double-click
-    // counts, so double-clicking a share to make it main doesn't pin-then-unpin.
-    this.stageLayerEl.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement | null;
-      const btn = target?.closest?.('.panel-focus-btn');
-      if (btn) {
-        const key = btn.closest<HTMLElement>('.panel')?.dataset.focusKey;
-        if (key) this.toggleFocus(key);
-        return;
-      }
-      // The per-person volume control lives in the tile header: dragging its
-      // slider ends in a click, which must not also pin / unpin the tile (that
-      // resized the windows every time the volume was touched).
-      if (target?.closest?.('.vol')) return;
-      if (e.detail > 1) return;
-      const panel = target?.closest?.<HTMLElement>(
-        '.panel.meeting-pinnable, .panel.meeting-pinned',
-      );
-      const key = panel?.dataset.focusKey;
-      if (key) this.togglePin(key);
-    });
-    // Esc is the universal way out of a maximized window — without it a user who
-    // maximized the only window has no visible way back but the same button.
-    // Skipped while typing: Esc cancels an IME conversion or clears a field, and
-    // collapsing the view mid-sentence is not what the user asked for (same
-    // guard as world/input.ts and App.handleReactionKey).
-    document.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape' || !this.focusedKey || e.isComposing) return;
-      const t = e.target;
-      if (
-        t instanceof HTMLElement &&
-        (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
-      ) {
-        return;
-      }
-      this.clearFocus();
-    });
-    // Re-flow the active layout when the viewport changes so the fixed
-    // arrangement keeps fitting the new size (issue #175).
-    window.addEventListener('resize', () => this.reflowLayout());
   }
 
   // Sets the label shown under the self preview (the local user's name).
@@ -572,7 +412,7 @@ export class RemoteMediaView {
         /* noop */
       }
       audio.audio.remove();
-      this.dropGainRoute(userId);
+      this.gainRoutes.drop(userId);
       this.remoteAudios.delete(userId);
       this.recorder.removeAudioStream(streamId);
       this.onRemoteAudio?.(userId, null);
@@ -637,116 +477,9 @@ export class RemoteMediaView {
     this.applyPeerGain(userId, g);
   }
 
-  // Make the live voice match the gain: untouched element at the default, a
-  // GainNode route otherwise.
   private applyPeerGain(userId: string, gain: number = this.gainFor(userId)) {
     const entry = this.remoteAudios.get(userId);
-    if (!entry) return;
-    const stream = entry.audio.srcObject as MediaStream | null;
-    if (gain === PEER_GAIN_DEFAULT || !stream || typeof AudioContext === 'undefined') {
-      this.dropGainRoute(userId);
-      entry.audio.muted = false;
-      return;
-    }
-    let route = this.gainRoutes.get(userId);
-    if (route && route.streamId !== stream.id) {
-      this.dropGainRoute(userId);
-      route = undefined;
-    }
-    // The context the speaking detectors already run in: one per tab, not one
-    // per subsystem (see getSharedAudioContext). Fetched on every change, not
-    // just when building the route: a context created behind the autoplay gate
-    // starts suspended, and the getter resumes it — the slider drag that got us
-    // here is the gesture that lets it.
-    const ctx = getSharedAudioContext();
-    if (!route) {
-      const source = ctx.createMediaStreamSource(stream);
-      const node = ctx.createGain();
-      source.connect(node);
-      node.connect(ctx.destination);
-      route = { source, gain: node, streamId: stream.id };
-      this.gainRoutes.set(userId, route);
-    }
-    route.gain.gain.value = gain;
-    // The element only keeps the stream flowing now; the sound comes from the node.
-    entry.audio.muted = true;
-  }
-
-  private dropGainRoute(userId: string) {
-    const route = this.gainRoutes.get(userId);
-    if (!route) return;
-    try {
-      route.source.disconnect();
-      route.gain.disconnect();
-    } catch {
-      /* noop */
-    }
-    this.gainRoutes.delete(userId);
-  }
-
-  // The volume control in a remote tile's header: a speaker, the slider, and the
-  // percentage whenever it is not the default.
-  //
-  // The speaker is always visible (dimmed until you hover the tile), because a
-  // control that only exists on hover is a control nobody finds — and because a
-  // peer you silenced has to look different from a peer who is simply not
-  // talking. The slider magnets onto 100% (see snapPercent) so putting someone
-  // back to normal is a drag, not a pixel hunt.
-  private createVolumeControl(userId: string): HTMLElement {
-    const wrap = document.createElement('span');
-    wrap.className = 'vol';
-
-    const icon = document.createElement('span');
-    icon.className = 'vol-icon';
-    icon.setAttribute('aria-hidden', 'true');
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.className = 'vol-slider';
-    slider.min = '0';
-    slider.max = String(PEER_GAIN_MAX * 100);
-    slider.step = '1';
-
-    const pct = document.createElement('span');
-    pct.className = 'vol-pct';
-
-    const show = (g: number) => {
-      const p = gainToPercent(g);
-      slider.value = String(p);
-      // The track fills itself from this (see the --vol-fill rules): the slider
-      // spans 0–200%, so the filled share is half the percentage.
-      slider.style.setProperty('--vol-fill', `${p / 2}%`);
-      slider.title = t('media.volume', { pct: p });
-      slider.setAttribute('aria-label', slider.title);
-      icon.textContent = p === 0 ? '🔇' : '🔊';
-      // Only a changed volume is worth the ink; the default reads as "normal".
-      pct.textContent = g === PEER_GAIN_DEFAULT ? '' : `${p}%`;
-      wrap.classList.toggle('muted', p === 0);
-      wrap.classList.toggle('changed', g !== PEER_GAIN_DEFAULT);
-    };
-    show(this.gainFor(userId));
-
-    // Arrow keys must step freely, or every step inside the magnet band would
-    // snap back and the slider would be stuck at 100% for keyboard users.
-    let fromKey = false;
-    slider.addEventListener('keydown', () => {
-      fromKey = true;
-    });
-    slider.addEventListener('input', () => {
-      const raw = Number(slider.value);
-      const g = percentToGain(fromKey ? raw : snapPercent(raw));
-      fromKey = false;
-      show(g);
-      this.setPeerGain(userId, g);
-    });
-    // The header is the drag handle (and the maximize button's neighbour): keep
-    // slider gestures from starting a panel drag.
-    slider.addEventListener('mousedown', (e) => e.stopPropagation());
-
-    wrap.appendChild(icon);
-    wrap.appendChild(slider);
-    wrap.appendChild(pct);
-    return wrap;
+    if (entry) this.gainRoutes.apply(userId, entry.audio, gain);
   }
 
   private attachRemoteMic(userId: string, stream: MediaStream) {
@@ -842,7 +575,9 @@ export class RemoteMediaView {
     left.appendChild(ptt);
     left.appendChild(label);
     header.appendChild(left);
-    header.appendChild(this.createVolumeControl(userId));
+    header.appendChild(
+      createVolumeControl(this.gainFor(userId), (g) => this.setPeerGain(userId, g)),
+    );
     header.appendChild(createFocusButton());
     container.appendChild(header);
 
@@ -909,7 +644,7 @@ export class RemoteMediaView {
         /* noop */
       }
       a.audio.remove();
-      this.dropGainRoute(userId);
+      this.gainRoutes.drop(userId);
       // Drop this peer's mic from the recording mix. removePeer is the common
       // path (proximity walk-away, mesh→SFU switch, abrupt disconnect) and, unlike
       // detachRemoteStream, previously never told the recorder — so the source
@@ -958,8 +693,8 @@ export class RemoteMediaView {
       // window is dropped for the same reason: otherwise the new stage would be
       // born hidden behind it, and a user who maximized something and then hit
       // 画面共有 would get no sign at all that they are now sharing.
-      this.setLayoutModeSilently('presentation');
-      this.focusedKey = null;
+      this.layout.setLayoutModeSilently('presentation');
+      this.layout.dropFocus();
     }
     ss.streamId = stream.id;
     ss.video.srcObject = stream;
@@ -994,7 +729,7 @@ export class RemoteMediaView {
       if (nextId) this.screenshares.get(nextId)!.container.classList.add('main');
     }
     // Last share gone → back to the sidebar default (never remembers a manual choice).
-    if (this.screenshares.size === 0) this.setLayoutModeSilently('sidebar');
+    if (this.screenshares.size === 0) this.layout.setLayoutModeSilently('sidebar');
     this.reflowLayout();
   }
 
@@ -1063,7 +798,7 @@ export class RemoteMediaView {
     // Show your own tile whenever your camera is on OR you're in a call/meeting —
     // so everyone (yourself included) is visible regardless of camera state
     // (#263). Only hide it when you're genuinely alone with the camera off.
-    const show = stream != null || this.meetingMode || this.conversationMembers.size > 0;
+    const show = stream != null || this.layout.isMeetingMode() || this.conversationMembers.size > 0;
     if (stream) {
       if (this.selfVideoEl.srcObject !== stream) {
         this.selfVideoEl.srcObject = stream;
@@ -1229,432 +964,41 @@ export class RemoteMediaView {
   }
 
   // ============= Layout modes (auto-arrange) =============
-  // The active layout mode. The toolbar reads this to mark the current mode in
-  // its menu.
+  // The arrangement itself lives in MediaLayout (ui/media-layout.ts); this view
+  // only supplies the panels and forwards the public API.
+
   getLayoutMode(): LayoutMode {
-    return this.layoutMode;
+    return this.layout.getLayoutMode();
   }
 
-  // Registers a callback fired whenever the layout mode changes (used by the
-  // toolbar to keep its active-mode highlight in sync).
   setOnLayoutModeChange(cb: (mode: LayoutMode) => void) {
-    this.onLayoutModeChange = cb;
+    this.layout.setOnLayoutModeChange(cb);
   }
 
-  // Registers a callback fired from reflowLayout with the current window count,
-  // so the toolbar can show the layout toggle only when there is something to
-  // arrange. Invoked immediately with the current count.
   setOnPanelsChange(cb: (count: number) => void) {
-    this.onPanelsChange = cb;
-    cb(this.collectPanels().length);
+    this.layout.setOnPanelsChange(cb);
   }
 
-  // Switches the window-layout mode (toolbar grid/sidebar buttons) and re-flows.
-  // The chosen mode sticks and re-flows on viewport/membership/screenshare
-  // changes; a screenshare then temporarily forces the presentation view.
   setLayoutMode(mode: LayoutMode) {
-    // Picking a layout is an explicit "show me everything again", so it also
-    // leaves the maximized view (which would otherwise hide the new layout).
-    this.focusedKey = null;
-    if (this.layoutMode !== mode) {
-      this.layoutMode = mode;
-      this.onLayoutModeChange?.(mode);
-    }
-    this.reflowLayout();
+    this.layout.setLayoutMode(mode);
   }
 
   // Enters/leaves the immersive meeting layout (issue #263). The App calls this
   // every frame with whether the local user is standing in a meeting-room zone;
-  // it no-ops when unchanged. Leaving resets the filmstrip to collapsed so the
-  // next meeting starts tidy.
+  // it no-ops when unchanged.
   setMeetingMode(on: boolean) {
-    if (this.meetingMode === on) return;
-    this.meetingMode = on;
-    if (!on) {
-      this.filmstripExpanded = false;
-      this.meetingMinimized = false;
-      this.filmstripWidth = MEETING_FILMSTRIP_TILE_W;
-      this.meetingPinnedKey = null;
-      this.meetingSplit = MEETING_SPLIT_DEFAULT;
-    }
+    if (!this.layout.setMeetingMode(on)) return;
     // Entering/leaving a meeting flips whether your own camera-off tile shows.
     this.refreshSelfPreview();
     this.reflowLayout();
   }
 
-  // Sets the mode + notifies the toolbar highlight, WITHOUT re-flowing — used by
-  // the screenshare auto-switch, whose caller re-flows once afterwards.
-  private setLayoutModeSilently(mode: LayoutMode) {
-    if (this.layoutMode === mode) return;
-    this.layoutMode = mode;
-    this.onLayoutModeChange?.(mode);
-  }
-
-  // Re-lays every visible window according to the active mode. Called on
-  // viewport resize and whenever the set of windows changes (peer join/leave,
-  // screenshare start/stop) so the fixed arrangement stays tidy.
-  private reflowLayout() {
-    // Every tile add / remove / cam change lands here, so this is the one
-    // place the face window needs to re-sync (issue #318).
-    if (this.facePip.isOpen()) this.facePip.sync(this.faceEntries());
-    const panels = this.collectPanels();
-    // Drop a focus whose window is gone (peer left, camera off, share stopped)
-    // so the layout can never be stranded on a panel that no longer exists.
-    if (this.focusedKey && !panels.some((p) => p.key === this.focusedKey)) this.focusedKey = null;
-    // Tell the toolbar how many windows there are (even when zero) so it can
-    // show/hide the layout toggle as media comes and goes.
-    this.onPanelsChange?.(panels.length);
-    // Black immersive backdrop only while actually in a meeting WITH something to
-    // show — never a blank black screen when alone with no media. Minimizing
-    // keeps you in the meeting (media-wise) but drops to floating tiles so the
-    // map is reachable; the minimize toggle shows whenever we're in a meeting.
-    const inMeeting = this.meetingMode && panels.length > 0;
-    const meetingActive = inMeeting && !this.meetingMinimized;
-    this.appEl.classList.toggle('meeting', meetingActive);
-    this.updateMeetingControls(inMeeting);
-    if (!meetingActive) this.hideFilmstripToggle();
-    // The seam handle only exists in the meeting presentation layout; every other
-    // branch below hides it, and layoutMeeting re-shows it when it applies.
-    this.hideFilmstripResizer();
-    this.splitResizerEl.style.display = 'none';
-    if (panels.length === 0) return;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    const focusIdx = this.focusedKey ? panels.findIndex((p) => p.key === this.focusedKey) : -1;
-    if (focusIdx !== -1) {
-      // Maximized: the chosen window takes the whole usable area (the toolbar
-      // strip stays clear so there is always a way out) and the rest are hidden.
-      panels.forEach((p, i) => {
-        p.el.classList.toggle('focus-hidden', i !== focusIdx);
-        p.el.classList.toggle('focused', i === focusIdx);
-      });
-      applyPanelGeometry(panels[focusIdx].el, computeFocusLayout(panels[focusIdx].item, vw, vh));
-      this.syncFocusButtons(panels, focusIdx);
-      return;
-    }
-
-    for (const p of panels) {
-      p.el.classList.remove(
-        'focus-hidden',
-        'focused',
-        'meeting-hidden',
-        'layout-hidden',
-        'meeting-pinnable',
-        'meeting-pinned',
-      );
-    }
-    if (meetingActive) {
-      this.layoutMeeting(panels, vw, vh);
-      this.syncFocusButtons(panels, -1);
-      return;
-    }
-    // Alone with just your own camera (no call, no meeting): keep it a small
-    // corner preview so the map stays usable, instead of blowing it up to fill
-    // the one-tile grid (which hid the map, trapping you watching yourself).
-    if (panels.length === 1 && panels[0].key === 'self') {
-      this.layoutSelfCorner(panels[0].el);
-      this.syncFocusButtons(panels, -1);
-      return;
-    }
-    // A minimized meeting shows the tiles in the right-hand sidebar column so the
-    // map stays fully visible (you can see where to walk), capped at a readable
-    // few with a chevron for the rest — regardless of the ordinary-call layout.
-    if (inMeeting && this.meetingMinimized) {
-      this.layoutMinimizedSidebar(panels, vw, vh);
-      this.syncFocusButtons(panels, -1);
-      return;
-    }
-    const items = panels.map((p) => p.item);
-    const geos =
-      this.layoutMode === 'presentation'
-        ? computePresentationLayout(items, vw, vh)
-        : this.layoutMode === 'sidebar'
-          ? computeSidebarLayout(items, vw, vh)
-          : computeGridLayout(items, vw, vh);
-    panels.forEach((p, i) => {
-      applyPanelGeometry(p.el, geos[i]);
-    });
-    this.syncFocusButtons(panels, -1);
-  }
-
-  // Right-hand sidebar for a minimized meeting: fixed-size tiles (the 6-person
-  // size as the floor), at most MAX_VISIBLE shown with a chevron for the rest.
-  // Expanding falls back to the normal divide-to-fit sidebar so everyone fits.
-  private layoutMinimizedSidebar(
-    panels: Array<{ el: HTMLElement; item: LayoutItem; key: string }>,
-    vw: number,
-    vh: number,
-  ) {
-    const needToggle = panels.length > MINIMIZED_SIDEBAR_MAX_VISIBLE;
-    const visibleCount = this.filmstripExpanded
-      ? panels.length
-      : Math.min(MINIMIZED_SIDEBAR_MAX_VISIBLE, panels.length);
-    const visible = panels.slice(0, visibleCount);
-    for (const p of panels.slice(visibleCount)) p.el.classList.add('layout-hidden');
-    const items = visible.map((p) => p.item);
-    const geos = this.filmstripExpanded
-      ? computeSidebarLayout(items, vw, vh)
-      : computeMinimizedSidebar(items, vw, vh);
-    visible.forEach((p, i) => {
-      applyPanelGeometry(p.el, geos[i]);
-    });
-    if (needToggle) this.placeToggle(vw - minimizedSidebarWidth(vw) / 2, vh);
-    else this.hideFilmstripToggle();
-  }
-
-  // Lays out the immersive meeting view (issue #263). With a screenshare: the
-  // featured share fills the main area and the cameras ride a LEFT filmstrip,
-  // collapsed to however many keep a readable height (⬇️ reveals the rest). With
-  // no share: a full-bleed gallery grid of everyone.
-  private layoutMeeting(
-    panels: Array<{ el: HTMLElement; item: LayoutItem; key: string }>,
-    vw: number,
-    vh: number,
-  ) {
-    const mainIdx = panels.findIndex((p) => !p.item.aspectLocked);
-    // A pin whose window is gone (peer left, share stopped, or it became the
-    // main share) is dropped, so the split never lingers with an empty pane.
-    const pinnedIdx = panels.findIndex((p, i) => i !== mainIdx && p.key === this.meetingPinnedKey);
-    if (mainIdx === -1 || pinnedIdx === -1) this.meetingPinnedKey = null;
-    if (mainIdx === -1) {
-      // Gallery: no screenshare to feature — every window fills a grid cell.
-      const geos = computeMeetingGallery(
-        panels.map((p) => p.item),
-        vw,
-        vh,
-      );
-      panels.forEach((p, i) => {
-        applyPanelGeometry(p.el, geos[i]);
-      });
-      this.hideFilmstripToggle();
-      return;
-    }
-    // Presentation: main share + left filmstrip of everything else, trimmed to
-    // the visible (collapsed/expanded) set so a big meeting doesn't stack 20
-    // thumbnails down the edge.
-    const stripIdxs = panels.map((_, i) => i).filter((i) => i !== mainIdx && i !== pinnedIdx);
-    // Re-clamp every reflow so a viewport shrink pulls an over-wide rail back.
-    // Done before the cap because the rail's width decides its column count,
-    // and the cap is counted in rows (#304): five rows is ten faces in two.
-    this.filmstripWidth = clampFilmstripWidth(this.filmstripWidth, vw);
-    const cols = computeFilmstripColumns(this.filmstripWidth);
-    const maxVisible = MEETING_FILMSTRIP_MAX_VISIBLE_ROWS * cols;
-    const needToggle = stripIdxs.length > maxVisible;
-    const visibleCount = this.filmstripExpanded
-      ? stripIdxs.length
-      : Math.min(maxVisible, stripIdxs.length);
-    const visible = stripIdxs.slice(0, visibleCount);
-    for (const i of stripIdxs.slice(visibleCount)) panels[i].el.classList.add('meeting-hidden');
-
-    const pinned = pinnedIdx !== -1;
-    const order = pinned ? [mainIdx, pinnedIdx, ...visible] : [mainIdx, ...visible];
-    const geos = computeMeetingPresentation(
-      order.map((i) => panels[i].item),
-      vw,
-      vh,
-      this.filmstripWidth,
-      pinned ? this.meetingSplit : null,
-    );
-    order.forEach((pi, k) => {
-      applyPanelGeometry(panels[pi].el, geos[k]);
-    });
-    for (const i of visible) panels[i].el.classList.add('meeting-pinnable');
-    if (pinned) {
-      panels[pinnedIdx].el.classList.add('meeting-pinned');
-      this.placeSplitResizer(geos[0]);
-    }
-
-    const railW = meetingFilmstripColWidth(this.filmstripWidth);
-    if (needToggle) this.placeToggle(railW / 2, vh);
-    else this.hideFilmstripToggle();
-    // Nothing to resize when the share is alone (no filmstrip rail).
-    if (visible.length > 0) this.placeFilmstripResizer(railW, vh);
-  }
-
-  // Parks the drag handle on the seam between the filmstrip and the share (#288):
-  // a thin full-height strip centered on the seam, above the tiles.
-  private placeFilmstripResizer(railW: number, vh: number) {
-    const el = this.filmstripResizerEl;
-    el.style.display = 'block';
-    el.style.left = `${Math.round(railW + MEETING_FILMSTRIP_SEP / 2)}px`;
-    el.style.top = '0px';
-    el.style.height = `${Math.max(1, vh - PANEL_BOTTOM_RESERVED)}px`;
-  }
-
-  // Display only: the `dragging` highlight is owned by the pointer handlers, since
-  // every drag move re-flows (and so passes through here) mid-drag.
-  private hideFilmstripResizer() {
-    this.filmstripResizerEl.style.display = 'none';
-  }
-
-  // Drag the seam to change the filmstrip : share ratio (#288). Pointer capture
-  // keeps the drag alive when the cursor outruns the thin handle; the width is
-  // clamped per reflow. Double-click snaps back to the default width.
-  private bindFilmstripResizer() {
-    const el = this.filmstripResizerEl;
-    let dragging = false;
-    el.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
-      dragging = true;
-      // (Feature-checked: the test DOM has PointerEvent but no capture API.)
-      if (typeof el.setPointerCapture === 'function') el.setPointerCapture(e.pointerId);
-      el.classList.add('dragging');
-      e.preventDefault();
-    });
-    el.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
-      // The handle is centered on the seam, so the pointer x IS the rail width.
-      this.filmstripWidth = clampFilmstripWidth(e.clientX, window.innerWidth);
-      this.reflowLayout();
-    });
-    const end = (e: PointerEvent) => {
-      if (!dragging) return;
-      dragging = false;
-      el.classList.remove('dragging');
-      if (typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId)) {
-        el.releasePointerCapture(e.pointerId);
-      }
-    };
-    el.addEventListener('pointerup', end);
-    el.addEventListener('pointercancel', end);
-    el.addEventListener('dblclick', () => {
-      this.filmstripWidth = MEETING_FILMSTRIP_TILE_W;
-      this.reflowLayout();
-    });
-  }
-
-  // Pins a filmstrip window under the share, swaps the pin to another window,
-  // or unpins (back to the filmstrip) when it is already the pinned one.
-  private togglePin(key: string) {
-    this.meetingPinnedKey = this.meetingPinnedKey === key ? null : key;
-    this.reflowLayout();
-  }
-
-  // Parks the horizontal drag handle on the seam under the share (top pane).
-  private placeSplitResizer(top: PanelGeometry) {
-    const el = this.splitResizerEl;
-    el.style.display = 'block';
-    el.style.left = `${top.left}px`;
-    el.style.width = `${top.width}px`;
-    el.style.top = `${Math.round(top.top + (top.height ?? 0) + MEETING_FILMSTRIP_SEP / 2)}px`;
-  }
-
-  // Drag the share / pinned seam to change the top : bottom ratio. Same
-  // mechanics as the filmstrip seam; double-click snaps back to an even split.
-  private bindSplitResizer() {
-    const el = this.splitResizerEl;
-    let dragging = false;
-    el.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
-      dragging = true;
-      if (typeof el.setPointerCapture === 'function') el.setPointerCapture(e.pointerId);
-      el.classList.add('dragging');
-      e.preventDefault();
-    });
-    el.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
-      // The meeting area starts at y=0, so the pointer y over its height IS the ratio.
-      const areaH = Math.max(1, window.innerHeight - PANEL_BOTTOM_RESERVED);
-      this.meetingSplit = clampMeetingSplit(e.clientY / areaH);
-      this.reflowLayout();
-    });
-    const end = (e: PointerEvent) => {
-      if (!dragging) return;
-      dragging = false;
-      el.classList.remove('dragging');
-      if (typeof el.hasPointerCapture === 'function' && el.hasPointerCapture(e.pointerId)) {
-        el.releasePointerCapture(e.pointerId);
-      }
-    };
-    el.addEventListener('pointerup', end);
-    el.addEventListener('pointercancel', end);
-    el.addEventListener('dblclick', () => {
-      this.meetingSplit = MEETING_SPLIT_DEFAULT;
-      this.reflowLayout();
-    });
-  }
-
-  // Parks the show-more/less chevron, centered on `centerX` at the bottom of the
-  // column (CSS translateX(-50%)): a large down chevron to reveal the rest, an up
-  // chevron to fold back. Shared by the meeting filmstrip and the minimized
-  // sidebar (which pass the left-column / right-column center respectively).
-  private placeToggle(centerX: number, vh: number) {
-    const btn = this.filmstripToggleEl;
-    btn.style.display = 'flex';
-    btn.style.left = `${Math.round(centerX)}px`;
-    btn.style.top = `${vh - PANEL_BOTTOM_RESERVED - 46}px`;
-    btn.classList.toggle('expanded', this.filmstripExpanded);
-    btn.title = this.filmstripExpanded ? t('media.filmstripLess') : t('media.filmstripMore');
-  }
-
-  private hideFilmstripToggle() {
-    this.filmstripToggleEl.style.display = 'none';
-  }
-
-  // Flip between the immersive meeting view and the map, driven by the top-left
-  // button and by 'm' (issue #297). A no-op outside a meeting: the control is
-  // hidden then, and flipping the flag anyway would leave the NEXT meeting
-  // starting minimized (setMeetingMode only resets it on the way out).
   toggleMeetingView() {
-    if (!this.meetingControlsVisible) return;
-    this.meetingMinimized = !this.meetingMinimized;
-    // Each view starts collapsed; don't carry the chevron state across.
-    this.filmstripExpanded = false;
-    this.reflowLayout();
+    this.layout.toggleMeetingView();
   }
 
-  // Shows the top-left minimize/restore toggle whenever we're in a meeting, and
-  // labels it for the current state: "show map" (drop to floating tiles) while
-  // immersive, "meeting view" (go back full-screen) while minimized.
-  private updateMeetingControls(inMeeting: boolean) {
-    const btn = this.meetingMinimizeEl;
-    this.meetingControlsVisible = inMeeting;
-    if (!inMeeting) {
-      btn.style.display = 'none';
-      return;
-    }
-    const icon = this.meetingMinimized ? EXPAND_ICON : MAP_ICON;
-    const label = this.meetingMinimized ? t('media.backToMeeting') : t('media.showMap');
-    btn.innerHTML = `${icon}<span>${label}</span>`;
-    btn.title = label;
-    btn.style.display = 'flex';
-  }
-
-  // Drops the self preview back to its small bottom-right CSS default by clearing
-  // the inline geometry the auto-layout writes (used when it's the only window).
-  private layoutSelfCorner(el: HTMLElement) {
-    el.style.left = 'auto';
-    el.style.top = 'auto';
-    el.style.right = '';
-    el.style.bottom = '';
-    el.style.width = '';
-    el.style.height = '';
-  }
-
-  // Marks the maximized window's button as active — the toolbar's "this is on"
-  // accent, and the only affordance telling the user how to get back out. The
-  // glyph stays ⤢: its mirrored twin ⤡ is another outward arrow, not a shrink.
-  private syncFocusButtons(panels: Array<{ el: HTMLElement }>, focusIdx: number) {
-    panels.forEach((p, i) => {
-      const btn = p.el.querySelector<HTMLButtonElement>('.panel-focus-btn');
-      if (!btn) return;
-      const on = i === focusIdx;
-      btn.classList.toggle('active', on);
-      btn.title = on ? t('media.unfocus') : t('media.focus');
-    });
-  }
-
-  // Maximizes a window, or restores the layout when it is already maximized.
-  private toggleFocus(key: string) {
-    this.focusedKey = this.focusedKey === key ? null : key;
-    this.reflowLayout();
-  }
-
-  // Leaves the maximized view and returns to the active layout mode.
-  private clearFocus() {
-    this.focusedKey = null;
-    this.reflowLayout();
+  private reflowLayout() {
+    this.layout.reflow();
   }
 
   // Collects visible panels with the element to move and its layout item, in a
@@ -1663,8 +1007,8 @@ export class RemoteMediaView {
   // self preview.
   // `key` identifies a window across re-flows (the DOM elements are recreated as
   // peers come and go), so a maximized window survives unrelated layout changes.
-  private collectPanels(): Array<{ el: HTMLElement; item: LayoutItem; key: string }> {
-    const panels: Array<{ el: HTMLElement; item: LayoutItem; key: string }> = [];
+  private collectPanels(): LayoutPanel[] {
+    const panels: LayoutPanel[] = [];
     for (const userId of this.orderedScreenshareIds()) {
       const ss = this.screenshares.get(userId)!;
       panels.push({
