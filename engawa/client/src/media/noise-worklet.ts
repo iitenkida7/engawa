@@ -1,5 +1,5 @@
-// AudioWorklet processor for mic noise suppression: RNNoise denoising plus the
-// voice gate (media/voice-gate.ts). Bundled as its own script by Vite
+// AudioWorklet processor for mic noise suppression: RNNoise denoising, an 8kHz
+// low-pass (media/lowpass.ts) and the voice gate (media/voice-gate.ts). Bundled as its own script by Vite
 // (`?worker&url` in media/noise.ts) and loaded with audioWorklet.addModule, so
 // it must never be imported on the main thread.
 //
@@ -7,6 +7,7 @@
 // posts 'ready' once it's instantiated or { error } if that fails, so the caller
 // can fall back to the raw mic instead of sending silence.
 
+import { LowpassFilter } from '@/media/lowpass';
 import { createRnnoise } from '@/media/rnnoise-wasm';
 import { GatedDenoiser, NOISE_WORKLET_NAME } from '@/media/voice-gate';
 
@@ -40,7 +41,12 @@ class RnnoiseGateProcessor extends AudioWorkletProcessor {
         rnnoise.destroy();
         return;
       }
-      this.denoiser = new GatedDenoiser(rnnoise.processFrame);
+      const lowpass = new LowpassFilter(sampleRate);
+      this.denoiser = new GatedDenoiser((frame) => {
+        const vad = rnnoise.processFrame(frame);
+        lowpass.process(frame);
+        return vad;
+      });
       this.destroy = rnnoise.destroy;
       this.port.postMessage('ready');
     } catch (err) {

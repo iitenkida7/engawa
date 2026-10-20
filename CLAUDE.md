@@ -119,7 +119,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 参照する。エントリは `core/main.ts`（`index.html` が読む）。同一フォルダ内でも `@/` で参照し位置非依存にしてある。
 - **`core/`** — オーケストレーションと基盤: `app.ts`, `main.ts`, `types.ts`, `lifecycle.ts`, `network.ts`, `proximity.ts`, `reload.ts`, `background-ticker.ts`
 - **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`, `diag.ts`（デバッグコンソールの接続判定・原因推定・Claude 用診断レポート。純粋関数）
-- **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`, `noise.ts`, `noise-worklet.ts`, `rnnoise-wasm.ts`, `voice-gate.ts`
+- **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`, `noise.ts`, `noise-worklet.ts`, `rnnoise-wasm.ts`, `voice-gate.ts`, `lowpass.ts`
 - **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`
 - **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `rec-indicator.ts`, `debug-console.ts`, `sounds.ts`, `video-stall.ts`（映像停止の理由判定。純粋関数）, `face-pip.ts`, `experimental.ts`, `camera-lab.ts`（⋯メニューから別タブで開く `camera-lab.html` のロジック。`SFU_CAM_LAYERS` をループバック接続で実エンコードして見比べる画質ラボ）
 
@@ -145,6 +145,8 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
 - `media/noise.ts` — マイクのノイズ除去（既定オン）。自前の AudioWorklet（`media/noise-worklet.ts`）で RNNoise の WASM
   （`@sapphi-red/web-noise-suppressor` 同梱のビルドを `media/rnnoise-wasm.ts` で直接駆動）を回し、RNNoise が毎フレーム返す
   **発話確率（VAD）で話していない間を完全に無音にするボイスゲート**（`media/voice-gate.ts`。純粋ロジック）をかける。
+  RNNoise の出力には **8kHz ローパス**（`media/lowpass.ts`。4 次バターワース＝biquad 2 段の純粋ロジック）をかけ、PC の
+  コイル鳴きなど声と一緒にゲートを抜ける高い音を落とす。
   追加モデルなしで CPU 負荷は従来と同等。遅延はバッファ込み 30ms（先読み 2 フレームで語頭を欠かさない）。
 - `core/proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、
   どちらが initiator かの決定）。テスト容易性のため `core/app.ts` から切り出している。
