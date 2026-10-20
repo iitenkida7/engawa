@@ -8,8 +8,9 @@
 // The formatting helpers are pure and unit-tested; the class is a thin
 // renderer over them.
 
-import { t } from '@/core/i18n';
+import { getLang, t } from '@/core/i18n';
 import { makeDraggable } from '@/ui/draggable';
+import { canSummarize, summarize, toSummaryInput } from '@/ui/transcript-summary';
 
 export type TranscriptEntry = {
   speakerId: string;
@@ -54,10 +55,17 @@ export class TranscriptPanel {
   private root: HTMLElement;
   private body: HTMLElement;
   private entries: TranscriptEntry[] = [];
+  // On-device summary (ui/transcript-summary.ts), shown in its own area above
+  // the lines — it never replaces or edits the transcript itself.
+  private summary: HTMLElement;
+  private summaryBody: HTMLElement;
+  private summarizing = false;
 
   constructor() {
     this.root = document.getElementById('transcript') as HTMLElement;
     this.body = document.getElementById('transcript-body') as HTMLElement;
+    this.summary = document.getElementById('transcript-summary') as HTMLElement;
+    this.summaryBody = document.getElementById('transcript-summary-body') as HTMLElement;
 
     const closeBtn = document.getElementById('transcript-close');
     // Closing discards the log, and nothing here can tell whether it was saved
@@ -82,6 +90,28 @@ export class TranscriptPanel {
       header.insertBefore(saveBtn, closeBtn);
       header.insertBefore(copyBtn, saveBtn);
     }
+
+    // Summary button, only where Chrome's on-device model can run.
+    const summarizeBtn = document.createElement('button');
+    summarizeBtn.className = 'transcript-action';
+    summarizeBtn.title = t('transcript.summarize');
+    summarizeBtn.textContent = '✨';
+    summarizeBtn.addEventListener('click', () => void this.runSummary());
+    void canSummarize(getLang()).then((ok) => {
+      if (ok && header) header.insertBefore(summarizeBtn, copyBtn);
+    });
+
+    document.getElementById('transcript-summary-close')?.addEventListener('click', () => {
+      this.summary.classList.add('hidden');
+      this.root.classList.remove('has-summary');
+    });
+    const summaryCopy = document.getElementById('transcript-summary-copy');
+    summaryCopy?.addEventListener('click', () => {
+      navigator.clipboard.writeText(this.summaryBody.textContent ?? '').then(
+        () => this.flash(summaryCopy as HTMLButtonElement, '📋', '✓'),
+        () => this.flash(summaryCopy as HTMLButtonElement, '📋', '✗'),
+      );
+    });
   }
 
   isOpen(): boolean {
@@ -127,6 +157,34 @@ export class TranscriptPanel {
 
   // One line as a speech bubble under a "name  time" header; a continuation of
   // the same speaker's group drops the header so the bubbles stack.
+  // Summarise everything so far into the summary area. Called from the click so
+  // a first-time model download has the user activation it needs.
+  private async runSummary() {
+    if (this.summarizing) return;
+    this.summary.classList.remove('hidden');
+    this.root.classList.add('has-summary');
+    if (this.entries.length === 0) {
+      this.summaryBody.textContent = t('transcript.summaryEmpty');
+      return;
+    }
+    this.summarizing = true;
+    this.summaryBody.textContent = t('transcript.summarizing');
+    try {
+      const text = await summarize(toSummaryInput(this.entries), getLang(), (fraction) => {
+        this.summaryBody.textContent = t('transcript.summaryDownloading', {
+          percent: Math.round(fraction * 100),
+        });
+      });
+      this.summaryBody.textContent = text.trim();
+    } catch (err) {
+      this.summaryBody.textContent = t('transcript.summaryError', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      this.summarizing = false;
+    }
+  }
+
   private renderRow(entry: TranscriptEntry, continued: boolean): HTMLElement {
     const row = document.createElement('div');
     row.className = continued ? 'transcript-row continued' : 'transcript-row';

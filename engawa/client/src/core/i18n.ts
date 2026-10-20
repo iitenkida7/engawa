@@ -336,6 +336,25 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: 'Groq の API キーが拒否されました。設定し直してください。',
     en: 'Groq rejected the API key. Please set it again.',
   },
+  'transcript.summarize': {
+    ja: 'ここまでを要約（この端末の AI で処理）',
+    en: 'Summarize so far (runs on this device)',
+  },
+  'transcript.summaryTitle': { ja: '✨ 要約', en: '✨ Summary' },
+  'transcript.summaryCopy': { ja: '要約をコピー', en: 'Copy summary' },
+  'transcript.summarizing': { ja: '要約しています…', en: 'Summarizing…' },
+  'transcript.summaryDownloading': {
+    ja: '要約モデルをダウンロード中… {percent}%（初回のみ）',
+    en: 'Downloading the summary model… {percent}% (first time only)',
+  },
+  'transcript.summaryEmpty': {
+    ja: 'まだ要約する文字起こしがありません',
+    en: 'Nothing to summarize yet',
+  },
+  'transcript.summaryError': {
+    ja: '要約できませんでした: {message}',
+    en: 'Could not summarize: {message}',
+  },
   'transcript.needsMic': {
     ja: 'マイクか通話相手がいないと文字起こしできません',
     en: 'Turn on your mic or join a call before transcribing',

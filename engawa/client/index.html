@@ -598,6 +598,59 @@
         line-height: 1.6;
       }
 
+      /* Room for the summary area on top of the (still short) transcript. */
+      #transcript.has-summary {
+        max-height: min(420px, calc(100vh - 140px));
+      }
+
+      /* On-device summary: its own scrolling area above the lines, so the
+         transcript stays as it was. */
+      #transcript-summary {
+        flex-shrink: 0;
+        border-bottom: 1px solid #2a2f3a;
+        background: rgba(127, 212, 168, 0.06);
+      }
+
+      #transcript-summary.hidden {
+        display: none;
+      }
+
+      #transcript-summary-head {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px 0;
+        color: #7fd4a8;
+        font-weight: 600;
+      }
+
+      #transcript-summary-head > span {
+        flex: 1;
+      }
+
+      #transcript-summary-head button {
+        background: transparent;
+        border: none;
+        color: #9da3b0;
+        font-size: 13px;
+        cursor: pointer;
+        padding: 2px 6px;
+      }
+
+      #transcript-summary-head button:hover {
+        color: #fff;
+      }
+
+      #transcript-summary-body {
+        max-height: 160px;
+        overflow-y: auto;
+        padding: 4px 12px 10px;
+        line-height: 1.6;
+        color: #dfe3ea;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
       /* Each line is a speech bubble under a "name  time" header; consecutive
          lines from the same speaker stack without repeating the header. */
       .transcript-row {
@@ -2556,6 +2609,14 @@
         <div id="transcript-header">
           <span data-i18n="transcript.title">📝 文字起こし</span>
           <button id="transcript-close" data-i18n-title="common.close" title="閉じる">✕</button>
+        </div>
+        <div id="transcript-summary" class="hidden">
+          <div id="transcript-summary-head">
+            <span data-i18n="transcript.summaryTitle">✨ 要約</span>
+            <button id="transcript-summary-copy" data-i18n-title="transcript.summaryCopy" title="要約をコピー">📋</button>
+            <button id="transcript-summary-close" data-i18n-title="common.close" title="閉じる">✕</button>
+          </div>
+          <div id="transcript-summary-body"></div>
         </div>
         <div id="transcript-body"></div>
       </div>
