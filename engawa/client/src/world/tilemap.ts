@@ -371,7 +371,12 @@ type DeskUnit = { col: number; row: number; facing: 'south' | 'north' };
 // desk rows face each other (upper row south → chair above, lower row north →
 // chair below); centres are ≥5 apart so a chair never lands in a neighbour's ring.
 const TOP_ISLAND_COLS = [4, 9, 14, 19, 24, 29];
-const BOTTOM_ISLAND_COLS = [4, 9, 14, 19, 24, 29]; // lounge moved outdoors, so full width
+const BOTTOM_ISLAND_COLS = [4, 9, 14];
+// The bottom-right team area: three islands packed edge to edge (pitch 3, so the
+// desks join into one 9-tile row) on a single shared rug that is a zone of its
+// own (TEAM_AREA) — everyone on it is in one call, like a meeting room.
+const TEAM_ISLAND_COLS = [21, 24, 27];
+const TEAM_AREA = { id: 'team-area', name: t('zone.team-area'), c: 20, r: 15, w: 9, h: 6 };
 
 const OPEN_DESK_UNITS: DeskUnit[] = [
   ...TOP_ISLAND_COLS.flatMap((col): DeskUnit[] => [
@@ -384,14 +389,21 @@ const OPEN_DESK_UNITS: DeskUnit[] = [
   ]),
 ];
 
+// The team area's desks share its rug instead of getting private pod rugs.
+const TEAM_DESK_UNITS: DeskUnit[] = TEAM_ISLAND_COLS.flatMap((col): DeskUnit[] => [
+  { col, row: 17, facing: 'south' },
+  { col, row: 18, facing: 'north' },
+]);
+
 // The president's desk (#357 follow-up): the same 3-tile desk + chair unit as the
 // open office, but inside the president's office. Facing south puts the chair
 // behind the desk against the top wall, so the president faces the door.
 const EXEC_DESK_UNITS: DeskUnit[] = [{ col: 3, row: 2, facing: 'south' }];
 
-// Every desk unit on the map. POD_RUGS below deliberately stays on the open-office
-// ones — the exec desk sits on the president's office rug, not its own pod.
-const DESK_UNITS: DeskUnit[] = [...OPEN_DESK_UNITS, ...EXEC_DESK_UNITS];
+// Every desk unit on the map. POD_RUGS below deliberately stays on the pod desks —
+// the exec desk sits on the president's office rug and the team-area desks on the
+// team area's, not their own pods.
+const DESK_UNITS: DeskUnit[] = [...OPEN_DESK_UNITS, ...TEAM_DESK_UNITS, ...EXEC_DESK_UNITS];
 
 // The chair tile sits one row in front of the desk's centre (south → above,
 // north → below), building-local.
@@ -873,6 +885,11 @@ function computeFloorStyles(): Map<string, FloorStyle> {
   strip(ROOMS.filter((r) => r.r < 10 && inBuilding(r)));
   strip(ROOMS.filter((r) => r.r >= 10 && inBuilding(r)));
   for (const r of ROOMS) ensure(r.id);
+  // The team area differs from the island beside it and the ones above it.
+  edge(TEAM_AREA.id, islandId(TOP_ISLAND_COLS.length + BOTTOM_ISLAND_COLS.length - 1));
+  TOP_ISLAND_COLS.forEach((col, i) => {
+    if (col + 1 >= TEAM_AREA.c) edge(TEAM_AREA.id, islandId(i));
+  });
   // Cafés: the two sit opposite each other — just make them differ.
   if (LOUNGES.length === 2) edge(LOUNGES[0].id, LOUNGES[1].id);
   else {
@@ -987,6 +1004,23 @@ function buildZones(): { zones: Zone[]; grid: number[][] } {
       }
     }
     zones.push({ id: lo.id, name: lo.name, ...LOUNGE_RECTS[i] });
+  });
+
+  // The team area: a wall-less zone over its whole rug (desks included, so the
+  // rug shows under them, as in a room).
+  const teamIdx = zones.length;
+  for (let rr = TEAM_AREA.r + ROW_OFF; rr < TEAM_AREA.r + TEAM_AREA.h + ROW_OFF; rr++) {
+    for (let cc = TEAM_AREA.c + COL_OFF; cc < TEAM_AREA.c + TEAM_AREA.w + COL_OFF; cc++) {
+      grid[rr][cc] = teamIdx;
+    }
+  }
+  zones.push({
+    id: TEAM_AREA.id,
+    name: TEAM_AREA.name,
+    x: TEAM_AREA.c * TILE_SIZE + OFF_X,
+    y: TEAM_AREA.r * TILE_SIZE + OFF_Y,
+    w: TEAM_AREA.w * TILE_SIZE,
+    h: TEAM_AREA.h * TILE_SIZE,
   });
 
   return { zones, grid };
