@@ -128,6 +128,12 @@ const STR: Record<string, Record<Lang, string>> = {
   // button's "someone else is recording" badge tooltip.
   'rec.started': { ja: '{name} さんが録画を開始しました', en: '{name} started recording' },
   'rec.stopped': { ja: '{name} さんが録画を終了しました', en: '{name} stopped recording' },
+  'rec.reminder': {
+    ja: '会議室で1分経ちましたが、誰も録画していません。録画しますか？',
+    en: 'No one has been recording in this meeting room for a minute. Start recording?',
+  },
+  'rec.reminderStart': { ja: '録画する', en: 'Record' },
+  'rec.reminderSkip': { ja: 'しない', en: 'Not now' },
   'rec.othersTip': { ja: '録画中: {names}', en: 'Recording: {names}' },
   // Our own recording (#315): a persistent indicator stays on screen while it runs.
   'rec.indicator': { ja: '録画中', en: 'REC' },
@@ -303,6 +309,10 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.transcriptStart': { ja: '📝 文字起こしを開始', en: '📝 Start transcribing' },
   'toolbar.transcriptStop': { ja: '⏹ 文字起こしを停止', en: '⏹ Stop transcribing' },
   'toolbar.transcriptSettings': { ja: '📝 文字起こしの設定', en: '📝 Transcription settings' },
+  'toolbar.recReminder': {
+    ja: '⏺ 会議室で録画を忘れていたら知らせる',
+    en: '⏺ Remind me to record in meeting rooms',
+  },
   'transcript.title': { ja: '\u{1F4DD} 文字起こし', en: '\u{1F4DD} Transcript' },
   'transcript.copy': { ja: '全文をコピー', en: 'Copy transcript' },
   'transcript.save': { ja: 'テキストで保存', en: 'Save as text' },

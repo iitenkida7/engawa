@@ -24,6 +24,7 @@ import { FACE_PIP_STORAGE_KEY, parseFacePipSetting } from '@/ui/face-pip';
 import type { Toasts } from '@/ui/notify';
 import type { LayoutMode } from '@/ui/panels';
 import { PTT_STORAGE_KEY, parsePttSetting } from '@/ui/ptt';
+import { parseRecReminderSetting, REC_REMINDER_STORAGE_KEY } from '@/ui/rec-reminder';
 import type { RemoteMediaView } from '@/ui/remote-media';
 import type { PlayerState } from '@/world/player';
 
@@ -86,6 +87,9 @@ export class ToolbarController {
   // currently held.
   private pttEnabled = false;
   private pttHeld = false;
+
+  // Meeting-room "start recording?" reminder: persisted toggle, default off.
+  private recReminderEnabled = false;
 
   private btnMic: HTMLButtonElement;
   private btnCam: HTMLButtonElement;
@@ -177,6 +181,7 @@ export class ToolbarController {
     this.loadExperimentalSetting();
     this.loadFacePipSetting();
     this.loadPttSetting();
+    this.loadRecReminderSetting();
     this.setup();
     this.refresh();
   }
@@ -457,6 +462,29 @@ export class ToolbarController {
     this.applyPtt();
     // Peers show a badge on our tile while push-to-talk is on.
     this.broadcastStatus();
+  }
+
+  recReminderOn(): boolean {
+    return this.recReminderEnabled;
+  }
+
+  private toggleRecReminder() {
+    this.recReminderEnabled = !this.recReminderEnabled;
+    try {
+      localStorage.setItem(REC_REMINDER_STORAGE_KEY, this.recReminderEnabled ? '1' : '0');
+    } catch {
+      /* ignore private-mode storage errors */
+    }
+  }
+
+  private loadRecReminderSetting() {
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(REC_REMINDER_STORAGE_KEY);
+    } catch {
+      /* ignore private-mode storage errors */
+    }
+    this.recReminderEnabled = parseRecReminderSetting(stored);
   }
 
   private loadPttSetting() {
@@ -863,6 +891,9 @@ export class ToolbarController {
       () => this.onToggleTranscript(),
     );
     addItem(t('toolbar.transcriptSettings'), () => this.onOpenTranscriptSettings());
+    addItem((this.recReminderEnabled ? '✓ ' : '') + t('toolbar.recReminder'), () =>
+      this.toggleRecReminder(),
+    );
     // Privacy: who in this call is sending its audio to a transcription service.
     const transcribers = this.getTranscribingPeerNames();
     if (transcribers.length > 0) {

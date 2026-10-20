@@ -85,6 +85,7 @@ import { NotifyHelpPanel } from '@/ui/notify-help';
 import { isPttKey, PTT_KEY } from '@/ui/ptt';
 import { ReactionToasts } from '@/ui/reaction-toast';
 import { RecIndicator } from '@/ui/rec-indicator';
+import { newRecReminderState, stepRecReminder } from '@/ui/rec-reminder';
 import { RemoteMediaView } from '@/ui/remote-media';
 import { RosterPanel } from '@/ui/roster';
 import { SoundManager } from '@/ui/sounds';
@@ -199,6 +200,9 @@ export class App {
   // Peers who have announced they're recording (privacy). Only those currently in
   // our call drive the record-button badge; pruned when they leave the call.
   private recordingPeers = new Set<string>();
+  // Meeting-room "start recording?" reminder (opt-in) and its open toast.
+  private recReminder = newRecReminderState();
+  private recReminderDismiss: (() => void) | null = null;
   private myStatus: PlayerStatus = 'online';
 
   // Server-driven transport for our current proximity group. 'mesh' uses the
@@ -1562,6 +1566,7 @@ export class App {
     const dt = computeFrameDt(this.lastFrameMs, nowMs);
     this.lastFrameMs = nowMs;
     this.tickNetwork(nowMs);
+    this.tickRecReminder(nowMs);
     this.update(dt);
     if (render) {
       const dest = this.movePath ? this.movePath[this.movePath.length - 1] : null;
@@ -1894,6 +1899,47 @@ export class App {
     if (speaking === this.lastSpeakingSent) return;
     this.lastSpeakingSent = speaking;
     this.net.send({ type: 'speaking', speaking });
+  }
+
+  // Ask once per meeting-room visit whether to record, when the reminder is on
+  // and a minute has passed with two or more people on mic or camera and nobody
+  // recording.
+  // The open toast closes itself once someone starts or we leave the room.
+  private tickRecReminder(now: number) {
+    const zoneId = this.me && callZoneAt(this.me.x, this.me.y);
+    const roomId = this.toolbar.recReminderOn() && zoneId && isMeetingRoom(zoneId) ? zoneId : null;
+    const anyoneRecording = this.recorder.recording || this.recordingPeers.size > 0;
+    if (this.recReminderDismiss && (anyoneRecording || roomId !== this.recReminder.roomId)) {
+      this.recReminderDismiss();
+      this.recReminderDismiss = null;
+    }
+    let activePeople = this.media.micOn || this.media.camOn ? 1 : 0;
+    for (const id of this.inProximity) {
+      const p = this.players.get(id);
+      if (p && (!p.isMuted || p.isVideoOn)) activePeople++;
+    }
+    const show = stepRecReminder(this.recReminder, {
+      roomId,
+      activePeople,
+      anyoneRecording,
+      now,
+    });
+    if (!show) return;
+    this.recReminderDismiss = this.toasts.action(
+      t('rec.reminder'),
+      [
+        {
+          label: t('rec.reminderStart'),
+          primary: true,
+          onClick: () => {
+            this.recReminderDismiss = null;
+            if (!this.recorder.recording) this.toolbar.toggleRecord();
+          },
+        },
+        { label: t('rec.reminderSkip'), onClick: () => (this.recReminderDismiss = null) },
+      ],
+      0,
+    );
   }
 
   // Refresh the record-button "others are recording" badge: keep only peers still
