@@ -342,6 +342,18 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: 'Groq の API キーが拒否されました。設定し直してください。',
     en: 'Groq rejected the API key. Please set it again.',
   },
+  'transcript.rateLimited': {
+    ja: 'Groq の利用上限（{what}）に達しました。{wait}自動で再開します。',
+    en: 'Hit Groq\u2019s limit on {what}. Transcription resumes automatically {wait}.',
+  },
+  'transcript.limit.RPM': { ja: '1 分あたりのリクエスト数', en: 'requests per minute' },
+  'transcript.limit.RPD': { ja: '1 日あたりのリクエスト数', en: 'requests per day' },
+  'transcript.limit.ASH': { ja: '1 時間あたりの音声秒数', en: 'audio seconds per hour' },
+  'transcript.limit.ASD': { ja: '1 日あたりの音声秒数', en: 'audio seconds per day' },
+  'transcript.limit.unknown': { ja: '無料枠など', en: 'usage (e.g. the free tier)' },
+  'transcript.wait.minutes': { ja: '約 {n} 分後に', en: 'in about {n} min' },
+  'transcript.wait.hours': { ja: '約 {n} 時間後に', en: 'in about {n} h' },
+  'transcript.wait.unknown': { ja: '解除されしだい', en: 'once it clears' },
   'transcript.summarize': {
     ja: 'ここまでを要約（この端末の AI で処理）',
     en: 'Summarize so far (runs on this device)',
