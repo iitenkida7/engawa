@@ -19,6 +19,8 @@ export const BLOCK_MS = 100;
 // Loudness (RMS, 0..1) above which a block counts as speech. Deliberately low:
 // this only has to beat a quiet room, because the mic we tap has already been
 // through RNNoise and the voice gate, which mute non-speech outright.
+// The transcriber also zeroes a block's level while the speaker's tile isn't lit
+// green (media/speaking.ts), so this is a floor, not the main speech test.
 export const SPEECH_RMS = 0.01;
 
 // Silence this long ends an utterance. Long enough to ride over the pauses
@@ -30,8 +32,11 @@ export const SILENCE_MS = 900;
 // talks without pausing.
 export const MAX_SEGMENT_MS = 25_000;
 
-// Segments shorter than this are dropped unsent: a cough or a chair creak that
-// cleared the RMS threshold for a moment costs a request and returns noise.
+// Segments with less actual speech than this are dropped unsent: a cough or a
+// chair creak that cleared the RMS threshold for a moment costs a request and
+// returns noise (or a hallucinated line). Counted over the blocks that crossed
+// the threshold, not the span from first to last, so two creaks with near
+// silence between them don't add up to an "utterance".
 export const MIN_SEGMENT_MS = 400;
 
 // Blocks of room tone kept ahead of the first speech block. The RMS threshold
@@ -46,10 +51,12 @@ export type SegmentState = {
   silentBlocks: number;
   // Whether any block in this segment has crossed the speech threshold.
   speechSeen: boolean;
+  // How many blocks in this segment crossed the speech threshold.
+  voicedBlocks: number;
 };
 
 export function newSegmentState(): SegmentState {
-  return { blocks: [], silentBlocks: 0, speechSeen: false };
+  return { blocks: [], silentBlocks: 0, speechSeen: false, voicedBlocks: 0 };
 }
 
 export type SegmentAction =
@@ -77,6 +84,7 @@ export function pushBlock(state: SegmentState, block: Float32Array, rms: number)
   state.blocks.push(block);
   if (isSpeech) {
     state.speechSeen = true;
+    state.voicedBlocks++;
     state.silentBlocks = 0;
   } else {
     state.silentBlocks++;
@@ -86,8 +94,7 @@ export function pushBlock(state: SegmentState, block: Float32Array, rms: number)
   const totalMs = state.blocks.length * BLOCK_MS;
   if (silentMs < SILENCE_MS && totalMs < MAX_SEGMENT_MS) return { type: 'hold' };
 
-  // Trailing silence is padding, not speech: measure the utterance without it.
-  const speechMs = totalMs - silentMs;
+  const speechMs = state.voicedBlocks * BLOCK_MS;
   const blocks = state.blocks;
   reset(state);
   if (speechMs < MIN_SEGMENT_MS) return { type: 'discard' };
@@ -97,8 +104,7 @@ export function pushBlock(state: SegmentState, block: Float32Array, rms: number)
 // Pure: end the current segment early (mic switched off, call ended, the user
 // stopped transcribing) and hand back whatever is worth sending.
 export function flushSegment(state: SegmentState): SegmentAction {
-  const silentMs = state.silentBlocks * BLOCK_MS;
-  const speechMs = state.blocks.length * BLOCK_MS - silentMs;
+  const speechMs = state.voicedBlocks * BLOCK_MS;
   const blocks = state.blocks;
   const speechSeen = state.speechSeen;
   reset(state);
@@ -110,6 +116,7 @@ function reset(state: SegmentState) {
   state.blocks = [];
   state.silentBlocks = 0;
   state.speechSeen = false;
+  state.voicedBlocks = 0;
 }
 
 // Pure: flatten a segment's blocks into one contiguous buffer for the encoder.

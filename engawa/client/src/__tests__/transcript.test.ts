@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { formatClock, type TranscriptEntry, toPlainText } from '@/ui/transcript';
+import {
+  continuesGroup,
+  formatClock,
+  TRANSCRIPT_GROUP_GAP_MS,
+  type TranscriptEntry,
+  toPlainText,
+} from '@/ui/transcript';
 
 // Transcript formatting (the panel's pure helpers).
 
@@ -29,5 +35,26 @@ describe('toPlainText', () => {
 
   it('is empty for an empty transcript', () => {
     expect(toPlainText([])).toBe('');
+  });
+});
+
+describe('continuesGroup', () => {
+  it('starts a new group for the first line', () => {
+    expect(continuesGroup(undefined, entry())).toBe(false);
+  });
+
+  it('stacks a quick follow-up from the same speaker', () => {
+    const prev = entry();
+    expect(continuesGroup(prev, entry({ at: prev.at + 5_000 }))).toBe(true);
+  });
+
+  it('starts a new group when the speaker changes', () => {
+    const prev = entry();
+    expect(continuesGroup(prev, entry({ speakerId: 'u2', at: prev.at + 1_000 }))).toBe(false);
+  });
+
+  it('starts a new group after a long pause', () => {
+    const prev = entry();
+    expect(continuesGroup(prev, entry({ at: prev.at + TRANSCRIPT_GROUP_GAP_MS }))).toBe(false);
   });
 });

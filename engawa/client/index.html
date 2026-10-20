@@ -543,7 +543,8 @@
         left: 16px;
         width: 400px;
         max-width: calc(100vw - 32px);
-        max-height: calc(100vh - 140px);
+        /* Kept short so it doesn't cover the call; older lines scroll. */
+        max-height: min(240px, calc(100vh - 140px));
         display: flex;
         flex-direction: column;
         background: rgba(14, 16, 20, 0.96);
@@ -587,18 +588,31 @@
         color: #fff;
       }
 
+      /* min-height: 0 lets the flex child shrink below its content so the
+         body scrolls inside the panel instead of being clipped by it. */
       #transcript-body {
+        flex: 1 1 auto;
+        min-height: 0;
         padding: 8px 12px 12px;
         overflow-y: auto;
         line-height: 1.6;
       }
 
+      /* Each line is a speech bubble under a "name  time" header; consecutive
+         lines from the same speaker stack without repeating the header. */
       .transcript-row {
-        display: grid;
-        grid-template-columns: auto auto 1fr;
-        gap: 6px;
-        margin-bottom: 4px;
+        margin-top: 10px;
+      }
+
+      .transcript-row.continued {
+        margin-top: 4px;
+      }
+
+      .transcript-meta {
+        display: flex;
         align-items: baseline;
+        gap: 6px;
+        margin: 0 0 4px 4px;
       }
 
       .transcript-time {
@@ -614,8 +628,30 @@
       }
 
       .transcript-text {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+        box-sizing: border-box;
+        padding: 6px 10px;
+        background: #262b36;
+        border-radius: 12px;
         color: #dfe3ea;
         overflow-wrap: anywhere;
+      }
+
+      /* The tail points up at the speaker's name, only on a group's first bubble. */
+      .transcript-row:not(.continued) .transcript-text {
+        border-top-left-radius: 4px;
+      }
+
+      .transcript-row:not(.continued) .transcript-text::before {
+        content: '';
+        position: absolute;
+        top: -5px;
+        left: 10px;
+        border: 5px solid transparent;
+        border-top: 0;
+        border-bottom-color: #262b36;
       }
 
       /* Transcription setup: a small modal for the user's own Groq API key. */

@@ -31,6 +31,20 @@ export function formatClock(at: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+// Lines from the same speaker within this gap stack under one name header,
+// like consecutive messages in a chat app.
+export const TRANSCRIPT_GROUP_GAP_MS = 60_000;
+
+// Pure: whether `entry` continues the previous line's speech bubble group
+// (same speaker, close in time), so its name/time header can be omitted.
+export function continuesGroup(prev: TranscriptEntry | undefined, entry: TranscriptEntry): boolean {
+  return (
+    prev !== undefined &&
+    prev.speakerId === entry.speakerId &&
+    entry.at - prev.at < TRANSCRIPT_GROUP_GAP_MS
+  );
+}
+
 // Pure: the whole transcript as plain text, for copying or saving.
 export function toPlainText(entries: TranscriptEntry[]): string {
   return entries.map((e) => `[${formatClock(e.at)}] ${e.speakerName}: ${e.text}`).join('\n');
@@ -93,6 +107,7 @@ export class TranscriptPanel {
   }
 
   add(entry: TranscriptEntry) {
+    const prev = this.entries[this.entries.length - 1];
     this.entries.push(entry);
     if (this.entries.length > TRANSCRIPT_MAX_ENTRIES) {
       this.entries.shift();
@@ -101,7 +116,7 @@ export class TranscriptPanel {
     // Only follow the tail when the reader is already there, so scrolling back
     // to re-read something isn't yanked away by the next line.
     const atBottom = this.body.scrollHeight - this.body.scrollTop - this.body.clientHeight < 40;
-    this.body.appendChild(this.renderRow(entry));
+    this.body.appendChild(this.renderRow(entry, continuesGroup(prev, entry)));
     if (atBottom) this.scrollToBottom();
   }
 
@@ -110,19 +125,29 @@ export class TranscriptPanel {
     this.body.replaceChildren();
   }
 
-  private renderRow(entry: TranscriptEntry): HTMLElement {
+  // One line as a speech bubble under a "name  time" header; a continuation of
+  // the same speaker's group drops the header so the bubbles stack.
+  private renderRow(entry: TranscriptEntry, continued: boolean): HTMLElement {
     const row = document.createElement('div');
-    row.className = 'transcript-row';
-    const time = document.createElement('span');
-    time.className = 'transcript-time';
-    time.textContent = formatClock(entry.at);
-    const who = document.createElement('span');
-    who.className = 'transcript-who';
-    who.textContent = entry.speakerName;
-    const text = document.createElement('span');
-    text.className = 'transcript-text';
-    text.textContent = entry.text;
-    row.append(time, who, text);
+    row.className = continued ? 'transcript-row continued' : 'transcript-row';
+    if (!continued) {
+      const meta = document.createElement('div');
+      meta.className = 'transcript-meta';
+      const who = document.createElement('span');
+      who.className = 'transcript-who';
+      who.textContent = entry.speakerName;
+      const time = document.createElement('span');
+      time.className = 'transcript-time';
+      time.textContent = formatClock(entry.at);
+      meta.append(who, time);
+      row.append(meta);
+    }
+    const bubble = document.createElement('div');
+    bubble.className = 'transcript-text';
+    bubble.textContent = entry.text;
+    // Hover shows the exact time even on header-less continuation bubbles.
+    bubble.title = formatClock(entry.at);
+    row.append(bubble);
     return row;
   }
 
