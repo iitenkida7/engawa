@@ -100,6 +100,7 @@ import { normalizeOutfit } from '@/world/outfit';
 import { findPath } from '@/world/pathfind';
 import { PlayerState } from '@/world/player';
 import {
+  callZoneAt,
   canOccupy,
   findAdjacentSpawn,
   findWalkableSpawn,
@@ -1298,7 +1299,7 @@ export class App {
               y: this.me.y,
               vx: 0,
               vy: 0,
-              zoneId: zoneAt(this.me.x, this.me.y)?.id ?? null,
+              zoneId: callZoneAt(this.me.x, this.me.y),
               seated: isDeskSeat(this.me.x, this.me.y),
             });
             this.lastSentX = this.me.x;
@@ -1651,7 +1652,7 @@ export class App {
           vx: selfVx,
           vy: selfVy,
           // Report our meeting-room zone so the server can group us (SFU vs mesh).
-          zoneId: zoneAt(this.me.x, this.me.y)?.id ?? null,
+          zoneId: callZoneAt(this.me.x, this.me.y),
           // A desk seat privatises our proximity bubble (#263 follow-up).
           seated: isDeskSeat(this.me.x, this.me.y),
         });

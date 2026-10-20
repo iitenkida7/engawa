@@ -20,6 +20,7 @@ import type { PlayerState } from '@/world/player';
 import {
   ARMCHAIR_DX,
   ARMCHAIR_GAP,
+  callZoneAt,
   type FloorPattern,
   type FloorStyle,
   floorStyleAt,
@@ -39,9 +40,11 @@ import {
   type RoomFurniture,
   type Seat,
   seatAt,
+  TEAM_AREA_RECT,
   TILE_SIZE,
   Tile,
   TREES,
+  teamAreaFloorStyle,
   ZONES,
   zoneAt,
 } from '@/world/tilemap';
@@ -535,7 +538,8 @@ export class CanvasRenderer {
     // Self proximity ring — shown only while publishing media (the reach is
     // meaningless otherwise), and hidden inside a meeting room, where the call is
     // governed by room membership (everyone in / nobody out), not radius.
-    if (self && !selfZone && mediaActive) {
+    // The team area is one shared call, so the reach ring means nothing there either.
+    if (self && !selfZone && mediaActive && !callZoneAt(self.x, self.y)) {
       // A desk seat is private: the reach shrinks to just the adjacent tiles.
       const reach = isDeskSeat(self.x, self.y) ? SEAT_CONNECT_RADIUS : CONNECT_RADIUS;
       ctx.beginPath();
@@ -836,6 +840,7 @@ export class CanvasRenderer {
     POD_RUGS.forEach((rug, i) => {
       this.drawPodRug(cx, rug, islandFloorStyle(i));
     });
+    this.drawPodRug(cx, TEAM_AREA_RECT, teamAreaFloorStyle());
 
     // Pass 2 — props: plants here; open-office desks are drawn per 3-wide unit
     // (one long desk) just below. In-room desks are drawn as designed tables by

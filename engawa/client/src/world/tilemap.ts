@@ -373,10 +373,12 @@ type DeskUnit = { col: number; row: number; facing: 'south' | 'north' };
 const TOP_ISLAND_COLS = [4, 9, 14, 19, 24, 29];
 const BOTTOM_ISLAND_COLS = [4, 9, 14];
 // The bottom-right team area: three islands packed edge to edge (pitch 3, so the
-// desks join into one 9-tile row) on a single shared rug that is a zone of its
-// own (TEAM_AREA) — everyone on it is in one call, like a meeting room.
+// desks join into one 9-tile row) on a single shared rug (TEAM_AREA). Everyone
+// on it is in one call, like a room, but it is NOT a zone on the client: it
+// looks and behaves like a pod rug (no meeting layout, frame or exit mute) and
+// only reports a call zone id to the server for grouping (callZoneAt).
 const TEAM_ISLAND_COLS = [21, 24, 27];
-const TEAM_AREA = { id: 'team-area', name: t('zone.team-area'), c: 20, r: 15, w: 9, h: 6 };
+const TEAM_AREA = { id: 'team-area', c: 20, r: 15, w: 9, h: 6 };
 
 const OPEN_DESK_UNITS: DeskUnit[] = [
   ...TOP_ISLAND_COLS.flatMap((col): DeskUnit[] => [
@@ -472,14 +474,14 @@ export function isDeskSeat(px: number, py: number): boolean {
 }
 
 /**
- * The pod rug (a seat's 3×3 rect) that (px,py) sits on, or null. Used to focus
- * just your own desk island while a desk-side conversation is active — the same
- * dim veil as a meeting room (#223) but scoped to one person's private rug.
- * The two facing rugs of an island are 3 tiles apart, so a point maps to at
- * most one rug.
+ * The pod rug (a seat's 3×3 rect, or the shared team-area rug) that (px,py)
+ * sits on, or null. Used to focus just your own desk island while a desk-side
+ * conversation is active — the same dim veil as a meeting room (#223) but
+ * scoped to the rug. The two facing rugs of an island are 3 tiles apart, so a
+ * point maps to at most one rug.
  */
 export function podRugAt(px: number, py: number): Rect | null {
-  for (const rug of POD_RUGS) {
+  for (const rug of [...POD_RUGS, TEAM_AREA_RECT]) {
     if (px >= rug.x && px < rug.x + rug.w && py >= rug.y && py < rug.y + rug.h) return rug;
   }
   return null;
@@ -941,6 +943,30 @@ export function islandFloorStyle(rugIndex: number): FloorStyle {
 // kinds. Pixel rects so props that don't fill a whole tile still block.
 const SOLID_RECTS: Rect[] = [...LOUNGE_TABLE_RECTS];
 
+// The team area's shared rug (pixel rect) and its style.
+export const TEAM_AREA_RECT: Rect = {
+  x: TEAM_AREA.c * TILE_SIZE + OFF_X,
+  y: TEAM_AREA.r * TILE_SIZE + OFF_Y,
+  w: TEAM_AREA.w * TILE_SIZE,
+  h: TEAM_AREA.h * TILE_SIZE,
+};
+export function teamAreaFloorStyle(): FloorStyle {
+  return FLOOR_STYLES.get(TEAM_AREA.id) ?? { pattern: 'none', color: 0 };
+}
+
+function inTeamArea(px: number, py: number): boolean {
+  const r = TEAM_AREA_RECT;
+  return px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h;
+}
+
+/**
+ * The call zone id to report to the server for grouping: the zone at (px,py),
+ * or the team area (one shared call, though the client treats it as a rug).
+ */
+export function callZoneAt(px: number, py: number): string | null {
+  return zoneAt(px, py)?.id ?? (inTeamArea(px, py) ? TEAM_AREA.id : null);
+}
+
 // One accent rug per SEAT — a 3×3 block centred on the chair, i.e. the exact
 // "connect zone" (the seat + its 8 adjacent tiles, SEAT_CONNECT_RADIUS). It
 // makes each private seat legible: step onto someone's rug and you connect,
@@ -1004,23 +1030,6 @@ function buildZones(): { zones: Zone[]; grid: number[][] } {
       }
     }
     zones.push({ id: lo.id, name: lo.name, ...LOUNGE_RECTS[i] });
-  });
-
-  // The team area: a wall-less zone over its whole rug (desks included, so the
-  // rug shows under them, as in a room).
-  const teamIdx = zones.length;
-  for (let rr = TEAM_AREA.r + ROW_OFF; rr < TEAM_AREA.r + TEAM_AREA.h + ROW_OFF; rr++) {
-    for (let cc = TEAM_AREA.c + COL_OFF; cc < TEAM_AREA.c + TEAM_AREA.w + COL_OFF; cc++) {
-      grid[rr][cc] = teamIdx;
-    }
-  }
-  zones.push({
-    id: TEAM_AREA.id,
-    name: TEAM_AREA.name,
-    x: TEAM_AREA.c * TILE_SIZE + OFF_X,
-    y: TEAM_AREA.r * TILE_SIZE + OFF_Y,
-    w: TEAM_AREA.w * TILE_SIZE,
-    h: TEAM_AREA.h * TILE_SIZE,
   });
 
   return { zones, grid };

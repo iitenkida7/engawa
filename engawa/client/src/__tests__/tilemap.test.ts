@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   ARMCHAIR_SPOTS,
   COL_OFF,
+  callZoneAt,
   canOccupy,
   FLOOR_COLOR_COUNT,
   FLOOR_PATTERNS,
@@ -27,6 +28,7 @@ import {
   ROW_OFF,
   SOLID,
   seatAt,
+  TEAM_AREA_RECT,
   TILE_SIZE,
   Tile,
   ZONES,
@@ -260,7 +262,11 @@ describe('podRugAt (desk-pod focus veil)', () => {
   };
 
   it('returns the enclosing rug on every seat tile, matching isDeskSeat', () => {
-    const podChairs = OPEN_DESK_CHAIRS.filter((ch) => !inZone(ch));
+    // Pod chairs: not in a room and not on the shared team-area rug.
+    const podChairs = OPEN_DESK_CHAIRS.filter((ch) => {
+      const { x, y } = seatCentre(ch);
+      return callZoneAt(x, y) === null;
+    });
     expect(podChairs.length).toBe(POD_RUGS.length);
     for (const ch of podChairs) {
       const { x, y } = seatCentre(ch);
@@ -358,25 +364,32 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     { col: 36, row: 23 }, // 離れ (the wide room at the end of the strip)
   ];
 
-  it('derives one zone per walled-off MEETING room, plus the cafés and the team area', () => {
-    // One zone per room sample + the two cafés + the team area (all
-    // conversation-restricted zones).
-    expect(ZONES).toHaveLength(roomSamples.length + LOUNGES.length + 1);
+  it('derives one zone per walled-off MEETING room, plus the cafés', () => {
+    // One zone per room sample + the two cafés (conversation-restricted zones).
+    expect(ZONES).toHaveLength(roomSamples.length + LOUNGES.length);
   });
 
-  it('puts all six team-area desks on one shared rug zone, packed edge to edge', () => {
-    const team = ZONES.find((z) => z.id === 'team-area');
-    expect(team).toBeDefined();
+  it('puts all six team-area desks on one shared rug and call, without a zone', () => {
     const seats = OPEN_DESK_CHAIRS.map((ch) => center(ch.col, ch.row + (ch.facesSouth ? -1 : 1)));
-    const onTeam = seats.filter((p) => zoneAt(p.x, p.y)?.id === 'team-area');
+    const onTeam = seats.filter((p) => callZoneAt(p.x, p.y) === 'team-area');
     expect(onTeam).toHaveLength(6);
+    for (const p of onTeam) {
+      // Rug-like on the client: no zone (no meeting layout), the shared rug for the veil.
+      expect(zoneAt(p.x, p.y)).toBeNull();
+      expect(podRugAt(p.x, p.y)).toEqual(TEAM_AREA_RECT);
+    }
     // Its desks form one unbroken 9-tile row in each of the two desk rows.
     const row = (r: number) =>
       Array.from({ length: 9 }, (_, i) => officeMap[r + ROW_OFF][20 + i + COL_OFF]);
     expect(row(17).every((t) => t === Tile.DESK)).toBe(true);
     expect(row(18).every((t) => t === Tile.DESK)).toBe(true);
-    // The team area has no private pod rugs of its own.
-    for (const p of onTeam) expect(podRugAt(p.x, p.y)).toBeNull();
+  });
+
+  it('callZoneAt reports the zone id in a room and null on open floor', () => {
+    const ceo = center(1 + COL_OFF, 1 + ROW_OFF);
+    expect(callZoneAt(ceo.x, ceo.y)).toBe('ceo');
+    const corridor = center(16 + COL_OFF, 13 + ROW_OFF);
+    expect(callZoneAt(corridor.x, corridor.y)).toBeNull();
   });
 
   it('zones cover every meeting/lounge tile and never bleed onto walls or grass', () => {

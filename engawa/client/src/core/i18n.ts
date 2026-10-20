@@ -552,7 +552,6 @@ const STR: Record<string, Record<Lang, string>> = {
   'zone.lounge-1': { ja: 'ラウンジ1', en: 'Lounge 1' },
   'zone.lounge-2': { ja: 'ラウンジ2', en: 'Lounge 2' },
   'zone.hanare': { ja: '離れ', en: 'Annex' },
-  'zone.team-area': { ja: 'チームエリア', en: 'Team area' },
 };
 
 /**
