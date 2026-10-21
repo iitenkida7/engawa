@@ -1412,6 +1412,17 @@
          visible in meeting mode and does nothing. */
       #app.meeting .panel-header .vol {
         pointer-events: auto;
+        /* In the narrow filmstrip tiles the slider used to share the name's row
+           and squeezed the name down to "…". Float it on its own chip above the
+           name row (the header is the positioned parent) so the name always
+           keeps the whole row. */
+        position: absolute;
+        right: 6px;
+        bottom: calc(100% + 4px);
+        margin: 0;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.6);
       }
       /* Tiles are sized explicitly by the meeting layout, so drop the fixed
          camera aspect box and let the body fill the whole panel. */
