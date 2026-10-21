@@ -603,6 +603,31 @@
         max-height: min(420px, calc(100vh - 140px));
       }
 
+      /* Minimized: collapse to just the title as a small pill so it stops
+         covering the call / screen share. The whole pill is clickable to
+         restore (transcript.ts). Body, summary and header buttons are hidden;
+         only the 📝 title shows. */
+      #transcript.minimized {
+        width: auto;
+        max-height: none;
+        cursor: pointer;
+      }
+      #transcript.minimized #transcript-body,
+      #transcript.minimized #transcript-summary {
+        display: none;
+      }
+      #transcript.minimized #transcript-header {
+        border-bottom: none;
+        cursor: pointer;
+        padding: 6px 12px;
+      }
+      #transcript.minimized #transcript-header button {
+        display: none;
+      }
+      #transcript.minimized #transcript-header > span {
+        flex: 0 0 auto;
+      }
+
       /* On-device summary: its own scrolling area above the lines, so the
          transcript stays as it was. */
       #transcript-summary {

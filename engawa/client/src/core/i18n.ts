@@ -312,6 +312,7 @@ const STR: Record<string, Record<Lang, string>> = {
   'transcript.title': { ja: '\u{1F4DD} 文字起こし', en: '\u{1F4DD} Transcript' },
   'transcript.copy': { ja: '全文をコピー', en: 'Copy transcript' },
   'transcript.save': { ja: 'テキストで保存', en: 'Save as text' },
+  'transcript.minimize': { ja: '最小化', en: 'Minimize' },
   'transcript.started': {
     ja: '{name} さんが文字起こしを開始しました',
     en: '{name} started transcribing',
@@ -321,10 +322,6 @@ const STR: Record<string, Record<Lang, string>> = {
     en: '{name} stopped transcribing',
   },
   'transcript.othersTip': { ja: '文字起こし中: {names}', en: 'Transcribing: {names}' },
-  'transcript.confirmClose': {
-    ja: '文字起こしを閉じると、保存していない内容は失われます。閉じますか？',
-    en: 'Closing the transcript discards it. Anything unsaved will be lost. Close it?',
-  },
   'transcript.zoneLeftStopped': {
     ja: '会議室を出たので文字起こしを終了しました',
     en: 'Left the room — transcription stopped',

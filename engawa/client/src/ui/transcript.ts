@@ -68,17 +68,46 @@ export class TranscriptPanel {
     this.summaryBody = document.getElementById('transcript-summary-body') as HTMLElement;
 
     const closeBtn = document.getElementById('transcript-close');
-    // Closing discards the log, and nothing here can tell whether it was saved
-    // first — so ask, unless there is nothing to lose. Stopping the
-    // transcription deliberately does NOT close the panel, so the text stays
-    // around to be copied or saved after the meeting.
-    closeBtn?.addEventListener('click', () => {
-      if (this.entries.length > 0 && !confirm(t('transcript.confirmClose'))) return;
-      this.clear();
+    // Closing only hides the panel; the log stays in memory so it can be
+    // reopened, copied or saved later. It is NOT destructive and does NOT stop
+    // the transcription (the person who started it stops it from the toolbar) —
+    // so no scary confirm here. To get it out of the way without losing your
+    // place, minimize to the pill instead.
+    closeBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
       this.close();
     });
     const header = document.getElementById('transcript-header');
     if (header) makeDraggable(this.root, { handle: header });
+
+    // Minimize to a small pill so the transcript stops covering the call /
+    // screen share without being torn down (requested by users). The button
+    // lives next to close; clicking the collapsed pill expands it again.
+    const minBtn = document.createElement('button');
+    minBtn.id = 'transcript-minimize';
+    minBtn.className = 'transcript-action';
+    minBtn.title = t('transcript.minimize');
+    minBtn.textContent = '–';
+    minBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.minimize();
+    });
+    if (header && closeBtn) header.insertBefore(minBtn, closeBtn);
+
+    // A click on the collapsed pill restores it. Guard against the tail of a
+    // drag (makeDraggable fires a click after a drag too) by ignoring clicks
+    // that moved more than a few pixels from where the press started.
+    let downX = 0;
+    let downY = 0;
+    this.root.addEventListener('mousedown', (e) => {
+      downX = e.clientX;
+      downY = e.clientY;
+    });
+    this.root.addEventListener('click', (e) => {
+      if (!this.root.classList.contains('minimized')) return;
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return;
+      this.restore();
+    });
 
     // Copy / save, with the button flashing its own ✓/✗ feedback (no toast
     // dependency), mirroring the debug console's copy buttons.
@@ -125,11 +154,24 @@ export class TranscriptPanel {
 
   open() {
     this.root.classList.remove('hidden');
+    this.root.classList.remove('minimized');
     this.scrollToBottom();
   }
 
   close() {
     this.root.classList.add('hidden');
+  }
+
+  // Collapse to the header pill — the panel stays open (and keeps filling) but
+  // no longer covers the call / screen share.
+  minimize() {
+    this.root.classList.add('minimized');
+  }
+
+  // Expand from the pill back to the full panel, following the tail again.
+  restore() {
+    this.root.classList.remove('minimized');
+    this.scrollToBottom();
   }
 
   get count(): number {
