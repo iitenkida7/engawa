@@ -495,7 +495,7 @@ svg .mono { font-family: var(--f-mono); font-size: 11px; }
       <div class="engawa"><span class="tag">In engawa</span>
         <b>Delivery</b>: Opus is mono, 20 ms, with in-band FEC on and DTX off, and RED is added when the connection degrades (tier 2 and up). On the mesh path audio is capped at 64 kbps. On the SFU path audio has the highest send priority, and video is cut first under congestion. On reconnect, everyone's microphones are received first in one batch, and at tier 3 video reception stops so the whole download goes to audio.
         <br><br>
-        <b>Noise suppression</b> (on by default): audio first goes through the browser's built-in echo cancellation, noise suppression and AGC, then through RNNoise (WASM) running in engawa's own AudioWorklet. RNNoise's output then goes through an 8 kHz low-pass (4th-order Butterworth, 24 dB/octave): on some PCs the built-in mic picks up a high-pitched electrical whine (coil whine) that slips through the gate along with the voice as a glassy ringing. Everything up to 8 kHz is the HD voice (wideband) band, so the voice barely changes. The voice gate is configured as follows.
+        <b>Noise suppression</b> (on by default): audio first goes through the browser's built-in echo cancellation, noise suppression and AGC, then through RNNoise (WASM) running in engawa's own AudioWorklet. RNNoise's output then goes through a 7 kHz low-pass (8th-order Butterworth, 48 dB/octave): on some PCs the built-in mic picks up a high-pitched electrical whine (coil whine) that slips through the gate along with the voice as a glassy ringing. The whine tends to sit just above the cutoff (8.35 kHz in one measurement), hence the steep slope. Everything up to 7 kHz is the HD voice (wideband) band, so the voice barely changes. The voice gate is configured as follows.
         <ul style="margin:8px 0 6px">
           <li>Opens when VAD reaches 0.6 and closes below 0.3 (two thresholds prevent flapping)</li>
           <li>Stays open for 300 ms after the close condition is met (so word endings and short pauses aren't cut)</li>
@@ -652,7 +652,7 @@ svg .mono { font-family: var(--f-mono); font-size: 11px; }
           <tr><td>Jitter buffer</td><td>Auto-adjusted between 100 and 300 ms</td></tr>
           <tr><td>Audio first</td><td>Highest send priority. Microphones received first on reconnect</td></tr>
           <tr><td>Screen sharing</td><td>contentHint=detail, resolution first, one stream at 2 Mbps, 1920px, 15 fps (SFU)</td></tr>
-          <tr><td>Noise suppression</td><td>Browser built-in + RNNoise (AudioWorklet) + 8 kHz low-pass + voice gate. 30 ms latency</td></tr>
+          <tr><td>Noise suppression</td><td>Browser built-in + RNNoise (AudioWorklet) + 7 kHz low-pass + voice gate. 30 ms latency</td></tr>
           <tr><td>Failure isolation</td><td>Per-peer retries. Your own connection counts as healthy while others' media arrives</td></tr>
           <tr><td>Perceived-quality measurement</td><td>None (technical metrics are in the netlog)</td></tr>
           <tr><td>SFU cascading / regional distribution</td><td>Left to Cloudflare</td></tr>

@@ -145,7 +145,7 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
 - `media/noise.ts` — マイクのノイズ除去（既定オン）。自前の AudioWorklet（`media/noise-worklet.ts`）で RNNoise の WASM
   （`@sapphi-red/web-noise-suppressor` 同梱のビルドを `media/rnnoise-wasm.ts` で直接駆動）を回し、RNNoise が毎フレーム返す
   **発話確率（VAD）で話していない間を完全に無音にするボイスゲート**（`media/voice-gate.ts`。純粋ロジック）をかける。
-  RNNoise の出力には **8kHz ローパス**（`media/lowpass.ts`。4 次バターワース＝biquad 2 段の純粋ロジック）をかけ、PC の
+  RNNoise の出力には **7kHz ローパス**（`media/lowpass.ts`。8 次バターワース＝biquad 4 段の純粋ロジック）をかけ、PC の
   コイル鳴きなど声と一緒にゲートを抜ける高い音を落とす。
   追加モデルなしで CPU 負荷は従来と同等。遅延はバッファ込み 30ms（先読み 2 フレームで語頭を欠かさない）。
 - `core/proximity.ts` — 接続/切断の判定（純粋関数。`CONNECT_RADIUS`/`DISCONNECT_RADIUS` のヒステリシス、

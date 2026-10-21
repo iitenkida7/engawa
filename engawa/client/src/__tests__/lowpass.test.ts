@@ -34,8 +34,14 @@ describe('LowpassFilter', () => {
     expect(db(gainAt(LOWPASS_HZ))).toBeCloseTo(-3, 0);
   });
 
-  it('cuts a whine above the cutoff hard', () => {
-    expect(db(gainAt(12_000))).toBeLessThan(-15);
-    expect(db(gainAt(16_000))).toBeLessThan(-30);
+  it('keeps the upper voice band', () => {
+    expect(db(gainAt(5_000))).toBeGreaterThan(-0.5);
+  });
+
+  it('cuts a whine just above the cutoff hard', () => {
+    // A coil whine measured on a real PC's built-in mic.
+    expect(db(gainAt(8_350))).toBeLessThan(-12);
+    expect(db(gainAt(10_000))).toBeLessThan(-25);
+    expect(db(gainAt(12_000))).toBeLessThan(-40);
   });
 });
