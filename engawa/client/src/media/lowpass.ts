@@ -2,17 +2,18 @@
 // high-pitched electrical whine (coil whine) into their built-in mic. RNNoise
 // lets it through with the voice — the gate is open then — so it comes out as
 // a glassy ringing riding on speech. Speech intelligibility lives below ~4kHz
-// and 8kHz keeps the "HD voice" (wideband) band, so cutting above it removes
-// the whine while the voice barely changes.
+// and 7kHz is the top of the "HD voice" (wideband) band, so cutting above it
+// removes the whine while the voice barely changes.
 //
-// Pure (no Web Audio): a 4th-order Butterworth as two cascaded biquads
-// (24dB/octave — a single biquad is too gentle to take a whine just above the
-// cutoff down), coefficients from the RBJ Audio EQ Cookbook.
+// Pure (no Web Audio): an 8th-order Butterworth as four cascaded biquads
+// (48dB/octave). Whines sit just above the cutoff (one measured at 8.35kHz),
+// where a 4th-order filter at 8kHz only took 4dB off; this one takes ~15dB.
+// Coefficients from the RBJ Audio EQ Cookbook.
 
-export const LOWPASS_HZ = 8_000;
+export const LOWPASS_HZ = 7_000;
 
-// Per-stage Q of a 4th-order Butterworth: 1 / (2·cos(π/8)), 1 / (2·cos(3π/8)).
-const BUTTERWORTH_Q4 = [0.5411961, 1.306563];
+// Per-stage Q of an 8th-order Butterworth: 1 / (2·cos(kπ/16)) for k = 1, 3, 5, 7.
+const BUTTERWORTH_Q8 = [0.5097956, 0.6013449, 0.8999762, 2.5629154];
 
 type Biquad = {
   b0: number;
@@ -37,7 +38,7 @@ export class LowpassFilter {
   private stages: Biquad[];
 
   constructor(sampleRate: number, cutoff = LOWPASS_HZ) {
-    this.stages = BUTTERWORTH_Q4.map((q) => lowpassStage(cutoff, sampleRate, q));
+    this.stages = BUTTERWORTH_Q8.map((q) => lowpassStage(cutoff, sampleRate, q));
   }
 
   // Filter `buf` in place (transposed direct form II; state carries across calls).

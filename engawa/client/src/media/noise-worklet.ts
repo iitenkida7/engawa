@@ -1,4 +1,4 @@
-// AudioWorklet processor for mic noise suppression: RNNoise denoising, an 8kHz
+// AudioWorklet processor for mic noise suppression: RNNoise denoising, a 7kHz
 // low-pass (media/lowpass.ts) and the voice gate (media/voice-gate.ts). Bundled as its own script by Vite
 // (`?worker&url` in media/noise.ts) and loaded with audioWorklet.addModule, so
 // it must never be imported on the main thread.
