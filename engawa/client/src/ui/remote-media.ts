@@ -16,6 +16,7 @@ import { createFocusButton, type LayoutPanel, MediaLayout } from '@/ui/media-lay
 import { CAM_ASPECT, type LayoutMode } from '@/ui/panels';
 import { createVolumeControl, PeerGainRoutes } from '@/ui/peer-gain';
 import { clampGain, PEER_GAIN_DEFAULT } from '@/ui/peer-volume';
+import { ScreenZoom } from '@/ui/screen-zoom';
 import {
   classifyStall,
   INITIAL_STALL_STATE,
@@ -70,6 +71,9 @@ type Screenshare = {
   video: HTMLVideoElement;
   label: HTMLSpanElement;
   streamId: string;
+  // Viewer-side zoom/pan controller (only active while maximized). Torn down
+  // with the stage.
+  zoom: ScreenZoom;
   // Removes the stage's click handler when the stage is destroyed (it
   // captures `this`/userId, so it must be detached explicitly rather than
   // relying on the element being GC'd).
@@ -786,8 +790,14 @@ export class RemoteMediaView {
       this.promoteScreenshare(userId);
     };
     container.addEventListener('click', onClick);
-    const cleanup = () => container.removeEventListener('click', onClick);
-    return { container, video, label, streamId: '', cleanup };
+    // Viewer-side zoom (+/- and drag-pan), shown only while this stage is
+    // maximized. Disposed with the stage (below).
+    const zoom = new ScreenZoom(container, video);
+    const cleanup = () => {
+      container.removeEventListener('click', onClick);
+      zoom.dispose();
+    };
+    return { container, video, label, streamId: '', zoom, cleanup };
   }
 
   // ============= Self preview =============
