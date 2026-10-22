@@ -1824,6 +1824,33 @@
       .roster-close:hover {
         color: #e6e8ee;
       }
+      .roster-scope {
+        margin-left: auto;
+        margin-right: 6px;
+        background: #2a2f3a;
+        border: 1px solid #3a4050;
+        border-radius: 6px;
+        color: #e6e8ee;
+        font-size: 11px;
+        padding: 2px 8px;
+        cursor: pointer;
+      }
+      .roster-scope.hidden {
+        display: none;
+      }
+      .roster-group {
+        padding: 8px 12px 4px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #9da3b0;
+        border-top: 1px solid #2a2f3a;
+      }
+      .roster-group:first-child {
+        border-top: none;
+      }
+      .roster-group.mine {
+        color: #7fd8a0;
+      }
       #roster-list {
         overflow-y: auto;
         padding: 4px 0;
@@ -2516,6 +2543,7 @@
       <div id="roster" class="hidden">
         <div class="roster-head">
           <span id="roster-title">参加者</span>
+          <button id="roster-scope" class="roster-scope hidden" type="button"></button>
           <button id="roster-close" class="roster-close" aria-label="閉じる">✕</button>
         </div>
         <div id="roster-list"></div>
