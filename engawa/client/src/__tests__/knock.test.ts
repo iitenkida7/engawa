@@ -82,6 +82,8 @@ describe('KnockController', () => {
     h.ctrl.request('u1');
     expect(h.sent).toEqual([{ type: 'knock', to: 'u1' }]);
     expect(h.infos.length).toBe(1);
+    // The knocker hears the same doorbell as the recipient (audible feedback).
+    expect(h.knocks).toBe(1);
     h.ctrl.onPlayerLeft('u1'); // clear the pending no-answer timer
   });
 
@@ -91,6 +93,7 @@ describe('KnockController', () => {
     h.ctrl.request('me');
     h.ctrl.request('ghost');
     expect(h.sent).toEqual([]);
+    expect(h.knocks).toBe(0); // no sound when nothing was sent
   });
 
   it('suppresses a re-knock while within the cooldown window', () => {
