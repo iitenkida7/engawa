@@ -75,6 +75,7 @@ const server = Bun.serve({
             hat: 0,
             glasses: 0,
           },
+          avatarImage: null,
           sfuSessionId: null,
           sfuTracks: [],
           groupKey: null,

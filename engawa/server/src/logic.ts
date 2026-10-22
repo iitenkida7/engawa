@@ -237,6 +237,25 @@ export function sanitizeOutfit(raw: unknown): Outfit {
   };
 }
 
+// Max length of a relayed profile-picture data URL. The client sends a 128px
+// square compressed to well under this; the cap stops a client from pushing a
+// huge payload the server would fan out to the whole room. ~64KB of base64 ≈ a
+// 48KB image, far above a small square thumbnail needs.
+export const MAX_AVATAR_IMAGE_LEN = 64 * 1024;
+
+/**
+ * Validate a relayed profile picture. Accepts only a reasonably small
+ * `data:image/...` URL; anything else (wrong type, wrong scheme, too big)
+ * becomes null, so a peer never renders an arbitrary/oversized payload. The
+ * server treats the bytes as opaque — it never decodes the image.
+ */
+export function sanitizeAvatarImage(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  if (raw.length > MAX_AVATAR_IMAGE_LEN) return null;
+  if (!raw.startsWith('data:image/')) return null;
+  return raw;
+}
+
 /**
  * Clamp a coordinate pair into the map bounds. Non-finite inputs collapse to 0,
  * matching the original `Number(v) || 0` behaviour.

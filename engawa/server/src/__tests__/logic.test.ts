@@ -10,6 +10,7 @@ import {
   isValidStreamMetaKind,
   MAP_HEIGHT,
   MAP_WIDTH,
+  MAX_AVATAR_IMAGE_LEN,
   MAX_VELOCITY,
   normalizeBool,
   normalizeIceServers,
@@ -30,6 +31,7 @@ import {
   SFU_PROMOTE_AT_MIN,
   SFU_TRACK_NAME_MAX_LENGTH,
   STREAM_ID_MAX_LENGTH,
+  sanitizeAvatarImage,
   sfuLatchSeeds,
   verifyAccessPassword,
 } from '../logic';
@@ -684,5 +686,24 @@ describe('normalizeSfuTracks', () => {
     expect(normalizeSfuTracks(null)).toEqual([]);
     expect(normalizeSfuTracks('tracks')).toEqual([]);
     expect(normalizeSfuTracks({ kind: 'mic', trackName: 'x' })).toEqual([]);
+  });
+});
+
+describe('sanitizeAvatarImage', () => {
+  test('accepts a small image data URL', () => {
+    const url = 'data:image/webp;base64,AAAA';
+    expect(sanitizeAvatarImage(url)).toBe(url);
+  });
+
+  test('rejects non-strings and non-image / non-data values', () => {
+    expect(sanitizeAvatarImage(null)).toBeNull();
+    expect(sanitizeAvatarImage(123)).toBeNull();
+    expect(sanitizeAvatarImage('https://evil.example/x.png')).toBeNull();
+    expect(sanitizeAvatarImage('data:text/html;base64,AAAA')).toBeNull();
+  });
+
+  test('rejects an oversized payload', () => {
+    const huge = `data:image/png;base64,${'A'.repeat(MAX_AVATAR_IMAGE_LEN)}`;
+    expect(sanitizeAvatarImage(huge)).toBeNull();
   });
 });

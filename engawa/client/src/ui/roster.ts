@@ -65,6 +65,19 @@ export class RosterPanel {
     const row = document.createElement('div');
     row.className = p.isSpeaking ? 'roster-row speaking' : 'roster-row';
 
+    // Profile picture (circular), or an initials chip in the avatar's colour.
+    const avatar = document.createElement('span');
+    avatar.className = 'roster-avatar';
+    if (p.avatarImage) {
+      const img = document.createElement('img');
+      img.src = p.avatarImage;
+      img.alt = '';
+      avatar.appendChild(img);
+    } else {
+      avatar.textContent = p.initials();
+      avatar.style.background = p.color;
+    }
+
     const status = document.createElement('span');
     status.textContent = STATUS_EMOJI[p.status];
 
@@ -78,7 +91,7 @@ export class RosterPanel {
     icons.textContent =
       `${p.isMuted ? '🔇' : '🎙'}${p.isVideoOn ? '📹' : '　'}` + `${p.isSharingScreen ? '🖥' : ''}`;
 
-    row.append(status, name, icons);
+    row.append(avatar, status, name, icons);
     return row;
   }
 

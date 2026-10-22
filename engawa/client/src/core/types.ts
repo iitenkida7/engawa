@@ -11,6 +11,11 @@ export type Player = {
   // Modular avatar configuration (#141). Optional so a peer/server that omits it
   // (or an older client) still parses; the renderer falls back to defaults.
   outfit?: Outfit;
+  // Optional user-set profile picture: a small (≤128px) square data URL, shown
+  // circular in the roster, map labels and the camera-off placeholder. Relayed
+  // like `outfit` (static appearance, not media), kept server-side only
+  // transiently. null/absent = fall back to initials.
+  avatarImage?: string | null;
 };
 
 export type SignalData = unknown;
@@ -36,6 +41,7 @@ export type ClientMessage =
       workspace?: string;
       password?: string;
       outfit?: Outfit;
+      avatarImage?: string | null;
       resumeToken?: string;
       // Preferred spawn = our last position from a previous session (localStorage),
       // so you return to "your usual spot". The server honours it only when it's
@@ -45,6 +51,9 @@ export type ClientMessage =
   // Avatar appearance changed in the editor; relayed to the workspace so peers
   // re-render this avatar. Stateless: the server forwards it, keeping nothing.
   | { type: 'outfit-update'; outfit: Outfit }
+  // Profile picture changed in the editor; relayed to the workspace so peers
+  // re-render it. Stateless like outfit-update. null clears it (back to initials).
+  | { type: 'avatar-image-update'; avatarImage: string | null }
   | {
       type: 'move';
       x: number;
@@ -123,6 +132,9 @@ export type ServerMessage =
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
   // A peer's new avatar configuration, relayed from their `outfit-update`.
   | { type: 'outfit-update'; userId: string; outfit: Outfit }
+  // A peer's new profile picture (or null to clear), relayed from their
+  // `avatar-image-update`.
+  | { type: 'avatar-image-update'; userId: string; avatarImage: string | null }
   | {
       type: 'player-status';
       userId: string;

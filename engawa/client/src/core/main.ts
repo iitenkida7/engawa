@@ -1,6 +1,8 @@
 import { App } from '@/core/app';
 import { applyI18n, getLang, type Lang, setLang } from '@/core/i18n';
 import { AvatarEditor } from '@/ui/avatar-editor';
+import { loadProfileImage } from '@/ui/profile-image';
+import { initialsOf } from '@/world/player';
 
 const joinOverlay = document.getElementById('join-overlay') as HTMLDivElement;
 const passForm = document.getElementById('join-pass-form') as HTMLFormElement;
@@ -10,7 +12,25 @@ const passRemember = document.getElementById('join-pass-remember') as HTMLInputE
 const nameForm = document.getElementById('join-form') as HTMLFormElement;
 const nameInput = document.getElementById('join-name') as HTMLInputElement;
 const btnAvatarPre = document.getElementById('btn-avatar-pre') as HTMLButtonElement;
+const avatarThumb = document.getElementById('join-avatar-thumb') as HTMLDivElement;
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+
+// Show the current profile picture on the join screen; with none, fall back to
+// the name's initials — the same camera-off placeholder you'd see in a room.
+function renderJoinAvatarThumb() {
+  const img = loadProfileImage();
+  avatarThumb.replaceChildren();
+  if (img) {
+    const el = new Image();
+    el.src = img;
+    el.alt = '';
+    avatarThumb.appendChild(el);
+    avatarThumb.classList.remove('is-initials');
+  } else {
+    avatarThumb.textContent = initialsOf(nameInput.value);
+    avatarThumb.classList.add('is-initials');
+  }
+}
 
 // Translate the static markup (data-i18n attributes) before the join overlay is
 // shown, then wire the language toggle (issue #172). setLang persists + reloads.
@@ -30,7 +50,14 @@ if (stored) nameInput.value = stored;
 // One editor instance, shared between the join screen (pre-join) and the App's
 // in-room 🧍 button. App reads the persisted outfit on join (see app.ts).
 const editor = new AvatarEditor();
-btnAvatarPre.addEventListener('click', () => editor.open());
+renderJoinAvatarThumb();
+// Keep the initials fallback in step with the name field as it's typed.
+nameInput.addEventListener('input', renderJoinAvatarThumb);
+// Refresh the join thumbnail when the editor changes the picture (applied
+// immediately there, so the callback carries the new value).
+btnAvatarPre.addEventListener('click', () =>
+  editor.open({ onProfileImage: () => renderJoinAvatarThumb(), name: nameInput.value }),
+);
 
 let app: App | null = null;
 // Password verified at the gate; sent on join. '' when the space is open.

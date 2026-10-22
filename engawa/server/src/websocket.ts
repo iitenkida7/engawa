@@ -24,6 +24,7 @@ import {
   PROXIMITY_STILL_MS,
   type ProximityGroup,
   parseGroupMembers,
+  sanitizeAvatarImage,
   sanitizeOutfit,
   sfuLatchSeeds,
   verifyAccessPassword,
@@ -84,6 +85,7 @@ function playerFromWs(ws: ServerWebSocket<WsData>): Player {
     x: ws.data.x,
     y: ws.data.y,
     outfit: ws.data.outfit,
+    avatarImage: ws.data.avatarImage,
   };
 }
 
@@ -339,6 +341,7 @@ export function createWebSocketHandler(
             ws.data.zoneId = prev.data.zoneId;
             ws.data.seated = prev.data.seated;
             ws.data.outfit = sanitizeOutfit(msg.outfit);
+            ws.data.avatarImage = sanitizeAvatarImage(msg.avatarImage);
             // groupKey stays null (not prev's): the topology may match, but the
             // client missed everything relayed during the outage (group-updates,
             // sfu-peer-tracks). A null key makes broadcastGroups below treat the
@@ -385,6 +388,7 @@ export function createWebSocketHandler(
           ws.data.name = normalizeName(msg.name);
           ws.data.workspace = workspace;
           ws.data.outfit = sanitizeOutfit(msg.outfit);
+          ws.data.avatarImage = sanitizeAvatarImage(msg.avatarImage);
           // Spawn in the open office area (center aisle, avoids walls/desks), and
           // clear of people already here so logging in doesn't land you in a
           // stranger's call (nor fire their enter chime).
@@ -504,6 +508,21 @@ export function createWebSocketHandler(
             clients,
             ws.data.workspace,
             { type: 'outfit-update', userId: ws.data.userId, outfit },
+            ws.data.userId,
+          );
+          break;
+        }
+
+        case 'avatar-image-update': {
+          if (!ws.data.joined) return;
+          // Same pattern as outfit-update: size-cap then relay, keep only in
+          // transient ws.data (invariant #2). null clears the picture.
+          const avatarImage = sanitizeAvatarImage(msg.avatarImage);
+          ws.data.avatarImage = avatarImage;
+          broadcast(
+            clients,
+            ws.data.workspace,
+            { type: 'avatar-image-update', userId: ws.data.userId, avatarImage },
             ws.data.userId,
           );
           break;

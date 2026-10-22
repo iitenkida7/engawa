@@ -12,6 +12,8 @@
 // CharacterSheet for the preview + thumbnails (the image fetches are browser-
 // cached, so the renderer's sheet and this one don't double-download).
 
+import { t } from '@/core/i18n';
+import { loadProfileImage, processProfileImageFile, saveProfileImage } from '@/ui/profile-image';
 import {
   CATEGORY_LABELS,
   CharacterSheet,
@@ -28,6 +30,7 @@ import {
   type OutfitCategory,
   randomOutfit,
 } from '@/world/outfit';
+import { initialsOf } from '@/world/player';
 
 const STORAGE_KEY = 'engawa-outfit';
 
@@ -78,6 +81,15 @@ export class AvatarEditor {
   private cats = new Map<OutfitCategory, CategoryUI>();
   private draft: Outfit = loadOutfit();
   private applyCb: ((o: Outfit) => void) | null = null;
+  // Fired when the profile picture changes (applied immediately, not on 決定).
+  private profileCb: ((img: string | null) => void) | null = null;
+  // The user's name, so the no-picture preview can show their initials (the same
+  // camera-off fallback). Passed in on open().
+  private profileName = '';
+  // Profile picture DOM (built in index.html, wired in the constructor).
+  private profilePreview!: HTMLDivElement;
+  private profileClearBtn!: HTMLButtonElement;
+  private profileErrorEl!: HTMLSpanElement;
   private animId: number | null = null;
   private openCat: OutfitCategory | null = null;
   // Thumbnails currently scrolled into view (lazy-painted; repainted when a
@@ -130,6 +142,8 @@ export class AvatarEditor {
     );
     const credits = document.getElementById('avatar-credits') as HTMLAnchorElement;
     credits.href = LPC_CREDITS_URL;
+
+    this.setupProfileImage();
 
     // Start building our own avatar while the join screen is up, so the map
     // shows the sprite (not the placeholder circle) the moment we join.
@@ -213,20 +227,79 @@ export class AvatarEditor {
     return loadOutfit();
   }
 
-  open(opts?: { onApply?: (o: Outfit) => void }) {
+  open(opts?: {
+    onApply?: (o: Outfit) => void;
+    onProfileImage?: (img: string | null) => void;
+    name?: string;
+  }) {
     this.applyCb = opts?.onApply ?? null;
+    this.profileCb = opts?.onProfileImage ?? null;
+    this.profileName = opts?.name ?? '';
     this.draft = loadOutfit();
     this.overlay.classList.remove('hidden');
     if (this.openCat) this.setOpen(this.openCat, false);
     this.openCat = null;
     this.updateHeads();
+    this.renderProfileImage();
     this.startAnim();
   }
 
   private close() {
     this.overlay.classList.add('hidden');
     this.applyCb = null;
+    this.profileCb = null;
     this.stopAnim();
+  }
+
+  private setupProfileImage() {
+    this.profilePreview = document.getElementById('profile-image-preview') as HTMLDivElement;
+    this.profileClearBtn = document.getElementById('profile-image-clear') as HTMLButtonElement;
+    this.profileErrorEl = document.getElementById('profile-image-error') as HTMLSpanElement;
+    const pick = document.getElementById('profile-image-pick') as HTMLButtonElement;
+    const file = document.getElementById('profile-image-file') as HTMLInputElement;
+
+    pick.addEventListener('click', () => file.click());
+    file.addEventListener('change', () => {
+      const f = file.files?.[0];
+      file.value = ''; // let the same file be re-picked after a cancel
+      if (!f) return;
+      this.profileErrorEl.textContent = '';
+      processProfileImageFile(f).then(
+        (dataUrl) => this.setProfileImage(dataUrl),
+        () => {
+          this.profileErrorEl.textContent = t('profile.error');
+        },
+      );
+    });
+    this.profileClearBtn.addEventListener('click', () => this.setProfileImage(null));
+    this.renderProfileImage();
+  }
+
+  // Apply a new (or cleared) profile picture immediately — persisted and relayed
+  // on the spot, independent of the 決定 button (which only confirms the outfit).
+  private setProfileImage(dataUrl: string | null) {
+    saveProfileImage(dataUrl);
+    this.profileErrorEl.textContent = '';
+    this.renderProfileImage();
+    this.profileCb?.(dataUrl);
+  }
+
+  private renderProfileImage() {
+    const img = loadProfileImage();
+    this.profilePreview.replaceChildren();
+    if (img) {
+      const el = new Image();
+      el.src = img;
+      el.alt = '';
+      this.profilePreview.appendChild(el);
+      this.profilePreview.classList.remove('is-initials');
+      this.profileClearBtn.style.display = '';
+    } else {
+      // No picture: show the name's initials, like the camera-off placeholder.
+      this.profilePreview.textContent = initialsOf(this.profileName);
+      this.profilePreview.classList.add('is-initials');
+      this.profileClearBtn.style.display = 'none';
+    }
   }
 
   private apply() {

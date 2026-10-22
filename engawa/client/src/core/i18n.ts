@@ -66,14 +66,25 @@ const STR: Record<string, Record<Lang, string>> = {
   // -- join screen ----------------------------------------------------------
   'join.title': { ja: 'engawa に参加', en: 'Join engawa' },
   'join.name': { ja: '名前を入力', en: 'Enter your name' },
-  'join.editAvatar': { ja: '🎨 アバターを編集', en: '🎨 Edit avatar' },
+  'join.editAvatar': {
+    ja: '🎨 アバターとプロフィール画像を編集',
+    en: '🎨 Edit avatar & photo',
+  },
   'join.enter': { ja: '入室', en: 'Enter' },
 
   // -- avatar editor --------------------------------------------------------
-  'avatar.title': { ja: 'アバターを作る', en: 'Create your avatar' },
+  'avatar.title': { ja: 'アバターとプロフィール画像', en: 'Avatar & profile picture' },
   'avatar.random': { ja: '🎲 おまかせ', en: '🎲 Surprise me' },
   'avatar.confirm': { ja: '決定', en: 'Done' },
   'avatar.credit': { ja: '素材: LPC (CC-BY-SA 等)', en: 'Art: LPC (CC-BY-SA, etc.)' },
+  // Profile picture (circular) section in the avatar editor.
+  'profile.title': { ja: 'プロフィール画像', en: 'Profile picture' },
+  'profile.set': { ja: '画像を選ぶ', en: 'Choose image' },
+  'profile.remove': { ja: '削除', en: 'Remove' },
+  'profile.error': {
+    ja: '画像を読み込めませんでした',
+    en: "Couldn't load that image",
+  },
   'avatar.credits': { ja: 'クレジット', en: 'Credits' },
   'avatar.cat.sex': { ja: '性別', en: 'Gender' },
   'avatar.cat.skin': { ja: '肌の色', en: 'Skin tone' },
@@ -170,7 +181,10 @@ const STR: Record<string, Record<Lang, string>> = {
   'toolbar.bgBlur': { ja: '🌫 ぼかし', en: '🌫 Blur' },
   'toolbar.bgCustom': { ja: '🖼 カスタム画像', en: '🖼 Custom image' },
   'toolbar.bgUpload': { ja: '📁 画像をアップロード…', en: '📁 Upload image…' },
-  'toolbar.editAvatar': { ja: '🧍 アバターを編集', en: '🧍 Edit avatar' },
+  'toolbar.editAvatar': {
+    ja: '🧍 アバターとプロフィール画像を編集',
+    en: '🧍 Edit avatar & photo',
+  },
   'toolbar.shortcuts': { ja: '⌨ キーバインド一覧', en: '⌨ Keyboard shortcuts' },
   'toolbar.testNotify': { ja: '🔔 通知をテスト', en: '🔔 Test notification' },
   'toolbar.facePip': {
