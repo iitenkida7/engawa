@@ -91,6 +91,9 @@ const STR: Record<string, Record<Lang, string>> = {
 
   // -- roster ---------------------------------------------------------------
   'roster.title': { ja: '参加者', en: 'Participants' },
+  'roster.floor': { ja: 'フロア（部屋の外）', en: 'Open floor' },
+  'roster.onlyHere': { ja: 'この部屋だけ', en: 'This room only' },
+  'roster.all': { ja: '全体を見る', en: 'Show everyone' },
   'roster.chat': { ja: 'チャット', en: 'Chat' },
   'roster.status': { ja: 'ステータス', en: 'Status' },
   // Avatar action menu (click an avatar on the map).
