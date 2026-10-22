@@ -58,6 +58,9 @@ export class KnockController {
 
     this.deps.send({ type: 'knock', to: userId });
     this.deps.toasts.info(t('knock.sent', { name: target.name }));
+    // Same doorbell the recipient hears, as audible feedback that the knock went
+    // out (requested) — nothing visual confirms it otherwise on a busy screen.
+    this.deps.sounds.knock();
 
     const timer = setTimeout(() => {
       this.pending.delete(userId);
