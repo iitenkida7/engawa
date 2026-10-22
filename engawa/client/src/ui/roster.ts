@@ -95,7 +95,11 @@ export class RosterPanel {
     this.scopeBtn.textContent = t(this.onlyHere ? 'roster.all' : 'roster.onlyHere');
 
     const located = players.map((p) => ({ p, zoneId: zoneAt(p.x, p.y)?.id ?? null }));
-    let groups = groupRoster(located, ZONES.map((z) => z.id), myZoneId);
+    let groups = groupRoster(
+      located,
+      ZONES.map((z) => z.id),
+      myZoneId,
+    );
     if (this.onlyHere) groups = groups.filter((g) => g.zoneId === myZoneId);
     const shown = groups.reduce((n, g) => n + g.items.length, 0);
     this.titleEl.textContent = `${t('roster.title')} (${shown})`;
