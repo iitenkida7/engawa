@@ -178,6 +178,19 @@ describe('FacePipView', () => {
     expect(fake.root.querySelector<HTMLElement>('.empty')?.hidden).toBe(false);
   });
 
+  it('marks the self tile and keeps the empty note while it is alone', async () => {
+    const fake = installFakePip();
+    const view = new FacePipView();
+    await view.open([entry('me', { self: true })]);
+    const tiles = fake.root.querySelectorAll('.tile');
+    expect(tiles.length).toBe(1);
+    expect(tiles[0].classList.contains('self')).toBe(true);
+    expect(fake.root.querySelector<HTMLElement>('.empty')?.hidden).toBe(false);
+    view.sync([entry('me', { self: true }), entry('a')]);
+    expect(fake.root.querySelectorAll('.tile')[1].classList.contains('self')).toBe(false);
+    expect(fake.root.querySelector<HTMLElement>('.empty')?.hidden).toBe(true);
+  });
+
   it('close() closes the window once; a user-closed window is forgotten', async () => {
     const fake = installFakePip();
     const view = new FacePipView();
@@ -261,25 +274,32 @@ describe('RemoteMediaView face window', () => {
     expect(await view.openFacePip()).toBe(true);
     expect(view.facePipOpen()).toBe(true);
 
+    // The sharer's own tile leads (cam off, mic off here), then the peers.
     let tiles = fake.root.querySelectorAll('.tile');
-    expect(tiles.length).toBe(1);
-    expect(tiles[0].querySelector('.name')?.textContent).toBe('Alice');
-    expect((tiles[0].querySelector('video') as HTMLVideoElement).srcObject).toBe(cam);
+    expect(tiles.length).toBe(2);
+    expect(tiles[0].classList.contains('self')).toBe(true);
+    expect(tiles[0].querySelector('.name')?.textContent).toBe('Me');
+    expect(tiles[0].classList.contains('nocam')).toBe(true);
+    expect(tiles[0].classList.contains('muted')).toBe(true);
+    expect(tiles[1].querySelector('.name')?.textContent).toBe('Alice');
+    expect((tiles[1].querySelector('video') as HTMLVideoElement).srcObject).toBe(cam);
 
     // A cam-off conversation member gets a placeholder tile in both places.
     players.set('b', player('b', 'Bob'));
     view.setConversationMembers(['a', 'b']);
     tiles = fake.root.querySelectorAll('.tile');
-    expect(tiles.length).toBe(2);
-    expect(tiles[1].classList.contains('nocam')).toBe(true);
+    expect(tiles.length).toBe(3);
+    expect(tiles[2].classList.contains('nocam')).toBe(true);
 
     view.setTileMuted('b', true);
-    expect(tiles[1].classList.contains('muted')).toBe(true);
+    expect(tiles[2].classList.contains('muted')).toBe(true);
 
-    // Leaving removes the mirror too.
+    // Leaving removes the mirror too; the sharer's own tile stays.
     view.removePeer('a');
     view.setConversationMembers([]);
-    expect(fake.root.querySelectorAll('.tile').length).toBe(0);
+    tiles = fake.root.querySelectorAll('.tile');
+    expect(tiles.length).toBe(1);
+    expect(tiles[0].classList.contains('self')).toBe(true);
 
     view.closeFacePip();
     expect(view.facePipOpen()).toBe(false);

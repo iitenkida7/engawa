@@ -156,7 +156,7 @@ export class RemoteMediaView {
   // (issue #201); the App shows / hides the "enable audio" prompt.
   private autoplay: AutoplayGate;
 
-  // Always-on-top mirror of the remote tiles while the local user shares their
+  // Always-on-top mirror of the call tiles while the local user shares their
   // screen (issue #318). Opened / closed by the toolbar around the share; kept
   // in step here because every tile change already funnels through reflowLayout.
   private facePip = new FacePipView();
@@ -793,7 +793,10 @@ export class RemoteMediaView {
   // ============= Self preview =============
   refreshSelfPreview() {
     this.selfPreviewEl.classList.toggle('muted', !this.media.micOn);
+    if (this.facePip.isOpen()) this.facePip.setMuted(this.getMyId(), !this.media.micOn);
     const stream = this.media.camStream;
+    // The face window mirrors the self tile too, so a cam flip re-syncs it.
+    const camChanged = this.selfVideoEl.srcObject !== stream;
     const wasHidden = this.selfPreviewEl.classList.contains('hidden');
     // Show your own tile whenever your camera is on OR you're in a call/meeting —
     // so everyone (yourself included) is visible regardless of camera state
@@ -834,6 +837,7 @@ export class RemoteMediaView {
     // The self preview joins/leaves the auto-layout as it shows/hides, so
     // re-flow whenever its visibility flips (issue #175).
     if (wasHidden !== this.selfPreviewEl.classList.contains('hidden')) this.reflowLayout();
+    else if (camChanged && this.facePip.isOpen()) this.facePip.sync(this.faceEntries());
   }
 
   // ============= Mute indicator =============
@@ -850,7 +854,8 @@ export class RemoteMediaView {
   // ============= Face window (issue #318) =============
   // The toolbar opens this right after a screen share starts (inside the same
   // user activation) and closes it when the share stops. Mirrors the remote
-  // tiles — see ui/face-pip.ts for why it mirrors rather than moves them.
+  // tiles plus the sharer's own — see ui/face-pip.ts for why it mirrors rather
+  // than moves them.
   facePipSupported(): boolean {
     return isFacePipSupported();
   }
@@ -867,11 +872,26 @@ export class RemoteMediaView {
     this.facePip.close();
   }
 
-  // Snapshot of every remote tile as the face window shows it. Tiles are the
-  // source of truth (a cam-off conversation member has a placeholder tile, a
-  // peer who left has none), so the window always matches the main view.
+  // Snapshot of the sharer and every remote tile as the face window shows it.
+  // The sharer always comes first (they asked to see themselves too, even with
+  // the self preview hidden). Remote tiles are the source of truth (a cam-off
+  // conversation member has a placeholder tile, a peer who left has none), so
+  // the window always matches the main view.
   private faceEntries(): FaceEntry[] {
-    const entries: FaceEntry[] = [];
+    const myId = this.getMyId();
+    const me = this.players.get(myId);
+    const myName = me?.name || t('common.you');
+    const entries: FaceEntry[] = [
+      {
+        userId: myId,
+        self: true,
+        name: myName,
+        initials: me ? me.initials() : myName.slice(0, 2).toUpperCase(),
+        stream: this.media.camStream,
+        muted: !this.media.micOn,
+        speaking: me?.isSpeaking ?? false,
+      },
+    ];
     for (const [userId, tile] of this.remoteTiles) {
       const p = this.players.get(userId);
       const name = tile.label.textContent || userId.slice(0, 6);
@@ -915,6 +935,7 @@ export class RemoteMediaView {
     if (me && this.localSpeakingDetector) {
       me.isSpeaking = isSpeaking(this.localSpeakingDetector);
     }
+    if (this.facePip.isOpen()) this.facePip.setSpeaking(this.getMyId(), me?.isSpeaking ?? false);
     for (const [userId, det] of this.remoteSpeakingDetectors) {
       const p = this.players.get(userId);
       if (p) p.isSpeaking = isSpeaking(det);
