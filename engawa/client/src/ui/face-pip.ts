@@ -57,10 +57,12 @@ export function computeFacePipWindowSize(count: number): { width: number; height
   };
 }
 
-// One remote participant as the PiP window shows them: the same facts a main
-// window tile renders, snapshotted by RemoteMediaView on every reflow.
+// One participant as the PiP window shows them: the same facts a main window
+// tile renders, snapshotted by RemoteMediaView on every reflow. `self` marks the
+// sharer's own tile, which comes first and is mirrored like the self preview.
 export type FaceEntry = {
   userId: string;
+  self?: boolean;
   name: string;
   initials: string;
   stream: MediaStream | null;
@@ -94,6 +96,7 @@ const PIP_CSS = `
   .tile.muted .hdr .mic { display: inline; }
   .body { position: relative; aspect-ratio: 16 / 9; background: #000; }
   .body video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .tile.self .body video { transform: scaleX(-1); }
   .tile.nocam .body video { display: none; }
   .ph { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
     background: #1a1d24; }
@@ -185,6 +188,7 @@ export class FacePipView {
       }
       tile.name.textContent = e.name;
       tile.initials.textContent = e.initials;
+      tile.el.classList.toggle('self', e.self === true);
       tile.el.classList.toggle('muted', e.muted);
       tile.el.classList.toggle('speaking', e.speaking);
       tile.el.classList.toggle('nocam', e.stream === null);
@@ -201,7 +205,8 @@ export class FacePipView {
       tile.el.remove();
       this.tiles.delete(userId);
     }
-    if (this.empty) this.empty.hidden = entries.length > 0;
+    // The sharer's own tile alone is not a call: keep the note under it.
+    if (this.empty) this.empty.hidden = entries.some((e) => !e.self);
   }
 
   // Per-frame / per-event updates between syncs.
