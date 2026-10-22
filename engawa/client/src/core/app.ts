@@ -495,6 +495,7 @@ export class App {
         this.editor.open({
           onApply: (o) => this.onOutfitApplied(o),
           onProfileImage: (img) => this.onProfileImageApplied(img),
+          name: this.me?.name ?? this.joinedName,
         }),
       onOpenShortcuts: () => this.keyHelp.toggle(),
       onTestNotify: () => void this.testDesktopNotify(),

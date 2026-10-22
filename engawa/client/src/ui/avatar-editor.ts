@@ -30,6 +30,7 @@ import {
   type OutfitCategory,
   randomOutfit,
 } from '@/world/outfit';
+import { initialsOf } from '@/world/player';
 
 const STORAGE_KEY = 'engawa-outfit';
 
@@ -82,6 +83,9 @@ export class AvatarEditor {
   private applyCb: ((o: Outfit) => void) | null = null;
   // Fired when the profile picture changes (applied immediately, not on 決定).
   private profileCb: ((img: string | null) => void) | null = null;
+  // The user's name, so the no-picture preview can show their initials (the same
+  // camera-off fallback). Passed in on open().
+  private profileName = '';
   // Profile picture DOM (built in index.html, wired in the constructor).
   private profilePreview!: HTMLDivElement;
   private profileClearBtn!: HTMLButtonElement;
@@ -223,9 +227,14 @@ export class AvatarEditor {
     return loadOutfit();
   }
 
-  open(opts?: { onApply?: (o: Outfit) => void; onProfileImage?: (img: string | null) => void }) {
+  open(opts?: {
+    onApply?: (o: Outfit) => void;
+    onProfileImage?: (img: string | null) => void;
+    name?: string;
+  }) {
     this.applyCb = opts?.onApply ?? null;
     this.profileCb = opts?.onProfileImage ?? null;
+    this.profileName = opts?.name ?? '';
     this.draft = loadOutfit();
     this.overlay.classList.remove('hidden');
     if (this.openCat) this.setOpen(this.openCat, false);
@@ -283,9 +292,12 @@ export class AvatarEditor {
       el.src = img;
       el.alt = '';
       this.profilePreview.appendChild(el);
+      this.profilePreview.classList.remove('is-initials');
       this.profileClearBtn.style.display = '';
     } else {
-      this.profilePreview.textContent = '🙂';
+      // No picture: show the name's initials, like the camera-off placeholder.
+      this.profilePreview.textContent = initialsOf(this.profileName);
+      this.profilePreview.classList.add('is-initials');
       this.profileClearBtn.style.display = 'none';
     }
   }

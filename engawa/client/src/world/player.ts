@@ -122,13 +122,18 @@ export class PlayerState implements Player {
   }
 
   initials() {
-    const name = this.name || '?';
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase();
+    return initialsOf(this.name);
   }
+}
+
+// The up-to-two-letter badge shown on a camera-off tile (and the join screen):
+// the initials of each of the first two words, else the first two characters.
+// Pure, so the join screen can reuse it before a PlayerState exists.
+export function initialsOf(name: string): string {
+  const n = name.trim() || '?';
+  const parts = n.split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return n.slice(0, 2).toUpperCase();
 }
 
 function colorForId(id: string): string {
