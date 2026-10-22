@@ -305,6 +305,7 @@ export class MediaLayout {
         'layout-hidden',
         'meeting-pinnable',
         'meeting-pinned',
+        'meeting-main',
       );
     }
     if (meetingActive) {
@@ -414,6 +415,10 @@ export class MediaLayout {
     order.forEach((pi, k) => {
       applyPanelGeometry(panels[pi].el, geos[k]);
     });
+    // Mark the featured share so the viewer-side zoom bar can show here too —
+    // meeting mode has no ⤢ maximize, but the main share already fills the area
+    // like a maximized view (screen-zoom.ts treats both as "big").
+    panels[mainIdx].el.classList.add('meeting-main');
     for (const i of visible) panels[i].el.classList.add('meeting-pinnable');
     if (pinned) {
       panels[pinnedIdx].el.classList.add('meeting-pinned');

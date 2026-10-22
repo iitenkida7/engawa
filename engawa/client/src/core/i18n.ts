@@ -440,6 +440,8 @@ const STR: Record<string, Record<Lang, string>> = {
   },
   'media.volume': { ja: '音量 {pct}%', en: 'Volume {pct}%' },
   'media.focus': { ja: '拡大表示', en: 'Maximize' },
+  'media.zoomIn': { ja: 'ズームイン', en: 'Zoom in' },
+  'media.zoomOut': { ja: 'ズームアウト', en: 'Zoom out' },
   'media.reconnecting': { ja: '再接続中…', en: 'Reconnecting…' },
   'facePip.empty': { ja: '通話相手がいません', en: 'No one in the call' },
   // Why a camera tile is dark (issue #312): stall overlays and placeholder notes.

@@ -1415,6 +1415,61 @@
         object-fit: contain;
       }
 
+      /* Viewer-side zoom bar (ui/screen-zoom.ts): only while the share is shown
+         big — maximized (.focused) outside a meeting, or the featured main share
+         inside the meeting view — so the small inline stage stays uncluttered. */
+      .screen-zoom {
+        position: absolute;
+        display: none;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        align-items: center;
+        gap: 4px;
+        padding: 4px 6px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.6);
+        border: 1px solid #3a4050;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+        z-index: 21; /* above the maximized panel body (focused panel is z20) */
+      }
+      .screenshare-stage.focused .screen-zoom,
+      #app.meeting .screenshare-stage.meeting-main .screen-zoom {
+        display: flex;
+      }
+      .screen-zoom-btn {
+        width: 30px;
+        height: 30px;
+        border: none;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.12);
+        color: #e6e8ee;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .screen-zoom-btn:hover {
+        background: rgba(255, 255, 255, 0.22);
+      }
+      .screen-zoom-btn:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+      .screen-zoom-pct {
+        min-width: 44px;
+        text-align: center;
+        font-size: 12px;
+        color: #c9ced8;
+        user-select: none;
+      }
+      /* While zoomed in, the video is draggable to pan. */
+      .screenshare-stage.zoomed .panel-body video {
+        cursor: grab;
+      }
+      .screenshare-stage.zoomed .panel-body video:active {
+        cursor: grabbing;
+      }
+
       /* ===== Immersive meeting mode (#263) =====
          Entered only while standing in a zone (room/booth/café): a black full-screen
          backdrop (above the 2D map, below the media tiles) and gap-free,
