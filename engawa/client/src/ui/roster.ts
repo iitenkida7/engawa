@@ -15,9 +15,12 @@ export class RosterPanel {
   private titleEl: HTMLElement;
   private list: HTMLDivElement;
   private scopeBtn: HTMLButtonElement;
-  // "Only this room" filter: meaningful (and offered) only while standing in a
-  // zone; it quietly resets when you walk out.
+  // "Only this room" filter: on by default whenever you step into a zone, so a
+  // meeting room shows just the people in it; the header button widens it to
+  // everyone (and back). Off outside a zone, where it has no meaning.
   private onlyHere = false;
+  // The zone seen on the previous render, to notice walking into / between rooms.
+  private lastZoneId: string | null = null;
   private getPlayers: () => Map<string, PlayerState>;
 
   constructor(opts: { getPlayers: () => Map<string, PlayerState> }) {
@@ -90,7 +93,12 @@ export class RosterPanel {
     );
     const me = players.find((p) => p.isSelf);
     const myZoneId = me ? (zoneAt(me.x, me.y)?.id ?? null) : null;
-    if (myZoneId === null) this.onlyHere = false;
+    // Entering a room (or moving to another) resets to "this room only"; leaving
+    // clears it. A manual "show everyone" sticks until the next room change.
+    if (myZoneId !== this.lastZoneId) {
+      this.onlyHere = myZoneId !== null;
+      this.lastZoneId = myZoneId;
+    }
     this.scopeBtn.classList.toggle('hidden', myZoneId === null);
     this.scopeBtn.textContent = t(this.onlyHere ? 'roster.all' : 'roster.onlyHere');
 
