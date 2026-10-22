@@ -539,8 +539,12 @@
          its header, scrolling body), parked on the left so both can be open. */
       #transcript {
         position: fixed;
-        top: 16px;
-        left: 16px;
+        /* Top-RIGHT by default: the meeting view puts the camera filmstrip down
+           the LEFT edge, so a top-left panel sat on top of it. The right corner
+           only neighbours the recording pill (while recording), and the panel
+           is draggable anyway. Minimizing collapses it to a pill here too. */
+        top: 60px;
+        right: 16px;
         width: 400px;
         max-width: calc(100vw - 32px);
         /* Kept short so it doesn't cover the call; older lines scroll. */
@@ -601,6 +605,31 @@
       /* Room for the summary area on top of the (still short) transcript. */
       #transcript.has-summary {
         max-height: min(420px, calc(100vh - 140px));
+      }
+
+      /* Minimized: collapse to just the title as a small pill so it stops
+         covering the call / screen share. The whole pill is clickable to
+         restore (transcript.ts). Body, summary and header buttons are hidden;
+         only the 📝 title shows. */
+      #transcript.minimized {
+        width: auto;
+        max-height: none;
+        cursor: pointer;
+      }
+      #transcript.minimized #transcript-body,
+      #transcript.minimized #transcript-summary {
+        display: none;
+      }
+      #transcript.minimized #transcript-header {
+        border-bottom: none;
+        cursor: pointer;
+        padding: 6px 12px;
+      }
+      #transcript.minimized #transcript-header button {
+        display: none;
+      }
+      #transcript.minimized #transcript-header > span {
+        flex: 0 0 auto;
       }
 
       /* On-device summary: its own scrolling area above the lines, so the
