@@ -16,6 +16,7 @@ import { createFocusButton, type LayoutPanel, MediaLayout } from '@/ui/media-lay
 import { CAM_ASPECT, type LayoutMode } from '@/ui/panels';
 import { createVolumeControl, PeerGainRoutes } from '@/ui/peer-gain';
 import { clampGain, PEER_GAIN_DEFAULT } from '@/ui/peer-volume';
+import { loadProfileImage } from '@/ui/profile-image';
 import {
   classifyStall,
   INITIAL_STALL_STATE,
@@ -31,6 +32,8 @@ type RemoteTile = {
   container: HTMLDivElement;
   video: HTMLVideoElement;
   placeholder: HTMLDivElement;
+  // The camera-off circle: the peer's profile picture, or their initials.
+  avatarEl: HTMLSpanElement;
   // The one-line note under the initials when the tile has no video (#312).
   reason: HTMLSpanElement;
   label: HTMLSpanElement;
@@ -82,6 +85,20 @@ const MIC_OFF_SVG =
   '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" />' +
   '<path d="M6 11a6 6 0 0 0 12 0" /><line x1="12" y1="17" x2="12" y2="21" />' +
   '<line x1="8" y1="21" x2="16" y2="21" /><line x1="4" y1="20" x2="20" y2="4" /></svg>';
+
+// Fill a camera-off circle with the user's profile picture if they set one, else
+// their initials. Built as DOM nodes (never innerHTML): names and data URLs are
+// user-controlled, so they must never be parsed as markup.
+function renderNoVideoAvatar(el: HTMLElement, avatarImage: string | null, initials: string) {
+  if (avatarImage) {
+    const img = el.querySelector('img') ?? document.createElement('img');
+    if (img.getAttribute('src') !== avatarImage) img.src = avatarImage;
+    img.alt = '';
+    if (!img.parentElement) el.replaceChildren(img);
+  } else if (el.querySelector('img') || el.textContent !== initials) {
+    el.replaceChildren(document.createTextNode(initials));
+  }
+}
 
 // Owns every media panel in the DOM: the floating remote camera tiles, the
 // per-user mic <audio> elements, the screenshare stage, and the self preview.
@@ -594,10 +611,15 @@ export class RemoteMediaView {
 
     const placeholder = document.createElement('div');
     placeholder.className = 'no-video';
-    placeholder.innerHTML = `<span class="no-video-initials">${initials}</span><span class="no-video-name">${name}</span>`;
+    const avatarEl = document.createElement('span');
+    avatarEl.className = 'no-video-initials';
+    renderNoVideoAvatar(avatarEl, p?.avatarImage ?? null, initials);
+    const nameEl = document.createElement('span');
+    nameEl.className = 'no-video-name';
+    nameEl.textContent = name;
     const reason = document.createElement('span');
     reason.className = 'no-video-reason';
-    placeholder.appendChild(reason);
+    placeholder.append(avatarEl, nameEl, reason);
     body.appendChild(placeholder);
 
     // Position/size come from reflowLayout (called by the caller right after);
@@ -608,6 +630,7 @@ export class RemoteMediaView {
       container,
       video,
       placeholder,
+      avatarEl,
       reason,
       label,
       hasCam: false,
@@ -621,6 +644,17 @@ export class RemoteMediaView {
     this.remoteTiles.set(userId, tile);
     this.refreshTileReason(userId);
     return tile;
+  }
+
+  // A peer changed (or cleared) their profile picture: repaint their camera-off
+  // circle. No-op if they have no tile right now (it'll pick the image up from
+  // the player state when a tile is next created).
+  setPeerAvatarImage(userId: string, avatarImage: string | null) {
+    const tile = this.remoteTiles.get(userId);
+    if (!tile) return;
+    const p = this.players.get(userId);
+    const initials = p ? p.initials() : userId.slice(0, 2).toUpperCase();
+    renderNoVideoAvatar(tile.avatarEl, avatarImage, initials);
   }
 
   // Tears down every DOM artifact for a peer (tile, audio, speaking detector).
@@ -822,13 +856,13 @@ export class RemoteMediaView {
           /* noop */
         }
       }
-      // Camera off: render the initials placeholder (matching remote tiles).
+      // Camera off: render the profile picture, or the initials (matching remote
+      // tiles). loadProfileImage() is our own, authoritative even before the
+      // server echoes it back.
       const me = this.players.get(this.getMyId());
       const name = me?.name || t('common.you');
       const initials = me ? me.initials() : name.slice(0, 2).toUpperCase();
-      if (this.selfNoVideoInitialsEl.textContent !== initials) {
-        this.selfNoVideoInitialsEl.textContent = initials;
-      }
+      renderNoVideoAvatar(this.selfNoVideoInitialsEl, loadProfileImage(), initials);
       if (this.selfNoVideoNameEl.textContent !== name) this.selfNoVideoNameEl.textContent = name;
       this.selfVideoEl.style.display = 'none';
       this.selfNoVideoEl.style.display = show ? '' : 'none';

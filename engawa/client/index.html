@@ -1330,6 +1330,15 @@
         color: #e6e8ee;
       }
 
+      /* A set profile picture fills the camera-off circle. */
+      .panel-body .no-video-initials img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 50%;
+        display: block;
+      }
+
       .panel-body .no-video-name {
         margin-top: 8px;
         font-size: 12px;
@@ -1865,6 +1874,25 @@
       .roster-row.speaking {
         background: rgba(80, 220, 120, 0.14);
       }
+      .roster-row .roster-avatar {
+        flex: 0 0 auto;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: bold;
+        color: #fff;
+      }
+      .roster-row .roster-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
       .roster-row .roster-name {
         flex: 1;
         overflow: hidden;
@@ -2280,6 +2308,55 @@
         background: #1a1d24;
         border: 1px solid #3a4050;
         border-radius: 8px;
+      }
+
+      /* Profile picture section in the avatar editor. */
+      #profile-image-section {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 10px 0;
+        border-top: 1px solid #2a2f3a;
+        border-bottom: 1px solid #2a2f3a;
+      }
+      .profile-image-title {
+        font-size: 13px;
+        color: #c9ced8;
+      }
+      .profile-image-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .profile-image-preview {
+        width: 56px;
+        height: 56px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: #1a1d24;
+        border: 1px solid #3a4050;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #6b7280;
+        font-size: 22px;
+      }
+      .profile-image-preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .profile-image-buttons {
+        display: flex;
+        gap: 8px;
+      }
+      .profile-image-error {
+        font-size: 12px;
+        color: #ff8a8a;
+        min-height: 0;
       }
 
       #avatar-categories {
@@ -2772,6 +2849,20 @@
         <div class="avatar-card">
           <h2 data-i18n="avatar.title">アバターを作る</h2>
           <canvas id="avatar-preview" width="128" height="150"></canvas>
+          <!-- Profile picture (circular). Applied immediately on pick/remove,
+               independent of the 決定 button that confirms the outfit. -->
+          <div id="profile-image-section">
+            <span class="profile-image-title" data-i18n="profile.title">プロフィール画像</span>
+            <div class="profile-image-row">
+              <div id="profile-image-preview" class="profile-image-preview"></div>
+              <div class="profile-image-buttons">
+                <button type="button" id="profile-image-pick" class="secondary" data-i18n="profile.set">画像を選ぶ</button>
+                <button type="button" id="profile-image-clear" class="secondary" data-i18n="profile.remove">削除</button>
+              </div>
+            </div>
+            <span id="profile-image-error" class="profile-image-error"></span>
+            <input type="file" id="profile-image-file" accept="image/*" hidden />
+          </div>
           <div id="avatar-categories"></div>
           <div class="avatar-actions">
             <button type="button" id="avatar-random" class="secondary" data-i18n="avatar.random">🎲 おまかせ</button>

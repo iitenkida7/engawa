@@ -66,6 +66,7 @@ import { KeyHelpPanel } from '@/ui/keyhelp';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
 import { NotifyHelpPanel } from '@/ui/notify-help';
+import { loadProfileImage } from '@/ui/profile-image';
 import { isPttKey, PTT_KEY } from '@/ui/ptt';
 import { ReactionToasts } from '@/ui/reaction-toast';
 import { RecIndicator } from '@/ui/rec-indicator';
@@ -490,7 +491,11 @@ export class App {
       // The 🧍 avatar editor and 🐛 debug console both live in the toolbar's "⋯"
       // menu now; reopening the character maker in-room relays the new outfit to
       // peers (see onOutfitApplied).
-      onOpenAvatar: () => this.editor.open({ onApply: (o) => this.onOutfitApplied(o) }),
+      onOpenAvatar: () =>
+        this.editor.open({
+          onApply: (o) => this.onOutfitApplied(o),
+          onProfileImage: (img) => this.onProfileImageApplied(img),
+        }),
       onOpenShortcuts: () => this.keyHelp.toggle(),
       onTestNotify: () => void this.testDesktopNotify(),
       // The 🐛 debug console lives in the toolbar's "⋯" menu (issue #113). These
@@ -1028,6 +1033,7 @@ export class App {
       type: 'join',
       name: this.joinedName,
       outfit: this.editor.getOutfit(),
+      avatarImage: loadProfileImage(),
       ...(this.joinedPassword ? { password: this.joinedPassword } : {}),
       ...(this.myResumeToken ? { resumeToken: this.myResumeToken } : {}),
       ...(spawn ? { spawn } : {}),
@@ -1040,6 +1046,16 @@ export class App {
   private onOutfitApplied(outfit: Outfit) {
     if (this.me) this.me.outfit = outfit;
     this.net.send({ type: 'outfit-update', outfit });
+  }
+
+  // The profile picture was changed/removed in the editor (applied immediately,
+  // not on 決定): update our own, relay it (server forwards without storing —
+  // invariant #2), and refresh the places it shows.
+  private onProfileImageApplied(avatarImage: string | null) {
+    if (this.me) this.me.avatarImage = avatarImage;
+    this.net.send({ type: 'avatar-image-update', avatarImage });
+    this.view.refreshSelfPreview();
+    this.roster.render();
   }
 
   private authFailed = false;
@@ -1228,6 +1244,16 @@ export class App {
         const p = this.players.get(msg.userId);
         // Re-clamp the peer's server-bounded indices to our real part counts.
         if (p) p.outfit = normalizeOutfit(msg.outfit, OUTFIT_COUNTS);
+        break;
+      }
+      case 'avatar-image-update': {
+        const p = this.players.get(msg.userId);
+        if (p) {
+          p.avatarImage = msg.avatarImage;
+          // The map label reads it each frame; the tile/roster are refreshed here.
+          this.view.setPeerAvatarImage(msg.userId, msg.avatarImage);
+          this.roster.render();
+        }
         break;
       }
       case 'player-status': {

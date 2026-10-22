@@ -74,6 +74,14 @@ const STR: Record<string, Record<Lang, string>> = {
   'avatar.random': { ja: '🎲 おまかせ', en: '🎲 Surprise me' },
   'avatar.confirm': { ja: '決定', en: 'Done' },
   'avatar.credit': { ja: '素材: LPC (CC-BY-SA 等)', en: 'Art: LPC (CC-BY-SA, etc.)' },
+  // Profile picture (circular) section in the avatar editor.
+  'profile.title': { ja: 'プロフィール画像', en: 'Profile picture' },
+  'profile.set': { ja: '画像を選ぶ', en: 'Choose image' },
+  'profile.remove': { ja: '削除', en: 'Remove' },
+  'profile.error': {
+    ja: '画像を読み込めませんでした',
+    en: "Couldn't load that image",
+  },
   'avatar.credits': { ja: 'クレジット', en: 'Credits' },
   'avatar.cat.sex': { ja: '性別', en: 'Gender' },
   'avatar.cat.skin': { ja: '肌の色', en: 'Skin tone' },

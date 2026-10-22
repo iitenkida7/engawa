@@ -21,6 +21,10 @@ export type Player = {
   x: number;
   y: number;
   outfit: Outfit;
+  // Optional user-set profile picture: a small square data URL, relayed like
+  // `outfit` (static appearance the server treats as opaque, never media) and
+  // kept only transiently. null = none (peers fall back to initials).
+  avatarImage: string | null;
 };
 
 export type SignalData = unknown;
@@ -47,6 +51,7 @@ export type ClientMessage =
       workspace?: string;
       password?: string;
       outfit?: Outfit;
+      avatarImage?: string | null;
       resumeToken?: string;
       // Preferred spawn (client's last position); honoured only when it's clear of
       // others, else the normal spawn is used.
@@ -54,6 +59,9 @@ export type ClientMessage =
     }
   // Avatar appearance changed; relayed to the workspace (sanitized, never stored).
   | { type: 'outfit-update'; outfit: Outfit }
+  // Profile picture changed; relayed to the workspace (size-capped, never stored
+  // past the connection). null clears it.
+  | { type: 'avatar-image-update'; avatarImage: string | null }
   | {
       type: 'move';
       x: number;
@@ -132,6 +140,8 @@ export type ServerMessage =
   | { type: 'player-moved'; userId: string; x: number; y: number; vx: number; vy: number }
   // A peer's new avatar configuration, relayed from their `outfit-update`.
   | { type: 'outfit-update'; userId: string; outfit: Outfit }
+  // A peer's new profile picture (or null), relayed from their `avatar-image-update`.
+  | { type: 'avatar-image-update'; userId: string; avatarImage: string | null }
   | {
       type: 'player-status';
       userId: string;
@@ -187,6 +197,9 @@ export type WsData = {
   // Modular avatar configuration (#141). Sanitized on join / outfit-update and
   // relayed to peers; transient, reset on restart (invariant #2).
   outfit: Outfit;
+  // Optional profile picture (small square data URL, or null). Size-capped on
+  // join / avatar-image-update and relayed to peers; transient (invariant #2).
+  avatarImage: string | null;
   // SFU track directory for this connection (null = hasn't published). Relayed
   // to group peers for pulling. Transient: dropped on disconnect / restart.
   sfuSessionId: string | null;

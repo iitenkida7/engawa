@@ -156,6 +156,9 @@ export class CanvasRenderer {
   // What the avatar layer last drew, and when (see sceneKey / IDLE_REDRAW_MS).
   private lastSceneKey = '';
   private lastDrawAt = 0;
+  // Decoded profile pictures for the map name labels, keyed by userId. Rebuilt
+  // when a player's data URL changes; a freshly decoded image forces one redraw.
+  private avatarImages = new Map<string, { url: string; img: HTMLImageElement; ready: boolean }>();
 
   // The static map (floors/walls/furniture/border) is baked once into this
   // offscreen world-space canvas and blitted per frame, so a richer map is
@@ -535,7 +538,7 @@ export class CanvasRenderer {
     for (const p of players) {
       // Mid-stride (the next draw settles the pose) or a pulsing speech bubble.
       if (p.walkCol() !== 0 || (p.isSpeaking && !p.isSelf)) return null;
-      key += `|${p.userId},${q(p.x)},${q(p.y)},${p.facing},${p.status},${p.isSharingScreen},${p.isSpeaking},${p.name}`;
+      key += `|${p.userId},${q(p.x)},${q(p.y)},${p.facing},${p.status},${p.isSharingScreen},${p.isSpeaking},${p.name},${p.avatarImage?.length ?? 0}`;
     }
     return key;
   }
@@ -645,6 +648,28 @@ export class CanvasRenderer {
   // stay readable at any zoom (unlike the world-space room labels, which scale).
   // Positions are projected from world→screen; overlapping labels are nudged
   // downward so a cluster stays legible (#227).
+  // Decode (and cache) a player's profile picture for the map label. Returns the
+  // ready <img>, or null while it is still decoding / when the player has none.
+  // A change in the data URL rebuilds the entry; a finished decode forces one
+  // redraw so the picture appears without waiting for the next scene change.
+  private getAvatarImage(userId: string, url: string | null): HTMLImageElement | null {
+    if (!url) {
+      this.avatarImages.delete(userId);
+      return null;
+    }
+    const entry = this.avatarImages.get(userId);
+    if (entry && entry.url === url) return entry.ready ? entry.img : null;
+    const img = new Image();
+    const rec = { url, img, ready: false };
+    img.onload = () => {
+      rec.ready = true;
+      this.lastSceneKey = '';
+    };
+    img.src = url;
+    this.avatarImages.set(userId, rec);
+    return null;
+  }
+
   private drawNameLabels(
     ctx: CanvasRenderingContext2D,
     players: PlayerState[],
@@ -660,6 +685,10 @@ export class CanvasRenderer {
 
     const lh = 22;
     const gap = 2;
+    // Profile-picture chip inside the label: a circle a little shorter than the
+    // pill, with a small gap to the text.
+    const avatarD = lh - 6;
+    const avatarGap = 4;
     const placed: { cx: number; top: number; lw: number }[] = [];
     const toDraw: {
       text: string;
@@ -668,6 +697,7 @@ export class CanvasRenderer {
       lw: number;
       isSelf: boolean;
       speaking: boolean;
+      avatarImg: HTMLImageElement | null;
     }[] = [];
     for (const p of players) {
       if (p.isSelf && selfAway) continue;
@@ -678,7 +708,9 @@ export class CanvasRenderer {
       if (sx < -150 || sx > w + 150 || headY < -80 || headY > h + 80) continue;
 
       const text = `${STATUS_EMOJI[p.status]} ${p.name}${p.isSharingScreen ? '  🖥' : ''}`;
-      const lw = ctx.measureText(text).width + 12;
+      const avatarImg = this.getAvatarImage(p.userId, p.avatarImage);
+      const extra = avatarImg ? avatarD + avatarGap : 0;
+      const lw = ctx.measureText(text).width + 12 + extra;
       let top = headY - 6 - lh;
 
       // Nudge below any already-placed label it overlaps (both axes), so a cluster
@@ -690,16 +722,38 @@ export class CanvasRenderer {
       }
       placed.push({ cx: sx, top, lw });
       // Speech bubble for anyone talking but ourselves (we know we're talking).
-      toDraw.push({ text, cx: sx, top, lw, isSelf: p.isSelf, speaking: p.isSpeaking && !p.isSelf });
+      toDraw.push({
+        text,
+        cx: sx,
+        top,
+        lw,
+        isSelf: p.isSelf,
+        speaking: p.isSpeaking && !p.isSelf,
+        avatarImg,
+      });
     }
 
     for (const l of toDraw) {
       // Tint our own label a solid indigo so "which one is me" reads at a glance.
       ctx.fillStyle = l.isSelf ? 'rgba(85,70,183,1)' : 'rgba(0,0,0,0.65)';
-      roundRect(ctx, l.cx - l.lw / 2, l.top, l.lw, lh, 8);
+      const pillLeft = l.cx - l.lw / 2;
+      roundRect(ctx, pillLeft, l.top, l.lw, lh, 8);
       ctx.fill();
+      let textCx = l.cx;
+      if (l.avatarImg) {
+        const ax = pillLeft + 5;
+        const ay = l.top + (lh - avatarD) / 2;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(ax + avatarD / 2, ay + avatarD / 2, avatarD / 2, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(l.avatarImg, ax, ay, avatarD, avatarD);
+        ctx.restore();
+        // Re-centre the text in the space to the right of the picture.
+        textCx = (ax + avatarD + avatarGap + (pillLeft + l.lw - 6)) / 2;
+      }
       ctx.fillStyle = 'white';
-      ctx.fillText(l.text, l.cx, l.top + lh / 2 + 1);
+      ctx.fillText(l.text, textCx, l.top + lh / 2 + 1);
     }
     // Speech bubbles beside the labels (after all labels, so they sit on top and
     // the font state from the loop above no longer matters).

@@ -36,6 +36,10 @@ export class PlayerState implements Player {
   outfit: Outfit;
   facing: Direction = 'down';
 
+  // Optional user-set profile picture (small square data URL, shown circular).
+  // null = fall back to the initials placeholder. Synced like `outfit`.
+  avatarImage: string | null = null;
+
   constructor(p: Player, isSelf: boolean) {
     this.userId = p.userId;
     this.name = p.name;
@@ -47,6 +51,7 @@ export class PlayerState implements Player {
     this.isSelf = isSelf;
     this.color = colorForId(p.userId);
     this.outfit = p.outfit ?? defaultOutfit();
+    this.avatarImage = p.avatarImage ?? null;
   }
 
   setTarget(x: number, y: number, vx: number, vy: number) {
