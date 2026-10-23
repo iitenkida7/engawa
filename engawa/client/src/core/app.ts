@@ -448,6 +448,7 @@ export class App {
           return;
         }
         this.toasts.error(t('transcript.authError'));
+        this.transcriptPanel.endLive();
         this.net.send({ type: 'transcribing', transcribing: false });
         this.toolbar.refresh();
         this.transcriptSetup.open(() => void this.startTranscribing());
@@ -1370,11 +1371,17 @@ export class App {
               this.transcriptPanel.startNew();
             }
             this.transcribingPeers.add(msg.userId);
-          } else if (this.transcribingPeers.delete(msg.userId)) {
-            this.toasts.info(t('transcript.stopped', { name }));
+          } else {
+            // Also for a run we joined mid-way (never in transcribingPeers):
+            // its lines must not run on into the next one.
+            this.transcriptPanel.endLive();
+            if (this.transcribingPeers.delete(msg.userId)) {
+              this.toasts.info(t('transcript.stopped', { name }));
+            }
           }
-        } else if (!msg.transcribing) {
-          this.transcribingPeers.delete(msg.userId);
+        } else if (!msg.transcribing && this.transcribingPeers.delete(msg.userId)) {
+          // Stopped after we left their call: that transcript is finished too.
+          this.transcriptPanel.endLive();
         }
         break;
       }
@@ -1810,6 +1817,7 @@ export class App {
   private stopTranscribing() {
     if (!this.transcriber.active) return;
     this.transcriber.stop();
+    this.transcriptPanel.endLive();
     this.net.send({ type: 'transcribing', transcribing: false });
     this.toolbar.refresh();
   }

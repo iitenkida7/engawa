@@ -178,6 +178,13 @@ export class TranscriptPanel {
     this.show(this.live.id);
   }
 
+  // The run feeding the live transcript stopped. It stays in the list, but a
+  // later line (e.g. a run we join mid-way, missing its start) must not be
+  // appended to it — add() starts a new transcript instead.
+  endLive() {
+    this.live = null;
+  }
+
   // Open a kept transcript.
   show(id: number) {
     const session = this.sessions.find((s) => s.id === id);
