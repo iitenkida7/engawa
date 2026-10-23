@@ -15,6 +15,9 @@ const player = (userId: string, name: string, isSelf = false): PlayerState =>
     isVideoOn: false,
     isSharingScreen: false,
     status: 'online',
+    color: '#888888',
+    avatarImage: undefined,
+    initials: () => name.slice(0, 2),
   }) as unknown as PlayerState;
 
 function mount() {
