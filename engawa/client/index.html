@@ -473,7 +473,8 @@
       }
 
       #toolbar .btn-group>#btn-mic,
-      #toolbar .btn-group>#btn-cam {
+      #toolbar .btn-group>#btn-cam,
+      #toolbar .btn-group>#btn-transcript {
         border-top-right-radius: 0;
         border-bottom-right-radius: 0;
         border-right: none;
@@ -570,7 +571,7 @@
         /* Top-RIGHT by default: the meeting view puts the camera filmstrip down
            the LEFT edge, so a top-left panel sat on top of it. The right corner
            only neighbours the recording pill (while recording), and the panel
-           is draggable anyway. Minimizing collapses it to a pill here too. */
+           is draggable anyway. */
         top: 60px;
         right: 16px;
         width: 400px;
@@ -633,31 +634,6 @@
       /* Room for the summary area on top of the (still short) transcript. */
       #transcript.has-summary {
         max-height: min(420px, calc(100vh - 140px));
-      }
-
-      /* Minimized: collapse to just the title as a small pill so it stops
-         covering the call / screen share. The whole pill is clickable to
-         restore (transcript.ts). Body, summary and header buttons are hidden;
-         only the 📝 title shows. */
-      #transcript.minimized {
-        width: auto;
-        max-height: none;
-        cursor: pointer;
-      }
-      #transcript.minimized #transcript-body,
-      #transcript.minimized #transcript-summary {
-        display: none;
-      }
-      #transcript.minimized #transcript-header {
-        border-bottom: none;
-        cursor: pointer;
-        padding: 6px 12px;
-      }
-      #transcript.minimized #transcript-header button {
-        display: none;
-      }
-      #transcript.minimized #transcript-header > span {
-        flex: 0 0 auto;
       }
 
       /* On-device summary: its own scrolling area above the lines, so the
@@ -2781,7 +2757,9 @@
                recording (toggled via .others-recording in JS). -->
           <span class="rec-badge" aria-hidden="true"></span>
         </button>
-        <!-- Transcribe (#364): goes red (.recording) while we are transcribing. -->
+        <!-- Transcribe (#364): goes red (.recording) while we are transcribing.
+             The caret lists the transcripts kept in memory. -->
+        <div class="btn-group">
         <button id="btn-transcript" class="icon-toggle" data-i18n-tip="toolbar.transcriptTitle" data-tip="文字起こし" aria-label="文字起こし">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6 3h9l4 4v14H6z" />
@@ -2790,6 +2768,9 @@
             <line x1="9" y1="16" x2="14" y2="16" />
           </svg>
         </button>
+        <button id="btn-transcript-list" class="btn-caret" data-i18n-title="toolbar.transcriptList" title="文字起こし一覧">▾</button>
+        <div id="transcript-menu" class="device-menu hidden"></div>
+        </div>
         <button id="btn-status" data-i18n-tip="roster.status" data-tip="ステータス" aria-label="ステータス">🟢</button>
         <div class="btn-group">
           <button id="btn-reaction" data-i18n-tip="toolbar.reactions" data-tip="リアクション" aria-label="リアクション">😀</button>
@@ -2861,8 +2842,8 @@
            #remote-videos / #self-preview. -->
       <div id="transcript" class="hidden">
         <div id="transcript-header">
-          <span data-i18n="transcript.title">📝 文字起こし</span>
-          <button id="transcript-close" data-i18n-title="common.close" title="閉じる">✕</button>
+          <span id="transcript-title">📝 文字起こし</span>
+          <button id="transcript-close" data-i18n-title="transcript.delete" title="この文字起こしを削除">✕</button>
         </div>
         <div id="transcript-summary" class="hidden">
           <div id="transcript-summary-head">
