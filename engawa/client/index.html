@@ -1930,6 +1930,34 @@
         padding: 6px 12px;
         font-size: 13px;
       }
+      .roster-row {
+        cursor: pointer;
+      }
+      .roster-row:hover {
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .roster-row.selected {
+        background: rgba(255, 196, 0, 0.16);
+      }
+      .roster-actions {
+        display: flex;
+        gap: 6px;
+        padding: 0 12px 8px;
+        background: rgba(255, 196, 0, 0.16);
+      }
+      .roster-action {
+        flex: 1;
+        background: #2a2f3a;
+        border: 1px solid #3a4050;
+        border-radius: 6px;
+        color: #e6e8ee;
+        font-size: 12px;
+        padding: 4px 8px;
+        cursor: pointer;
+      }
+      .roster-action:hover {
+        background: #353b49;
+      }
       .roster-row.speaking {
         background: rgba(80, 220, 120, 0.14);
       }

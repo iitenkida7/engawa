@@ -195,6 +195,9 @@ export class CanvasRenderer {
   private camTargetX = MAP_WIDTH / 2;
   private camTargetY = MAP_HEIGHT / 2;
   private camAnimating = false;
+  // True from panTo() until the camera is touched again, so endLocate() only
+  // snaps back a view the user hasn't taken over meanwhile.
+  private locating = false;
   private dragging = false;
   private dragLastX = 0;
   private dragLastY = 0;
@@ -245,6 +248,7 @@ export class CanvasRenderer {
       this.dragging = true;
       this.following = false;
       this.camAnimating = false;
+      this.locating = false;
       this.dragLastX = e.clientX;
       this.dragLastY = e.clientY;
       this.canvas.style.cursor = 'grabbing';
@@ -278,6 +282,26 @@ export class CanvasRenderer {
   recenter() {
     this.following = true;
     this.camAnimating = false;
+    this.locating = false;
+  }
+
+  // Glide the camera to a world point and stop following self — the roster's
+  // "where are they?". Zoom is left as it is.
+  panTo(x: number, y: number) {
+    this.following = false;
+    this.camTargetX = x;
+    this.camTargetY = y;
+    this.camAnimating = true;
+    this.locating = true;
+  }
+
+  // End a roster locate: back to the view centred on self, but only if nothing
+  // else has taken over the camera since panTo (a drag, a zoom button, walking).
+  // Returns whether it went back.
+  endLocate(): boolean {
+    if (!this.locating) return false;
+    this.recenter();
+    return true;
   }
 
   // One-button "zoom to me": ease back to the 1:1 view centered on self (#231).
@@ -285,6 +309,7 @@ export class CanvasRenderer {
     this.zoomTarget = ZOOM_DEFAULT;
     this.following = true;
     this.camAnimating = false;
+    this.locating = false;
   }
 
   // One-button "see everything": ease out to fit the whole map and glide the
@@ -298,6 +323,7 @@ export class CanvasRenderer {
     this.camTargetX = MAP_WIDTH / 2;
     this.camTargetY = MAP_HEIGHT / 2;
     this.camAnimating = true;
+    this.locating = false;
   }
 
   // Keyboard twin of the two zoom buttons (issue #297): one key flips between the

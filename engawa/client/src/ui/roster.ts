@@ -22,9 +22,29 @@ export class RosterPanel {
   // The zone seen on the previous render, to notice walking into / between rooms.
   private lastZoneId: string | null = null;
   private getPlayers: () => Map<string, PlayerState>;
+  // Row actions, run by the App: show where someone is on the map, walk over to
+  // them, or knock.
+  private onLocate: (userId: string) => void;
+  private onGoTo: (userId: string) => void;
+  private onCall: (userId: string) => void;
+  // The row the viewer clicked: it shows the go / call buttons. Cleared by the
+  // App when the locate ends (select(null)), or by clicking the row again.
+  private selectedId: string | null = null;
+  // While a pointer is held inside the panel the list is not rebuilt: render()
+  // runs every second, and replacing a button between its mousedown and mouseup
+  // would swallow the click.
+  private pointerDown = false;
 
-  constructor(opts: { getPlayers: () => Map<string, PlayerState> }) {
+  constructor(opts: {
+    getPlayers: () => Map<string, PlayerState>;
+    onLocate: (userId: string) => void;
+    onGoTo: (userId: string) => void;
+    onCall: (userId: string) => void;
+  }) {
     this.getPlayers = opts.getPlayers;
+    this.onLocate = opts.onLocate;
+    this.onGoTo = opts.onGoTo;
+    this.onCall = opts.onCall;
     this.btn = document.getElementById('btn-roster') as HTMLButtonElement;
     this.panel = document.getElementById('roster') as HTMLDivElement;
     this.titleEl = document.getElementById('roster-title') as HTMLElement;
@@ -34,6 +54,17 @@ export class RosterPanel {
       this.onlyHere = !this.onlyHere;
       this.render();
     });
+
+    // One delegated handler: rows are rebuilt every second.
+    this.list.addEventListener('click', (e) => this.onListClick(e));
+    this.panel.addEventListener('pointerdown', () => {
+      this.pointerDown = true;
+    });
+    const release = () => {
+      this.pointerDown = false;
+    };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
 
     this.btn.addEventListener('click', () => this.toggle());
     document.getElementById('roster-close')?.addEventListener('click', () => this.close());
@@ -61,9 +92,58 @@ export class RosterPanel {
     this.btn.classList.remove('active');
   }
 
+  // Programmatic selection (the App clears it when the locate times out).
+  select(userId: string | null) {
+    this.selectedId = userId;
+    this.render();
+  }
+
+  private onListClick(e: MouseEvent) {
+    const target = e.target as HTMLElement | null;
+    const action = target?.closest<HTMLElement>('[data-action]');
+    const rowEl = target?.closest<HTMLElement>('[data-user-id]');
+    const userId = (action ?? rowEl)?.dataset.userId;
+    if (!userId) return;
+    if (action) {
+      if (action.dataset.action === 'goto') this.onGoTo(userId);
+      else if (action.dataset.action === 'call') this.onCall(userId);
+      return;
+    }
+    // Clicking the selected row again just closes its actions.
+    if (this.selectedId === userId) {
+      this.selectedId = null;
+      this.render();
+      return;
+    }
+    this.selectedId = userId;
+    this.onLocate(userId);
+    this.render();
+  }
+
+  private actions(userId: string): HTMLElement {
+    const box = document.createElement('div');
+    box.className = 'roster-actions';
+    box.dataset.userId = userId;
+    for (const [action, key] of [
+      ['goto', 'avatar.goto'],
+      ['call', 'avatar.knock'],
+    ] as const) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'roster-action';
+      b.dataset.action = action;
+      b.dataset.userId = userId;
+      b.textContent = t(key);
+      box.appendChild(b);
+    }
+    return box;
+  }
+
   private row(p: PlayerState): HTMLElement {
     const row = document.createElement('div');
     row.className = p.isSpeaking ? 'roster-row speaking' : 'roster-row';
+    row.dataset.userId = p.userId;
+    if (p.userId === this.selectedId) row.classList.add('selected');
 
     // Profile picture (circular), or an initials chip in the avatar's colour.
     const avatar = document.createElement('span');
@@ -98,7 +178,7 @@ export class RosterPanel {
   // Rebuild the list from the current players. Cheap and called on a slow cadence
   // from the loop while open (and once on open); no-op while closed.
   render() {
-    if (!this.isOpen) return;
+    if (!this.isOpen || this.pointerDown) return;
     const players = [...this.getPlayers().values()].sort(
       (a, b) =>
         (a.isSelf ? -1 : 0) - (b.isSelf ? -1 : 0) ||
@@ -137,7 +217,11 @@ export class RosterPanel {
         head.textContent = `${mine ? '📍 ' : ''}${zoneName} · ${g.items.length}`;
         rows.push(head);
       }
-      for (const { p } of g.items) rows.push(this.row(p));
+      for (const { p } of g.items) {
+        rows.push(this.row(p));
+        // Your own row only re-centers the map; go / call make no sense on yourself.
+        if (p.userId === this.selectedId && !p.isSelf) rows.push(this.actions(p.userId));
+      }
     }
     this.list.replaceChildren(...rows);
   }

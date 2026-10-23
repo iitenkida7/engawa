@@ -99,6 +99,8 @@ import {
 // (chime suppressed) rather than a walk-up. Covers the join → group-negotiation
 // gap; after it, walking into range chimes normally.
 const JOIN_CHIME_GRACE_MS = 2500;
+// How long a roster click keeps the camera on someone before it returns to self.
+const LOCATE_MS = 10_000;
 
 // Persist our own position so next login returns us to "our usual spot" (the
 // server honours it only when it's still clear of others). Saved at most this
@@ -137,7 +139,12 @@ export class App {
   private rateLimitsNotified = new Set<string>();
   private toasts = new Toasts();
   private reactionToasts = new ReactionToasts();
-  private roster = new RosterPanel({ getPlayers: () => this.players });
+  private roster = new RosterPanel({
+    getPlayers: () => this.players,
+    onLocate: (userId) => this.locatePlayer(userId),
+    onGoTo: (userId) => this.goToPlayer(userId),
+    onCall: (userId) => this.knocks.request(userId),
+  });
   private keyHelp = new KeyHelpPanel();
   private notifyHelp = new NotifyHelpPanel(() => void this.testDesktopNotify());
   private sounds = new SoundManager();
@@ -160,6 +167,8 @@ export class App {
   // The roster row the user last clicked: that avatar gets a highlight ring on
   // the map. Cleared when the player leaves or the same row is clicked again.
   private focusedId: string | null = null;
+  // Pending "return to self" after a roster locate (see locatePlayer).
+  private locateTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
@@ -707,6 +716,29 @@ export class App {
     menu.style.right = 'auto';
     menu.style.bottom = 'auto';
     menu.classList.remove('hidden');
+  }
+
+  // Roster click: show where that person is. The camera glides to them and they
+  // get the highlight ring; after LOCATE_MS the view returns to self (unless the
+  // user has taken the camera over meanwhile). Clicking yourself just recenters.
+  private locatePlayer(userId: string) {
+    const p = this.players.get(userId);
+    if (!p) return;
+    if (this.locateTimer) clearTimeout(this.locateTimer);
+    this.locateTimer = null;
+    if (p.isSelf) {
+      this.renderer.recenter();
+      this.focusedId = null;
+      return;
+    }
+    this.focusedId = userId;
+    this.renderer.panTo(p.x, p.y);
+    this.locateTimer = setTimeout(() => {
+      this.locateTimer = null;
+      this.renderer.endLocate();
+      if (this.focusedId === userId) this.focusedId = null;
+      this.roster.select(null);
+    }, LOCATE_MS);
   }
 
   private hideAvatarMenu() {
