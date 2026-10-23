@@ -156,6 +156,16 @@ export function normalizeResumeToken(raw: unknown): string | null {
 }
 
 /**
+ * Validate a client-supplied per-browser id (the client mints it with
+ * crypto.randomUUID and keeps it in localStorage). Used only to spot a second
+ * tab of the same browser joining, so anything but a short token-safe string
+ * is treated as "no id" (no duplicate-tab handling).
+ */
+export function normalizeClientId(raw: unknown): string | null {
+  return typeof raw === 'string' && /^[A-Za-z0-9-]{1,64}$/.test(raw) ? raw : null;
+}
+
+/**
  * Allowed emoji reactions. The server validates against this list so a client
  * can only ever broadcast one of these (no arbitrary text). Must stay in sync
  * with the client's REACTION_EMOJIS in client/src/core/types.ts.

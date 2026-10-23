@@ -13,6 +13,7 @@ import {
   MAX_AVATAR_IMAGE_LEN,
   MAX_VELOCITY,
   normalizeBool,
+  normalizeClientId,
   normalizeIceServers,
   normalizeName,
   normalizePlayerStatus,
@@ -120,6 +121,22 @@ describe('isValidStreamMetaKind', () => {
     expect(isValidStreamMetaKind(1)).toBe(false);
     expect(isValidStreamMetaKind(undefined)).toBe(false);
     expect(isValidStreamMetaKind(null)).toBe(false);
+  });
+});
+
+describe('normalizeClientId', () => {
+  test('accepts a UUID-shaped id', () => {
+    const id = crypto.randomUUID();
+    expect(normalizeClientId(id)).toBe(id);
+  });
+
+  test('rejects missing, non-string, empty, oversized or unsafe ids', () => {
+    expect(normalizeClientId(undefined)).toBeNull();
+    expect(normalizeClientId(42)).toBeNull();
+    expect(normalizeClientId('')).toBeNull();
+    expect(normalizeClientId('a'.repeat(65))).toBeNull();
+    expect(normalizeClientId('id with space')).toBeNull();
+    expect(normalizeClientId('../x')).toBeNull();
   });
 });
 

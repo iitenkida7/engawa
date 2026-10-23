@@ -43,6 +43,9 @@ export type ClientMessage =
       outfit?: Outfit;
       avatarImage?: string | null;
       resumeToken?: string;
+      // Per-browser id (localStorage `engawa-client-id`). The server replaces an
+      // older joined tab carrying the same id (core/tab-identity.ts).
+      clientId?: string;
       // Preferred spawn = our last position from a previous session (localStorage),
       // so you return to "your usual spot". The server honours it only when it's
       // clear of others; otherwise it falls back to the normal spawn.
@@ -111,6 +114,8 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'auth-error'; message: string }
+  // A newer tab of this browser joined; the server closes this socket next.
+  | { type: 'replaced-by-new-tab' }
   // Heartbeat reply. Consumed inside NetworkClient — never routed to the App.
   | { type: 'pong' }
   // `token` is the short-lived media token required on /api/turn-credentials and

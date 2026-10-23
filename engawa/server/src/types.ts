@@ -53,6 +53,10 @@ export type ClientMessage =
       outfit?: Outfit;
       avatarImage?: string | null;
       resumeToken?: string;
+      // Per-browser id (localStorage). A fresh join carrying the same id as an
+      // already-joined connection replaces it: the old tab is told
+      // `replaced-by-new-tab` and closed, so one browser is one avatar.
+      clientId?: string;
       // Preferred spawn (client's last position); honoured only when it's clear of
       // others, else the normal spawn is used.
       spawn?: { x: number; y: number };
@@ -118,6 +122,9 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'auth-error'; message: string }
+  // Sent to an older tab right before it is closed because a newer tab of the
+  // same browser (same clientId) joined. The client must not auto-reconnect.
+  | { type: 'replaced-by-new-tab' }
   // Heartbeat reply to a client `ping`.
   | { type: 'pong' }
   // `token` is a short-lived, per-connection media token the client must present
@@ -215,6 +222,9 @@ export type WsData = {
   // Presented by the next reconnect's join to adopt this identity within the
   // grace window. Transient, memory-only (invariant #2).
   resumeToken: string | null;
+  // Per-browser id from the join (null when absent/invalid). Lets a newer tab of
+  // the same browser replace this connection. Transient (invariant #2).
+  clientId: string | null;
   // Last time (ms) this connection triggered a proximity-group recompute, so a
   // burst of `move` messages from one socket can't force the O(n²) recompute at
   // wire speed. Position updates and player-moved broadcasts are never throttled.

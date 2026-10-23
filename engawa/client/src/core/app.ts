@@ -18,6 +18,12 @@ import {
 import { evaluateBoot, ReloadBanner } from '@/core/reload';
 import { resolveShortcut } from '@/core/shortcuts';
 import {
+  isSupersededTab,
+  loadClientId,
+  markActiveTab,
+  showReplacedOverlay,
+} from '@/core/tab-identity';
+import {
   type GroupMethod,
   type Outfit,
   PLAYER_RADIUS,
@@ -265,6 +271,12 @@ export class App {
   private loopStarted = false;
   // Set by dispose() to stop the rAF loop from rescheduling itself.
   private disposed = false;
+  // Duplicate tabs (one browser = one avatar, newest tab wins): the browser id
+  // sent on join, this page's own id, and whether a newer tab replaced us —
+  // after which nothing reconnects.
+  private readonly clientId = loadClientId();
+  private readonly tabId = crypto.randomUUID();
+  private replaced = false;
 
   // Global listeners are held as stable references so dispose() can detach them
   // (an inline arrow can't be removed). See issue #127.
@@ -1070,6 +1082,12 @@ export class App {
     this.connToastSteady = false;
     this.dismissConnToast?.();
     this.dismissConnToast = null;
+    // A newer tab of this browser joined while our socket was down (so the
+    // server's replaced-by-new-tab never reached us): don't rejoin and evict it.
+    if (this.me && isSupersededTab(this.tabId)) {
+      this.onReplacedByNewTab();
+      return;
+    }
     // Single space now — no workspace is selected or sent (the server defaults it).
     const spawn = this.savedSpawn();
     this.net.send({
@@ -1079,6 +1097,7 @@ export class App {
       avatarImage: loadProfileImage(),
       ...(this.joinedPassword ? { password: this.joinedPassword } : {}),
       ...(this.myResumeToken ? { resumeToken: this.myResumeToken } : {}),
+      clientId: this.clientId,
       ...(spawn ? { spawn } : {}),
     });
   }
@@ -1119,6 +1138,7 @@ export class App {
   private connToastSteady = false;
 
   private onClose() {
+    if (this.replaced) return;
     if (this.authFailed) {
       this.authFailed = false;
       return;
@@ -1175,6 +1195,7 @@ export class App {
   // socket dropped, or the OS reported the network came back: clear any pending
   // backoff, reset the counter, and reconnect now.
   private manualReconnect() {
+    if (this.replaced) return;
     logNet('ws-manual-reconnect');
     this.dismissConnToast?.();
     this.dismissConnToast = null;
@@ -1184,8 +1205,31 @@ export class App {
     this.net.connect();
   }
 
+  // A newer tab of this browser took over: release the camera/mic, drop every
+  // call, stop the loop and reconnects, and offer a reload to come back here
+  // (which in turn replaces the other tab).
+  private onReplacedByNewTab() {
+    if (this.replaced) return;
+    this.replaced = true;
+    logNet('replaced-by-new-tab');
+    this.reconnectAt = null;
+    this.dismissConnToast?.();
+    this.dismissConnToast = null;
+    this.resetSessionState();
+    this.media.disableScreen();
+    this.media.disableCam();
+    this.media.disableMic();
+    this.dispose();
+    this.net.forceClose();
+    showReplacedOverlay();
+  }
+
   private onServerMessage(msg: ServerMessage) {
     switch (msg.type) {
+      case 'replaced-by-new-tab': {
+        this.onReplacedByNewTab();
+        break;
+      }
       case 'auth-error': {
         logNet('auth-error');
         this.authFailed = true;
@@ -1213,6 +1257,7 @@ export class App {
         // endpoints; the resume token arms the NEXT reconnect (issue #187).
         this.myResumeToken = msg.resumeToken ?? null;
         setMediaToken(msg.token);
+        markActiveTab(this.tabId);
         if (resumed) {
           // Soft path (issue #187): the server kept our identity, so the live
           // mesh/SFU transports, our position and the group state all stay.
