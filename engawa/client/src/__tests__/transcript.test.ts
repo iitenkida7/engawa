@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   continuesGroup,
   formatClock,
+  sessionLabel,
   TRANSCRIPT_GROUP_GAP_MS,
   type TranscriptEntry,
   toPlainText,
@@ -56,5 +57,14 @@ describe('continuesGroup', () => {
   it('starts a new group after a long pause', () => {
     const prev = entry();
     expect(continuesGroup(prev, entry({ at: prev.at + TRANSCRIPT_GROUP_GAP_MS }))).toBe(false);
+  });
+});
+
+describe('sessionLabel', () => {
+  it('shows the start time (HH:MM) and the number of lines', () => {
+    const label = sessionLabel({ id: 1, startedAt: entry().at, entries: [entry(), entry()] });
+    expect(label).toContain('09:05');
+    expect(label).toContain('2');
+    expect(label).not.toContain('09:05:07');
   });
 });

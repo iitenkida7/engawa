@@ -46,6 +46,22 @@ export function continuesGroup(prev: TranscriptEntry | undefined, entry: Transcr
   );
 }
 
+// One transcription run. Each start opens a new one; older runs stay in memory
+// (listed from the toolbar's ▾) until deleted or the page reloads.
+export type TranscriptSession = {
+  id: number;
+  startedAt: number;
+  entries: TranscriptEntry[];
+};
+
+// Pure: how a session is listed in the toolbar menu — start time and size.
+export function sessionLabel(session: TranscriptSession): string {
+  return t('transcript.sessionLabel', {
+    time: formatClock(session.startedAt).slice(0, 5),
+    n: session.entries.length,
+  });
+}
+
 // Pure: the whole transcript as plain text, for copying or saving.
 export function toPlainText(entries: TranscriptEntry[]): string {
   return entries.map((e) => `[${formatClock(e.at)}] ${e.speakerName}: ${e.text}`).join('\n');
@@ -54,7 +70,13 @@ export function toPlainText(entries: TranscriptEntry[]): string {
 export class TranscriptPanel {
   private root: HTMLElement;
   private body: HTMLElement;
-  private entries: TranscriptEntry[] = [];
+  private title: HTMLElement;
+  private sessions: TranscriptSession[] = [];
+  private nextId = 1;
+  // The session new lines go to, and the one on screen. They differ when an
+  // older transcript is reopened while a new one is still filling.
+  private live: TranscriptSession | null = null;
+  private shown: TranscriptSession | null = null;
   // On-device summary (ui/transcript-summary.ts), shown in its own area above
   // the lines — it never replaces or edits the transcript itself.
   private summary: HTMLElement;
@@ -66,23 +88,21 @@ export class TranscriptPanel {
     this.body = document.getElementById('transcript-body') as HTMLElement;
     this.summary = document.getElementById('transcript-summary') as HTMLElement;
     this.summaryBody = document.getElementById('transcript-summary-body') as HTMLElement;
+    this.title = document.getElementById('transcript-title') as HTMLElement;
 
+    // ✕ deletes the transcript on screen (it is only in memory, so it is gone
+    // for good — hence the confirm). It does NOT stop the transcription; the
+    // person who started it stops it from the toolbar.
     const closeBtn = document.getElementById('transcript-close');
-    // Closing only hides the panel; the log stays in memory so it can be
-    // reopened, copied or saved later. It is NOT destructive and does NOT stop
-    // the transcription (the person who started it stops it from the toolbar) —
-    // so no scary confirm here. To get it out of the way without losing your
-    // place, minimize to the pill instead.
     closeBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.close();
+      if (this.shown && window.confirm(t('transcript.deleteConfirm'))) this.remove(this.shown.id);
     });
     const header = document.getElementById('transcript-header');
     if (header) makeDraggable(this.root, { handle: header });
 
-    // Minimize to a small pill so the transcript stops covering the call /
-    // screen share without being torn down (requested by users). The button
-    // lives next to close; clicking the collapsed pill expands it again.
+    // – puts the panel away without losing anything; reopen it from the
+    // toolbar's ▾ list.
     const minBtn = document.createElement('button');
     minBtn.id = 'transcript-minimize';
     minBtn.className = 'transcript-action';
@@ -90,24 +110,9 @@ export class TranscriptPanel {
     minBtn.textContent = '–';
     minBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      this.minimize();
+      this.close();
     });
     if (header && closeBtn) header.insertBefore(minBtn, closeBtn);
-
-    // A click on the collapsed pill restores it. Guard against the tail of a
-    // drag (makeDraggable fires a click after a drag too) by ignoring clicks
-    // that moved more than a few pixels from where the press started.
-    let downX = 0;
-    let downY = 0;
-    this.root.addEventListener('mousedown', (e) => {
-      downX = e.clientX;
-      downY = e.clientY;
-    });
-    this.root.addEventListener('click', (e) => {
-      if (!this.root.classList.contains('minimized')) return;
-      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return;
-      this.restore();
-    });
 
     // Copy / save, with the button flashing its own ✓/✗ feedback (no toast
     // dependency), mirroring the debug console's copy buttons.
@@ -147,14 +152,8 @@ export class TranscriptPanel {
     return !this.root.classList.contains('hidden');
   }
 
-  toggle() {
-    if (this.isOpen()) this.close();
-    else this.open();
-  }
-
   open() {
     this.root.classList.remove('hidden');
-    this.root.classList.remove('minimized');
     this.scrollToBottom();
   }
 
@@ -162,29 +161,68 @@ export class TranscriptPanel {
     this.root.classList.add('hidden');
   }
 
-  // Collapse to the header pill — the panel stays open (and keeps filling) but
-  // no longer covers the call / screen share.
-  minimize() {
-    this.root.classList.add('minimized');
+  // Kept transcripts, newest first, for the toolbar's ▾ list.
+  list(): TranscriptSession[] {
+    return [...this.sessions].reverse();
   }
 
-  // Expand from the pill back to the full panel, following the tail again.
-  restore() {
-    this.root.classList.remove('minimized');
-    this.scrollToBottom();
+  shownId(): number | null {
+    return this.shown?.id ?? null;
   }
 
-  get count(): number {
-    return this.entries.length;
+  // A transcription run started (ours or a peer's): new lines go to a fresh,
+  // empty transcript, which opens on screen. Earlier ones stay in the list.
+  startNew(at = Date.now()) {
+    this.live = { id: this.nextId++, startedAt: at, entries: [] };
+    this.sessions.push(this.live);
+    this.show(this.live.id);
+  }
+
+  // Open a kept transcript.
+  show(id: number) {
+    const session = this.sessions.find((s) => s.id === id);
+    if (!session) return;
+    this.shown = session;
+    this.title.textContent = `${t('transcript.title')} ${formatClock(session.startedAt).slice(0, 5)}`;
+    this.body.replaceChildren(
+      ...session.entries.map((e, i) =>
+        this.renderRow(e, continuesGroup(session.entries[i - 1], e)),
+      ),
+    );
+    this.summaryBody.textContent = '';
+    this.summary.classList.add('hidden');
+    this.root.classList.remove('has-summary');
+    this.open();
+  }
+
+  // Delete a transcript for good and put the panel away if it was on screen.
+  remove(id: number) {
+    this.sessions = this.sessions.filter((s) => s.id !== id);
+    if (this.live?.id === id) this.live = null;
+    if (this.shown?.id === id) {
+      this.shown = null;
+      this.body.replaceChildren();
+      this.close();
+    }
   }
 
   add(entry: TranscriptEntry) {
-    const prev = this.entries[this.entries.length - 1];
-    this.entries.push(entry);
-    if (this.entries.length > TRANSCRIPT_MAX_ENTRIES) {
-      this.entries.shift();
-      this.body.firstElementChild?.remove();
+    // A line with no run in progress (we joined a call mid-transcription and
+    // missed its start) still gets a transcript of its own.
+    if (!this.live) {
+      this.live = { id: this.nextId++, startedAt: entry.at, entries: [] };
+      this.sessions.push(this.live);
+      if (!this.shown) this.show(this.live.id);
     }
+    const entries = this.live.entries;
+    const prev = entries[entries.length - 1];
+    entries.push(entry);
+    const visible = this.live === this.shown;
+    if (entries.length > TRANSCRIPT_MAX_ENTRIES) {
+      entries.shift();
+      if (visible) this.body.firstElementChild?.remove();
+    }
+    if (!visible) return;
     // Only follow the tail when the reader is already there, so scrolling back
     // to re-read something isn't yanked away by the next line.
     const atBottom = this.body.scrollHeight - this.body.scrollTop - this.body.clientHeight < 40;
@@ -192,9 +230,9 @@ export class TranscriptPanel {
     if (atBottom) this.scrollToBottom();
   }
 
-  clear() {
-    this.entries = [];
-    this.body.replaceChildren();
+  // Lines of the transcript on screen (copy / save / summary act on it).
+  private get entries(): TranscriptEntry[] {
+    return this.shown?.entries ?? [];
   }
 
   // One line as a speech bubble under a "name  time" header; a continuation of

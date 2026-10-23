@@ -65,6 +65,8 @@ export class ToolbarController {
   private isTranscribing: () => boolean;
   private onOpenTranscriptSettings: () => void;
   private getTranscribingPeerNames: () => string[];
+  private getTranscripts: () => { id: number; label: string; shown: boolean }[];
+  private onOpenTranscript: (id: number) => void;
   private onUserCamToggle: () => void;
 
   // Face window while sharing (issue #318): the persisted per-feature toggle
@@ -121,6 +123,9 @@ export class ToolbarController {
     // Peers in this call who are transcribing, so the menu carries the privacy
     // notice after the toast that announced it has gone.
     getTranscribingPeerNames: () => string[];
+    // Transcripts kept in memory, for the caret list next to the button.
+    getTranscripts: () => { id: number; label: string; shown: boolean }[];
+    onOpenTranscript: (id: number) => void;
     // Fired on a MANUAL camera-button toggle (not setCamEnabled), so the App's
     // bandwidth automation (#185) can stand down when the user takes over.
     onUserCamToggle: () => void;
@@ -144,6 +149,8 @@ export class ToolbarController {
     this.isTranscribing = opts.isTranscribing;
     this.onOpenTranscriptSettings = opts.onOpenTranscriptSettings;
     this.getTranscribingPeerNames = opts.getTranscribingPeerNames;
+    this.getTranscripts = opts.getTranscripts;
+    this.onOpenTranscript = opts.onOpenTranscript;
     this.onUserCamToggle = opts.onUserCamToggle;
 
     this.btnMic = document.getElementById('btn-mic') as HTMLButtonElement;
@@ -578,10 +585,13 @@ export class ToolbarController {
     const camMenu = document.getElementById('cam-menu') as HTMLDivElement;
     const btnMicDevices = document.getElementById('btn-mic-devices') as HTMLButtonElement;
     const btnCamDevices = document.getElementById('btn-cam-devices') as HTMLButtonElement;
+    const transcriptMenu = document.getElementById('transcript-menu') as HTMLDivElement;
+    const btnTranscriptList = document.getElementById('btn-transcript-list') as HTMLButtonElement;
 
     const closeMenus = () => {
       micMenu.classList.add('hidden');
       camMenu.classList.add('hidden');
+      transcriptMenu.classList.add('hidden');
       this.reactionMenu.classList.add('hidden');
       this.moreMenu.classList.add('hidden');
     };
@@ -597,6 +607,8 @@ export class ToolbarController {
         t !== btnMicDevices &&
         !camMenu.contains(t) &&
         t !== btnCamDevices &&
+        !transcriptMenu.contains(t) &&
+        t !== btnTranscriptList &&
         !this.reactionMenu.contains(t) &&
         t !== this.btnReaction &&
         !this.moreMenu.contains(t) &&
@@ -620,6 +632,15 @@ export class ToolbarController {
       if (open) {
         await this.populateCamMenu(camMenu);
         camMenu.classList.remove('hidden');
+      }
+    });
+
+    btnTranscriptList.addEventListener('click', () => {
+      const open = transcriptMenu.classList.contains('hidden');
+      closeMenus();
+      if (open) {
+        this.populateTranscriptMenu(transcriptMenu);
+        transcriptMenu.classList.remove('hidden');
       }
     });
 
@@ -659,6 +680,32 @@ export class ToolbarController {
       });
       menu.appendChild(item);
     });
+  }
+
+  // The transcript caret menu: transcripts kept in memory, newest first.
+  // Picking one opens it in the transcript panel.
+  private populateTranscriptMenu(menu: HTMLDivElement) {
+    menu.replaceChildren();
+    const sessions = this.getTranscripts();
+    if (sessions.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'device-empty';
+      empty.textContent = t('transcript.noSessions');
+      menu.appendChild(empty);
+      return;
+    }
+    for (const s of sessions) {
+      const item = document.createElement('button');
+      item.className = 'device-item';
+      if (s.shown) item.classList.add('selected');
+      item.textContent = (s.shown ? '✓ ' : '') + s.label;
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        menu.classList.add('hidden');
+        this.onOpenTranscript(s.id);
+      });
+      menu.appendChild(item);
+    }
   }
 
   private async populateDeviceMenu(

@@ -329,7 +329,15 @@ const STR: Record<string, Record<Lang, string>> = {
   'transcript.title': { ja: '\u{1F4DD} 文字起こし', en: '\u{1F4DD} Transcript' },
   'transcript.copy': { ja: '全文をコピー', en: 'Copy transcript' },
   'transcript.save': { ja: 'テキストで保存', en: 'Save as text' },
-  'transcript.minimize': { ja: '最小化', en: 'Minimize' },
+  'transcript.minimize': { ja: 'しまう', en: 'Hide' },
+  'transcript.delete': { ja: 'この文字起こしを削除', en: 'Delete this transcript' },
+  'transcript.deleteConfirm': {
+    ja: 'この文字起こしを削除しますか？（元に戻せません）',
+    en: 'Delete this transcript? This cannot be undone.',
+  },
+  'transcript.sessionLabel': { ja: '{time} から（{n} 行）', en: 'From {time} ({n} lines)' },
+  'transcript.noSessions': { ja: '保持している文字起こしはありません', en: 'No transcripts yet' },
+  'toolbar.transcriptList': { ja: '文字起こし一覧', en: 'Transcripts' },
   'transcript.started': {
     ja: '{name} さんが文字起こしを開始しました',
     en: '{name} started transcribing',

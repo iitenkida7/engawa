@@ -76,7 +76,7 @@ import { RosterPanel } from '@/ui/roster';
 import { SoundManager } from '@/ui/sounds';
 import { StatusMenu } from '@/ui/status-menu';
 import { type MediaSink, ToolbarController } from '@/ui/toolbar';
-import { TranscriptPanel } from '@/ui/transcript';
+import { sessionLabel, TranscriptPanel } from '@/ui/transcript';
 import { loadGroqKey, TranscriptSetup } from '@/ui/transcript-setup';
 import { CanvasRenderer } from '@/world/canvas';
 import { OUTFIT_COUNTS } from '@/world/character';
@@ -507,6 +507,15 @@ export class App {
       isTranscribing: () => this.transcriber.active,
       onOpenTranscriptSettings: () => this.transcriptSetup.open(),
       getTranscribingPeerNames: () => this.transcribingPeerNames(),
+      getTranscripts: () => {
+        const shownId = this.transcriptPanel.shownId();
+        return this.transcriptPanel.list().map((s) => ({
+          id: s.id,
+          label: sessionLabel(s),
+          shown: s.id === shownId && this.transcriptPanel.isOpen(),
+        }));
+      },
+      onOpenTranscript: (id) => this.transcriptPanel.show(id),
       // A manual camera toggle overrides the tier-3 auto-pause (#185): the user
       // turning the camera on (or off) while paused takes it out of automation.
       onUserCamToggle: () => {
@@ -1358,7 +1367,7 @@ export class App {
             // their lines land in ours anyway, and seeing them is the point.
             if (!this.transcribingPeers.has(msg.userId)) {
               this.toasts.info(t('transcript.started', { name }));
-              this.transcriptPanel.open();
+              this.transcriptPanel.startNew();
             }
             this.transcribingPeers.add(msg.userId);
           } else if (this.transcribingPeers.delete(msg.userId)) {
@@ -1790,13 +1799,14 @@ export class App {
     }
     this.net.send({ type: 'transcribing', transcribing: true });
     this.toolbar.refresh();
-    this.transcriptPanel.open();
+    // Each run gets a fresh transcript; earlier ones stay in the ▾ list.
+    this.transcriptPanel.startNew();
     this.rateLimitsNotified.clear();
   }
 
   // Stop transcribing and tell the call. The panel deliberately stays open:
   // the log is only in memory, and nothing here knows whether it has been
-  // saved yet — closing it is the user's own call (and asks first).
+  // saved yet — deleting it is the user's own call (and asks first).
   private stopTranscribing() {
     if (!this.transcriber.active) return;
     this.transcriber.stop();
