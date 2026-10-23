@@ -10,6 +10,7 @@ import {
   MAP_HEIGHT,
   MAP_WIDTH,
   normalizeBool,
+  normalizeClientId,
   normalizeName,
   normalizePlayerStatus,
   normalizeResumeToken,
@@ -260,6 +261,33 @@ export function createWebSocketHandler(
     console.log(`[ws] leave finalized ${ws.data.userId} (clients=${clients.size})`);
   }
 
+  // A newer tab of the same browser joined: tell the old connection why, then
+  // drop it right away (no leave grace — it must not be resumed, and peers see
+  // an ordinary leave). Also covers an old tab already waiting out its grace.
+  function evictReplacedTab(old: ServerWebSocket<WsData>) {
+    const token = old.data.resumeToken;
+    const pending = token ? pendingLeave.get(token) : undefined;
+    if (token && pending) {
+      clearTimeout(pending.timer);
+      pendingLeave.delete(token);
+    }
+    old.data.resumeToken = null;
+    if (old.data.mediaToken) {
+      mediaTokens.delete(old.data.mediaToken);
+      old.data.mediaToken = null;
+    }
+    // Remove from the map first so its close handler takes the stale path.
+    clients.delete(old.data.userId);
+    broadcast(clients, old.data.workspace, { type: 'player-left', userId: old.data.userId });
+    send(old, { type: 'replaced-by-new-tab' });
+    try {
+      old.close(4003, 'replaced by a new tab');
+    } catch {
+      /* already closed */
+    }
+    console.log(`[ws] replaced ${old.data.userId} by a new tab`);
+  }
+
   return {
     // Dead-peer detection (issue #183). Explicit rather than Bun's defaults so
     // ghost avatars from silently-dead clients are bounded: the client heartbeats
@@ -312,6 +340,7 @@ export function createWebSocketHandler(
           // in its leave-grace window (or a half-open predecessor the server
           // hasn't noticed dying) adopts that identity — same userId, position,
           // group — so peers never see a leave/join and live calls survive.
+          ws.data.clientId = normalizeClientId(msg.clientId);
           const resumeToken = normalizeResumeToken(msg.resumeToken);
           const prev = resumeToken ? findResumable(resumeToken, ws) : null;
           if (resumeToken && prev) {
@@ -383,6 +412,16 @@ export function createWebSocketHandler(
             broadcastGroups(clients, ws.data.workspace, groupState, now());
             console.log(`[ws] resumed ${ws.data.userId} as "${ws.data.name}"`);
             break;
+          }
+
+          // Same browser, another tab (fresh join, same clientId): the newest
+          // tab wins. A resume above is the same tab reconnecting, so it never
+          // gets here. Different clientIds (other people / devices) are untouched.
+          if (ws.data.clientId) {
+            for (const c of [...clients.values()]) {
+              if (c === ws || !c.data.joined || c.data.workspace !== workspace) continue;
+              if (c.data.clientId === ws.data.clientId) evictReplacedTab(c);
+            }
           }
 
           ws.data.name = normalizeName(msg.name);

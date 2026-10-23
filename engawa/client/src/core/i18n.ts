@@ -513,6 +513,11 @@ const STR: Record<string, Record<Lang, string>> = {
     en: "Can't connect to the server. Retrying automatically…",
   },
   'app.reconnect': { ja: '再接続', en: 'Reconnect' },
+  'app.replacedByNewTab': {
+    ja: '別のタブで開いたため、このタブは切断されました',
+    en: 'This tab was disconnected because engawa was opened in another tab',
+  },
+  'app.rejoinHere': { ja: 'このタブで入り直す', en: 'Rejoin in this tab' },
   'app.reconnecting': {
     ja: '接続が切れました。再接続しています…',
     en: 'Connection lost. Reconnecting…',

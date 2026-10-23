@@ -81,6 +81,7 @@ const server = Bun.serve({
           groupKey: null,
           mediaToken: null,
           resumeToken: null,
+          clientId: null,
           lastGroupAt: 0,
           lastMoveAt: 0,
           joined: false,

@@ -50,6 +50,7 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       groupKey: data.groupKey ?? null,
       mediaToken: data.mediaToken ?? null,
       resumeToken: data.resumeToken ?? null,
+      clientId: data.clientId ?? null,
       lastGroupAt: data.lastGroupAt ?? 0,
       lastMoveAt: data.lastMoveAt ?? 0,
       joined: data.joined ?? false,
@@ -1469,5 +1470,126 @@ describe('createWebSocketHandler — session resume (issue #187)', () => {
     // client must be resynced even when the topology looks unchanged.
     expect(b.sent.some((m) => m.type === 'group-update')).toBe(true);
     expect(b.data.groupKey).toBe(groupKey);
+  });
+});
+
+describe('createWebSocketHandler — duplicate tab of the same browser', () => {
+  function setup(graceMs = 30_000) {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const mediaTokens = new Set<string>();
+    const handler = createWebSocketHandler(
+      clients,
+      undefined,
+      'boot',
+      mediaTokens,
+      Date.now,
+      graceMs,
+    );
+    return { clients, mediaTokens, handler };
+  }
+
+  function welcomeOf(ws: FakeWs) {
+    return ws.sent.find((m) => m.type === 'welcome') as Extract<ServerMessage, { type: 'welcome' }>;
+  }
+
+  test('a new tab with the same clientId replaces the old one', () => {
+    const { clients, mediaTokens, handler } = setup();
+    const oldTab = makeWs();
+    const peer = makeWs();
+    handler.open!(oldTab);
+    handler.open!(peer);
+    deliver(handler, oldTab, { type: 'join', name: 'A', clientId: 'browser-1' });
+    deliver(handler, peer, { type: 'join', name: 'P', clientId: 'browser-2' });
+    const oldMediaToken = oldTab.data.mediaToken!;
+    peer.sent.length = 0;
+
+    const newTab = makeWs();
+    handler.open!(newTab);
+    deliver(handler, newTab, { type: 'join', name: 'A', clientId: 'browser-1' });
+
+    // Old tab: told why, closed with the private code, gone from the map.
+    expect(oldTab.sent.some((m) => m.type === 'replaced-by-new-tab')).toBe(true);
+    expect(oldTab.closed?.code).toBe(4003);
+    expect(clients.has(oldTab.data.userId)).toBe(false);
+    expect(mediaTokens.has(oldMediaToken)).toBe(false);
+    // Peers see an ordinary leave + join.
+    expect(peer.sent).toContainEqual({ type: 'player-left', userId: oldTab.data.userId });
+    expect(peer.sent.some((m) => m.type === 'player-joined')).toBe(true);
+    // The new tab's welcome no longer lists the old avatar.
+    expect(welcomeOf(newTab).players.map((p) => p.userId)).not.toContain(oldTab.data.userId);
+    // Its later close (stale) must not evict the new tab.
+    handler.close!(oldTab, 4003, '');
+    expect(clients.get(newTab.data.userId)).toBe(newTab);
+  });
+
+  test('a different clientId (another person or device) with the same name is untouched', () => {
+    const { clients, handler } = setup();
+    const a = makeWs();
+    const b = makeWs();
+    handler.open!(a);
+    handler.open!(b);
+    deliver(handler, a, { type: 'join', name: 'Same', clientId: 'browser-1' });
+    deliver(handler, b, { type: 'join', name: 'Same', clientId: 'browser-2' });
+    expect(a.closed).toBeNull();
+    expect(a.sent.some((m) => m.type === 'replaced-by-new-tab')).toBe(false);
+    expect(clients.get(a.data.userId)).toBe(a);
+  });
+
+  test('joins without a clientId never replace anyone', () => {
+    const { handler } = setup();
+    const a = makeWs();
+    const b = makeWs();
+    handler.open!(a);
+    handler.open!(b);
+    deliver(handler, a, { type: 'join', name: 'A' });
+    deliver(handler, b, { type: 'join', name: 'A' });
+    expect(a.closed).toBeNull();
+  });
+
+  test('a resume of the same tab is not treated as a duplicate', () => {
+    const { clients, handler } = setup();
+    const a = makeWs();
+    handler.open!(a);
+    deliver(handler, a, { type: 'join', name: 'A', clientId: 'browser-1' });
+    const userId = a.data.userId;
+    handler.close!(a, 1006, '');
+
+    const b = makeWs();
+    handler.open!(b);
+    deliver(handler, b, {
+      type: 'join',
+      name: 'A',
+      clientId: 'browser-1',
+      resumeToken: welcomeOf(a).resumeToken,
+    });
+    expect(welcomeOf(b).resumed).toBe(true);
+    expect(b.data.userId).toBe(userId);
+    expect(clients.get(userId)).toBe(b);
+    expect(a.sent.some((m) => m.type === 'replaced-by-new-tab')).toBe(false);
+  });
+
+  test('an old tab waiting out its leave grace is finalized and cannot resume', () => {
+    const { clients, handler } = setup();
+    const oldTab = makeWs();
+    const peer = makeWs();
+    handler.open!(oldTab);
+    handler.open!(peer);
+    deliver(handler, oldTab, { type: 'join', name: 'A', clientId: 'browser-1' });
+    deliver(handler, peer, { type: 'join', name: 'P' });
+    const oldResume = welcomeOf(oldTab).resumeToken;
+    handler.close!(oldTab, 1006, '');
+    peer.sent.length = 0;
+
+    const newTab = makeWs();
+    handler.open!(newTab);
+    deliver(handler, newTab, { type: 'join', name: 'A', clientId: 'browser-1' });
+    expect(clients.has(oldTab.data.userId)).toBe(false);
+    expect(peer.sent).toContainEqual({ type: 'player-left', userId: oldTab.data.userId });
+
+    // The old tab's resume token is dead: a reconnect would be a fresh join.
+    const retry = makeWs();
+    handler.open!(retry);
+    deliver(handler, retry, { type: 'join', name: 'A', resumeToken: oldResume });
+    expect(welcomeOf(retry).resumed).toBeUndefined();
   });
 });
