@@ -217,6 +217,7 @@ engawa/
       ├ logic.ts         # 入室・位置同期などのロジック
       ├ turn.ts          # Cloudflare TURN クレデンシャル発行
       ├ sfu.ts           # Cloudflare Realtime SFU 制御のプロキシ
+      ├ events.ts        # イベント Webhook の送信（任意。docs/webhook.md）
       └ types.ts         # サーバー側型定義
 ```
 
@@ -242,12 +243,18 @@ SFU_PROMOTE_AT=
 
 # 入室パスワード（任意 — 設定すると入室時にパスワードを求める。未設定ならオープン）
 ACCESS_PASSWORD=
+
+# イベント Webhook（任意 — 入退室・会話の開始/終了を JSON で POST。未設定なら送らない）
+EVENT_WEBHOOK_URL=
+EVENT_WEBHOOK_SECRET=
+EVENT_INCLUDE_NAMES=
 ```
 
 - **TURN** を使う場合は Cloudflare Dashboard → Realtime → TURN で Token を作成して設定します。
 - **SFU** を使う場合は Cloudflare Dashboard → Realtime → SFU で App を作成し、App ID と Token を設定します。未設定でも全機能はメッシュで動作します（大人数時のスケールのみ制限されます）。
 - **SFU_PROMOTE_AT** は屋外グループが SFU に切り替わる人数です（既定 `2` = 2 人の会話も SFU 経由。接続の安定性を優先した既定値）。`4` にすると 2〜3 人は P2P メッシュのままになり、遅延が 1 ホップぶん減って SFU の帯域も使いません。会議室ゾーンは人数によらず常に SFU です。SFU 未設定ならこの値は無視されます。
 - **ACCESS_PASSWORD** を設定すると、入室時にパスワードが必要になります（名前入力の前に確認）。未設定ならパスワードは求めません。
+- **EVENT_WEBHOOK_URL** を設定すると、入退室と会話の始まり・終わりを JSON で POST します（MTG の統計などに）。サーバーは送るだけで何も保存しません。参加者は既定で匿名 ID、`EVENT_INCLUDE_NAMES=true` で表示名になります。`EVENT_WEBHOOK_SECRET` で署名を付けられます。仕様は [`docs/webhook.md`](./docs/webhook.md)、Google スプレッドシートに貯める受信サンプルは [`examples/webhook-gas/`](./examples/webhook-gas/) にあります。
 
 ---
 

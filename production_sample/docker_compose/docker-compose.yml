@@ -43,6 +43,9 @@ services:
       - CLOUDFLARE_TURN_TOKEN_ID=${CLOUDFLARE_TURN_TOKEN_ID:-}
       - CLOUDFLARE_TURN_TOKEN_SECRET=${CLOUDFLARE_TURN_TOKEN_SECRET:-}
       - ACCESS_PASSWORD=${ACCESS_PASSWORD:-}
+      - EVENT_WEBHOOK_URL=${EVENT_WEBHOOK_URL:-}
+      - EVENT_WEBHOOK_SECRET=${EVENT_WEBHOOK_SECRET:-}
+      - EVENT_INCLUDE_NAMES=${EVENT_INCLUDE_NAMES:-}
     healthcheck:
       # busybox wget ships in the alpine-based bun image.
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
