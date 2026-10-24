@@ -1,30 +1,33 @@
-# イベント Webhook API 仕様
+# Event Webhook API
 
-engawa サーバーは、入退室と会話の始まり・終わりを **JSON の HTTP POST** で外部に通知できます（任意機能）。
-サーバー自身は何も保存しません（不変条件 #2）。受け取ったイベントの保存・集計・可視化は受信側の関心事です。
-受信側の一例として Google Apps Script のサンプルを [`examples/webhook-gas/`](../examples/webhook-gas/) に置いています。
+English | [日本語](./webhook.ja.md)
 
-## 設定（環境変数）
+The engawa server can notify an external endpoint, by **JSON HTTP POST**, when people join and leave and when
+conversations start and end. This is optional. The server itself stores nothing (invariant #2): storing,
+aggregating and visualising the events is up to the receiver. A sample Google Apps Script receiver lives in
+[`examples/webhook-gas/`](../examples/webhook-gas/).
 
-| 変数 | 既定 | 説明 |
+## Configuration (environment variables)
+
+| Variable | Default | Description |
 |---|---|---|
-| `EVENT_WEBHOOK_URL` | 未設定 | 送信先 URL（`http://` または `https://`）。**未設定なら機能ごと無効**で、何も送りません。 |
-| `EVENT_WEBHOOK_SECRET` | 未設定 | 設定すると、リクエストボディの HMAC-SHA256 署名を `X-Engawa-Signature` ヘッダーに付けます。 |
-| `EVENT_INCLUDE_NAMES` | `false` | `true` のときだけ参加者を**表示名**で送ります。それ以外は匿名 ID（後述）。 |
+| `EVENT_WEBHOOK_URL` | unset | Destination URL (`http://` or `https://`). **When unset the feature is off** and nothing is sent. |
+| `EVENT_WEBHOOK_SECRET` | unset | When set, an HMAC-SHA256 signature of the request body is sent in the `X-Engawa-Signature` header. |
+| `EVENT_INCLUDE_NAMES` | `false` | Only when `true` are participants sent by **display name**. Otherwise they are anonymous ids (see below). |
 
-## リクエスト
+## Request
 
-イベント 1 件につき 1 回 POST します。
+One POST per event.
 
 ```
 POST {EVENT_WEBHOOK_URL}
 Content-Type: application/json
 User-Agent: engawa-webhook
 X-Engawa-Event: conversation.ended
-X-Engawa-Signature: sha256=<16 進の HMAC-SHA256>   ← EVENT_WEBHOOK_SECRET 設定時のみ
+X-Engawa-Signature: sha256=<hex HMAC-SHA256>   ← only when EVENT_WEBHOOK_SECRET is set
 ```
 
-### ボディ（共通の封筒）
+### Body (common envelope)
 
 ```json
 {
@@ -35,36 +38,36 @@ X-Engawa-Signature: sha256=<16 進の HMAC-SHA256>   ← EVENT_WEBHOOK_SECRET �
 }
 ```
 
-| フィールド | 型 | 説明 |
+| Field | Type | Description |
 |---|---|---|
-| `id` | string (UUID) | イベントごとに一意。重複排除に使えます。 |
-| `type` | string | イベント種別（下表）。`X-Engawa-Event` ヘッダーと同じ値。 |
-| `at` | string (ISO 8601, UTC) | サーバーがイベントを発行した時刻。 |
-| `data` | object | 種別ごとの中身（下記）。 |
+| `id` | string (UUID) | Unique per event. Use it to deduplicate. |
+| `type` | string | Event type (table below). Same value as the `X-Engawa-Event` header. |
+| `at` | string (ISO 8601, UTC) | When the server issued the event. |
+| `data` | object | Type-specific payload (below). |
 
-### 署名の検証
+### Verifying the signature
 
-`EVENT_WEBHOOK_SECRET` を設定すると `X-Engawa-Signature: sha256=<hex>` が付きます。`<hex>` は
-**受信したボディの生バイト列**を秘密鍵で HMAC-SHA256 した 16 進文字列です。受信側で同じ計算をし、
-定数時間比較で一致を確かめてください（JSON をパースし直したものではなく、生のボディで計算します）。
+With `EVENT_WEBHOOK_SECRET` set, requests carry `X-Engawa-Signature: sha256=<hex>`, where `<hex>` is the
+HMAC-SHA256 of the **raw request body bytes** keyed with the secret, in hex. Compute the same on the receiver and
+compare in constant time (use the raw body, not re-serialised JSON).
 
 ```js
-// Node.js での検証例
+// Verification in Node.js
 const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
 const ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(req.headers['x-engawa-signature'] ?? ''));
 ```
 
-ヘッダーを読めない受信先（Google Apps Script など）では、URL のクエリにトークンを含めて照合する方法も使えます
-（例: `https://script.google.com/macros/s/.../exec?token=...`）。
+Receivers that cannot read headers (such as Google Apps Script) can instead check a token carried in the URL
+query (for example `https://script.google.com/macros/s/.../exec?token=...`).
 
-## イベント一覧
+## Events
 
-| `type` | いつ |
+| `type` | When |
 |---|---|
-| `presence.started` | 誰かが入室した（再接続によるセッション再開では出ません） |
-| `presence.ended` | 誰かが退室した（タブを閉じた・通信が切れて 15 秒戻らなかった・同じブラウザの新しいタブに置き換わった） |
-| `conversation.started` | 2 人以上の会話が始まった |
-| `conversation.ended` | 会話が終わった（全員が離れた・1 人になった・別のゾーンへ移った） |
+| `presence.started` | Someone joined (not sent when a reconnect resumes the session) |
+| `presence.ended` | Someone left (closed the tab, lost the connection and did not return within 15 s, or was replaced by a newer tab of the same browser) |
+| `conversation.started` | A conversation of 2 or more people started |
+| `conversation.ended` | A conversation ended (everyone left, it shrank to one person, or it moved to another zone) |
 
 ### `presence.started`
 
@@ -84,12 +87,12 @@ const ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(req.headers
 }
 ```
 
-| フィールド | 型 | 説明 |
+| Field | Type | Description |
 |---|---|---|
-| `presenceId` | string | 1 回の滞在の ID。`started` と `ended` で同じ値。 |
-| `participant` | string | 参加者（「参加者の表し方」参照）。 |
-| `joinedAt` / `leftAt` | string (ISO 8601, UTC) | 入室・退室の時刻。 |
-| `durationSec` | number | 滞在時間（秒、四捨五入）。 |
+| `presenceId` | string | Id of one stay. Same value in `started` and `ended`. |
+| `participant` | string | The participant (see "How participants are represented"). |
+| `joinedAt` / `leftAt` | string (ISO 8601, UTC) | When they joined and left. |
+| `durationSec` | number | Length of the stay in seconds (rounded). |
 
 ### `conversation.started`
 
@@ -119,37 +122,42 @@ const ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(req.headers
 }
 ```
 
-| フィールド | 型 | 説明 |
+| Field | Type | Description |
 |---|---|---|
-| `conversationId` | string | 会話の ID。`started` と `ended` で同じ値。 |
-| `zone` | string \| null | 会議室などのゾーン ID（例: `all-hands`, `meeting-1`, `1on1-1`, `booth-1`）。**屋外（開放フロア）は `null`**。 |
-| `transport` | `"sfu"` \| `"mesh"` | 通話の経路（`ended` では最後の状態）。 |
-| `startedAt` / `endedAt` | string (ISO 8601, UTC) | 会話の開始・終了時刻。 |
-| `durationSec` | number | 会話の長さ（秒、四捨五入）。 |
-| `participants` | string[] | 途中で抜けた人も含め、**一度でも参加した全員**。`started` では開始時点の顔ぶれ。 |
-| `participantCount` | number | `participants` の人数（接続単位で数えるため、同じ名前の別人は別に数えます）。 |
-| `maxConcurrent` | number | 同時に話していた最大人数。 |
+| `conversationId` | string | Id of the conversation. Same value in `started` and `ended`. |
+| `zone` | string \| null | Zone id of a meeting room and similar (e.g. `all-hands`, `meeting-1`, `1on1-1`, `booth-1`). **`null` on the open floor.** |
+| `transport` | `"sfu"` \| `"mesh"` | How the call is carried (in `ended`, the last state). |
+| `startedAt` / `endedAt` | string (ISO 8601, UTC) | When the conversation started and ended. |
+| `durationSec` | number | Length of the conversation in seconds (rounded). |
+| `participants` | string[] | **Everyone who took part at any point**, including people who left early. In `started`, the people present at the start. |
+| `participantCount` | number | Number of `participants` (counted per connection, so two different people with the same name count separately). |
+| `maxConcurrent` | number | The most people talking at the same time. |
 
-## 会話の定義
+## What counts as a conversation
 
-- サーバーが通話のつながりを決める「近接グループ」のうち、**2 人以上のもの**を会話とみなします。
-- 人の出入りがあっても、**同じゾーンで前の会話と最も多くのメンバーが重なる**グループは同じ会話として続きます。
-  - 分かれたときは、重なりの大きい側が会話を引き継ぎ、残りは新しい会話として始まります。
-  - 合流したときは、片方が続き、もう片方は終わります。
-- 屋外から会議室に入るなど**ゾーンが変わると、別の会話**として数えます。
-- 屋外ですれ違っただけでは会話にはなりません（双方が立ち止まったときだけ会話が始まるサーバーの仕様どおり）。
-- 一時的な通信断（15 秒以内の再接続）では会話も滞在も途切れません。
+- A conversation is a **proximity group of 2 or more people**, the same groups the server uses to decide who is
+  connected in a call.
+- As people come and go, the group that **shares the most members with the previous conversation in the same
+  zone** continues it.
+  - On a split, the side with the larger overlap continues the conversation and the rest starts a new one.
+  - On a merge, one conversation continues and the other ends.
+- **Changing zone** (for example walking from the open floor into a meeting room) counts as a **new conversation**.
+- Walking past someone on the open floor does not start a conversation (the server only starts one when both
+  people are standing still).
+- A short connection drop (reconnecting within 15 s) does not break the conversation or the stay.
 
-## 参加者の表し方
+## How participants are represented
 
-- `EVENT_INCLUDE_NAMES=true` のとき: 入室時の**表示名**。
-- それ以外（既定）: 表示名から作る **16 桁の匿名 ID**。同じサーバープロセス内で、**同じ日（UTC）・同じ名前なら同じ ID**
-  になります。日付が変わるとき・サーバーを再起動したときに ID は変わるため、「日ごとの利用人数」は数えられますが、
-  日をまたいで個人を追うことはできません。
+- With `EVENT_INCLUDE_NAMES=true`: the **display name** at join time.
+- Otherwise (default): a **16-character anonymous id** derived from the display name. Within one server process,
+  **the same name on the same day (UTC) gives the same id**. The id changes when the date changes and when the
+  server restarts, so a receiver can count distinct people per day but cannot follow a person across days.
 
-## 配信の性質
+## Delivery guarantees
 
-- **ベストエフォート・最大 1 回**です。タイムアウトは 5 秒で、失敗しても再送しません（サーバーのログに警告を出すだけ）。
-- **順序は保証しません**。並べ替えには `at`（または `startedAt` / `endedAt`）を使ってください。
-- サーバーの再起動・停止時点で続いていた滞在・会話の `ended` は**送られません**（状態はメモリにしか持たないため）。
-- 送られないもの: 会話の内容・文字起こし・チャット・位置情報。
+- **Best effort, at most once.** The timeout is 5 s and failed deliveries are not retried (the server only logs
+  a warning).
+- **Order is not guaranteed.** Sort by `at` (or `startedAt` / `endedAt`).
+- Stays and conversations still open when the server restarts or stops **never get an `ended` event** (the state
+  only lives in memory).
+- Never sent: what was said, transcripts, chat, positions.

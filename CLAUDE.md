@@ -26,7 +26,7 @@ Slack のハドルや Gather.town のような「ばったり話す」体験を�
 ├ docker-compose.yml      # server(3000) / client(5173) を定義
 ├ Makefile                # 主要操作の入口（すべて Docker 経由）
 ├ .env.example
-├ docs/webhook.md         # イベント Webhook の API 仕様
+├ docs/webhook{,.ja}.md   # イベント Webhook の API 仕様（英語 / 日本語）
 ├ examples/webhook-gas/   # Webhook 受信サンプル（Google Apps Script。本体の関心事外）
 └ engawa/
    ├ client/src/          # フロントエンド
@@ -116,7 +116,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 - `events.ts` — **任意のイベント Webhook**（`EVENT_WEBHOOK_URL`。仕様は `docs/webhook.md`）。入退室と会話の
   開始/終了を JSON で POST するだけで、保存・集計は受信側の関心事（受信サンプルは `examples/webhook-gas/`）。
   会話の追跡は純粋関数 `trackConversations`（近接グループの差分から開始/継続/終了を判定）。開いている滞在・会話は
-  一時メモリのみ（不変条件 #2）。**API 仕様（イベントの型・フィールド）を変えたら `docs/webhook.md` も更新する。**
+  一時メモリのみ（不変条件 #2）。**API 仕様（イベントの型・フィールド）を変えたら `docs/webhook.md`（英語）と `docs/webhook.ja.md`（日本語）の両方を更新する。**
 - `types.ts` — `WsData`（接続ごとの状態）, `ClientMessage` / `ServerMessage`。
 
 ### クライアント（`engawa/client/src/`）

@@ -1,41 +1,45 @@
-# イベント Webhook の受信サンプル（Google Apps Script）
+# Event webhook receiver sample (Google Apps Script)
 
-engawa の [イベント Webhook](../../docs/webhook.md) を Google Apps Script（GAS）で受け取り、
-Google スプレッドシートに 1 イベント 1 行で追記するサンプルです。費用はかかりません。
+English | [日本語](./README.ja.md)
 
-> これは**受信側の一例**です。engawa 本体は送信するだけで、受信側の実装や運用は利用者の関心事です。
+Receives engawa's [event webhook](../../docs/webhook.md) with Google Apps Script (GAS) and appends one row per
+event to a Google Sheet. It costs nothing to run.
 
-## 保存される内容
+> This is **one example of a receiver**. engawa itself only sends events; building and running the receiver is
+> up to you.
 
-| シート | 1 行 = | 元イベント |
+## What gets stored
+
+| Sheet | One row = | Source event |
 |---|---|---|
-| `conversations` | 1 回の会話 | `conversation.ended` |
-| `presence` | 1 回の滞在 | `presence.ended` |
+| `conversations` | one conversation | `conversation.ended` |
+| `presence` | one stay | `presence.ended` |
 
-`*.started` は保存しません（対応する `*.ended` に必要な情報がすべて入っているため）。
-シートは最初のイベントが届いたときにヘッダー付きで自動で作られます。屋外の会話の `zone` は `floor` と記録します。
+`*.started` events are not stored, because the matching `*.ended` carries everything needed. Each sheet is created
+with a header row when its first event arrives. Open-floor conversations are recorded with `zone` = `floor`.
 
-## セットアップ
+## Setup
 
-1. Google スプレッドシートを新規作成し、**拡張機能 → Apps Script** を開く。
-2. `コード.gs`（`Code.gs`）の中身を、このディレクトリの [`Code.gs`](./Code.gs) で置き換えて保存する。
-3. **プロジェクトの設定 → スクリプト プロパティ** に `TOKEN` を追加し、推測されにくい文字列を設定する。
-4. **デプロイ → 新しいデプロイ → 種類: ウェブアプリ** で次のように設定してデプロイする。
-   - 次のユーザーとして実行: **自分**
-   - アクセスできるユーザー: **全員**（engawa サーバーはログインせずに POST するため。`TOKEN` で照合します）
-5. 表示されたウェブアプリの URL の末尾に `?token=<3 で設定した値>` を付けて、engawa の `.env` に設定する。
+1. Create a new Google Sheet and open **Extensions → Apps Script**.
+2. Replace the contents of `Code.gs` with this directory's [`Code.gs`](./Code.gs) and save.
+3. Under **Project Settings → Script Properties**, add `TOKEN` with a hard-to-guess value.
+4. **Deploy → New deployment → Type: Web app**, with these settings:
+   - Execute as: **Me**
+   - Who has access: **Anyone** (the engawa server POSTs without signing in; the `TOKEN` check protects it)
+5. Append `?token=<the value from step 3>` to the web app URL and set it in engawa's `.env`:
 
    ```bash
    EVENT_WEBHOOK_URL=https://script.google.com/macros/s/XXXXXXXX/exec?token=YYYYYYYY
    ```
 
-6. engawa サーバーを再起動する。2 人で会話して離れると、`conversations` シートに行が増えます。
+6. Restart the engawa server. When two people talk and then walk apart, a row appears in the `conversations` sheet.
 
-## 注意
+## Notes
 
-- GAS はリクエストヘッダーを読めないため、`EVENT_WEBHOOK_SECRET` の署名は検証できません。URL の `token` で照合します
-  （URL は秘密として扱ってください）。
-- `Code.gs` を変更したら、**デプロイを管理 → 編集 → バージョン: 新バージョン** で再デプロイしないと反映されません。
-- 時刻は UTC の ISO 文字列で届き、スプレッドシートのタイムゾーン（ファイル → 設定）で表示されます。
-- 可視化は、このスプレッドシートを Looker Studio のデータソースにする、スプレッドシートのグラフやピボットテーブルを
-  使う、などで行えます。
+- GAS cannot read request headers, so the `EVENT_WEBHOOK_SECRET` signature cannot be verified. The `token` in
+  the URL is checked instead, so treat the URL as a secret.
+- After changing `Code.gs`, redeploy with **Manage deployments → Edit → Version: New version**, or the change
+  will not take effect.
+- Times arrive as UTC ISO strings and are shown in the spreadsheet's time zone (File → Settings).
+- To visualise the data, use the sheet as a Looker Studio data source, or use the spreadsheet's own charts and
+  pivot tables.
