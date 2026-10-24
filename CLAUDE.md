@@ -26,6 +26,8 @@ Slack のハドルや Gather.town のような「ばったり話す」体験を�
 ├ docker-compose.yml      # server(3000) / client(5173) を定義
 ├ Makefile                # 主要操作の入口（すべて Docker 経由）
 ├ .env.example
+├ docs/webhook{,.ja}.md   # イベント Webhook の API 仕様（英語 / 日本語）
+├ examples/webhook-gas/   # Webhook 受信サンプル（Google Apps Script。本体の関心事外）
 └ engawa/
    ├ client/src/          # フロントエンド
    └ server/src/          # シグナリングサーバー
@@ -111,6 +113,10 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 - `sfu.ts` — Cloudflare Realtime SFU の制御プレーン（セッション/トラック）を**プロキシ**する。
   App ID/Token はサーバーのみ保持しブラウザに渡さない（turn.ts と同じ作法）。転送先パスはホワイト
   リスト化（SSRF 対策）。メディアは通さずシグナリングのみ。
+- `events.ts` — **任意のイベント Webhook**（`EVENT_WEBHOOK_URL`。仕様は `docs/webhook.md`）。入退室と会話の
+  開始/終了を JSON で POST するだけで、保存・集計は受信側の関心事（受信サンプルは `examples/webhook-gas/`）。
+  会話の追跡は純粋関数 `trackConversations`（近接グループの差分から開始/継続/終了を判定）。開いている滞在・会話は
+  一時メモリのみ（不変条件 #2）。**API 仕様（イベントの型・フィールド）を変えたら `docs/webhook.md`（英語）と `docs/webhook.ja.md`（日本語）の両方を更新する。**
 - `types.ts` — `WsData`（接続ごとの状態）, `ClientMessage` / `ServerMessage`。
 
 ### クライアント（`engawa/client/src/`）
@@ -199,6 +205,8 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   **名前入力の前**にパスワードゲートを表示（`POST /api/verify-password` で照合）。join でも
   再検証する（`logic.ts` の `verifyAccessPassword` / `isPasswordRequired` 参照）。
   ※複数ワークスペース（`?workspace=`）は廃止。全員が単一スペースに入る。
+- `EVENT_WEBHOOK_URL` / `EVENT_WEBHOOK_SECRET` / `EVENT_INCLUDE_NAMES` — イベント Webhook（任意）。URL 未設定なら無効。
+  SECRET はボディの HMAC-SHA256 署名（`X-Engawa-Signature`）。参加者は既定で日替わりの匿名 ID、`true` で表示名。
 
 ## コーディング規約
 - TypeScript strict モード / セミコロンあり / シングルクォート / インデント スペース2つ。

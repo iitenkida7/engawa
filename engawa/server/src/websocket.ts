@@ -1,4 +1,5 @@
 import type { ServerWebSocket, WebSocketHandler } from 'bun';
+import { createEventRecorderFromEnv, type EventRecorder } from './events';
 import {
   clampPosition,
   computeProximityGroups,
@@ -104,6 +105,7 @@ function broadcastGroups(
   workspace: string,
   groupState: GroupState,
   nowMs: number,
+  events: EventRecorder | null,
 ): Map<string, ProximityGroup> {
   const members: GroupMember[] = [];
   const wsClients: ServerWebSocket<WsData>[] = [];
@@ -137,6 +139,18 @@ function broadcastGroups(
 
   const byUser = new Map<string, ProximityGroup>();
   for (const g of groups) for (const id of g.memberIds) byUser.set(id, g);
+
+  if (events) {
+    const zoneOf = new Map(members.map((m) => [m.userId, m.zoneId]));
+    events.groupsChanged(
+      workspace,
+      groups.map((g) => ({
+        memberIds: g.memberIds,
+        method: g.method,
+        zone: g.isMeeting ? (zoneOf.get(g.memberIds[0]) ?? null) : null,
+      })),
+    );
+  }
 
   for (const c of wsClients) {
     const g = byUser.get(c.data.userId);
@@ -196,6 +210,8 @@ export function createWebSocketHandler(
   now: () => number = Date.now,
   // Leave-grace window (issue #187); injectable so tests don't wait 15s.
   leaveGraceMs: number = RESUME_GRACE_MS,
+  // Outbound event webhook (docs/webhook.md); null when EVENT_WEBHOOK_URL is unset.
+  events: EventRecorder | null = createEventRecorderFromEnv(),
 ): WebSocketHandler<WsData> {
   // Per-workspace SFU latch state. Lives for the handler's lifetime (one server
   // process); reset on restart, never persisted (invariant #2).
@@ -215,7 +231,7 @@ export function createWebSocketHandler(
         stillTimers.delete(userId);
         // Gone or replaced meanwhile: nothing to regroup around.
         if (clients.get(userId) !== ws || !ws.data.joined || ws.data.away) return;
-        broadcastGroups(clients, ws.data.workspace, groupState, now());
+        broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
       }, PROXIMITY_STILL_MS + 20),
     );
   }
@@ -256,8 +272,9 @@ export function createWebSocketHandler(
       ws.data.mediaToken = null;
     }
     clients.delete(ws.data.userId);
+    events?.presenceEnded(ws.data.userId);
     broadcast(clients, ws.data.workspace, { type: 'player-left', userId: ws.data.userId });
-    broadcastGroups(clients, ws.data.workspace, groupState, now());
+    broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
     console.log(`[ws] leave finalized ${ws.data.userId} (clients=${clients.size})`);
   }
 
@@ -278,6 +295,7 @@ export function createWebSocketHandler(
     }
     // Remove from the map first so its close handler takes the stale path.
     clients.delete(old.data.userId);
+    events?.presenceEnded(old.data.userId);
     broadcast(clients, old.data.workspace, { type: 'player-left', userId: old.data.userId });
     send(old, { type: 'replaced-by-new-tab' });
     try {
@@ -409,7 +427,7 @@ export function createWebSocketHandler(
             });
             // No player-joined broadcast — peers never saw us leave. Groups are
             // recomputed in case topology changed during the gap.
-            broadcastGroups(clients, ws.data.workspace, groupState, now());
+            broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
             console.log(`[ws] resumed ${ws.data.userId} as "${ws.data.name}"`);
             break;
           }
@@ -481,7 +499,8 @@ export function createWebSocketHandler(
             { type: 'player-joined', player: playerFromWs(ws) },
             ws.data.userId,
           );
-          broadcastGroups(clients, ws.data.workspace, groupState, now());
+          events?.presenceStarted(ws.data.userId, ws.data.name);
+          broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
           console.log(`[ws] joined ${ws.data.userId} as "${ws.data.name}"`);
           break;
         }
@@ -505,7 +524,7 @@ export function createWebSocketHandler(
               { type: 'player-left', userId: ws.data.userId },
               ws.data.userId,
             );
-            broadcastGroups(clients, ws.data.workspace, groupState, now());
+            broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
             break;
           }
           if (!nowAway && wasAway) {
@@ -532,7 +551,8 @@ export function createWebSocketHandler(
             },
             ws.data.userId,
           );
-          if (!nowAway && wasAway) broadcastGroups(clients, ws.data.workspace, groupState, now());
+          if (!nowAway && wasAway)
+            broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
           break;
         }
 
@@ -593,7 +613,7 @@ export function createWebSocketHandler(
           const t = now();
           if (t - ws.data.lastGroupAt >= GROUP_RECOMPUTE_MIN_INTERVAL_MS) {
             ws.data.lastGroupAt = t;
-            broadcastGroups(clients, ws.data.workspace, groupState, now());
+            broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
           }
           // Standing still forms a conversation, but no further `move` arrives
           // once someone stops — so regroup right after the still window ends.
@@ -829,8 +849,9 @@ export function createWebSocketHandler(
       }
       clients.delete(ws.data.userId);
       if (ws.data.joined) {
+        events?.presenceEnded(ws.data.userId);
         broadcast(clients, ws.data.workspace, { type: 'player-left', userId: ws.data.userId });
-        broadcastGroups(clients, ws.data.workspace, groupState, now());
+        broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
       }
       console.log(`[ws] close ${ws.data.userId} (clients=${clients.size})`);
     },
