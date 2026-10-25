@@ -199,6 +199,8 @@ button:focus-visible {
 }
 .header-cta {
   display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 16px;
   font-size: 14px;
 }
@@ -632,7 +634,13 @@ h2 {
   .features-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+  .nav {
+    gap: 12px;
+  }
   .header-cta {
+    padding: 7px 9px;
+  }
+  .header-cta .cta-label {
     display: none;
   }
   .brand .sub {
