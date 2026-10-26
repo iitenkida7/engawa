@@ -293,12 +293,19 @@ describe('filmstrip / share seam resizer', () => {
     expect(Number.parseFloat(camTile().style.left)).toBe(0);
     expect(Number.parseFloat(tileB().style.left)).toBe(0);
 
-    // At the threshold: two columns — half the width each, side by side.
+    // At the threshold: two columns — half the width each, side by side. Your own
+    // tile leads the rail (pinSelfFirst), so the order is self, a, b: self and
+    // a share the first row, b starts the second.
     pointer('pointermove', MEETING_FILMSTRIP_2COL_MIN_W);
+    const selfTile = document.querySelector<HTMLElement>('.panel[data-focus-key="self"]')!;
     expect(tileWidth()).toBe(MEETING_FILMSTRIP_TILE_W);
-    expect(Number.parseFloat(camTile().style.left)).toBe(0);
-    expect(Number.parseFloat(tileB().style.left)).toBeGreaterThan(0);
-    expect(Number.parseFloat(camTile().style.top)).toBe(Number.parseFloat(tileB().style.top));
+    expect(Number.parseFloat(selfTile.style.left)).toBe(0);
+    expect(Number.parseFloat(camTile().style.left)).toBeGreaterThan(0);
+    expect(Number.parseFloat(camTile().style.top)).toBe(Number.parseFloat(selfTile.style.top));
+    expect(Number.parseFloat(tileB().style.left)).toBe(0);
+    expect(Number.parseFloat(tileB().style.top)).toBeGreaterThan(
+      Number.parseFloat(selfTile.style.top),
+    );
     // The seam still parks at the far edge of the whole rail.
     expect(Number.parseFloat(resizer().style.left)).toBeGreaterThanOrEqual(
       MEETING_FILMSTRIP_2COL_MIN_W,
