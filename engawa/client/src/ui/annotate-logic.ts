@@ -21,6 +21,40 @@ export const POINTER_TTL_MS = 2500;
 export const ANNOTATE_SEND_MS = 50;
 export const ANNOTATE_MAX_POINTS = 60;
 
+// Pen points closer than this (fraction of the frame, ~3px on a 1600px share)
+// to the previous one are dropped: invisible, but they would be sent and redrawn.
+export const STROKE_MIN_STEP = 0.002;
+// The most points one stroke keeps; older ones are dropped beyond it, so a
+// never-ending stroke (or a peer that keeps feeding one) cannot grow forever.
+export const STROKE_MAX_POINTS = 2000;
+
+export function farEnough(a: Pt, b: Pt): boolean {
+  return Math.abs(a.x - b.x) >= STROKE_MIN_STEP || Math.abs(a.y - b.y) >= STROKE_MIN_STEP;
+}
+
+export function capPoints(pts: Pt[], max: number = STROKE_MAX_POINTS) {
+  if (pts.length > max) pts.splice(0, pts.length - max);
+}
+
+// Ms until the overlay next changes on its own: 0 while a stroke is fading
+// (animate every frame), else until the next fade starts or pointer expires,
+// null when nothing is left. Lets a still overlay sleep instead of redrawing
+// the same picture every frame.
+export function nextRedrawIn(
+  now: number,
+  strokeLastAts: number[],
+  pointerAts: number[],
+): number | null {
+  let next = Number.POSITIVE_INFINITY;
+  for (const at of strokeLastAts) {
+    const age = now - at;
+    if (age > STROKE_HOLD_MS) return 0;
+    next = Math.min(next, STROKE_HOLD_MS - age);
+  }
+  for (const at of pointerAts) next = Math.min(next, POINTER_TTL_MS - (now - at));
+  return next === Number.POSITIVE_INFINITY ? null : Math.max(0, next);
+}
+
 // The rectangle the video's picture actually occupies inside its box with
 // `object-fit: contain` (letterboxed screenshare). With an unknown video size
 // the whole box is used.

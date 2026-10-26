@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  capPoints,
   chunkPoints,
   contentRect,
+  farEnough,
   flatToPoints,
   fromFrac,
+  nextRedrawIn,
   POINTER_TTL_MS,
   pointsToFlat,
   STROKE_FADE_MS,
   STROKE_HOLD_MS,
+  STROKE_MIN_STEP,
   strokeAlpha,
   toFrac,
 } from '@/ui/annotate-logic';
@@ -94,5 +98,47 @@ describe('chunkPoints', () => {
     }
     // Every original point is still in there, in order, ending on the last one.
     expect(chunks[chunks.length - 1].at(-1)).toEqual({ x: 0.24, y: 0 });
+  });
+});
+
+describe('farEnough', () => {
+  it('drops a point that has barely moved, keeps one that has', () => {
+    const a = { x: 0.5, y: 0.5 };
+    expect(farEnough(a, { x: 0.5 + STROKE_MIN_STEP / 2, y: 0.5 })).toBe(false);
+    expect(farEnough(a, { x: 0.5, y: 0.5 + STROKE_MIN_STEP })).toBe(true);
+  });
+});
+
+describe('capPoints', () => {
+  it('keeps only the newest points beyond the cap', () => {
+    const pts = [0, 1, 2, 3, 4].map((x) => ({ x, y: 0 }));
+    capPoints(pts, 3);
+    expect(pts.map((p) => p.x)).toEqual([2, 3, 4]);
+  });
+
+  it('leaves a short stroke alone', () => {
+    const pts = [{ x: 0, y: 0 }];
+    capPoints(pts, 3);
+    expect(pts).toHaveLength(1);
+  });
+});
+
+describe('nextRedrawIn', () => {
+  it('is null when nothing is shown', () => {
+    expect(nextRedrawIn(1000, [], [])).toBeNull();
+  });
+
+  it('sleeps until a held stroke starts to fade', () => {
+    expect(nextRedrawIn(1000, [1000], [])).toBe(STROKE_HOLD_MS);
+    expect(nextRedrawIn(2000, [1000, 1500], [])).toBe(STROKE_HOLD_MS - 1000);
+  });
+
+  it('animates every frame while any stroke is fading', () => {
+    expect(nextRedrawIn(1000 + STROKE_HOLD_MS + 1, [1000, 9999], [])).toBe(0);
+  });
+
+  it('wakes when a still pointer expires', () => {
+    expect(nextRedrawIn(1000, [], [500])).toBe(POINTER_TTL_MS - 500);
+    expect(nextRedrawIn(1000, [1000], [500])).toBe(POINTER_TTL_MS - 500);
   });
 });

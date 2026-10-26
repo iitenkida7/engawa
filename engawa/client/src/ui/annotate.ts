@@ -12,10 +12,13 @@ import { t } from '@/core/i18n';
 import type { AnnotateBody } from '@/core/types';
 import {
   ANNOTATE_SEND_MS,
+  capPoints,
   chunkPoints,
   contentRect,
+  farEnough,
   flatToPoints,
   fromFrac,
+  nextRedrawIn,
   POINTER_TTL_MS,
   type Pt,
   pointsToFlat,
@@ -49,6 +52,9 @@ export class ShareAnnotator {
   private readonly strokes = new Map<string, Stroke>();
   private readonly pointers = new Map<string, { pt: Pt; at: number }>();
   private raf = 0;
+  // Wakes the loop when a still overlay next changes (a fade starts, a pointer
+  // expires); see nextRedrawIn.
+  private wake: ReturnType<typeof setTimeout> | null = null;
 
   // Our own stroke in progress: its id, and the points not yet sent.
   private myStrokeId: string | null = null;
@@ -78,6 +84,9 @@ export class ShareAnnotator {
 
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'annot-canvas';
+    // No backing store until there is something to draw (see draw()).
+    this.canvas.width = 0;
+    this.canvas.height = 0;
     this.ctx = this.canvas.getContext('2d');
     this.body.appendChild(this.canvas);
     this.canvas.addEventListener('pointerdown', (e) => this.onDown(e));
@@ -108,7 +117,9 @@ export class ShareAnnotator {
 
     let observer: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(() => this.kick());
+      observer = new ResizeObserver(() => {
+        if (this.strokes.size > 0 || this.pointers.size > 0) this.kick();
+      });
       observer.observe(this.body);
     }
     this.observer = observer;
@@ -117,6 +128,8 @@ export class ShareAnnotator {
   dispose() {
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = 0;
+    if (this.wake) clearTimeout(this.wake);
+    this.wake = null;
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
     this.observer?.disconnect();
@@ -190,7 +203,10 @@ export class ShareAnnotator {
     if (!p) return;
     const s = this.strokes.get(this.key(this.selfId(), this.myStrokeId));
     if (s) {
+      const last = s.pts[s.pts.length - 1];
+      if (last && !farEnough(last, p)) return;
       s.pts.push(p);
+      capPoints(s.pts);
       s.lastAt = this.now();
     }
     this.pending.push(p);
@@ -256,6 +272,7 @@ export class ShareAnnotator {
         this.strokes.set(k, s);
       }
       s.pts.push(...flatToPoints(m.pts));
+      capPoints(s.pts);
       s.lastAt = this.now();
     }
     this.kick();
@@ -267,20 +284,56 @@ export class ShareAnnotator {
 
   // ---- Drawing ----
 
-  // One frame loop, alive only while there is something to draw or fade.
+  // Redraw on the next frame. Called when something changed (a point arrived, the
+  // box resized); in between, tick() only keeps animating while a stroke fades.
   private kick() {
     if (!this.raf) this.raf = requestAnimationFrame(() => this.tick());
   }
 
   private tick() {
     this.raf = 0;
-    this.draw();
-    if (this.strokes.size > 0 || this.pointers.size > 0) this.kick();
+    if (this.wake) clearTimeout(this.wake);
+    this.wake = null;
+    const now = this.now();
+    const mine = this.myStrokeKey();
+    for (const [k, s] of this.strokes) {
+      if (k !== mine && strokeAlpha(now, s.lastAt) <= 0) this.strokes.delete(k);
+    }
+    for (const [from, p] of this.pointers) {
+      if (now - p.at > POINTER_TTL_MS) this.pointers.delete(from);
+    }
+    this.draw(now);
+    const ms = nextRedrawIn(
+      now,
+      // Still being drawn by us: never fades under the pen.
+      [...this.strokes].map(([k, s]) => (k === mine ? now : s.lastAt)),
+      [...this.pointers.values()].map((p) => p.at),
+    );
+    if (ms === null) return;
+    if (ms === 0) this.kick();
+    else
+      this.wake = setTimeout(() => {
+        this.wake = null;
+        this.kick();
+      }, ms);
   }
 
-  private draw() {
+  private myStrokeKey() {
+    return this.myStrokeId ? this.key(this.selfId(), this.myStrokeId) : null;
+  }
+
+  private draw(now: number) {
     const ctx = this.ctx;
     if (!ctx) return;
+    // Nothing left: drop the backing store, so an idle overlay laid over the
+    // video holds no stage-sized bitmap.
+    if (this.strokes.size === 0 && this.pointers.size === 0) {
+      if (this.canvas.width !== 0) {
+        this.canvas.width = 0;
+        this.canvas.height = 0;
+      }
+      return;
+    }
     const w = this.body.clientWidth;
     const h = this.body.clientHeight;
     const dpr = window.devicePixelRatio || 1;
@@ -293,18 +346,12 @@ export class ShareAnnotator {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    const now = this.now();
     const rect = this.frameRect();
+    const mine = this.myStrokeKey();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     for (const [k, s] of this.strokes) {
-      const a = strokeAlpha(now, s.lastAt);
-      // Still being drawn by us: never fade under the pen.
-      if (a <= 0 && k !== this.key(this.selfId(), this.myStrokeId ?? '')) {
-        this.strokes.delete(k);
-        continue;
-      }
-      ctx.globalAlpha = a;
+      ctx.globalAlpha = k === mine ? 1 : strokeAlpha(now, s.lastAt);
       ctx.strokeStyle = s.color;
       ctx.fillStyle = s.color;
       ctx.lineWidth = PEN_WIDTH;
@@ -321,13 +368,7 @@ export class ShareAnnotator {
       }
     }
     ctx.globalAlpha = 1;
-    for (const [from, p] of this.pointers) {
-      if (now - p.at > POINTER_TTL_MS) {
-        this.pointers.delete(from);
-        continue;
-      }
-      this.drawPointer(ctx, from, fromFrac(p.pt, rect));
-    }
+    for (const [from, p] of this.pointers) this.drawPointer(ctx, from, fromFrac(p.pt, rect));
   }
 
   private drawPointer(ctx: CanvasRenderingContext2D, from: string, at: Pt) {

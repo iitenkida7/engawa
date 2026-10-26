@@ -107,4 +107,31 @@ describe('ShareAnnotator', () => {
     annot.receive('peer', { shareId: 'sharer', kind: 'pointer', off: true });
     expect(sent).toEqual([]);
   });
+
+  it('the pen drops points that barely moved', () => {
+    button('pen')?.click();
+    fire('pointerdown', 400, 225);
+    fire('pointermove', 400.5, 225); // < STROKE_MIN_STEP of the frame
+    fire('pointermove', 480, 225);
+    fire('pointerup', 480, 225);
+    expect(sent[sent.length - 1].pts).toEqual([0.5, 0.5, 0.6, 0.5]);
+  });
+});
+
+describe('ShareAnnotator overlay cost', () => {
+  it('holds no backing store until something is drawn', () => {
+    const m = mount();
+    new ShareAnnotator({
+      container: m.container,
+      body: m.body,
+      video: m.video,
+      shareId: 'sharer',
+      selfId: () => 'me',
+      peer: (id) => ({ name: id, color: '#f00' }),
+      send: () => {},
+    });
+    const canvas = m.body.querySelector('canvas') as HTMLCanvasElement;
+    expect(canvas.width).toBe(0);
+    expect(canvas.height).toBe(0);
+  });
 });
