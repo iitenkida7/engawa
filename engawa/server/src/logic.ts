@@ -618,6 +618,63 @@ export function parseGroupMembers(groupKey: string | null | undefined): string[]
   return rest.split(',').filter((id) => id.length > 0);
 }
 
+// ── Share annotation (pointer / pen over a screenshare) ─────────────────────
+export const ANNOTATE_MAX_POINTS = 60; // points per stroke message
+const ANNOTATE_ID_RE = /^[A-Za-z0-9_-]{1,16}$/;
+
+export type NormalizedAnnotation = {
+  shareId: string;
+  kind: 'pointer' | 'stroke';
+  x?: number;
+  y?: number;
+  off?: boolean;
+  id?: string;
+  pts?: number[];
+  end?: boolean;
+};
+
+// A coordinate as a 0–1 fraction rounded to 4 decimals (a 10000-px frame is
+// finer than anyone can aim); null for anything that is not a finite number.
+function unitCoord(v: unknown): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return Math.round(Math.min(1, Math.max(0, v)) * 10000) / 10000;
+}
+
+/**
+ * Validate a client `annotate` message and return only the fields the relay
+ * forwards, or null when it is malformed. The server forwards these verbatim to
+ * the sender's call, so every field is bounded here (ids, point counts,
+ * coordinates) and nothing else is passed along.
+ */
+export function normalizeAnnotation(msg: unknown): NormalizedAnnotation | null {
+  if (!msg || typeof msg !== 'object') return null;
+  const m = msg as Record<string, unknown>;
+  if (typeof m.shareId !== 'string' || m.shareId.length === 0 || m.shareId.length > 64) {
+    return null;
+  }
+  const shareId = m.shareId;
+  if (m.kind === 'pointer') {
+    if (m.off === true) return { shareId, kind: 'pointer', off: true };
+    const x = unitCoord(m.x);
+    const y = unitCoord(m.y);
+    if (x === null || y === null) return null;
+    return { shareId, kind: 'pointer', x, y };
+  }
+  if (m.kind === 'stroke') {
+    if (typeof m.id !== 'string' || !ANNOTATE_ID_RE.test(m.id)) return null;
+    if (!Array.isArray(m.pts) || m.pts.length === 0) return null;
+    if (m.pts.length % 2 !== 0 || m.pts.length > ANNOTATE_MAX_POINTS * 2) return null;
+    const pts: number[] = [];
+    for (const v of m.pts) {
+      const c = unitCoord(v);
+      if (c === null) return null;
+      pts.push(c);
+    }
+    return { shareId, kind: 'stroke', id: m.id, pts, end: m.end === true };
+  }
+  return null;
+}
+
 // How far a client-supplied transcript timestamp may sit from the server's own
 // clock before we stop trusting it. Lines are stamped when the utterance
 // *started*, a few seconds back, so the window is generous; beyond it the

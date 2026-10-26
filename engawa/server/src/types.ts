@@ -100,6 +100,20 @@ export type ClientMessage =
   // An emoji reaction, broadcast to the whole workspace (whitelist-validated)
   // and rendered as a short-lived bubble above the sender's avatar.
   | { type: 'reaction'; emoji: string }
+  // Share annotation (pointer / pen strokes over a screenshare), relayed to the
+  // sender's own call only. Coordinates are 0–1 fractions of the shared frame so
+  // every viewer's window size lines up. Validated by normalizeAnnotation.
+  | {
+      type: 'annotate';
+      shareId: string;
+      kind: 'pointer' | 'stroke';
+      x?: number;
+      y?: number;
+      off?: boolean;
+      id?: string;
+      pts?: number[];
+      end?: boolean;
+    }
   // Speaking state change (debounced): relayed to the workspace so everyone can
   // see a speech bubble over a talker on the map, even out of their call.
   | { type: 'speaking'; speaking: boolean }
@@ -169,6 +183,19 @@ export type ServerMessage =
   // An emoji reaction from a workspace peer (from === self for our own echo),
   // shown floating above that user's avatar.
   | { type: 'reaction'; userId: string; emoji: string }
+  // A call peer's pointer / pen stroke over a screenshare (see ClientMessage).
+  | {
+      type: 'annotate';
+      from: string;
+      shareId: string;
+      kind: 'pointer' | 'stroke';
+      x?: number;
+      y?: number;
+      off?: boolean;
+      id?: string;
+      pts?: number[];
+      end?: boolean;
+    }
   // A workspace peer's speaking state changed; drives the on-map speech bubble.
   | { type: 'player-speaking'; userId: string; speaking: boolean }
   // A workspace peer's recording state changed; the client shows it only for a

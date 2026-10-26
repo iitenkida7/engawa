@@ -10,6 +10,7 @@ import {
   isValidStreamMetaKind,
   MAP_HEIGHT,
   MAP_WIDTH,
+  normalizeAnnotation,
   normalizeBool,
   normalizeClientId,
   normalizeName,
@@ -675,6 +676,24 @@ export function createWebSocketHandler(
             userId: ws.data.userId,
             emoji: msg.emoji,
           });
+          break;
+        }
+
+        case 'annotate': {
+          if (!ws.data.joined) return;
+          const a = normalizeAnnotation(msg);
+          if (!a) return;
+          // Only to the sender's own call, like the transcript: what is drawn on a
+          // share belongs to the people watching it, not the whole floor. The
+          // sender draws its own marks locally, so it is not echoed.
+          const members = parseGroupMembers(ws.data.groupKey);
+          if (members.length === 0) return;
+          for (const c of clients.values()) {
+            if (c.data.userId === ws.data.userId) continue;
+            if (!c.data.joined || c.data.workspace !== ws.data.workspace) continue;
+            if (!members.includes(c.data.userId)) continue;
+            send(c, { type: 'annotate', from: ws.data.userId, ...a });
+          }
           break;
         }
 

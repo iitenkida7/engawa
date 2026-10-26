@@ -365,6 +365,7 @@ export class App {
       media: this.media,
       recorder: this.recorder,
       getMyId: () => this.myId,
+      sendAnnotation: (m) => this.net.send({ type: 'annotate', ...m }),
       onAutoplayBlocked: (unlock) => {
         this.dismissAutoplayToast?.();
         this.dismissAutoplayToast = this.toasts.action(
@@ -1420,6 +1421,12 @@ export class App {
           this.recordingPeers.delete(msg.userId);
           this.refreshRecordingBadge();
         }
+        break;
+      }
+      case 'annotate': {
+        // Someone in our call pointed or drew over a share we are showing.
+        const { type: _t, from, ...body } = msg;
+        this.view.receiveAnnotation(from, body);
         break;
       }
       case 'transcript': {

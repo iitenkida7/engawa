@@ -1593,3 +1593,59 @@ describe('createWebSocketHandler — duplicate tab of the same browser', () => {
     expect(welcomeOf(retry).resumed).toBeUndefined();
   });
 });
+
+describe('createWebSocketHandler — share annotation relay', () => {
+  test('relays only to the call of the sender, stamped with them, never echoed', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const h = createWebSocketHandler(clients, undefined, 'dev', new Set(), () => 1000);
+    const mk = (x: number) => {
+      const ws = makeWs();
+      h.open!(ws);
+      deliver(h, ws, { type: 'join', name: 'U', workspace: 'ws1' });
+      // Already standing there: still clients can form a call.
+      ws.data.x = x;
+      ws.data.y = 100;
+      ws.data.lastMoveAt = 0;
+      deliver(h, ws, { type: 'move', x, y: 100, vx: 0, vy: 0 });
+      return ws;
+    };
+    const a = mk(100);
+    const b = mk(140);
+    const far = mk(1500);
+    // Re-run grouping now that everyone is placed (the second move lands it).
+    deliver(h, a, { type: 'move', x: 100, y: 100, vx: 0, vy: 0 });
+    deliver(h, b, { type: 'move', x: 140, y: 100, vx: 0, vy: 0 });
+    expect(a.data.groupKey).toContain(b.data.userId);
+
+    const before = { a: a.sent.length, b: b.sent.length, far: far.sent.length };
+    deliver(h, a, { type: 'annotate', shareId: 'sharer', kind: 'pointer', x: 0.25, y: 0.75 });
+
+    expect(b.sent.slice(before.b)).toEqual([
+      {
+        type: 'annotate',
+        from: a.data.userId,
+        shareId: 'sharer',
+        kind: 'pointer',
+        x: 0.25,
+        y: 0.75,
+      },
+    ]);
+    expect(far.sent.length).toBe(before.far);
+    expect(a.sent.length).toBe(before.a);
+  });
+
+  test('drops malformed annotations without relaying', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const h = createWebSocketHandler(clients, undefined, 'dev', new Set(), () => 1000);
+    const a = makeWs();
+    const b = makeWs();
+    h.open!(a);
+    h.open!(b);
+    deliver(h, a, { type: 'join', name: 'A', workspace: 'ws1' });
+    deliver(h, b, { type: 'join', name: 'B', workspace: 'ws1' });
+    a.data.groupKey = `mesh:${a.data.userId},${b.data.userId}`;
+    const before = b.sent.length;
+    deliver(h, a, { type: 'annotate', shareId: 's', kind: 'stroke', id: 'bad id', pts: [0, 0] });
+    expect(b.sent.length).toBe(before);
+  });
+});

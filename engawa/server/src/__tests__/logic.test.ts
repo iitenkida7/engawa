@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  ANNOTATE_MAX_POINTS,
   clampPosition,
   computeProximityGroups,
   type GroupMember,
@@ -12,6 +13,7 @@ import {
   MAP_WIDTH,
   MAX_AVATAR_IMAGE_LEN,
   MAX_VELOCITY,
+  normalizeAnnotation,
   normalizeBool,
   normalizeClientId,
   normalizeIceServers,
@@ -722,5 +724,77 @@ describe('sanitizeAvatarImage', () => {
   test('rejects an oversized payload', () => {
     const huge = `data:image/png;base64,${'A'.repeat(MAX_AVATAR_IMAGE_LEN)}`;
     expect(sanitizeAvatarImage(huge)).toBeNull();
+  });
+});
+
+describe('normalizeAnnotation', () => {
+  test('keeps a pointer position as a 0-1 fraction', () => {
+    expect(normalizeAnnotation({ shareId: 's', kind: 'pointer', x: 0.123456, y: 0.5 })).toEqual({
+      shareId: 's',
+      kind: 'pointer',
+      x: 0.1235,
+      y: 0.5,
+    });
+  });
+
+  test('clamps out-of-range coordinates into the frame', () => {
+    const a = normalizeAnnotation({ shareId: 's', kind: 'pointer', x: -3, y: 9 });
+    expect(a).toMatchObject({ x: 0, y: 1 });
+  });
+
+  test('a pointer "off" needs no coordinates', () => {
+    expect(normalizeAnnotation({ shareId: 's', kind: 'pointer', off: true })).toEqual({
+      shareId: 's',
+      kind: 'pointer',
+      off: true,
+    });
+  });
+
+  test('rejects a pointer without finite coordinates', () => {
+    expect(normalizeAnnotation({ shareId: 's', kind: 'pointer' })).toBeNull();
+    const p = { shareId: 's', kind: 'pointer' };
+    expect(normalizeAnnotation({ ...p, x: Number.NaN, y: 0 })).toBeNull();
+    expect(normalizeAnnotation({ ...p, x: '0.5', y: 0 })).toBeNull();
+  });
+
+  test('accepts a stroke chunk and normalises its points', () => {
+    const a = normalizeAnnotation({
+      shareId: 's',
+      kind: 'stroke',
+      id: 'a1',
+      pts: [0, 0.5, 2, 1],
+      end: true,
+    });
+    expect(a).toEqual({ shareId: 's', kind: 'stroke', id: 'a1', pts: [0, 0.5, 1, 1], end: true });
+  });
+
+  test('a stroke without end is not an end', () => {
+    const a = normalizeAnnotation({ shareId: 's', kind: 'stroke', id: 'a1', pts: [0, 0] });
+    expect(a?.end).toBe(false);
+  });
+
+  test('rejects malformed strokes (odd length, empty, too long, bad id, junk values)', () => {
+    const base = { shareId: 's', kind: 'stroke', id: 'a1' };
+    expect(normalizeAnnotation({ ...base, pts: [0.1] })).toBeNull();
+    expect(normalizeAnnotation({ ...base, pts: [] })).toBeNull();
+    const tooMany = new Array(ANNOTATE_MAX_POINTS * 2 + 2).fill(0);
+    expect(normalizeAnnotation({ ...base, pts: tooMany })).toBeNull();
+    expect(normalizeAnnotation({ ...base, id: 'has space', pts: [0, 0] })).toBeNull();
+    expect(normalizeAnnotation({ ...base, id: 'x'.repeat(17), pts: [0, 0] })).toBeNull();
+    expect(normalizeAnnotation({ ...base, pts: [0, 'a'] })).toBeNull();
+  });
+
+  test('rejects a missing or oversized shareId, unknown kinds and non-objects', () => {
+    expect(normalizeAnnotation({ kind: 'pointer', x: 0, y: 0 })).toBeNull();
+    const long = { shareId: 'x'.repeat(65), kind: 'pointer', x: 0, y: 0 };
+    expect(normalizeAnnotation(long)).toBeNull();
+    expect(normalizeAnnotation({ shareId: 's', kind: 'laser', x: 0, y: 0 })).toBeNull();
+    expect(normalizeAnnotation(null)).toBeNull();
+    expect(normalizeAnnotation('x')).toBeNull();
+  });
+
+  test('forwards nothing beyond the validated fields', () => {
+    const a = normalizeAnnotation({ shareId: 's', kind: 'pointer', x: 0, y: 0, evil: '<script>' });
+    expect(a).toEqual({ shareId: 's', kind: 'pointer', x: 0, y: 0 });
   });
 });
