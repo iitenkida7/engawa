@@ -196,13 +196,14 @@ export class RemoteMediaView {
     onAutoplayBlocked: (unlock: () => void) => void;
     onAutoplayUnlocked: () => void;
     // Ship one pointer / pen message to the call (App adds the envelope).
-    sendAnnotation: (m: AnnotateBody) => void;
+    // Optional: without it marks stay local (tests that only lay out tiles).
+    sendAnnotation?: (m: AnnotateBody) => void;
   }) {
     this.players = opts.players;
     this.media = opts.media;
     this.recorder = opts.recorder;
     this.getMyId = opts.getMyId;
-    this.sendAnnotation = opts.sendAnnotation;
+    this.sendAnnotation = opts.sendAnnotation ?? (() => {});
     this.autoplay = new AutoplayGate({
       onBlocked: () => opts.onAutoplayBlocked(this.autoplay.unlock),
       onUnlocked: opts.onAutoplayUnlocked,
