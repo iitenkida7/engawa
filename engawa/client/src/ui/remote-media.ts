@@ -1,6 +1,6 @@
 import { t } from '@/core/i18n';
 import { logNet } from '@/core/netlog';
-import type { StreamKind } from '@/core/types';
+import type { AnnotateBody, StreamKind } from '@/core/types';
 import type { MediaManager } from '@/media/media';
 import type { RecorderManager } from '@/media/recorder';
 import {
@@ -10,6 +10,7 @@ import {
   SPEAKING_POLL_MS,
   type SpeakingDetector,
 } from '@/media/speaking';
+import { ShareAnnotator } from '@/ui/annotate';
 import { AutoplayGate } from '@/ui/autoplay';
 import { type FaceEntry, FacePipView, isFacePipSupported } from '@/ui/face-pip';
 import { createFocusButton, type LayoutPanel, MediaLayout } from '@/ui/media-layout';
@@ -77,6 +78,8 @@ type Screenshare = {
   // Viewer-side zoom/pan controller (only active while maximized). Torn down
   // with the stage.
   zoom: ScreenZoom;
+  // Pointer / pen overlay shared with everyone watching this share.
+  annot: ShareAnnotator;
   // Removes the stage's click handler when the stage is destroyed (it
   // captures `this`/userId, so it must be detached explicitly rather than
   // relying on the element being GC'd).
@@ -118,6 +121,7 @@ export class RemoteMediaView {
   private media: MediaManager;
   private recorder: RecorderManager;
   private getMyId: () => string;
+  private sendAnnotation: (m: AnnotateBody) => void;
 
   private remoteVideosEl: HTMLDivElement;
   // Screenshare stages live as siblings of #remote-videos (directly under #app),
@@ -191,11 +195,14 @@ export class RemoteMediaView {
     // and must be called from a user gesture (e.g. a prompt's button).
     onAutoplayBlocked: (unlock: () => void) => void;
     onAutoplayUnlocked: () => void;
+    // Ship one pointer / pen message to the call (App adds the envelope).
+    sendAnnotation: (m: AnnotateBody) => void;
   }) {
     this.players = opts.players;
     this.media = opts.media;
     this.recorder = opts.recorder;
     this.getMyId = opts.getMyId;
+    this.sendAnnotation = opts.sendAnnotation;
     this.autoplay = new AutoplayGate({
       onBlocked: () => opts.onAutoplayBlocked(this.autoplay.unlock),
       onUnlocked: opts.onAutoplayUnlocked,
@@ -748,6 +755,12 @@ export class RemoteMediaView {
   // Removes a user's screenshare stage (no-op if they aren't sharing). When the
   // main share stops, the next-oldest share is promoted to main. When the last
   // share stops, the layout reverts to the sidebar default (issue #175).
+  // A call peer's pointer / stroke over a share. Ignored when we are not showing
+  // that share (it may have just stopped, or belong to another call).
+  receiveAnnotation(from: string, m: AnnotateBody) {
+    this.screenshares.get(m.shareId)?.annot.receive(from, m);
+  }
+
   removeScreenshare(userId: string) {
     const ss = this.screenshares.get(userId);
     if (!ss) return;
@@ -827,11 +840,24 @@ export class RemoteMediaView {
     // Viewer-side zoom (+/- and drag-pan), shown only while this stage is
     // maximized. Disposed with the stage (below).
     const zoom = new ScreenZoom(container, video);
+    const annot = new ShareAnnotator({
+      container,
+      body,
+      video,
+      shareId: userId,
+      selfId: () => this.getMyId(),
+      peer: (id) => {
+        const p = this.players.get(id);
+        return { name: p?.name || id.slice(0, 6), color: p?.color || '#ff5a5f' };
+      },
+      send: (m) => this.sendAnnotation(m),
+    });
     const cleanup = () => {
       container.removeEventListener('click', onClick);
       zoom.dispose();
+      annot.dispose();
     };
-    return { container, video, label, streamId: '', zoom, cleanup };
+    return { container, video, label, streamId: '', zoom, annot, cleanup };
   }
 
   // ============= Self preview =============

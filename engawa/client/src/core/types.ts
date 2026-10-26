@@ -30,6 +30,20 @@ export type SfuTrack = { kind: StreamKind; trackName: string };
 
 export type PlayerStatus = 'online' | 'busy' | 'away';
 
+// The payload of an `annotate` message (both directions); see the server's
+// normalizeAnnotation for the bounds it enforces.
+export type AnnotateBody = {
+  // userId of whoever is sharing the screen being annotated.
+  shareId: string;
+  kind: 'pointer' | 'stroke';
+  x?: number;
+  y?: number;
+  off?: boolean;
+  id?: string;
+  pts?: number[];
+  end?: boolean;
+};
+
 export type ClientMessage =
   // Single-space now: the client no longer sends `workspace`. `password` is only
   // present when an access password is configured (verified pre-join).
@@ -90,6 +104,9 @@ export type ClientMessage =
   // An emoji reaction, broadcast to the whole workspace (whitelist-validated)
   // and rendered as a short-lived bubble above the sender's avatar.
   | { type: 'reaction'; emoji: string }
+  // Pointer / pen over a screenshare, relayed to our call only. Coordinates are
+  // 0–1 fractions of the shared frame (ui/annotate-logic.ts).
+  | ({ type: 'annotate' } & AnnotateBody)
   // Speaking state change (debounced): broadcast so everyone — even people out of
   // our call who don't receive our audio — can see a speech bubble over us on the
   // map. Sent only on transition.
@@ -160,6 +177,8 @@ export type ServerMessage =
   // An emoji reaction from a workspace peer (from === self for our own echo),
   // shown floating above that user's avatar.
   | { type: 'reaction'; userId: string; emoji: string }
+  // A call peer's pointer / stroke over a screenshare.
+  | ({ type: 'annotate'; from: string } & AnnotateBody)
   // A workspace peer's speaking state changed; drives the on-map speech bubble so
   // you can see far-away people talking.
   | { type: 'player-speaking'; userId: string; speaking: boolean }

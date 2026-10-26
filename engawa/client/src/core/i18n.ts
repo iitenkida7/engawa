@@ -108,6 +108,8 @@ const STR: Record<string, Record<Lang, string>> = {
   'roster.chat': { ja: 'チャット', en: 'Chat' },
   'roster.status': { ja: 'ステータス', en: 'Status' },
   // Avatar action menu (click an avatar on the map).
+  'annot.pointer': { ja: '🔴 ポインタ', en: '🔴 Pointer' },
+  'annot.pen': { ja: '✏️ ペン', en: '✏️ Pen' },
   'avatar.goto': { ja: 'そこへ行く', en: 'Go there' },
   'avatar.knock': { ja: '呼ぶ', en: 'Call' },
 
