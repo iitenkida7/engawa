@@ -25,10 +25,8 @@ describe('ShareAnnotator', () => {
   let container: HTMLElement;
   let canvas: HTMLCanvasElement;
 
-  const button = (label: string) =>
-    [...container.querySelectorAll<HTMLButtonElement>('.annot-btn')].find((b) =>
-      b.textContent?.includes(label),
-    );
+  const button = (tool: 'pointer' | 'pen') =>
+    container.querySelector<HTMLButtonElement>(`.annot-btn[data-tool="${tool}"]`);
   const fire = (type: string, x: number, y: number) =>
     canvas.dispatchEvent(
       new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, clientX: x, clientY: y }),
@@ -65,13 +63,13 @@ describe('ShareAnnotator', () => {
   });
 
   it('the pointer tool sends the position as fractions of the shared frame', () => {
-    button('ポインタ')?.click();
+    button('pointer')?.click();
     fire('pointermove', 400, 225);
     expect(sent).toEqual([{ shareId: 'sharer', kind: 'pointer', x: 0.5, y: 0.5 }]);
   });
 
   it('throttles pointer updates and sends "off" when the pointer leaves', () => {
-    button('ポインタ')?.click();
+    button('pointer')?.click();
     fire('pointermove', 100, 100);
     clock += 10;
     fire('pointermove', 110, 110);
@@ -84,7 +82,7 @@ describe('ShareAnnotator', () => {
   });
 
   it('the pen sends a stroke chunk, marked as the end when the button is released', () => {
-    button('ペン')?.click();
+    button('pen')?.click();
     fire('pointerdown', 0, 0);
     fire('pointermove', 400, 225);
     fire('pointerup', 400, 225);
@@ -96,8 +94,8 @@ describe('ShareAnnotator', () => {
   });
 
   it('clicking the active tool again turns it off', () => {
-    button('ペン')?.click();
-    button('ペン')?.click();
+    button('pen')?.click();
+    button('pen')?.click();
     fire('pointerdown', 10, 10);
     fire('pointerup', 10, 10);
     expect(sent).toEqual([]);

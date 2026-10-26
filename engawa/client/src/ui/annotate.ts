@@ -98,6 +98,7 @@ export class ShareAnnotator {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'annot-btn';
+      b.dataset.tool = tool;
       b.textContent = label;
       b.addEventListener('click', () => this.setTool(this.tool === tool ? 'off' : tool));
       this.buttons.set(tool, b);
