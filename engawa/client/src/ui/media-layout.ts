@@ -28,6 +28,22 @@ import {
 // identifies it across re-flows ('cam:<id>' / 'screen:<id>' / 'self').
 export type LayoutPanel = { el: HTMLElement; item: LayoutItem; key: string };
 
+// Meeting order: screenshares first (the featured one leads), then YOUR camera,
+// then everyone else. collectPanels() lists your own tile last, so its cell used
+// to slide around as people joined and left — in the gallery it kept moving down
+// and across the grid, in the filmstrip it fell off the bottom of a big meeting.
+// Putting it right after the shares gives it one fixed slot (gallery: top-left;
+// presentation: top of the rail) and keeps it inside the visible set.
+export function pinSelfFirst<T extends { key: string; item: { aspectLocked: boolean } }>(
+  panels: T[],
+): T[] {
+  const shares = panels.filter((p) => !p.item.aspectLocked);
+  const cams = panels.filter((p) => p.item.aspectLocked);
+  const self = cams.filter((p) => p.key === 'self');
+  const others = cams.filter((p) => p.key !== 'self');
+  return [...shares, ...self, ...others];
+}
+
 // Chevron used by the filmstrip show-more button; rotated 180° (via the
 // `.expanded` class) for the fold-back direction, so up and down are the exact
 // same shape mirrored — not two differently-drawn text glyphs.
@@ -367,7 +383,8 @@ export class MediaLayout {
   // featured share fills the main area and the cameras ride a LEFT filmstrip,
   // collapsed to however many keep a readable height (⬇️ reveals the rest). With
   // no share: a full-bleed gallery grid of everyone.
-  private layoutMeeting(panels: LayoutPanel[], vw: number, vh: number) {
+  private layoutMeeting(unordered: LayoutPanel[], vw: number, vh: number) {
+    const panels = pinSelfFirst(unordered);
     const mainIdx = panels.findIndex((p) => !p.item.aspectLocked);
     // A pin whose window is gone (peer left, share stopped, or it became the
     // main share) is dropped, so the split never lingers with an empty pane.
