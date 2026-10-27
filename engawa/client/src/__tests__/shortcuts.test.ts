@@ -12,6 +12,15 @@ describe('resolveShortcut', () => {
     expect(resolveShortcut({ key: 'p' })).toEqual({ action: 'roster' });
   });
 
+  test('Esc goes back to the map, one way only', () => {
+    expect(resolveShortcut({ key: 'Escape' })).toEqual({ action: 'map-view' });
+    // Not a second 'v': a toggle would let Esc drop you INTO the meeting view.
+    expect(resolveShortcut({ key: 'Escape' })).not.toEqual({ action: 'meeting-view' });
+    // Esc cancelling an IME conversion must not also leave the meeting view.
+    expect(resolveShortcut({ key: 'Escape', isComposing: true })).toBeNull();
+    expect(resolveShortcut({ key: 'Escape', shiftKey: true })).toBeNull();
+  });
+
   test('leaves every movement key to the avatar (#302)', () => {
     // All three dialects walk, so none of these twelve may fire an action —
     // 'a' and 's' in particular used to be mic and screen share.
@@ -83,7 +92,7 @@ describe('resolveShortcut', () => {
   });
 
   test('ignores keys with no binding', () => {
-    for (const key of ['Enter', ' ', 'Escape', 'Tab', 'q', 'e', 'f', 'g']) {
+    for (const key of ['Enter', ' ', 'Tab', 'q', 'e', 'f', 'g']) {
       expect(resolveShortcut({ key })).toBeNull();
     }
   });
@@ -120,6 +129,7 @@ describe('SHORTCUT_HELP', () => {
       'keys.roster',
       'keys.reaction',
       'keys.help',
+      'keys.escape',
     ]) {
       expect(documented).toContain(key);
     }

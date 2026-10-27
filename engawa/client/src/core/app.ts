@@ -113,6 +113,15 @@ const LOCATE_MS = 10_000;
 // often to keep localStorage writes cheap.
 const POS_STORAGE_KEY = 'engawa-pos';
 const POS_SAVE_INTERVAL_MS = 3000;
+// Open menus and dialogs that sit on top of the meeting view. While one shows,
+// Esc is not taken as "back to the map" (see the 'map-view' shortcut).
+const ESC_OWNERS = [
+  '.device-menu:not(.hidden)',
+  '#avatar-editor:not(.hidden)',
+  '#transcript-setup:not(.hidden)',
+  '#notify-help:not(.hidden)',
+  '#keyhelp:not(.hidden)',
+].join(', ');
 
 // Top-level orchestrator: owns the game loop (movement, position sync, proximity
 // calls), routes server messages, and wires the subsystems together. The DOM /
@@ -637,6 +646,12 @@ export class App {
         break;
       case 'meeting-view':
         this.view.toggleMeetingView();
+        break;
+      case 'map-view':
+        // Esc is everyone's "close this": leave it to whatever claimed it (key
+        // help, a maximized window) or is open on top (a menu, a dialog).
+        if (e.defaultPrevented || document.querySelector(ESC_OWNERS)) break;
+        this.view.showMapView();
         break;
       case 'zoom':
         this.renderer.toggleZoom();

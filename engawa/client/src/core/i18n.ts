@@ -505,7 +505,10 @@ const STR: Record<string, Record<Lang, string>> = {
   'keys.roster': { ja: '参加者リスト 開閉', en: 'Toggle participants' },
   'keys.reaction': { ja: 'リアクション', en: 'Reactions' },
   'keys.help': { ja: 'この一覧 開閉', en: 'Toggle this list' },
-  'keys.focusOut': { ja: '最大化を戻す', en: 'Exit maximized view' },
+  'keys.escape': {
+    ja: '最大化を戻す／会議表示からマップ表示へ',
+    en: 'Exit maximized view / meeting view to map',
+  },
   'keys.note': {
     ja: 'Shift 付きは、ほかの人に見える操作です。入力欄にカーソルがあるときは動きません。',
     en: 'Shift + key is for what others see. Inactive while a text field has focus.',
