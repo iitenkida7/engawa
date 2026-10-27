@@ -1264,6 +1264,15 @@
           opacity: 1;
         }
       }
+      /* Invisible is not inert: while hidden, let clicks and drags fall through
+         to the video instead of nudging a slider nobody can see. The #app id
+         outranks the meeting view's pointer-events: auto on the floating chip.
+         Hover-capable devices only — touch keeps the slider always shown. */
+      @media (hover: hover) {
+        #app .remote-tile:not(:hover) .panel-header .vol:not(.changed):not(:focus-within) {
+          pointer-events: none;
+        }
+      }
 
       .panel-header .header-left {
         display: flex;
