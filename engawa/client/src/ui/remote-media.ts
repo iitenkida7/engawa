@@ -1089,6 +1089,10 @@ export class RemoteMediaView {
     this.layout.toggleMeetingView();
   }
 
+  showMapView() {
+    this.layout.showMapView();
+  }
+
   private reflowLayout() {
     this.layout.reflow();
   }

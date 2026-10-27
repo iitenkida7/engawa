@@ -5,7 +5,16 @@ import { REACTION_EMOJIS } from '@/core/types';
 // Movement keys are NOT here — they're held-state, owned by world/input.ts.
 export type Shortcut =
   | {
-      action: 'meeting-view' | 'zoom' | 'mic' | 'cam' | 'screen' | 'record' | 'roster' | 'help';
+      action:
+        | 'meeting-view'
+        | 'map-view'
+        | 'zoom'
+        | 'mic'
+        | 'cam'
+        | 'screen'
+        | 'record'
+        | 'roster'
+        | 'help';
     }
   // Index into REACTION_EMOJIS, from the 1-6 number row.
   | { action: 'reaction'; index: number };
@@ -63,6 +72,12 @@ export function resolveShortcut(e: ShortcutKeyEvent): Shortcut | null {
       return { action: 'zoom' };
     case 'p':
       return { action: 'roster' };
+    // One-way "back to the map" from the immersive meeting view. Unlike 'v' it
+    // never flips back, so Esc can't drop you INTO a meeting. Overlays that use
+    // Esc themselves (key help, a maximized window) claim it first by calling
+    // preventDefault, and the App skips it then.
+    case 'escape':
+      return { action: 'map-view' };
   }
 
   const n = Number(key);
@@ -90,5 +105,5 @@ export const SHORTCUT_HELP: { keys: string[]; labelKey: string }[] = [
   { keys: ['Shift + S'], labelKey: 'keys.screen' },
   { keys: ['Shift + R'], labelKey: 'keys.record' },
   { keys: ['?'], labelKey: 'keys.help' },
-  { keys: ['Esc'], labelKey: 'keys.focusOut' },
+  { keys: ['Esc'], labelKey: 'keys.escape' },
 ];

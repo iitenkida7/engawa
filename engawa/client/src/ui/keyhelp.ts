@@ -47,7 +47,10 @@ export class KeyHelpPanel {
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape' || e.isComposing) return;
       if (isTextInput(e.target)) return;
-      if (!this.panel.classList.contains('hidden')) this.close();
+      if (this.panel.classList.contains('hidden')) return;
+      // Claimed: the App's Esc-to-map shortcut (on window, after us) skips it.
+      e.preventDefault();
+      this.close();
     });
   }
 

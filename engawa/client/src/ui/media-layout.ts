@@ -197,6 +197,9 @@ export class MediaLayout {
       ) {
         return;
       }
+      // Claimed: one Esc un-maximizes; it must not also leave the meeting view
+      // (the App's Esc-to-map shortcut runs after us on window and checks this).
+      e.preventDefault();
       this.clearFocus();
     });
     // Re-flow the active layout when the viewport changes so the fixed
@@ -579,6 +582,13 @@ export class MediaLayout {
     // Each view starts collapsed; don't carry the chevron state across.
     this.filmstripExpanded = false;
     this.reflow();
+  }
+
+  // Esc's one-way half of the toggle: leaves the immersive meeting view for the
+  // map, and does nothing when already on the map or outside a meeting.
+  showMapView() {
+    if (this.meetingMinimized) return;
+    this.toggleMeetingView();
   }
 
   // Shows the top-left minimize/restore toggle whenever we're in a meeting, and
