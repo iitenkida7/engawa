@@ -1173,16 +1173,17 @@
 
       /* Left side of a panel header: the muted mic icon + the name, grouped so
          the maximize button stays at the far right. */
-      /* Per-person volume in a remote tile's header. Dimmed at rest rather than
-         hidden: a control that only appears on hover is one nobody finds. It
-         takes the same width either way, so nothing shifts when it lights up. */
+      /* Per-person volume in a remote tile's header. Hidden at rest: even dimmed
+         it sat on top of faces, and adjusting a volume is rare — hovering the
+         tile brings it up. It takes the same width either way, so nothing
+         shifts when it appears. */
       .panel-header .vol {
         display: flex;
         align-items: center;
         gap: 4px;
         margin: 0 6px;
         flex: none;
-        opacity: 0.45;
+        opacity: 0;
         transition: opacity 0.15s;
       }
       .remote-tile:hover .vol,
@@ -1261,6 +1262,15 @@
       @media (hover: none) {
         .panel-header .vol {
           opacity: 1;
+        }
+      }
+      /* Invisible is not inert: while hidden, let clicks and drags fall through
+         to the video instead of nudging a slider nobody can see. The #app id
+         outranks the meeting view's pointer-events: auto on the floating chip.
+         Hover-capable devices only — touch keeps the slider always shown. */
+      @media (hover: hover) {
+        #app .remote-tile:not(:hover) .panel-header .vol:not(.changed):not(:focus-within) {
+          pointer-events: none;
         }
       }
 
