@@ -23,7 +23,6 @@ import {
   optionLabel,
 } from '@/world/character';
 import {
-  defaultOutfit,
   normalizeOutfit,
   OUTFIT_CATEGORIES,
   type Outfit,
@@ -46,18 +45,22 @@ const THUMB_SCALE = 0.8;
 
 /**
  * Read the persisted outfit, normalized against the current asset counts. With
- * nothing stored yet (first visit) we seed the sensible clothed `defaultOutfit`
- * rather than the all-zeros normalize fallback (which would be a bald, shirt-0
- * look). A stored value is taken as-is and clamped.
+ * nothing usable stored (first visit, or unparseable JSON) we roll a random
+ * outfit and persist it, so newcomers don't all share one look and keep the
+ * same one across reloads. A stored value is taken as-is and clamped.
  */
 export function loadOutfit(): Outfit {
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === null) return normalizeOutfit(defaultOutfit(), OUTFIT_COUNTS);
   let raw: unknown = null;
   try {
-    raw = JSON.parse(stored);
+    raw = stored === null ? null : JSON.parse(stored);
   } catch {
     raw = null;
+  }
+  if (raw === null) {
+    const rolled = randomOutfit(OUTFIT_COUNTS);
+    saveOutfit(rolled);
+    return rolled;
   }
   return normalizeOutfit(raw, OUTFIT_COUNTS);
 }
