@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { readdir } from 'node:fs/promises';
 import office from '../../../maps/office.json';
 import { loadMap, MAX_MAP_BYTES, mapWorld, OFFICE_WORLD } from '../map';
 
@@ -52,5 +53,18 @@ describe('loadMap', () => {
     await expect(loadMap(env, serve(' '.repeat(MAX_MAP_BYTES + 1)))).rejects.toThrow(/over/);
     const broken = JSON.stringify({ ...office, cols: 0 });
     await expect(loadMap(env, serve(broken))).rejects.toThrow(/invalid map data/);
+  });
+});
+
+describe('bundled presets', () => {
+  // Every map shipped in maps/ has to load: a broken one would only surface
+  // when someone points MAP at it and the server refuses to boot.
+  test('every bundled map loads and validates', async () => {
+    const names = (await readdir(new URL('../../../maps/', import.meta.url)))
+      // maps/ also holds its own biome.json; everything else there is a map.
+      .filter((f) => f.endsWith('.json') && f !== 'biome.json')
+      .map((f) => f.slice(0, -'.json'.length));
+    expect(names).toEqual(expect.arrayContaining(['office', 'small']));
+    for (const name of names) expect((await loadMap(name)).source).toBe(`preset '${name}'`);
   });
 });

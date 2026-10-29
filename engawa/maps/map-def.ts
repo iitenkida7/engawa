@@ -317,6 +317,18 @@ export function assertMapDef(input: unknown): MapDef {
     if (ks.some((k) => built.has(k))) bad(`trees[${i}] at ${t.c},${t.r} is not on open grass`);
     build(ks);
   });
+  // Newcomers appear anywhere in the spawn area, so it must stay out of the
+  // rooms: a room is an always-on call zone, and landing in one drops you into
+  // a stranger's meeting the moment you join. The default area is a whole
+  // building floor, rooms included, so a map with rooms has to name its spawn.
+  const spawnTiles = new Set(tiles(spawnArea(def)));
+  for (const room of def.rooms)
+    if (tiles(room).some((k) => spawnTiles.has(k)))
+      bad(
+        def.spawn
+          ? `spawn overlaps room '${room.id}'`
+          : `the default spawn area covers room '${room.id}': give the map a spawn`,
+      );
   return deepFreeze(def);
 }
 

@@ -31,6 +31,7 @@ const BASE: MapDef = {
   plants: [[3, 9]],
   ponds: [{ c: 15, r: 2, w: 2, h: 2 }],
   trees: [{ c: 16, r: 10, size: 2, variant: 0 }],
+  spawn: { c: 3, r: 8, w: 3, h: 2 },
 };
 
 // assertMapDef freezes what it is given, so every case gets its own copy.
@@ -174,6 +175,14 @@ describe('assertMapDef', () => {
     expect(() => assertMapDef(f)).toThrow(/trees\[1\] at 17,11 is not on open grass/);
   });
 
+  it('rejects a spawn that reaches into a room (you would land in its call)', () => {
+    const d = map({ spawn: { c: 4, r: 4, w: 2, h: 2 } });
+    expect(() => assertMapDef(d)).toThrow(/spawn overlaps room 'r1'/);
+    // Rooms with no spawn named fall back to the whole building floor, rooms included.
+    const e = map({ spawn: undefined });
+    expect(() => assertMapDef(e)).toThrow(/default spawn area covers room 'r1': give the map a spawn/);
+  });
+
   it('spawns in the map spawn rect, else inside the first building, else anywhere', () => {
     expect(spawnArea(map({ spawn: { c: 3, r: 4, w: 2, h: 2 } }))).toEqual({
       c: 3,
@@ -181,8 +190,8 @@ describe('assertMapDef', () => {
       w: 2,
       h: 2,
     });
-    expect(spawnArea(map())).toEqual({ c: 3, r: 3, w: 8, h: 8 });
-    expect(spawnArea(map({ buildings: [] }))).toEqual({ c: 0, r: 0, w: 20, h: 20 });
+    expect(spawnArea(map({ spawn: undefined }))).toEqual({ c: 3, r: 3, w: 8, h: 8 });
+    expect(spawnArea(map({ spawn: undefined, buildings: [] }))).toEqual({ c: 0, r: 0, w: 20, h: 20 });
     const d = map({ spawn: { c: 19, r: 0, w: 2, h: 1 } });
     expect(() => assertMapDef(d)).toThrow(/spawn: rect .* runs outside/);
   });
