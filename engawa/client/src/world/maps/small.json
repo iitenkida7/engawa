@@ -9,9 +9,7 @@
     { "id": "meeting-1", "kind": "meeting", "name": { "ja": "会議室1", "en": "Meeting room 1" }, "c": 5, "r": 5, "w": 7, "h": 4, "doors": [[8, 9], [9, 9]], "table": { "c": 7, "r": 6, "w": 3, "h": 2 }, "floor": { "pattern": "brick", "color": 4 } },
     { "id": "meeting-2", "kind": "meeting", "name": { "ja": "会議室2", "en": "Meeting room 2" }, "c": 13, "r": 5, "w": 4, "h": 4, "doors": [[14, 9], [15, 9]], "table": { "c": 14, "r": 6, "w": 2, "h": 2 }, "floor": { "pattern": "crosshatch", "color": 5 } },
     { "id": "1on1-1", "kind": "oneonone", "name": { "ja": "1on1ルーム1", "en": "1-on-1 room 1" }, "c": 18, "r": 5, "w": 3, "h": 3, "doors": [[19, 8]], "table": { "c": 19, "r": 6, "w": 1, "h": 1 }, "floor": { "pattern": "stripe", "color": 7 } },
-    { "id": "1on1-2", "kind": "oneonone", "name": { "ja": "1on1ルーム2", "en": "1-on-1 room 2" }, "c": 22, "r": 5, "w": 3, "h": 3, "doors": [[23, 8]], "table": { "c": 23, "r": 6, "w": 1, "h": 1 }, "floor": { "pattern": "houndstooth", "color": 3 } },
-    { "id": "booth-1", "kind": "booth", "name": { "ja": "商談ブース1", "en": "Meeting booth 1" }, "c": 5, "r": 20, "w": 3, "h": 3, "doors": [[6, 19]], "table": { "c": 6, "r": 21, "w": 1, "h": 1 }, "floor": { "pattern": "chevron", "color": 4 } },
-    { "id": "booth-2", "kind": "booth", "name": { "ja": "商談ブース2", "en": "Meeting booth 2" }, "c": 9, "r": 20, "w": 3, "h": 3, "doors": [[10, 19]], "table": { "c": 10, "r": 21, "w": 1, "h": 1 }, "floor": { "pattern": "herringbone", "color": 0 } }
+    { "id": "1on1-2", "kind": "oneonone", "name": { "ja": "1on1ルーム2", "en": "1-on-1 room 2" }, "c": 22, "r": 5, "w": 3, "h": 3, "doors": [[23, 8]], "table": { "c": 23, "r": 6, "w": 1, "h": 1 }, "floor": { "pattern": "houndstooth", "color": 3 } }
   ],
   "desks": [
     { "c": 8, "r": 13, "facing": "south", "rug": { "pattern": "chevron", "color": 2 } },
@@ -22,13 +20,13 @@
     { "c": 18, "r": 14, "facing": "north", "rug": { "pattern": "vstripe", "color": 5 } },
     { "c": 23, "r": 13, "facing": "south", "rug": { "pattern": "stripe", "color": 6 } },
     { "c": 23, "r": 14, "facing": "north", "rug": { "pattern": "stripe", "color": 6 } },
-    { "c": 16, "r": 20, "facing": "south" },
-    { "c": 16, "r": 21, "facing": "north" },
-    { "c": 20, "r": 20, "facing": "south" },
-    { "c": 20, "r": 21, "facing": "north" }
+    { "c": 13, "r": 20, "facing": "south" },
+    { "c": 13, "r": 21, "facing": "north" },
+    { "c": 17, "r": 20, "facing": "south" },
+    { "c": 17, "r": 21, "facing": "north" }
   ],
   "teamAreas": [
-    { "id": "team-area", "c": 14, "r": 18, "w": 9, "h": 5, "floor": { "pattern": "vstripe", "color": 2 } }
+    { "id": "team-area", "c": 11, "r": 18, "w": 9, "h": 5, "floor": { "pattern": "vstripe", "color": 2 } }
   ],
   "lounges": [
     { "id": "cafe", "name": { "ja": "ラウンジ", "en": "Lounge" }, "c": 29, "r": 11, "w": 6, "h": 5, "floor": { "pattern": "stripe", "color": 8 } }
@@ -37,7 +35,8 @@
     [5, 10],
     [26, 5],
     [26, 10],
-    [13, 22],
+    [5, 22],
+    [7, 22],
     [24, 22],
     [26, 22]
   ],
