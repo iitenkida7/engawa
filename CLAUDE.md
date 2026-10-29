@@ -264,6 +264,9 @@ engawa は **host 非依存の OSS**。リリースとは「**バージョンタ
 - **技術読本**: `docs/reader/index.html`（日本語）と英語版 `docs/reader/en.html`（どちらも自己完結の 1 ファイル）。SFU・simulcast・帯域推定・音声・
   画面共有などを公開ソースと engawa の実装で照合した読み物。実装の数値（レイヤ構成・tier・ノイズ除去の設定など）を
   変えたら、読本の該当箇所も**日英両方**更新する。
+- **マップ JSON 仕様**: `docs/map/index.html`（日本語のみ。自己完結の 1 ファイル＋`office-map.webp`）。アプリの `buildMapCache` で書き出した実物のマップに
+  JSON の枠を重ねて MapDef を図解する。画像と埋め込みの office.json は書き出し時点のコピーなので、**`map-def.ts` の形式や `maps/office.json` を変えたら
+  このページも更新する**（画像の書き出し手順はページ末尾の運用メモ）。
 - **スクショ**は `docs/assets/screens/`。実アプリの撮影は **Caddy 経由 `https://engawa.localhost`** で行う
   （`localhost:5173` は Vite が WS の 101 升級を中継できず入室できない）。MCP ブラウザの自己署名証明書エラーは
   Chrome のエラー画面で `thisisunsafe` とタイプして回避。画像は `sips` で中央クロップ＋縮小。favicon は
