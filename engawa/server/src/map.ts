@@ -5,7 +5,7 @@
 // area; it never builds the tile grid.
 
 import { assertMapDef, type MapDef, spawnArea, TILE_SIZE } from '../../maps/map-def';
-import office from '../../maps/office.json';
+import office from '../../maps/office_medium.json';
 import type { PixelRect } from './logic';
 
 /** What the server takes from the map: its size and where newcomers appear, in px. */
@@ -23,11 +23,12 @@ export function mapWorld(def: MapDef): MapWorld {
 /** The bundled office map's world: the default for unit tests. */
 export const OFFICE_WORLD: MapWorld = mapWorld(assertMapDef(structuredClone(office)));
 
-// Bundled presets, selected by name with MAP (default: office).
+// Bundled presets, selected by name with MAP (default: office_medium). Names are
+// prefixed by what they are, so variants of a kind sort together.
 const MAPS_DIR = new URL('../../maps/', import.meta.url);
-export const DEFAULT_MAP = 'office';
+export const DEFAULT_MAP = 'office_medium';
 // A preset name is a file name in MAPS_DIR, nothing that could walk out of it.
-const PRESET_NAME = /^[a-z0-9][a-z0-9-]*$/;
+const PRESET_NAME = /^[a-z0-9][a-z0-9_-]*$/;
 // An external map is a few KB; refuse anything far past that, and don't hang
 // the boot on a slow host.
 export const MAX_MAP_BYTES = 1_000_000;

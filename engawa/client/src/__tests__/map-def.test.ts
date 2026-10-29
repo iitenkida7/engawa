@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { assertMapDef, FLOOR_THEME_COUNT, type MapDef, spawnArea } from '@maps/map-def';
-import office from '@maps/office.json';
+import office from '@maps/office_medium.json';
 import { FLOOR_THEMES } from '@/world/floor-styles';
 
 // A map is JSON: the MapDef types say nothing about what actually loads, so the

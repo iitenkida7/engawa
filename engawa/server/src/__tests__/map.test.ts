@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
-import office from '../../../maps/office.json';
+import office from '../../../maps/office_medium.json';
 import { loadMap, MAX_MAP_BYTES, mapWorld, OFFICE_WORLD } from '../map';
 
 // A fetch stand-in that answers every request with `body` (and `status`).
@@ -23,13 +23,13 @@ describe('mapWorld', () => {
 describe('loadMap', () => {
   test('defaults to the bundled office preset', async () => {
     const { def, source } = await loadMap(undefined);
-    expect(source).toBe("preset 'office'");
+    expect(source).toBe("preset 'office_medium'");
     expect(mapWorld(def)).toEqual(OFFICE_WORLD);
   });
 
   test('loads a preset by name (blank counts as unset)', async () => {
-    expect((await loadMap('office')).source).toBe("preset 'office'");
-    expect((await loadMap(' ')).source).toBe("preset 'office'");
+    expect((await loadMap('office_medium')).source).toBe("preset 'office_medium'");
+    expect((await loadMap(' ')).source).toBe("preset 'office_medium'");
   });
 
   test('rejects an unknown preset, or a name that could leave the maps folder', async () => {
@@ -64,7 +64,7 @@ describe('bundled presets', () => {
       // maps/ also holds its own biome.json; everything else there is a map.
       .filter((f) => f.endsWith('.json') && f !== 'biome.json')
       .map((f) => f.slice(0, -'.json'.length));
-    expect(names).toEqual(expect.arrayContaining(['office', 'small']));
+    expect(names).toEqual(expect.arrayContaining(['office_medium', 'office_small']));
     for (const name of names) expect((await loadMap(name)).source).toBe(`preset '${name}'`);
   });
 });

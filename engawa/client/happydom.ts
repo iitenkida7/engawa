@@ -1,6 +1,6 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { installMap } from '@/world/map-data';
-import office from '@maps/office.json';
+import office from '@maps/office_medium.json';
 
 // Register with a concrete URL so window.location.host is populated; some
 // modules (e.g. network.ts) derive the WS endpoint from it.

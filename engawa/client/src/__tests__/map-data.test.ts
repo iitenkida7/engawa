@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import office from '@maps/office.json';
+import office from '@maps/office_medium.json';
 import { installMap } from '@/world/map-data';
 import { MAP } from '@/world/tilemap';
 

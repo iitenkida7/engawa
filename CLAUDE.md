@@ -217,7 +217,7 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   **名前入力の前**にパスワードゲートを表示（`POST /api/verify-password` で照合）。join でも
   再検証する（`logic.ts` の `verifyAccessPassword` / `isPasswordRequired` 参照）。
   ※複数ワークスペース（`?workspace=`）は廃止。全員が単一スペースに入る。
-- `MAP` — 使うマップ（任意）。同梱プリセット名（`engawa/maps/<name>.json`、既定 `office`）か、http(s) の外部 JSON の URL
+- `MAP` — 使うマップ（任意）。同梱プリセット名（`engawa/maps/<name>.json`。既定 `office_medium`。名前は `<種類>_<規模>` で揃える）か、http(s) の外部 JSON の URL
   （1MB まで）。不正なマップはサーバーが起動を拒否する。読み込みは起動時のみ。
 - `EVENT_WEBHOOK_URL` / `EVENT_WEBHOOK_SECRET` / `EVENT_INCLUDE_NAMES` — イベント Webhook（任意）。URL 未設定なら無効。
   SECRET はボディの HMAC-SHA256 署名（`X-Engawa-Signature`）。参加者は既定で日替わりの匿名 ID、`true` で表示名。
@@ -272,8 +272,8 @@ engawa は **host 非依存の OSS**。リリースとは「**バージョンタ
 - **技術読本**: `docs/reader/index.html`（日本語）と英語版 `docs/reader/en.html`（どちらも自己完結の 1 ファイル）。SFU・simulcast・帯域推定・音声・
   画面共有などを公開ソースと engawa の実装で照合した読み物。実装の数値（レイヤ構成・tier・ノイズ除去の設定など）を
   変えたら、読本の該当箇所も**日英両方**更新する。
-- **マップ JSON 仕様**: `docs/map/index.html`（日本語）と英語版 `docs/map/en.html`（どちらも自己完結の 1 ファイル。画像 `office-map.webp` は共用）。アプリの `buildMapCache` で書き出した実物のマップに
-  JSON の枠を重ねて MapDef を図解する。画像と埋め込みの office.json は書き出し時点のコピーなので、**`map-def.ts` の形式や `maps/office.json` を変えたら
+- **マップ JSON 仕様**: `docs/map/index.html`（日本語）と英語版 `docs/map/en.html`（どちらも自己完結の 1 ファイル。画像 `office-medium-map.webp` は共用）。アプリの `buildMapCache` で書き出した実物のマップに
+  JSON の枠を重ねて MapDef を図解する。画像と埋め込みの office_medium.json は書き出し時点のコピーなので、**`map-def.ts` の形式や `maps/office_medium.json` を変えたら
   このページも日英両方とも更新する**（画像の書き出し手順はページ末尾の運用メモ）。
 - **スクショ**は `docs/assets/screens/`。実アプリの撮影は **Caddy 経由 `https://engawa.localhost`** で行う
   （`localhost:5173` は Vite が WS の 101 升級を中継できず入室できない）。MCP ブラウザの自己署名証明書エラーは
