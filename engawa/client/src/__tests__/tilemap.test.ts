@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
   ARMCHAIR_SPOTS,
-  COL_OFF,
   callZoneAt,
   canOccupy,
   FLOOR_COLOR_COUNT,
@@ -10,30 +9,38 @@ import {
   findWalkableSpawn,
   floorStyleAt,
   isDeskSeat,
-  islandFloorStyle,
   isMeetingRoom,
   isMeetingZone,
   isSolid,
   LOUNGE_TABLE_RECTS,
-  LOUNGES,
+  MAP,
   MAP_COLS,
   MAP_ROWS,
   OPEN_DESK_CHAIRS,
-  OUTDOOR_MARGIN,
   officeMap,
   POD_RUGS,
-  POND,
-  POND_RECT,
+  POND_RECTS,
   podRugAt,
-  ROW_OFF,
   SOLID,
   seatAt,
-  TEAM_AREA_RECT,
+  TEAM_AREAS,
   TILE_SIZE,
   Tile,
   ZONES,
   zoneAt,
 } from '@/world/tilemap';
+
+// The samples below are written in the building-local tiles the layout used
+// before it moved into map data, and shifted into the map by these (#229). The
+// building's outer wall starts two columns LEFT of building-local 0 (the
+// president's office was widened leftwards), hence the +2 — derived from the map
+// so moving the building in office.json keeps every sample on its tile.
+const [BUILDING] = MAP.buildings;
+const COL_OFF = BUILDING.c + 2;
+const ROW_OFF = BUILDING.r;
+const [POND] = MAP.ponds;
+const [POND_RECT] = POND_RECTS;
+const [TEAM_AREA] = TEAM_AREAS;
 
 // Pixel coordinate of the center of tile (col, row).
 function center(col: number, row: number): { x: number; y: number } {
@@ -49,6 +56,48 @@ function findTile(predicate: (t: number) => boolean): { col: number; row: number
   }
   throw new Error('no matching tile');
 }
+
+// The server clamps positions against its own hardcoded copy of the map size
+// (server/src/logic.ts MAP_WIDTH/MAP_HEIGHT) because it has no tilemap. They
+// drifted once already (#229 grew the map and the server kept 2500), which pins
+// players short of the real right edge. The packages can't import each other, so
+// the server's logic.test.ts pins the same literals.
+describe('map size', () => {
+  it("matches the server's hardcoded bounds (server/src/logic.ts)", () => {
+    expect(MAP_COLS * TILE_SIZE).toBe(2600);
+    expect(MAP_ROWS * TILE_SIZE).toBe(2150);
+  });
+});
+
+// Trees/ponds/plants are stamped into the grid from the map data, and a solid
+// 2×2 dropped on a doorway would seal it with no error at all (the map still
+// loads, looking plausible). Pin every door — and the tile you step onto outside
+// each building gate — as walkable.
+describe('doors', () => {
+  it('are walkable, as is the ground outside every building gate', () => {
+    for (const room of MAP.rooms) {
+      for (const [c, r] of room.doors) {
+        const { x, y } = center(c, r);
+        expect({ room: room.id, solid: isSolid(x, y) }).toEqual({ room: room.id, solid: false });
+      }
+    }
+    for (const b of MAP.buildings) {
+      for (const [c, r] of b.doors) {
+        const { x, y } = center(c, r);
+        expect(isSolid(x, y)).toBe(false);
+        // The gate is in a wall of the building rect, so stepping out of it means
+        // leaving that rect — check the tile just beyond.
+        const oc = c === b.c ? c - 1 : c === b.c + b.w - 1 ? c + 1 : c;
+        const or = r === b.r ? r - 1 : r === b.r + b.h - 1 ? r + 1 : r;
+        const out = center(oc, or);
+        expect({ gate: `${c},${r}`, solid: isSolid(out.x, out.y) }).toEqual({
+          gate: `${c},${r}`,
+          solid: false,
+        });
+      }
+    }
+  });
+});
 
 describe('isSolid', () => {
   it('returns true for a SOLID tile coordinate', () => {
@@ -84,7 +133,7 @@ describe('outdoor pond', () => {
 
   it('sits outside the building on the top-right grounds', () => {
     // Above the building's top wall (within the top grass margin).
-    expect(POND.r + POND.h).toBeLessThanOrEqual(OUTDOOR_MARGIN);
+    expect(POND.r + POND.h).toBeLessThanOrEqual(MAP.buildings[0].r);
     // On the right half of the map.
     expect(POND.c).toBeGreaterThan(MAP_COLS / 2);
     // Fully inside the map.
@@ -273,7 +322,7 @@ describe('podRugAt (desk-pod focus veil)', () => {
       const rug = podRugAt(x, y);
       expect(rug).not.toBeNull();
       // The returned rug is one of the exported POD_RUGS and actually contains it.
-      expect(POD_RUGS).toContain(rug!);
+      expect(POD_RUGS.map((p) => p.rect)).toContain(rug!);
       expect(x).toBeGreaterThanOrEqual(rug!.x);
       expect(x).toBeLessThan(rug!.x + rug!.w);
       expect(y).toBeGreaterThanOrEqual(rug!.y);
@@ -326,8 +375,8 @@ describe('floor styles (randomised rugs)', () => {
 
   it('gives the two cafés different styles', () => {
     const mid = (i: number) => ({
-      c: LOUNGES[i].c + COL_OFF + Math.floor(LOUNGES[i].w / 2),
-      r: LOUNGES[i].r + ROW_OFF + Math.floor(LOUNGES[i].h / 2),
+      c: MAP.lounges[i].c + Math.floor(MAP.lounges[i].w / 2),
+      r: MAP.lounges[i].r + Math.floor(MAP.lounges[i].h / 2),
     });
     const left = floorStyleAt(mid(0).c, mid(0).r)!; // cafe-left (in the left wing)
     const right = floorStyleAt(mid(1).c, mid(1).r)!; // cafe-right (in the right wing)
@@ -336,10 +385,17 @@ describe('floor styles (randomised rugs)', () => {
     expect(same(left, right)).toBe(false);
   });
 
-  it('shares a style within an island but differs between neighbours', () => {
-    // Two pod rugs per island → rug 0 and rug 1 are the same island.
-    expect(islandFloorStyle(0)).toEqual(islandFloorStyle(1));
-    expect(same(islandFloorStyle(0), islandFloorStyle(2))).toBe(false); // next island along
+  it('shares a style within every island, and differs from the next island', () => {
+    // Two pod rugs per island (the desks back to back), so rugs pair up 0-1,
+    // 2-3, … Nothing in the map data ties an island's two halves together, so
+    // check every pair rather than just the first (a hand-edited office.json
+    // would otherwise split one island across two patterns).
+    expect(POD_RUGS.length % 2).toBe(0);
+    for (let i = 0; i < POD_RUGS.length; i += 2) {
+      expect(POD_RUGS[i].style).toEqual(POD_RUGS[i + 1].style);
+      const next = POD_RUGS[i + 2];
+      if (next) expect(same(POD_RUGS[i].style, next.style)).toBe(false);
+    }
   });
 });
 
@@ -366,7 +422,7 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
 
   it('derives one zone per walled-off MEETING room, plus the cafés', () => {
     // One zone per room sample + the two cafés (conversation-restricted zones).
-    expect(ZONES).toHaveLength(roomSamples.length + LOUNGES.length);
+    expect(ZONES).toHaveLength(roomSamples.length + MAP.lounges.length);
   });
 
   it('puts all six team-area desks on one shared rug and call, without a zone', () => {
@@ -376,7 +432,7 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     for (const p of onTeam) {
       // Rug-like on the client: no zone (no meeting layout), the shared rug for the veil.
       expect(zoneAt(p.x, p.y)).toBeNull();
-      expect(podRugAt(p.x, p.y)).toEqual(TEAM_AREA_RECT);
+      expect(podRugAt(p.x, p.y)).toEqual(TEAM_AREA.rect);
     }
     // Its desks form one unbroken 9-tile row in each of the two desk rows.
     const row = (r: number) =>

@@ -4,13 +4,13 @@
 
 import { MAP_HEIGHT, MAP_WIDTH } from '@/core/types';
 import { propFor } from '@/world/decor';
+import { FLOOR_THEMES } from '@/world/floor-styles';
 import {
   ARMCHAIR_DX,
   ARMCHAIR_GAP,
   type FloorPattern,
   type FloorStyle,
   floorStyleAt,
-  islandFloorStyle,
   LOUNGE_RECTS,
   LOUNGE_TABLE_RECTS,
   MAP_COLS,
@@ -19,14 +19,13 @@ import {
   OPEN_DESK_CHAIRS,
   officeMap,
   POD_RUGS,
-  POND_RECT,
+  POND_RECTS,
   ROOM_FURNITURE,
   type RoomFurniture,
-  TEAM_AREA_RECT,
+  TEAM_AREAS,
   TILE_SIZE,
   Tile,
   TREES,
-  teamAreaFloorStyle,
 } from '@/world/tilemap';
 
 // ─── Interior theme: 北欧ミニマル / 青山カフェ ───────────────────────────────
@@ -141,11 +140,6 @@ const PALETTE = {
   cabinetHandle: '#6f7784',
 } as const;
 
-// (Rooms/cafés/islands no longer colour-code by kind; they use FLOOR_THEMES.)
-// Rug colour themes (#263 follow-up): a pale base fill + a matching accent for
-// the pattern marks. Rooms/cafés/islands pick one by index (tilemap FloorStyle),
-// so the floors are varied instead of colour-coded by kind. Order is the colour
-// index; keep the length == FLOOR_COLOR_COUNT.
 // Scale an `rgba(r,g,b,a)` string's alpha by a factor (used to soften heavier
 // floor patterns). Returns the input unchanged when it can't be parsed.
 function scaleAlpha(rgba: string, factor: number): string {
@@ -155,20 +149,6 @@ function scaleAlpha(rgba: string, factor: number): string {
   const [r, g, b, a = '1'] = m[1].split(',').map((s) => s.trim());
   return `rgba(${r}, ${g}, ${b}, ${(Number.parseFloat(a) * factor).toFixed(3)})`;
 }
-
-const FLOOR_THEMES: { base: string; accent: string }[] = [
-  // Muted, greyed mid-tones (calm, not colourful) — matched to the slate feel.
-  { base: '#b4c2a8', accent: 'rgba(84,106,78,0.32)' }, // green — greyed sage
-  { base: '#b2c0d4', accent: 'rgba(74,100,138,0.32)' }, // blue — greyed
-  { base: '#c3bcce', accent: 'rgba(104,92,134,0.3)' }, // lavender — greyed mauve
-  { base: '#d2bcc3', accent: 'rgba(158,108,126,0.3)' }, // pink — greyed rose
-  { base: '#f4efdd', accent: 'rgba(176,152,88,0.22)' }, // amber — near-white, faint yellow
-  { base: '#dce2e0', accent: 'rgba(108,128,124,0.24)' }, // teal — pale greyish
-  { base: '#d1b8ab', accent: 'rgba(158,104,78,0.3)' }, // terracotta — greyed clay
-  { base: '#bcc4d6', accent: 'rgba(84,100,132,0.32)' }, // slate
-  // Index 8 (CAFE_COLOR): reserved greige theme for the lounges.
-  { base: '#dcd4c6', accent: 'rgba(122,110,90,0.26)' }, // lounge — greige / taupe
-];
 
 // Floor-pattern cache, keyed by `${pattern}|${accent}` so each colour variant is
 // built once and reused across tiles. Cleared on every map (re)build.
@@ -215,16 +195,14 @@ export function buildMapCache(dpr: number): HTMLCanvasElement {
     }
   }
 
-  // Outdoor pond: one layered water body over the grass, drawn before the trees
-  // so their canopies can overhang its edge (collision is the POND tiles).
-  drawPond(cx, POND_RECT);
+  // Outdoor ponds: one layered water body each over the grass, drawn before the
+  // trees so their canopies can overhang its edge (collision is the POND tiles).
+  for (const rect of POND_RECTS) drawPond(cx, rect);
 
-  // Team-island rugs under the desk pods (over the floor, under the desks),
-  // each with its own randomised style.
-  POD_RUGS.forEach((rug, i) => {
-    drawPodRug(cx, rug, islandFloorStyle(i));
-  });
-  drawPodRug(cx, TEAM_AREA_RECT, teamAreaFloorStyle());
+  // Pod rugs under the desks (over the floor, under the desks), each with its
+  // own style, and the team areas' shared rugs.
+  for (const rug of POD_RUGS) drawPodRug(cx, rug.rect, rug.style);
+  for (const area of TEAM_AREAS) drawPodRug(cx, area.rect, area.style);
 
   // Pass 2 — props: plants here; open-office desks are drawn per 3-wide unit
   // (one long desk) just below. In-room desks are drawn as designed tables by
