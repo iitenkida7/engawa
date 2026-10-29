@@ -10,7 +10,6 @@ import {
   type FloorPattern,
   type FloorStyle,
   floorStyleAt,
-  islandFloorStyle,
   LOUNGE_RECTS,
   LOUNGE_TABLE_RECTS,
   MAP_COLS,
@@ -19,14 +18,14 @@ import {
   OPEN_DESK_CHAIRS,
   officeMap,
   POD_RUGS,
-  POND_RECT,
+  POND_RECTS,
+  podRugStyle,
   ROOM_FURNITURE,
   type RoomFurniture,
-  TEAM_AREA_RECT,
+  TEAM_AREAS,
   TILE_SIZE,
   Tile,
   TREES,
-  teamAreaFloorStyle,
 } from '@/world/tilemap';
 
 // ─── Interior theme: 北欧ミニマル / 青山カフェ ───────────────────────────────
@@ -215,16 +214,16 @@ export function buildMapCache(dpr: number): HTMLCanvasElement {
     }
   }
 
-  // Outdoor pond: one layered water body over the grass, drawn before the trees
-  // so their canopies can overhang its edge (collision is the POND tiles).
-  drawPond(cx, POND_RECT);
+  // Outdoor ponds: one layered water body each over the grass, drawn before the
+  // trees so their canopies can overhang its edge (collision is the POND tiles).
+  for (const rect of POND_RECTS) drawPond(cx, rect);
 
-  // Team-island rugs under the desk pods (over the floor, under the desks),
-  // each with its own randomised style.
+  // Pod rugs under the desks (over the floor, under the desks), each with its
+  // own style, and the team areas' shared rugs.
   POD_RUGS.forEach((rug, i) => {
-    drawPodRug(cx, rug, islandFloorStyle(i));
+    drawPodRug(cx, rug, podRugStyle(i));
   });
-  drawPodRug(cx, TEAM_AREA_RECT, teamAreaFloorStyle());
+  for (const area of TEAM_AREAS) drawPodRug(cx, area.rect, area.style);
 
   // Pass 2 — props: plants here; open-office desks are drawn per 3-wide unit
   // (one long desk) just below. In-room desks are drawn as designed tables by

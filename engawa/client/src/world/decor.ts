@@ -3,7 +3,7 @@
 // unit-testable; canvas.ts uses these to draw the map procedurally. Decoration is
 // purely visual — it never touches SOLID/collision (that stays in tilemap.ts).
 
-import { officeMap, TILE_SIZE, Tile, ZONES } from '@/world/tilemap';
+import { officeMap, TILE_SIZE, Tile, ZONES, type Zone } from '@/world/tilemap';
 
 export type FloorKind = 'wood' | 'carpet' | 'lounge';
 
@@ -25,19 +25,13 @@ export function floorKindAt(col: number, row: number): FloorKind {
 }
 
 // Room category for colour-coding the floor (Gather-like, so each kind of room
-// reads at a glance). Derived from the zone id; null = open office.
-export type RoomKind = 'exec' | 'meeting' | 'oneonone' | 'booth' | 'lounge';
-
-export function roomKindAt(col: number, row: number): RoomKind | null {
+// reads at a glance): the zone's kind; null = open office.
+export function roomKindAt(col: number, row: number): Zone['kind'] | null {
   const cx = col * TILE_SIZE + TILE_SIZE / 2;
   const cy = row * TILE_SIZE + TILE_SIZE / 2;
   for (const z of ZONES) {
     if (cx < z.x || cx >= z.x + z.w || cy < z.y || cy >= z.y + z.h) continue;
-    if (z.id === 'ceo') return 'exec';
-    if (z.id === 'lounge' || z.id.startsWith('cafe')) return 'lounge';
-    if (z.id.startsWith('1on1')) return 'oneonone';
-    if (z.id.startsWith('booth')) return 'booth';
-    return 'meeting'; // all-hands + meeting-N
+    return z.kind;
   }
   return null;
 }

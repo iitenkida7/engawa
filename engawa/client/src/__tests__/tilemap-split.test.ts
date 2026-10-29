@@ -9,7 +9,6 @@ import {
   floorStyleAt,
   isDeskSeat,
   isMeetingRoom,
-  islandFloorStyle,
   LOUNGE_RECTS,
   LOUNGE_TABLE_RECTS,
   MAP_COLS,
@@ -18,21 +17,21 @@ import {
   OPEN_DESK_CHAIRS,
   officeMap,
   POD_RUGS,
-  POND_RECT,
+  POND_RECTS,
   podRugAt,
+  podRugStyle,
   ROOM_FURNITURE,
   seatAt,
-  TEAM_AREA_RECT,
+  TEAM_AREAS,
   TILE_SIZE,
   TREES,
-  teamAreaFloorStyle,
   ZONES,
   zoneAt,
 } from '@/world/tilemap';
 
-// Pins the generated layout (tree scatter + rug styles) to the snapshot taken
-// before floor-styles.ts / trees.ts were split out of tilemap.ts, so moving the
-// code can't silently change what the map looks like.
+// Pins the generated layout (trees + rug styles) to the snapshot taken before
+// floor-styles.ts / trees.ts were split out of tilemap.ts and the layout moved
+// into map data, so moving the code can't silently change what the map looks like.
 describe('generated layout is unchanged by the tilemap split', () => {
   test('tree placement and the stamped map', () => {
     expect(TREES).toMatchSnapshot();
@@ -49,8 +48,8 @@ describe('generated layout is unchanged by the tilemap split', () => {
       grid.push(line);
     }
     expect(grid).toMatchSnapshot();
-    expect(POD_RUGS.map((_, i) => islandFloorStyle(i))).toMatchSnapshot();
-    expect(teamAreaFloorStyle()).toMatchSnapshot();
+    expect(POD_RUGS.map((_, i) => podRugStyle(i))).toMatchSnapshot();
+    expect(TEAM_AREAS[0].style).toMatchSnapshot();
   });
 });
 
@@ -65,12 +64,12 @@ describe('derived world is unchanged by the map-data move', () => {
       ROOM_FURNITURE,
       MEETING_ROOM_RECTS,
       POD_RUGS,
-      TEAM_AREA_RECT,
+      TEAM_AREAS,
       OPEN_DESK_CHAIRS,
       LOUNGE_RECTS,
       LOUNGE_TABLE_RECTS,
       ARMCHAIR_SPOTS,
-      POND_RECT,
+      POND_RECTS,
       meetingRooms: ZONES.filter((z) => isMeetingRoom(z.id)).map((z) => z.id),
     }).toMatchSnapshot();
   });

@@ -848,12 +848,14 @@ exports[`derived world is unchanged by the map-data move exported rects and list
       "y": 1300,
     },
   ],
-  "POND_RECT": {
-    "h": 200,
-    "w": 250,
-    "x": 2200,
-    "y": 100,
-  },
+  "POND_RECTS": [
+    {
+      "h": 200,
+      "w": 250,
+      "x": 2200,
+      "y": 100,
+    },
+  ],
   "ROOM_FURNITURE": [
     {
       "h": 100,
@@ -996,16 +998,26 @@ exports[`derived world is unchanged by the map-data move exported rects and list
       "y": 1600,
     },
   ],
-  "TEAM_AREA_RECT": {
-    "h": 300,
-    "w": 450,
-    "x": 1500,
-    "y": 1150,
-  },
+  "TEAM_AREAS": [
+    {
+      "id": "team-area",
+      "rect": {
+        "h": 300,
+        "w": 450,
+        "x": 1500,
+        "y": 1150,
+      },
+      "style": {
+        "color": 2,
+        "pattern": "vstripe",
+      },
+    },
+  ],
   "ZONES": [
     {
       "h": 200,
       "id": "ceo",
+      "kind": "exec",
       "name": "President's office",
       "w": 300,
       "x": 450,
@@ -1014,6 +1026,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 200,
       "id": "all-hands",
+      "kind": "meeting",
       "name": "All-hands room",
       "w": 600,
       "x": 800,
@@ -1022,6 +1035,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 200,
       "id": "meeting-1",
+      "kind": "meeting",
       "name": "Meeting room 1",
       "w": 200,
       "x": 1450,
@@ -1030,6 +1044,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 200,
       "id": "meeting-2",
+      "kind": "meeting",
       "name": "Meeting room 2",
       "w": 200,
       "x": 1700,
@@ -1038,6 +1053,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 200,
       "id": "meeting-3",
+      "kind": "meeting",
       "name": "Meeting room 3",
       "w": 200,
       "x": 1950,
@@ -1046,6 +1062,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 150,
       "id": "1on1-1",
+      "kind": "oneonone",
       "name": "1-on-1 room 1",
       "w": 150,
       "x": 450,
@@ -1054,6 +1071,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 150,
       "id": "1on1-2",
+      "kind": "oneonone",
       "name": "1-on-1 room 2",
       "w": 150,
       "x": 650,
@@ -1062,6 +1080,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 150,
       "id": "1on1-3",
+      "kind": "oneonone",
       "name": "1-on-1 room 3",
       "w": 150,
       "x": 850,
@@ -1070,6 +1089,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 150,
       "id": "1on1-4",
+      "kind": "oneonone",
       "name": "1-on-1 room 4",
       "w": 150,
       "x": 1050,
@@ -1078,6 +1098,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 150,
       "id": "booth-1",
+      "kind": "booth",
       "name": "Meeting booth 1",
       "w": 150,
       "x": 1250,
@@ -1086,6 +1107,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 150,
       "id": "booth-2",
+      "kind": "booth",
       "name": "Meeting booth 2",
       "w": 150,
       "x": 1450,
@@ -1094,6 +1116,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 150,
       "id": "booth-3",
+      "kind": "booth",
       "name": "Meeting booth 3",
       "w": 150,
       "x": 1650,
@@ -1102,6 +1125,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 150,
       "id": "booth-4",
+      "kind": "booth",
       "name": "Meeting booth 4",
       "w": 150,
       "x": 1850,
@@ -1110,6 +1134,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 150,
       "id": "hanare",
+      "kind": "booth",
       "name": "Annex",
       "w": 150,
       "x": 2300,
@@ -1118,6 +1143,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 250,
       "id": "cafe-left",
+      "kind": "lounge",
       "name": "Lounge 1",
       "w": 300,
       "x": 100,
@@ -1126,6 +1152,7 @@ exports[`derived world is unchanged by the map-data move exported rects and list
     {
       "h": 250,
       "id": "cafe-right",
+      "kind": "lounge",
       "name": "Lounge 2",
       "w": 300,
       "x": 2200,
@@ -1174,9 +1201,9 @@ exports[`derived world is unchanged by the map-data move per-tile lookups 1`] = 
   "///////wood ///////wood cafe-left/cafe-left/////lounge/lounge cafe-left/cafe-left/////lounge/lounge cafe-left/cafe-left/////lounge/lounge cafe-left/cafe-left/////lounge/lounge cafe-left/cafe-left/////lounge/lounge cafe-left/cafe-left/////lounge/lounge ///////wood ///////wood ///////wood ///////wood ///////wood //S///650,1300//wood //S///650,1300//wood //S///650,1300//wood ///////wood ///////wood //S///900,1300//wood //S///900,1300//wood //S///900,1300//wood ///////wood ///////wood //S///1150,1300//wood //S///1150,1300//wood //S///1150,1300//wood ///////wood ///////wood ///////wood ///////wood /team-area/S///1500,1150//wood /team-area/S///1500,1150//wood /team-area/S///1500,1150//wood /team-area/S///1500,1150//wood /team-area/S///1500,1150//wood /team-area/S///1500,1150//wood /team-area/S///1500,1150//wood /team-area/S///1500,1150//wood /team-area/S///1500,1150//wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood",
   "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood",
   "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood",
-  "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet ///////wood 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet ///////wood 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet ///////wood 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet ///////wood booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet ///////wood booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet ///////wood booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet ///////wood booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood hanare/hanare/////meeting/carpet hanare/hanare/////meeting/carpet hanare/hanare/////meeting/carpet ///////wood ///////wood ///////wood",
-  "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet ///////wood 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet ///////wood 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet ///////wood 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet ///////wood booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet ///////wood booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet ///////wood booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet ///////wood booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood hanare/hanare/////meeting/carpet hanare/hanare/////meeting/carpet hanare/hanare/////meeting/carpet ///////wood ///////wood ///////wood",
-  "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet ///////wood 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet ///////wood 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet ///////wood 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet ///////wood booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet ///////wood booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet ///////wood booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet ///////wood booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood hanare/hanare/////meeting/carpet hanare/hanare/////meeting/carpet hanare/hanare/////meeting/carpet ///////wood ///////wood ///////wood",
+  "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet ///////wood 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet ///////wood 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet ///////wood 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet ///////wood booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet ///////wood booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet ///////wood booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet ///////wood booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood hanare/hanare/////booth/carpet hanare/hanare/////booth/carpet hanare/hanare/////booth/carpet ///////wood ///////wood ///////wood",
+  "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet ///////wood 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet ///////wood 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet ///////wood 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet ///////wood booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet ///////wood booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet ///////wood booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet ///////wood booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood hanare/hanare/////booth/carpet hanare/hanare/////booth/carpet hanare/hanare/////booth/carpet ///////wood ///////wood ///////wood",
+  "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet 1on1-1/1on1-1/////oneonone/carpet ///////wood 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet 1on1-2/1on1-2/////oneonone/carpet ///////wood 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet 1on1-3/1on1-3/////oneonone/carpet ///////wood 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet 1on1-4/1on1-4/////oneonone/carpet ///////wood booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet booth-1/booth-1/////booth/carpet ///////wood booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet booth-2/booth-2/////booth/carpet ///////wood booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet booth-3/booth-3/////booth/carpet ///////wood booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet booth-4/booth-4/////booth/carpet ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood hanare/hanare/////booth/carpet hanare/hanare/////booth/carpet hanare/hanare/////booth/carpet ///////wood ///////wood ///////wood",
   "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood",
   "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood",
   "///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood ///////wood",

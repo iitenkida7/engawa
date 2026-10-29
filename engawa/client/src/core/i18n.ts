@@ -581,26 +581,6 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: 'このブラウザは録画に対応していません',
     en: "This browser doesn't support recording",
   },
-
-  // -- map zones (canvas labels; keyed by room id, not display name) --------
-  'zone.ceo': { ja: '社長室', en: "President's office" },
-  'zone.all-hands': { ja: '大会議室', en: 'All-hands room' },
-  'zone.meeting-1': { ja: '会議室1', en: 'Meeting room 1' },
-  'zone.meeting-2': { ja: '会議室2', en: 'Meeting room 2' },
-  'zone.meeting-3': { ja: '会議室3', en: 'Meeting room 3' },
-  'zone.1on1-1': { ja: '1on1ルーム1', en: '1-on-1 room 1' },
-  'zone.1on1-2': { ja: '1on1ルーム2', en: '1-on-1 room 2' },
-  'zone.1on1-3': { ja: '1on1ルーム3', en: '1-on-1 room 3' },
-  'zone.1on1-4': { ja: '1on1ルーム4', en: '1-on-1 room 4' },
-  'zone.booth-1': { ja: '商談ブース1', en: 'Meeting booth 1' },
-  'zone.booth-2': { ja: '商談ブース2', en: 'Meeting booth 2' },
-  'zone.booth-3': { ja: '商談ブース3', en: 'Meeting booth 3' },
-  'zone.booth-4': { ja: '商談ブース4', en: 'Meeting booth 4' },
-  'zone.lounge': { ja: 'ラウンジ', en: 'Lounge' },
-  'zone.cafe': { ja: 'カフェ', en: 'Café' },
-  'zone.lounge-1': { ja: 'ラウンジ1', en: 'Lounge 1' },
-  'zone.lounge-2': { ja: 'ラウンジ2', en: 'Lounge 2' },
-  'zone.hanare': { ja: '離れ', en: 'Annex' },
 };
 
 /**

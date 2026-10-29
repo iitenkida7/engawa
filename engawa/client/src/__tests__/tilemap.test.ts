@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import {
   ARMCHAIR_SPOTS,
-  COL_OFF,
   callZoneAt,
   canOccupy,
   FLOOR_COLOR_COUNT,
@@ -10,30 +9,35 @@ import {
   findWalkableSpawn,
   floorStyleAt,
   isDeskSeat,
-  islandFloorStyle,
   isMeetingRoom,
   isMeetingZone,
   isSolid,
   LOUNGE_TABLE_RECTS,
-  LOUNGES,
+  MAP,
   MAP_COLS,
   MAP_ROWS,
   OPEN_DESK_CHAIRS,
-  OUTDOOR_MARGIN,
   officeMap,
   POD_RUGS,
-  POND,
-  POND_RECT,
+  POND_RECTS,
   podRugAt,
-  ROW_OFF,
+  podRugStyle,
   SOLID,
   seatAt,
-  TEAM_AREA_RECT,
+  TEAM_AREAS,
   TILE_SIZE,
   Tile,
   ZONES,
   zoneAt,
 } from '@/world/tilemap';
+
+// The office building's origin in the map (world/maps/office.json): the samples
+// below are written in building-local tiles and shifted by these (#229).
+const COL_OFF = 10;
+const ROW_OFF = 8;
+const [POND] = MAP.ponds;
+const [POND_RECT] = POND_RECTS;
+const [TEAM_AREA] = TEAM_AREAS;
 
 // Pixel coordinate of the center of tile (col, row).
 function center(col: number, row: number): { x: number; y: number } {
@@ -84,7 +88,7 @@ describe('outdoor pond', () => {
 
   it('sits outside the building on the top-right grounds', () => {
     // Above the building's top wall (within the top grass margin).
-    expect(POND.r + POND.h).toBeLessThanOrEqual(OUTDOOR_MARGIN);
+    expect(POND.r + POND.h).toBeLessThanOrEqual(MAP.buildings[0].r);
     // On the right half of the map.
     expect(POND.c).toBeGreaterThan(MAP_COLS / 2);
     // Fully inside the map.
@@ -326,8 +330,8 @@ describe('floor styles (randomised rugs)', () => {
 
   it('gives the two cafés different styles', () => {
     const mid = (i: number) => ({
-      c: LOUNGES[i].c + COL_OFF + Math.floor(LOUNGES[i].w / 2),
-      r: LOUNGES[i].r + ROW_OFF + Math.floor(LOUNGES[i].h / 2),
+      c: MAP.lounges[i].c + Math.floor(MAP.lounges[i].w / 2),
+      r: MAP.lounges[i].r + Math.floor(MAP.lounges[i].h / 2),
     });
     const left = floorStyleAt(mid(0).c, mid(0).r)!; // cafe-left (in the left wing)
     const right = floorStyleAt(mid(1).c, mid(1).r)!; // cafe-right (in the right wing)
@@ -338,8 +342,8 @@ describe('floor styles (randomised rugs)', () => {
 
   it('shares a style within an island but differs between neighbours', () => {
     // Two pod rugs per island → rug 0 and rug 1 are the same island.
-    expect(islandFloorStyle(0)).toEqual(islandFloorStyle(1));
-    expect(same(islandFloorStyle(0), islandFloorStyle(2))).toBe(false); // next island along
+    expect(podRugStyle(0)).toEqual(podRugStyle(1));
+    expect(same(podRugStyle(0), podRugStyle(2))).toBe(false); // next island along
   });
 });
 
@@ -366,7 +370,7 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
 
   it('derives one zone per walled-off MEETING room, plus the cafés', () => {
     // One zone per room sample + the two cafés (conversation-restricted zones).
-    expect(ZONES).toHaveLength(roomSamples.length + LOUNGES.length);
+    expect(ZONES).toHaveLength(roomSamples.length + MAP.lounges.length);
   });
 
   it('puts all six team-area desks on one shared rug and call, without a zone', () => {
@@ -376,7 +380,7 @@ describe('ZONES / zoneAt (meeting-room zones)', () => {
     for (const p of onTeam) {
       // Rug-like on the client: no zone (no meeting layout), the shared rug for the veil.
       expect(zoneAt(p.x, p.y)).toBeNull();
-      expect(podRugAt(p.x, p.y)).toEqual(TEAM_AREA_RECT);
+      expect(podRugAt(p.x, p.y)).toEqual(TEAM_AREA.rect);
     }
     // Its desks form one unbroken 9-tile row in each of the two desk rows.
     const row = (r: number) =>

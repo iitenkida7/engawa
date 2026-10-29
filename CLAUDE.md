@@ -126,7 +126,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 - **`core/`** — オーケストレーションと基盤: `app.ts`, `main.ts`, `types.ts`, `lifecycle.ts`, `network.ts`, `proximity.ts`, `reload.ts`, `background-ticker.ts`
 - **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `mesh-recovery.ts`（mesh ピア再構築 #184）, `sfu-recovery.ts`（SFU 作り直しのバックオフ #254）, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`, `diag.ts`（デバッグコンソールの接続判定・原因推定・Claude 用診断レポート。純粋関数）
 - **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`, `noise.ts`, `noise-worklet.ts`, `rnnoise-wasm.ts`, `voice-gate.ts`, `lowpass.ts`
-- **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `floor-styles.ts`（床柄の自動割当）, `trees.ts`（屋外の木の配置）, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`, `movement.ts`（自分のグリッド移動・クリック移動）
+- **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `map-def.ts`（マップ定義の型）, `maps/office.json`（オフィスのマップデータ）, `floor-styles.ts`（床柄・色のパレット）, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`, `movement.ts`（自分のグリッド移動・クリック移動）
 - **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `rec-indicator.ts`, `debug-console.ts`, `sounds.ts`, `video-stall.ts`（映像停止の理由判定。純粋関数）, `face-pip.ts`, `camera-lab.ts`（⋯メニューから別タブで開く `camera-lab.html` のロジック。`SFU_CAM_LAYERS` をループバック接続で実エンコードして見比べる画質ラボ）
 
 `core/app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・移動・近接判定・
@@ -170,7 +170,11 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   チェックした人だけ使う。
   **`requestWindow()` は操作許可を消費する**ため、必ず `getDisplayMedia` の**後**に開く（逆順だと共有自体が失敗しうる）。
   `media/speaking.ts` — `SpeakingDetector` と純粋なしきい値判定 `isLoud()`。
-- `world/tilemap.ts` — オフィスのタイルマップと `canOccupy`（衝突判定）。**座る姿勢**は位置だけで決まる純粋関数 `seatAt()`（デスクの椅子タイル／カフェのアームチェア → 向き＋`lift`）。`canvas.ts` が静止中のみ座り姿（`CharacterSheet.draw` の `sit`: シートに座りフレームが無いため、立ちフレームをそのまま少し沈めて描く）で描く。`lift` は椅子の絵が机に寄せて描かれるぶんの補正で、**机の下側の椅子（上向き）だけ半タイル持ち上げる**（1タイルだと机に乗って見える）。スプライト・名前ラベル・吹き出しが同じ `lift` で動くので一体のまま。位置から全員が同じ姿を導けるので通信は増えない。`world/pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
+- `world/map-def.ts` / `world/maps/*.json` — **マップはデータ**（`MapDef`）。建物・部屋（`kind`: exec/meeting/oneonone/booth・名前 ja/en・ドア・テーブル）・
+  デスク・チームエリア・カフェ・植木・池・木の**配置**と、床柄（`FLOOR_PATTERNS`＋色番号）の**選択**だけを持つ。座標はマップ絶対のタイル。
+  パーツの見た目はアプリ内包（`map-art.ts`）で、JSON から絵は持ち込めない。部屋の種類は ID の文字列ではなく `kind` で判定する。
+- `world/tilemap.ts` — `MapDef` からタイルグリッド・ゾーン・派生矩形を組み立て、`canOccupy`（衝突判定）などの位置クエリに答える。
+  派生結果は `__tests__/tilemap-split.test.ts` のスナップショットで固定している（マップを意図して変えたら `bun test -u` で更新）。**座る姿勢**は位置だけで決まる純粋関数 `seatAt()`（デスクの椅子タイル／カフェのアームチェア → 向き＋`lift`）。`canvas.ts` が静止中のみ座り姿（`CharacterSheet.draw` の `sit`: シートに座りフレームが無いため、立ちフレームをそのまま少し沈めて描く）で描く。`lift` は椅子の絵が机に寄せて描かれるぶんの補正で、**机の下側の椅子（上向き）だけ半タイル持ち上げる**（1タイルだと机に乗って見える）。スプライト・名前ラベル・吹き出しが同じ `lift` で動くので一体のまま。位置から全員が同じ姿を導けるので通信は増えない。`world/pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
 - `world/canvas.ts` — Canvas 2D 描画。**2 層構成**: 背景層（焼き込み済みマップ＋部屋枠。`#canvas` の直前に挿入する別 canvas）はズーム・いる部屋・サイズが変わるか、カメラが余白 `BG_MARGIN` を超えて動いたときだけ描き直し、それ以外は CSS transform で滑らせるだけ。前景の `#canvas` は透明でアバター・ラベルのみを描き、**画面が前フレームと同じなら再描画をスキップ**する（`sceneKey`。取りこぼし対策に 0.5 秒ごとに強制再描画）。アバターの見た目に効く状態を増やしたら `sceneKey` にも足すこと。`world/input.ts` — キー入力。`world/player.ts` — プレイヤー状態。
   `ui/draggable.ts` — ビデオ/画面共有パネルのドラッグ。`media/compositor.ts` — 録画用の映像合成。`ui/sounds.ts` — 効果音。
 - `core/types.ts` — クライアント側の共有定数/型。`core/main.ts` — エントリ。

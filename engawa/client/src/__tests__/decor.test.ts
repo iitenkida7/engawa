@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import { floorKindAt, propFor, roomKindAt } from '@/world/decor';
-import { COL_OFF, canOccupy, LOUNGES, ROW_OFF, TILE_SIZE, Tile } from '@/world/tilemap';
+import { canOccupy, MAP, TILE_SIZE, Tile } from '@/world/tilemap';
+
+// The office building's origin in the map (world/maps/office.json).
+const COL_OFF = 10;
+const ROW_OFF = 8;
+const [LOUNGE] = MAP.lounges;
 
 describe('propFor', () => {
   it('maps desk and plant tiles to their props, everything else to null', () => {
@@ -26,8 +31,8 @@ describe('floorKindAt', () => {
   });
 
   it('uses the lounge rug on a lounge tile', () => {
-    const c = LOUNGES[0].c + COL_OFF + Math.floor(LOUNGES[0].w / 2);
-    const r = LOUNGES[0].r + ROW_OFF + Math.floor(LOUNGES[0].h / 2);
+    const c = LOUNGE.c + Math.floor(LOUNGE.w / 2);
+    const r = LOUNGE.r + Math.floor(LOUNGE.h / 2);
     expect(floorKindAt(c, r)).toBe('lounge');
   });
 });
@@ -38,16 +43,16 @@ describe('roomKindAt', () => {
     expect(roomKindAt(1 + COL_OFF, 23 + ROW_OFF)).toBe('oneonone'); // 1on1-1
     expect(roomKindAt(17 + COL_OFF, 23 + ROW_OFF)).toBe('booth'); // booth-1
     expect(roomKindAt(20 + COL_OFF, 11 + ROW_OFF)).toBeNull(); // open office
-    const lc = LOUNGES[0].c + COL_OFF + Math.floor(LOUNGES[0].w / 2);
-    const lr = LOUNGES[0].r + ROW_OFF + Math.floor(LOUNGES[0].h / 2);
+    const lc = LOUNGE.c + Math.floor(LOUNGE.w / 2);
+    const lr = LOUNGE.r + Math.floor(LOUNGE.h / 2);
     expect(roomKindAt(lc, lr)).toBe('lounge');
   });
 });
 
 describe('lounge', () => {
   it('is walkable (an open social spot, not a solid prop)', () => {
-    const cx = (LOUNGES[0].c + COL_OFF + 0.5) * TILE_SIZE;
-    const cy = (LOUNGES[0].r + ROW_OFF + 0.5) * TILE_SIZE;
+    const cx = (LOUNGE.c + 0.5) * TILE_SIZE;
+    const cy = (LOUNGE.r + 0.5) * TILE_SIZE;
     expect(canOccupy(cx, cy, 5)).toBe(true);
   });
 });
