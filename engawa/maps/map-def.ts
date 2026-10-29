@@ -5,9 +5,42 @@
 // (FLOOR_PATTERNS / FLOOR_THEMES colour index).
 //
 // All coordinates are map-absolute tiles (col c, row r); a rect is its top-left
-// tile plus its size in tiles. The world is built from it in world/tilemap.ts.
+// tile plus its size in tiles. The world is built from it in the client's
+// world/tilemap.ts.
+//
+// Shared by both packages (mounted at /maps next to each): the server loads and
+// validates the configured map at boot and serves it (GET /api/map); the client
+// builds its world from what it gets. Keep this file free of imports.
 
-import { FLOOR_PATTERNS, FLOOR_THEMES, type FloorPattern } from '@/world/floor-styles';
+// Floor rug patterns the renderer can draw ('none' = a plain rug).
+export type FloorPattern =
+  | 'none'
+  | 'stripe'
+  | 'vstripe'
+  | 'checker'
+  | 'houndstooth'
+  | 'brick'
+  | 'crosshatch'
+  | 'herringbone'
+  | 'chevron';
+
+export const FLOOR_PATTERNS: FloorPattern[] = [
+  'stripe',
+  'vstripe',
+  'checker',
+  'houndstooth',
+  'brick',
+  'crosshatch',
+  'herringbone',
+  'chevron',
+];
+
+// Number of rug colour themes the app offers (the client's FLOOR_THEMES, which a
+// client test pins to this): a FloorDef `color` is an index below it.
+export const FLOOR_THEME_COUNT = 9;
+
+// Pixels per tile, for both the client's world and the server's bounds/spawn.
+export const TILE_SIZE = 50;
 
 export type TilePos = [number, number];
 export type TileRect = { c: number; r: number; w: number; h: number };
@@ -56,10 +89,23 @@ export type MapDef = {
   ponds: TileRect[];
   // size 1 = a small tree, 2 = a big 2×2 tree; variant picks its look (0/1).
   trees: { c: number; r: number; size: 1 | 2; variant: 0 | 1 }[];
+  // Where newcomers appear (the client snaps it to the nearest walkable tile).
+  // Defaults to the first building's floor, or the whole map without one.
+  spawn?: TileRect;
 };
 
 // Patterns a map may ask for: the drawn ones plus 'none' (a plain rug).
 const PATTERNS = new Set<string>([...FLOOR_PATTERNS, 'none']);
+const MAP_KEYS = [
+  'buildings',
+  'rooms',
+  'desks',
+  'teamAreas',
+  'lounges',
+  'plants',
+  'ponds',
+  'trees',
+] as const;
 const ROOM_KINDS = new Set<string>(['exec', 'meeting', 'oneonone', 'booth'] satisfies RoomKind[]);
 
 function deepFreeze<T>(v: T): T {
@@ -76,15 +122,18 @@ function deepFreeze<T>(v: T): T {
  * `color` used to blank the whole canvas, and a door written `[8]` used to
  * silently leave a room with no way in. Shape, bounds, and the placement
  * mistakes that would otherwise fail silently (duplicate zone ids, doors off
- * their wall); trees off the grass are rejected by tilemap, which has the grid.
- * It does not judge the layout beyond that.
+ * their wall or covered by something solid, a table outside its room, a tree
+ * off the open grass). It does not judge the layout beyond that.
+ *
+ * The input is untyped (`unknown`): it is whatever JSON was loaded.
  *
  * Freezing makes the derived lookups safe to hand out by reference: every
  * FloorStyle the app reads (a room's rug, a desk's pod rug) IS the object in
  * this JSON, shared by every caller, so a stray write would corrupt the map for
  * the rest of the session.
  */
-export function assertMapDef(def: MapDef): MapDef {
+export function assertMapDef(input: unknown): MapDef {
+  const def = input as MapDef;
   const bad = (msg: string): never => {
     throw new Error(`invalid map data: ${msg}`);
   };
@@ -93,17 +142,7 @@ export function assertMapDef(def: MapDef): MapDef {
   const { cols, rows } = def;
   if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1)
     bad(`cols/rows must be positive integers (got ${String(cols)}x${String(rows)})`);
-  for (const key of [
-    'buildings',
-    'rooms',
-    'desks',
-    'teamAreas',
-    'lounges',
-    'plants',
-    'ponds',
-    'trees',
-  ] as const)
-    if (!Array.isArray(def[key])) bad(`'${key}' must be an array`);
+  for (const key of MAP_KEYS) if (!Array.isArray(def[key])) bad(`'${key}' must be an array`);
 
   const obj = (where: string, v: unknown): void => {
     if (!v || typeof v !== 'object' || Array.isArray(v)) bad(`${where}: missing or not an object`);
@@ -149,7 +188,7 @@ export function assertMapDef(def: MapDef): MapDef {
     if (f === undefined) return;
     obj(`${where} floor`, f);
     if (!PATTERNS.has(f.pattern)) bad(`${where}: unknown floor pattern '${f.pattern}'`);
-    const last = FLOOR_THEMES.length - 1;
+    const last = FLOOR_THEME_COUNT - 1;
     if (!Number.isInteger(f.color) || f.color < 0 || f.color > last)
       bad(`${where}: floor colour ${f.color} is outside 0..${last}`);
   };
@@ -178,6 +217,9 @@ export function assertMapDef(def: MapDef): MapDef {
     rect(at, room, 1); // + its wall ring
     doors(at, room, room.doors, 1);
     rect(`${at} table`, room.table);
+    const t = room.table;
+    if (t.c < room.c || t.r < room.r || t.c + t.w > room.c + room.w || t.r + t.h > room.r + room.h)
+      bad(`${at} table: must sit inside the room`);
     floor(at, room.floor);
   });
   def.desks.forEach((u, i) => {
@@ -214,5 +256,75 @@ export function assertMapDef(def: MapDef): MapDef {
       bad(`trees[${i}]: variant must be 0 or 1 (got ${JSON.stringify(t.variant)})`);
     rect(`trees[${i}]`, { c: t.c, r: t.r, w: t.size, h: t.size });
   });
+  if (def.spawn !== undefined) rect('spawn', def.spawn);
+
+  // ── Placement: the mistakes that load fine but break the map ──
+  // Stamped in the client's grid order (world/tilemap.ts buildOfficeMap): a
+  // solid part on a doorway seals it, and trees go down last, so one dropped on
+  // anything but open grass would overwrite it.
+  const key = (c: number, r: number): number => r * cols + c;
+  const tiles = (t: TileRect): number[] => {
+    const out: number[] = [];
+    for (let r = t.r; r < t.r + t.h; r++) for (let c = t.c; c < t.c + t.w; c++) out.push(key(c, r));
+    return out;
+  };
+  const ring = (t: TileRect): number[] => {
+    const outer = { c: t.c - 1, r: t.r - 1, w: t.w + 2, h: t.h + 2 };
+    const inner = new Set(tiles(t));
+    return tiles(outer).filter((k) => !inner.has(k));
+  };
+  // Every door tile → who it belongs to. A door is only opened when its own
+  // room is stamped, so another room's wall laid over it later seals it again.
+  const doorOf = new Map<number, string>();
+  def.buildings.forEach((b, i) => {
+    for (const [c, r] of b.doors) doorOf.set(key(c, r), `buildings[${i}]`);
+  });
+  for (const room of def.rooms)
+    for (const [c, r] of room.doors) doorOf.set(key(c, r), `room '${room.id}'`);
+  const blocks = (what: string, ks: number[], owner?: string): void => {
+    for (const k of ks) {
+      const door = doorOf.get(k);
+      if (door !== undefined && door !== owner)
+        bad(`${what} covers a door of ${door} at [${k % cols},${Math.floor(k / cols)}]`);
+    }
+  };
+  const built = new Set<number>(); // tiles that are no longer open grass
+  const build = (ks: number[]): void => {
+    for (const k of ks) built.add(k);
+  };
+  for (const b of def.buildings) build(tiles(b));
+  for (const room of def.rooms) {
+    blocks(`room '${room.id}' wall`, ring(room), `room '${room.id}'`);
+    build(ring(room));
+    build(tiles(room));
+  }
+  for (const lo of def.lounges) build(tiles(lo));
+  def.desks.forEach((u, i) => {
+    const desk = tiles({ c: u.c - 1, r: u.r, w: 3, h: 1 });
+    blocks(`desks[${i}]`, desk);
+    build(desk);
+  });
+  def.plants.forEach(([c, r], i) => {
+    blocks(`plants[${i}]`, [key(c, r)]);
+    build([key(c, r)]);
+  });
+  def.ponds.forEach((p, i) => {
+    blocks(`ponds[${i}]`, tiles(p));
+    build(tiles(p));
+  });
+  def.trees.forEach((t, i) => {
+    const ks = tiles({ c: t.c, r: t.r, w: t.size, h: t.size });
+    if (ks.some((k) => built.has(k))) bad(`trees[${i}] at ${t.c},${t.r} is not on open grass`);
+    build(ks);
+  });
   return deepFreeze(def);
+}
+
+/** Where newcomers appear: the map's `spawn`, else the first building's floor
+ * (inside its walls), else the whole map. */
+export function spawnArea(def: MapDef): TileRect {
+  if (def.spawn) return def.spawn;
+  const [b] = def.buildings;
+  if (b && b.w > 2 && b.h > 2) return { c: b.c + 1, r: b.r + 1, w: b.w - 2, h: b.h - 2 };
+  return { c: 0, r: 0, w: def.cols, h: def.rows };
 }

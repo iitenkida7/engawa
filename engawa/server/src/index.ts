@@ -1,5 +1,6 @@
 import type { ServerWebSocket } from 'bun';
 import { isPasswordRequired, verifyAccessPassword } from './logic';
+import { loadMap, mapWorld } from './map';
 import { isAllowedSessionPath, isSfuEnabled, proxySfuRequest } from './sfu';
 import { getTurnCredentials } from './turn';
 import type { WsData } from './types';
@@ -43,6 +44,17 @@ function unauthorized(): Response {
 // in-memory peer map is gone, so leftover userIds never get a player-left) and
 // picking up the new client bundle.
 const BOOT_ID = crypto.randomUUID();
+
+// The map (MAP preset or MAP_URL), validated once at boot: a bad map stops the
+// server here rather than breaking every browser that loads it.
+const map = await loadMap({ MAP: process.env.MAP, MAP_URL: process.env.MAP_URL }).catch(
+  (err: unknown) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  },
+);
+console.log(`[map] ${map.source} (${map.def.cols}x${map.def.rows} tiles)`);
+const MAP_JSON = JSON.stringify(map.def);
 
 const server = Bun.serve({
   port: Number(process.env.PORT ?? 3000),
@@ -102,6 +114,15 @@ const server = Bun.serve({
 
     if (url.pathname === '/api/health') {
       return Response.json({ ok: true, clients: clients.size });
+    }
+
+    // The map every client builds its world from (public: it's the floor plan
+    // the join screen leads into). Fixed for this process; a restart changes the
+    // boot id, which makes connected clients reload and fetch it again.
+    if (url.pathname === '/api/map') {
+      return new Response(MAP_JSON, {
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      });
     }
 
     // Public pre-join config: whether the space requires a password. The client
@@ -166,7 +187,17 @@ const server = Bun.serve({
     return new Response('Not Found', { status: 404 });
   },
 
-  websocket: createWebSocketHandler(clients, ACCESS_PASSWORD, BOOT_ID, mediaTokens),
+  // undefined = that parameter's default (clock, leave grace, event webhook).
+  websocket: createWebSocketHandler(
+    clients,
+    ACCESS_PASSWORD,
+    BOOT_ID,
+    mediaTokens,
+    undefined,
+    undefined,
+    undefined,
+    mapWorld(map.def),
+  ),
 });
 
 console.log(`Server running on http://${server.hostname}:${server.port}`);

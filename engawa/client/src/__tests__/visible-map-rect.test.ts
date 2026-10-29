@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { MAP_HEIGHT, MAP_WIDTH } from '@/core/types';
 import { visibleMapRect } from '@/world/canvas';
+import { MAP_HEIGHT, MAP_WIDTH } from '@/world/tilemap';
 
 describe('visibleMapRect', () => {
   it('is the viewport around the camera at 1:1', () => {

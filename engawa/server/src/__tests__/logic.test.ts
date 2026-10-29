@@ -9,8 +9,6 @@ import {
   isPasswordRequired,
   isSpawnClear,
   isValidStreamMetaKind,
-  MAP_HEIGHT,
-  MAP_WIDTH,
   MAX_AVATAR_IMAGE_LEN,
   MAX_VELOCITY,
   normalizeAnnotation,
@@ -160,33 +158,32 @@ describe('normalizeStreamId', () => {
   });
 });
 
+// Bounds of the office map (52×43 tiles × 50px); the server gets them from the
+// loaded map (map.ts mapWorld).
+const MAP_WIDTH = 2600;
+const MAP_HEIGHT = 2150;
+const clamp = (x: number, y: number) => clampPosition(x, y, MAP_WIDTH, MAP_HEIGHT);
+
 describe('clampPosition', () => {
   test('passes through in-range coordinates', () => {
-    expect(clampPosition(500, 600)).toEqual({ x: 500, y: 600 });
-  });
-
-  // Must equal the client's map size (office.json 52×43 tiles × 50px). The client
-  // can't be imported from here, so its tilemap.test.ts pins the same literals.
-  test('MAP_WIDTH/MAP_HEIGHT match the client map size', () => {
-    expect(MAP_WIDTH).toBe(2600);
-    expect(MAP_HEIGHT).toBe(2150);
+    expect(clamp(500, 600)).toEqual({ x: 500, y: 600 });
   });
 
   test('clamps negative coordinates to 0', () => {
-    expect(clampPosition(-100, -50)).toEqual({ x: 0, y: 0 });
+    expect(clamp(-100, -50)).toEqual({ x: 0, y: 0 });
   });
 
   test('clamps coordinates above the map bounds', () => {
-    expect(clampPosition(99999, 99999)).toEqual({ x: MAP_WIDTH, y: MAP_HEIGHT });
+    expect(clamp(99999, 99999)).toEqual({ x: MAP_WIDTH, y: MAP_HEIGHT });
   });
 
   test('respects the boundary values exactly', () => {
-    expect(clampPosition(0, 0)).toEqual({ x: 0, y: 0 });
-    expect(clampPosition(MAP_WIDTH, MAP_HEIGHT)).toEqual({ x: MAP_WIDTH, y: MAP_HEIGHT });
+    expect(clamp(0, 0)).toEqual({ x: 0, y: 0 });
+    expect(clamp(MAP_WIDTH, MAP_HEIGHT)).toEqual({ x: MAP_WIDTH, y: MAP_HEIGHT });
   });
 
   test('collapses non-finite input to 0 (matching Number(v) || 0)', () => {
-    expect(clampPosition(NaN, NaN)).toEqual({ x: 0, y: 0 });
+    expect(clamp(NaN, NaN)).toEqual({ x: 0, y: 0 });
   });
 
   test('honors custom width/height bounds', () => {
@@ -194,19 +191,22 @@ describe('clampPosition', () => {
   });
 });
 
+// The office map's spawn area: its center aisle.
+const AISLE = { x: 1200, y: 800, w: 400, h: 600 };
+
 describe('generateSpawn', () => {
   test('is deterministic when given a fixed random source', () => {
-    const spawn = generateSpawn(() => 0.5);
+    const spawn = generateSpawn(AISLE, () => 0.5);
     expect(spawn).toEqual({ x: 1400, y: 1100 });
   });
 
   test('produces the minimum corner when rand returns 0', () => {
-    expect(generateSpawn(() => 0)).toEqual({ x: 1200, y: 800 });
+    expect(generateSpawn(AISLE, () => 0)).toEqual({ x: 1200, y: 800 });
   });
 
   test('stays within the open office area for any rand in [0,1)', () => {
     for (const r of [0, 0.25, 0.5, 0.75, 0.999]) {
-      const { x, y } = generateSpawn(() => r);
+      const { x, y } = generateSpawn(AISLE, () => r);
       expect(x).toBeGreaterThanOrEqual(1200);
       expect(x).toBeLessThan(1600);
       expect(y).toBeGreaterThanOrEqual(800);
@@ -215,7 +215,7 @@ describe('generateSpawn', () => {
   });
 
   test('with no one here, is unaffected (first candidate) — back-compat', () => {
-    expect(generateSpawn(() => 0.5, [])).toEqual({ x: 1400, y: 1100 });
+    expect(generateSpawn(AISLE, () => 0.5, [])).toEqual({ x: 1400, y: 1100 });
   });
 
   test('spawns clear of an existing member when a clear spot exists', () => {
@@ -224,7 +224,7 @@ describe('generateSpawn', () => {
     const seq = [0, 0, 0.999, 0.999];
     let i = 0;
     const rand = () => seq[i++ % seq.length];
-    const spawn = generateSpawn(rand, [{ x: 1200, y: 800 }]);
+    const spawn = generateSpawn(AISLE, rand, [{ x: 1200, y: 800 }]);
     const dist = Math.hypot(spawn.x - 1200, spawn.y - 800);
     expect(dist).toBeGreaterThanOrEqual(150);
   });

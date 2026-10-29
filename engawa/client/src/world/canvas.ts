@@ -2,8 +2,6 @@ import { t } from '@/core/i18n';
 import type { Point } from '@/core/proximity';
 import {
   CONNECT_RADIUS,
-  MAP_HEIGHT,
-  MAP_WIDTH,
   PLAYER_RADIUS,
   REACTION_LIFETIME_MS,
   SEAT_CONNECT_RADIUS,
@@ -20,6 +18,8 @@ import type { PlayerState } from '@/world/player';
 import {
   callZoneAt,
   isDeskSeat,
+  MAP_HEIGHT,
+  MAP_WIDTH,
   podRugAt,
   type Seat,
   seatAt,

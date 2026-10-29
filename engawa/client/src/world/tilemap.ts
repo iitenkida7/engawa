@@ -1,7 +1,7 @@
+import { type MapDef, type RoomKind, TILE_SIZE, type TileRect } from '@maps/map-def';
 import { getLang } from '@/core/i18n';
 import type { FloorStyle } from '@/world/floor-styles';
-import { assertMapDef, type MapDef, type RoomKind, type TileRect } from '@/world/map-def';
-import officeDef from '@/world/maps/office.json';
+import { takeMap } from '@/world/map-data';
 import type { Direction } from '@/world/outfit';
 
 // Split-out modules, re-exported so callers keep importing from tilemap.
@@ -13,15 +13,21 @@ export {
   type FloorStyle,
 } from '@/world/floor-styles';
 
-// The layout itself is data (world/map-def.ts); this module builds the walkable
-// grid, call zones and every derived rect from it, and answers position queries.
-// It stays pure layout + collision: tile colours and part art live with the
-// renderer (world/map-art.ts).
-export const MAP = assertMapDef(officeDef as MapDef);
+export { TILE_SIZE };
 
-export const TILE_SIZE = 50;
+// The layout itself is data (maps/map-def.ts), served by the server and
+// installed before this module loads (world/map-data.ts); this module builds the
+// walkable grid, call zones and every derived rect from it, and answers position
+// queries. It stays pure layout + collision: tile colours and part art live with
+// the renderer (world/map-art.ts).
+export const MAP = takeMap();
+
 export const MAP_COLS = MAP.cols;
 export const MAP_ROWS = MAP.rows;
+// Pixel size of the whole map. The server clamps positions to the same bounds,
+// derived from the same map.
+export const MAP_WIDTH = MAP_COLS * TILE_SIZE;
+export const MAP_HEIGHT = MAP_ROWS * TILE_SIZE;
 
 export const Tile = {
   FLOOR: 0,
@@ -130,23 +136,10 @@ function buildOfficeMap(): number[][] {
   for (const [c, r] of MAP.plants) set(c, r, Tile.PLANT);
 
   // ── Outdoors: ponds and trees (both solid) ──
+  // Trees go down last; assertMapDef has already checked each is on open grass,
+  // so none overwrites anything (or seals a doorway).
   for (const p of MAP.ponds) fill(p.c, p.r, p.w, p.h, Tile.POND);
-  // Trees are stamped last, so a tree over anything else would overwrite it —
-  // and a solid 2×2 dropped on a doorway or the gate corridor seals it. Grass
-  // only, checked one tree at a time against the grid so far (so two trees
-  // can't overlap either); a misplaced tree is a map error, not silently dropped.
-  const onGrass = (c: number, r: number, span: number): boolean => {
-    for (let rr = r; rr < r + span; rr++)
-      for (let cc = c; cc < c + span; cc++) {
-        if (m[rr]?.[cc] !== Tile.GRASS) return false;
-      }
-    return true;
-  };
-  MAP.trees.forEach((t, i) => {
-    if (!onGrass(t.c, t.r, t.size))
-      throw new Error(`invalid map data: trees[${i}] at ${t.c},${t.r} is not on open grass`);
-    fill(t.c, t.r, t.size, t.size, Tile.TREE);
-  });
+  for (const t of MAP.trees) fill(t.c, t.r, t.size, t.size, Tile.TREE);
 
   return m;
 }
