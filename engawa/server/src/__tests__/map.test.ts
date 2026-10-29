@@ -21,37 +21,32 @@ describe('mapWorld', () => {
 
 describe('loadMap', () => {
   test('defaults to the bundled office preset', async () => {
-    const { def, source } = await loadMap({});
+    const { def, source } = await loadMap(undefined);
     expect(source).toBe("preset 'office'");
     expect(mapWorld(def)).toEqual(OFFICE_WORLD);
   });
 
   test('loads a preset by name (blank counts as unset)', async () => {
-    expect((await loadMap({ MAP: 'office' })).source).toBe("preset 'office'");
-    expect((await loadMap({ MAP: ' ', MAP_URL: '' })).source).toBe("preset 'office'");
+    expect((await loadMap('office')).source).toBe("preset 'office'");
+    expect((await loadMap(' ')).source).toBe("preset 'office'");
   });
 
   test('rejects an unknown preset, or a name that could leave the maps folder', async () => {
-    await expect(loadMap({ MAP: 'nope' })).rejects.toThrow(/no preset 'nope'/);
-    await expect(loadMap({ MAP: '../server/package' })).rejects.toThrow(/invalid preset name/);
+    await expect(loadMap('nope')).rejects.toThrow(/no preset 'nope'/);
+    await expect(loadMap('../server/package')).rejects.toThrow(/invalid preset name/);
+    await expect(loadMap('/data/map.json')).rejects.toThrow(/invalid preset name/);
   });
 
-  test('refuses MAP and MAP_URL together (which one would win is a guess)', async () => {
-    await expect(loadMap({ MAP: 'office', MAP_URL: 'https://x.test/m.json' })).rejects.toThrow(
-      /either MAP or MAP_URL/,
-    );
-  });
-
-  test('loads and validates a map from MAP_URL', async () => {
-    const { def, source } = await loadMap({ MAP_URL: 'https://x.test/m.json' }, serve(OFFICE_JSON));
+  test('loads and validates a map from a URL', async () => {
+    const { def, source } = await loadMap('https://x.test/m.json', serve(OFFICE_JSON));
     expect(source).toBe('https://x.test/m.json');
     expect(mapWorld(def)).toEqual(OFFICE_WORLD);
   });
 
-  test('fails the boot on a bad MAP_URL, naming why', async () => {
-    const env = { MAP_URL: 'https://x.test/m.json' };
-    await expect(loadMap({ MAP_URL: 'file:///etc/passwd' })).rejects.toThrow(/must be http\(s\)/);
-    await expect(loadMap({ MAP_URL: 'not a url' })).rejects.toThrow(/not a URL/);
+  test('fails the boot on a bad map URL, naming why', async () => {
+    const env = 'https://x.test/m.json';
+    await expect(loadMap('file:///etc/passwd')).rejects.toThrow(/must be http\(s\)/);
+    await expect(loadMap('https://')).rejects.toThrow(/not a URL/);
     await expect(loadMap(env, serve('', 404))).rejects.toThrow(/HTTP 404/);
     await expect(loadMap(env, serve('{oops'))).rejects.toThrow(/not valid JSON/);
     await expect(loadMap(env, serve(' '.repeat(MAX_MAP_BYTES + 1)))).rejects.toThrow(/over/);

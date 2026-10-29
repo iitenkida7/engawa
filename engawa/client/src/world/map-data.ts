@@ -1,4 +1,4 @@
-// The map the world is built from. The server picks it (MAP / MAP_URL) and
+// The map the world is built from. The server picks it (MAP) and
 // serves it at /api/map; core/boot.ts installs it here before any module that
 // builds from it (world/tilemap.ts) is loaded. Tests install the bundled office
 // map from their preload instead.

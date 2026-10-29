@@ -45,14 +45,12 @@ function unauthorized(): Response {
 // picking up the new client bundle.
 const BOOT_ID = crypto.randomUUID();
 
-// The map (MAP preset or MAP_URL), validated once at boot: a bad map stops the
+// The map (MAP: a bundled preset name or a URL), validated once at boot: a bad map stops the
 // server here rather than breaking every browser that loads it.
-const map = await loadMap({ MAP: process.env.MAP, MAP_URL: process.env.MAP_URL }).catch(
-  (err: unknown) => {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-  },
-);
+const map = await loadMap(process.env.MAP).catch((err: unknown) => {
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+});
 console.log(`[map] ${map.source} (${map.def.cols}x${map.def.rows} tiles)`);
 const MAP_JSON = JSON.stringify(map.def);
 

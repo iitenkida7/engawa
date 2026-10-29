@@ -110,7 +110,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
   一方向ラッチ）を割り当てる純粋関数。**開放フロアで新しく会話が始まるには双方が静止している（直近
   `PROXIMITY_STILL_MS`=700ms 位置が変わっていない）ことが必要**（すれ違いで通知音が鳴らないように。既存グループの維持・
   会議室は対象外）。停止後はサーバーのタイマー（`scheduleStillRegroup`）が再判定する。閾値の正規化も純粋関数 `normalizeSfuPromoteAt`。
-- `map.ts` — 起動時に `MAP`（同梱プリセット名）/ `MAP_URL`（外部 JSON）からマップを読み込み `assertMapDef` で検証する
+- `map.ts` — 起動時に `MAP`（同梱プリセット名、または外部 JSON の URL）からマップを読み込み `assertMapDef` で検証する
   （不正なら**起動を拒否**）。`/api/map` で配信し、座標クランプの範囲とスポーン範囲（`mapWorld`）もマップから導出する。
 - `turn.ts` — Cloudflare API を叩いて短期 ICE クレデンシャルを発行。**API キーはサーバーのみ保持**。
 - `sfu.ts` — Cloudflare Realtime SFU の制御プレーン（セッション/トラック）を**プロキシ**する。
@@ -217,8 +217,8 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   **名前入力の前**にパスワードゲートを表示（`POST /api/verify-password` で照合）。join でも
   再検証する（`logic.ts` の `verifyAccessPassword` / `isPasswordRequired` 参照）。
   ※複数ワークスペース（`?workspace=`）は廃止。全員が単一スペースに入る。
-- `MAP` / `MAP_URL` — 使うマップ（任意）。`MAP` は同梱プリセット名（`engawa/maps/<name>.json`、既定 `office`）、
-  `MAP_URL` は http(s) の外部 JSON（1MB まで）。両方指定・不正なマップはサーバーが起動を拒否する。読み込みは起動時のみ。
+- `MAP` — 使うマップ（任意）。同梱プリセット名（`engawa/maps/<name>.json`、既定 `office`）か、http(s) の外部 JSON の URL
+  （1MB まで）。不正なマップはサーバーが起動を拒否する。読み込みは起動時のみ。
 - `EVENT_WEBHOOK_URL` / `EVENT_WEBHOOK_SECRET` / `EVENT_INCLUDE_NAMES` — イベント Webhook（任意）。URL 未設定なら無効。
   SECRET はボディの HMAC-SHA256 署名（`X-Engawa-Signature`）。参加者は既定で日替わりの匿名 ID、`true` で表示名。
 

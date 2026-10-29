@@ -1,4 +1,4 @@
-// The map this server runs (MAP / MAP_URL), loaded and validated once at boot
+// The map this server runs (MAP: a bundled template name or a URL), loaded and validated once at boot
 // and served to every client at GET /api/map. The format and its validator are
 // shared with the client (../../maps/map-def.ts, mounted at /maps). The server
 // itself only needs the map's pixel bounds (to clamp positions) and its spawn
@@ -34,21 +34,20 @@ export const MAX_MAP_BYTES = 1_000_000;
 const MAP_FETCH_TIMEOUT_MS = 10_000;
 
 /**
- * Load the configured map: MAP_URL (a JSON file over http(s)) or the bundled
- * preset named by MAP (default office). Both set is a configuration error, as
- * is anything that fails assertMapDef — the server refuses to start rather than
- * serve a map every browser would fail to build.
+ * Load the configured map. MAP is either a JSON file over http(s) (a value with
+ * a scheme) or the name of a bundled preset; unset means office. A map that
+ * can't be loaded or fails assertMapDef is a configuration error — the server
+ * refuses to start rather than serve a map every browser would fail to build.
  */
 export async function loadMap(
-  env: { MAP?: string; MAP_URL?: string },
+  map: string | undefined,
   fetchFn: typeof fetch = fetch,
 ): Promise<{ def: MapDef; source: string }> {
-  const preset = env.MAP?.trim() || undefined;
-  const url = env.MAP_URL?.trim() || undefined;
-  if (preset && url) throw new Error('map: set either MAP or MAP_URL, not both');
-  if (url) return { def: assertMapDef(await fetchMapJson(url, fetchFn)), source: url };
+  const value = map?.trim() || DEFAULT_MAP;
+  if (value.includes('://'))
+    return { def: assertMapDef(await fetchMapJson(value, fetchFn)), source: value };
 
-  const name = preset ?? DEFAULT_MAP;
+  const name = value;
   if (!PRESET_NAME.test(name)) throw new Error(`map: invalid preset name '${name}'`);
   const file = Bun.file(new URL(`${name}.json`, MAPS_DIR));
   if (!(await file.exists())) throw new Error(`map: no preset '${name}' (maps/${name}.json)`);
@@ -60,10 +59,10 @@ async function fetchMapJson(raw: string, fetchFn: typeof fetch): Promise<unknown
   try {
     url = new URL(raw);
   } catch {
-    throw new Error(`map: MAP_URL is not a URL ('${raw}')`);
+    throw new Error(`map: MAP is not a URL ('${raw}')`);
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:')
-    throw new Error(`map: MAP_URL must be http(s) (got ${url.protocol})`);
+    throw new Error(`map: a MAP URL must be http(s) (got ${url.protocol})`);
   const res = await fetchFn(url, { signal: AbortSignal.timeout(MAP_FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`map: GET ${url} failed (HTTP ${res.status})`);
   const text = await res.text();

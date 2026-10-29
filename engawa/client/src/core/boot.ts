@@ -1,4 +1,4 @@
-// Entry point (index.html). The map is data the server picks (MAP / MAP_URL),
+// Entry point (index.html). The map is data the server picks (MAP),
 // and every world module builds from it once, at load — so fetch and install it
 // first, then load the app (core/main.ts) and with it the world.
 

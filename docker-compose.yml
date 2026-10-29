@@ -34,7 +34,6 @@ services:
       - EVENT_WEBHOOK_SECRET=${EVENT_WEBHOOK_SECRET:-}
       - EVENT_INCLUDE_NAMES=${EVENT_INCLUDE_NAMES:-}
       - MAP=${MAP:-}
-      - MAP_URL=${MAP_URL:-}
 
   client:
     image: oven/bun:1.4-alpine
