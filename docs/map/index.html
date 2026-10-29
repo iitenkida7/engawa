@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>マップ JSON（MapDef）仕様 — engawa</title>
 <meta name="description" content="engawa のマップ JSON（MapDef v1）の書き方。アプリが実際に描く office マップに JSON の枠を重ねて、建物・部屋・デスク・通話ゾーン・床柄を図解する。">
+<link rel="alternate" hreflang="ja" href="https://iitenkida7.github.io/engawa/map/">
+<link rel="alternate" hreflang="en" href="https://iitenkida7.github.io/engawa/map/en.html">
 <link rel="icon" type="image/png" href="../assets/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -108,7 +110,7 @@ td:first-child { white-space: nowrap; }
 <body>
 <div class="wrap">
   <header>
-    <div class="eyebrow"><a href="../ja/">engawa</a> / client/src/world/maps/*.json · version 1</div>
+    <div class="eyebrow"><a href="../ja/">engawa</a> / client/src/world/maps/*.json · version 1 · <a href="en.html" hreflang="en" lang="en">English</a></div>
     <h1>マップ JSON（MapDef）仕様</h1>
     <p class="lede">マップ JSON は「どこに何を置くか」だけを書くデータです。机や椅子、木の絵はアプリ側（<code>world/map-art.ts</code>）が描き、JSON で選べる見た目は床柄と色番号だけです。このページの図はすべて、アプリ本体の描画コード（<code>buildMapCache</code>）で書き出した実際のマップに、JSON の枠を重ねたものです。</p>
   </header>
@@ -375,7 +377,7 @@ td:first-child { white-space: nowrap; }
         <li><code>cols</code> / <code>rows</code> を変えたら、サーバーの <code>MAP_WIDTH=2600</code> / <code>MAP_HEIGHT=2150</code>（<code>server/src/logic.ts</code>）とクライアントの <code>core/types.ts</code> も手で合わせます。現在は 52×43 タイル × 50px が前提です。</li>
         <li>マップから作られるタイルの並びは、<code>__tests__/tilemap-split.test.ts</code> のスナップショットで固定されています。意図して変えたら <code>bun test -u</code> で更新します。</li>
         <li>部屋の種類による振る舞いは id ではなく <code>kind</code> で決まります。id は通話のまとまりの識別にだけ使われます。</li>
-        <li>このページのマップ画像（<code>docs/map/office-map.webp</code>）と、ページに埋め込んだ office.json は書き出した時点のコピーです。マップを変えたら両方を差し替えます。画像は、開発サーバー（<code>make up</code> 後の http://localhost:5173）を開いたブラウザのコンソールで次を実行して保存します。</li>
+        <li>このページのマップ画像（<code>docs/map/office-map.webp</code>）と、ページに埋め込んだ office.json は書き出した時点のコピーです。マップを変えたら、日本語版・英語版（<code>en.html</code>）の両方で差し替えます。画像は、開発サーバー（<code>make up</code> 後の http://localhost:5173）を開いたブラウザのコンソールで次を実行して保存します。</li>
       </ul>
 <pre>const c = (await import('/src/world/map-art.ts')).buildMapCache(1);
 c.toBlob((b) => {
