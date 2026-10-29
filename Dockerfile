@@ -10,6 +10,8 @@ FROM oven/bun:1.4-alpine AS client
 WORKDIR /client
 COPY engawa/client/package.json engawa/client/bun.lock* ./
 RUN bun install --frozen-lockfile
+# Shared map format + bundled maps, at ../maps from both packages.
+COPY engawa/maps/ /maps/
 COPY engawa/client/ ./
 RUN bun run build
 
@@ -17,6 +19,7 @@ RUN bun run build
 FROM oven/bun:1.4-alpine AS runtime
 WORKDIR /app
 COPY engawa/server/ ./
+COPY engawa/maps/ /maps/
 COPY --from=client /client/dist ./public
 ENV PORT=3000
 EXPOSE 3000

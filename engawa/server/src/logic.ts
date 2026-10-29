@@ -4,17 +4,8 @@
 
 import type { GroupMethod, Outfit, PlayerStatus, SfuTrack, StreamKind } from './types';
 
-/** Map bounds used to clamp player positions. The server has no tilemap, so this
- * is hardcoded and MUST match the client's MAP_WIDTH/MAP_HEIGHT (core/types.ts),
- * which it derives from the map data: client/src/world/maps/office.json is
- * 52×43 tiles × 50px. Keep this in sync by hand — too small and everyone gets
- * pinned short of the real edge (others then render them in the wrong place and
- * proximity grouping uses the clamped position). The two packages can't import
- * each other, so both pin the same literals in a test (client tilemap.test.ts
- * 'map size', server logic.test.ts 'MAP_WIDTH/MAP_HEIGHT'): changing either
- * side alone fails its own test. */
-export const MAP_WIDTH = 2600;
-export const MAP_HEIGHT = 2150;
+/** A pixel rect (map coordinates). */
+export type PixelRect = { x: number; y: number; w: number; h: number };
 
 /**
  * Whether an access password is configured (a non-empty ACCESS_PASSWORD). When
@@ -272,14 +263,15 @@ export function sanitizeAvatarImage(raw: unknown): string | null {
 }
 
 /**
- * Clamp a coordinate pair into the map bounds. Non-finite inputs collapse to 0,
- * matching the original `Number(v) || 0` behaviour.
+ * Clamp a coordinate pair into the map bounds (w×h px, from the map: map.ts
+ * mapWorld). Non-finite inputs collapse to 0, matching the original
+ * `Number(v) || 0` behaviour.
  */
 export function clampPosition(
   x: number,
   y: number,
-  w: number = MAP_WIDTH,
-  h: number = MAP_HEIGHT,
+  w: number,
+  h: number,
 ): { x: number; y: number } {
   return {
     x: Math.max(0, Math.min(w, Number(x) || 0)),
@@ -288,11 +280,12 @@ export function clampPosition(
 }
 
 /**
- * Generate a spawn position in the open office area (center aisle, avoids
- * walls/desks). The random source is injectable so spawns can be made
- * deterministic in tests.
+ * Generate a spawn position in the map's spawn area (map.ts mapWorld; the
+ * office's is its center aisle, clear of walls/desks). The random source is
+ * injectable so spawns can be made deterministic in tests.
  */
 export function generateSpawn(
+  area: PixelRect,
   rand: () => number = Math.random,
   // Positions of people already here. The spawn tries to land clear of everyone's
   // proximity bubble so logging in doesn't drop you into a stranger's call (and
@@ -300,10 +293,9 @@ export function generateSpawn(
   // roomiest candidate it found.
   occupied: { x: number; y: number }[] = [],
 ): { x: number; y: number } {
-  // Open-office area, shifted by the 400px outdoor margin (#229, now 8 tiles) so
-  // spawns stay inside the building's center aisle, not out on the grass. The
-  // client snaps this to the nearest walkable tile, so landing near a desk is fine.
-  const pick = () => ({ x: 1200 + rand() * 400, y: 800 + rand() * 600 });
+  // The client snaps this to the nearest walkable tile, so landing near a desk
+  // is fine.
+  const pick = () => ({ x: area.x + rand() * area.w, y: area.y + rand() * area.h });
   const minDist = (p: { x: number; y: number }) =>
     occupied.length === 0
       ? Number.POSITIVE_INFINITY

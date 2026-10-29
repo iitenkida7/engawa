@@ -2,7 +2,6 @@
 // walls, furniture, outdoor grounds). The per-frame renderer (canvas.ts) only
 // blits the result, so nothing here runs per frame.
 
-import { MAP_HEIGHT, MAP_WIDTH } from '@/core/types';
 import { propFor } from '@/world/decor';
 import { FLOOR_THEMES } from '@/world/floor-styles';
 import {
@@ -14,7 +13,9 @@ import {
   LOUNGE_RECTS,
   LOUNGE_TABLE_RECTS,
   MAP_COLS,
+  MAP_HEIGHT,
   MAP_ROWS,
+  MAP_WIDTH,
   MEETING_ROOM_RECTS,
   OPEN_DESK_CHAIRS,
   officeMap,

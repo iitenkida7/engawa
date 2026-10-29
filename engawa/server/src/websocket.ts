@@ -8,8 +8,6 @@ import {
   isAllowedReaction,
   isSpawnClear,
   isValidStreamMetaKind,
-  MAP_HEIGHT,
-  MAP_WIDTH,
   normalizeAnnotation,
   normalizeBool,
   normalizeClientId,
@@ -32,6 +30,7 @@ import {
   sfuLatchSeeds,
   verifyAccessPassword,
 } from './logic';
+import { type MapWorld, OFFICE_WORLD } from './map';
 import { isSfuEnabled } from './sfu';
 import type { ClientMessage, Player, ServerMessage, WsData } from './types';
 
@@ -213,6 +212,8 @@ export function createWebSocketHandler(
   leaveGraceMs: number = RESUME_GRACE_MS,
   // Outbound event webhook (docs/webhook.md); null when EVENT_WEBHOOK_URL is unset.
   events: EventRecorder | null = createEventRecorderFromEnv(),
+  // The running map's bounds and spawn area (index.ts loads it; see map.ts).
+  world: MapWorld = OFFICE_WORLD,
 ): WebSocketHandler<WsData> {
   // Per-workspace SFU latch state. Lives for the handler's lifetime (one server
   // process); reset on restart, never persisted (invariant #2).
@@ -447,7 +448,7 @@ export function createWebSocketHandler(
           ws.data.workspace = workspace;
           ws.data.outfit = sanitizeOutfit(msg.outfit);
           ws.data.avatarImage = sanitizeAvatarImage(msg.avatarImage);
-          // Spawn in the open office area (center aisle, avoids walls/desks), and
+          // Spawn in the map's spawn area (the office's center aisle), and
           // clear of people already here so logging in doesn't land you in a
           // stranger's call (nor fire their enter chime).
           const occupied: { x: number; y: number }[] = [];
@@ -460,10 +461,10 @@ export function createWebSocketHandler(
           // still clear of everyone; otherwise fall back to the normal spawn.
           let spawn: { x: number; y: number } | null = null;
           if (msg.spawn && Number.isFinite(msg.spawn.x) && Number.isFinite(msg.spawn.y)) {
-            const preferred = clampPosition(msg.spawn.x, msg.spawn.y);
+            const preferred = clampPosition(msg.spawn.x, msg.spawn.y, world.width, world.height);
             if (isSpawnClear(preferred, occupied)) spawn = preferred;
           }
-          if (!spawn) spawn = generateSpawn(Math.random, occupied);
+          if (!spawn) spawn = generateSpawn(world.spawn, Math.random, occupied);
           ws.data.x = spawn.x;
           ws.data.y = spawn.y;
           ws.data.joined = true;
@@ -590,7 +591,7 @@ export function createWebSocketHandler(
 
         case 'move': {
           if (!ws.data.joined) return;
-          const { x, y } = clampPosition(msg.x, msg.y, MAP_WIDTH, MAP_HEIGHT);
+          const { x, y } = clampPosition(msg.x, msg.y, world.width, world.height);
           const vx = normalizeVelocity(msg.vx);
           const vy = normalizeVelocity(msg.vy);
           const moved = x !== ws.data.x || y !== ws.data.y;
@@ -876,5 +877,3 @@ export function createWebSocketHandler(
     },
   };
 }
-
-export { MAP_HEIGHT, MAP_WIDTH };

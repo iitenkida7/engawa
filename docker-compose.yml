@@ -21,6 +21,8 @@ services:
     volumes:
       - ./engawa/server:/app
       - server_node_modules:/app/node_modules
+      # Shared map format + bundled maps (../maps from both packages).
+      - ./engawa/maps:/maps
     environment:
       - PORT=3000
       - CLOUDFLARE_TURN_TOKEN_ID=${CLOUDFLARE_TURN_TOKEN_ID:-}
@@ -31,6 +33,7 @@ services:
       - EVENT_WEBHOOK_URL=${EVENT_WEBHOOK_URL:-}
       - EVENT_WEBHOOK_SECRET=${EVENT_WEBHOOK_SECRET:-}
       - EVENT_INCLUDE_NAMES=${EVENT_INCLUDE_NAMES:-}
+      - MAP=${MAP:-}
 
   client:
     image: oven/bun:1.4-alpine
@@ -41,6 +44,7 @@ services:
     volumes:
       - ./engawa/client:/app
       - client_node_modules:/app/node_modules
+      - ./engawa/maps:/maps
     depends_on:
       - server
 

@@ -23,6 +23,9 @@ export default defineConfig({
     // point the HMR websocket at Caddy's TLS port so HMR works over wss.
     allowedHosts: ['engawa.localhost'],
     hmr: { clientPort: 443 },
+    // The shared map format lives outside the client root (../maps, mounted at
+    // /maps in the container).
+    fs: { allow: ['.', '../maps'] },
     proxy: {
       '/api': { target, changeOrigin: true },
       // http-proxy needs http(s) target even for ws upgrades; ws://… target
@@ -31,7 +34,10 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@maps': fileURLToPath(new URL('../maps', import.meta.url)),
+    },
   },
   build: {
     outDir: 'dist',

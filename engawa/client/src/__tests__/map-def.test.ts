@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { assertMapDef, FLOOR_THEME_COUNT, type MapDef, spawnArea } from '@maps/map-def';
+import office from '@maps/office.json';
 import { FLOOR_THEMES } from '@/world/floor-styles';
-import { assertMapDef, type MapDef } from '@/world/map-def';
 
 // A map is JSON: the MapDef types say nothing about what actually loads, so the
 // validator is the only thing between a typo and an undefined deep inside the
@@ -123,6 +124,71 @@ describe('assertMapDef', () => {
     const f = map();
     f.rooms[0].kind = 'lobby' as 'meeting';
     expect(() => assertMapDef(f)).toThrow(/unknown kind 'lobby'/);
+  });
+
+  it('accepts the bundled office map', () => {
+    expect(() => assertMapDef(structuredClone(office))).not.toThrow();
+  });
+
+  it('rejects a solid part on a doorway (the room or building would be sealed)', () => {
+    const d = map();
+    d.plants[0] = [5, 3]; // the room's door
+    expect(() => assertMapDef(d)).toThrow(/plants\[0\] covers a door of room 'r1' at \[5,3\]/);
+    const e = map();
+    e.desks[0] = { c: 3, r: 6, facing: 'south' }; // over the building's door [2,6]
+    expect(() => assertMapDef(e)).toThrow(/desks\[0\] covers a door of buildings\[0\]/);
+    const f = map();
+    f.ponds[0] = { c: 1, r: 5, w: 2, h: 2 };
+    expect(() => assertMapDef(f)).toThrow(/ponds\[0\] covers a door/);
+  });
+
+  it("rejects a room whose wall lands on another room's door", () => {
+    const d = map();
+    // A second room right above r1: its bottom wall is r1's top wall, door included.
+    d.rooms.push({
+      ...structuredClone(d.rooms[0]),
+      id: 'r2',
+      r: 2,
+      h: 1,
+      doors: [],
+      table: { c: 5, r: 2, w: 1, h: 1 },
+    });
+    expect(() => assertMapDef(d)).toThrow(/room 'r2' wall covers a door of room 'r1'/);
+  });
+
+  it('rejects a table outside its room', () => {
+    const d = map();
+    d.rooms[0].table = { c: 8, r: 5, w: 1, h: 1 };
+    expect(() => assertMapDef(d)).toThrow(/table: must sit inside the room/);
+  });
+
+  it('rejects a tree off the open grass (it would overwrite what is there)', () => {
+    const d = map();
+    d.trees[0] = { c: 5, r: 9, size: 1, variant: 0 }; // inside the building
+    expect(() => assertMapDef(d)).toThrow(/trees\[0\] at 5,9 is not on open grass/);
+    const e = map();
+    e.trees[0] = { c: 15, r: 3, size: 2, variant: 0 }; // over the pond
+    expect(() => assertMapDef(e)).toThrow(/not on open grass/);
+    const f = map();
+    f.trees.push({ c: 17, r: 11, size: 1, variant: 1 }); // inside the first 2×2 tree
+    expect(() => assertMapDef(f)).toThrow(/trees\[1\] at 17,11 is not on open grass/);
+  });
+
+  it('spawns in the map spawn rect, else inside the first building, else anywhere', () => {
+    expect(spawnArea(map({ spawn: { c: 3, r: 4, w: 2, h: 2 } }))).toEqual({
+      c: 3,
+      r: 4,
+      w: 2,
+      h: 2,
+    });
+    expect(spawnArea(map())).toEqual({ c: 3, r: 3, w: 8, h: 8 });
+    expect(spawnArea(map({ buildings: [] }))).toEqual({ c: 0, r: 0, w: 20, h: 20 });
+    const d = map({ spawn: { c: 19, r: 0, w: 2, h: 1 } });
+    expect(() => assertMapDef(d)).toThrow(/spawn: rect .* runs outside/);
+  });
+
+  it('counts exactly the colour themes the renderer has', () => {
+    expect(FLOOR_THEMES.length).toBe(FLOOR_THEME_COUNT);
   });
 
   it('bounds floor colours by the renderer palette itself', () => {

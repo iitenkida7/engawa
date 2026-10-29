@@ -3,8 +3,6 @@ import {
   CLICK_MOVE_ARRIVE_THRESHOLD,
   CLICK_MOVE_MULTIPLIER,
   COLLISION_RADIUS,
-  MAP_HEIGHT,
-  MAP_WIDTH,
   PLAYER_RADIUS,
   PLAYER_SPEED,
   STEP_DURATION_MS,
@@ -12,7 +10,7 @@ import {
 import { stepTarget } from '@/world/grid';
 import { findPath } from '@/world/pathfind';
 import type { PlayerState } from '@/world/player';
-import { canOccupy } from '@/world/tilemap';
+import { canOccupy, MAP_HEIGHT, MAP_WIDTH } from '@/world/tilemap';
 
 // Self movement, split out of App: grid-step keyboard movement (issue #206) and
 // click-to-move along an A* route. It only moves our own PlayerState; App reads
