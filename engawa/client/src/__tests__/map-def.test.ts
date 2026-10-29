@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { FLOOR_THEMES } from '@/world/floor-styles';
 import { assertMapDef, type MapDef } from '@/world/map-def';
 
 // A map is JSON: the MapDef types say nothing about what actually loads, so the
@@ -74,6 +75,63 @@ describe('assertMapDef', () => {
     const f = map();
     f.plants[0] = [3, 20];
     expect(() => assertMapDef(f)).toThrow(/outside the map/);
+  });
+
+  it('rejects two zones sharing an id (the server would merge their calls)', () => {
+    const d = map();
+    d.teamAreas = [{ id: 'r1', c: 14, r: 14, w: 2, h: 2 }];
+    expect(() => assertMapDef(d)).toThrow(/id 'r1' is used twice/);
+  });
+
+  it('rejects fractional positions (they index nothing on the grid)', () => {
+    const d = map();
+    d.rooms[0].c = 4.5;
+    expect(() => assertMapDef(d)).toThrow(/whole tiles/);
+    const e = map();
+    e.ponds[0].r = 2.5;
+    expect(() => assertMapDef(e)).toThrow(/whole tiles/);
+  });
+
+  it('names a missing field instead of failing with a bare TypeError', () => {
+    const d = map() as Partial<MapDef>;
+    delete d.ponds;
+    expect(() => assertMapDef(d as MapDef)).toThrow(/'ponds' must be an array/);
+    const e = map();
+    delete (e.rooms[0] as Partial<MapDef['rooms'][number]>).table;
+    expect(() => assertMapDef(e)).toThrow(/room 'r1' table: missing/);
+    const f = map();
+    f.lounges = [{ id: 'cafe', c: 14, r: 14, w: 2, h: 2 } as MapDef['lounges'][number]];
+    expect(() => assertMapDef(f)).toThrow(/lounge 'cafe': name must be/);
+  });
+
+  it('rejects a door that is not on its wall (the room would be sealed)', () => {
+    const d = map();
+    d.rooms[0].doors = [[5, 5]]; // inside the room
+    expect(() => assertMapDef(d)).toThrow(/door 0: tile \[5,5\] is not on its wall/);
+    const e = map();
+    e.buildings[0].doors = [[5, 5]]; // inside the building
+    expect(() => assertMapDef(e)).toThrow(/not on its wall/);
+  });
+
+  it('rejects an unknown desk facing, tree variant or room kind', () => {
+    const d = map();
+    d.desks[0].facing = 'east' as 'south';
+    expect(() => assertMapDef(d)).toThrow(/facing must be/);
+    const e = map();
+    e.trees[0].variant = 2 as 0;
+    expect(() => assertMapDef(e)).toThrow(/variant must be/);
+    const f = map();
+    f.rooms[0].kind = 'lobby' as 'meeting';
+    expect(() => assertMapDef(f)).toThrow(/unknown kind 'lobby'/);
+  });
+
+  it('bounds floor colours by the renderer palette itself', () => {
+    const d = map();
+    d.rooms[0].floor = { pattern: 'brick', color: FLOOR_THEMES.length - 1 };
+    expect(() => assertMapDef(d)).not.toThrow();
+    const e = map();
+    e.rooms[0].floor = { pattern: 'brick', color: FLOOR_THEMES.length };
+    expect(() => assertMapDef(e)).toThrow(/colour/);
   });
 
   it('freezes the map, so the styles it hands out cannot be rewritten', () => {

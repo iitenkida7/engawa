@@ -4,6 +4,7 @@
 
 import { MAP_HEIGHT, MAP_WIDTH } from '@/core/types';
 import { propFor } from '@/world/decor';
+import { FLOOR_THEMES } from '@/world/floor-styles';
 import {
   ARMCHAIR_DX,
   ARMCHAIR_GAP,
@@ -139,11 +140,6 @@ const PALETTE = {
   cabinetHandle: '#6f7784',
 } as const;
 
-// (Rooms/cafés/islands no longer colour-code by kind; they use FLOOR_THEMES.)
-// Rug colour themes (#263 follow-up): a pale base fill + a matching accent for
-// the pattern marks. Rooms/cafés/islands pick one by index (tilemap FloorStyle),
-// so the floors are varied instead of colour-coded by kind. Order is the colour
-// index; keep the length == FLOOR_COLOR_COUNT.
 // Scale an `rgba(r,g,b,a)` string's alpha by a factor (used to soften heavier
 // floor patterns). Returns the input unchanged when it can't be parsed.
 function scaleAlpha(rgba: string, factor: number): string {
@@ -153,20 +149,6 @@ function scaleAlpha(rgba: string, factor: number): string {
   const [r, g, b, a = '1'] = m[1].split(',').map((s) => s.trim());
   return `rgba(${r}, ${g}, ${b}, ${(Number.parseFloat(a) * factor).toFixed(3)})`;
 }
-
-const FLOOR_THEMES: { base: string; accent: string }[] = [
-  // Muted, greyed mid-tones (calm, not colourful) — matched to the slate feel.
-  { base: '#b4c2a8', accent: 'rgba(84,106,78,0.32)' }, // green — greyed sage
-  { base: '#b2c0d4', accent: 'rgba(74,100,138,0.32)' }, // blue — greyed
-  { base: '#c3bcce', accent: 'rgba(104,92,134,0.3)' }, // lavender — greyed mauve
-  { base: '#d2bcc3', accent: 'rgba(158,108,126,0.3)' }, // pink — greyed rose
-  { base: '#f4efdd', accent: 'rgba(176,152,88,0.22)' }, // amber — near-white, faint yellow
-  { base: '#dce2e0', accent: 'rgba(108,128,124,0.24)' }, // teal — pale greyish
-  { base: '#d1b8ab', accent: 'rgba(158,104,78,0.3)' }, // terracotta — greyed clay
-  { base: '#bcc4d6', accent: 'rgba(84,100,132,0.32)' }, // slate
-  // Index 8 (CAFE_COLOR): reserved greige theme for the lounges.
-  { base: '#dcd4c6', accent: 'rgba(122,110,90,0.26)' }, // lounge — greige / taupe
-];
 
 // Floor-pattern cache, keyed by `${pattern}|${accent}` so each colour variant is
 // built once and reused across tiles. Cleared on every map (re)build.

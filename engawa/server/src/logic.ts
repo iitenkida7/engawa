@@ -9,8 +9,10 @@ import type { GroupMethod, Outfit, PlayerStatus, SfuTrack, StreamKind } from './
  * which it derives from the map data: client/src/world/maps/office.json is
  * 52×43 tiles × 50px. Keep this in sync by hand — too small and everyone gets
  * pinned short of the real edge (others then render them in the wrong place and
- * proximity grouping uses the clamped position). The client test
- * 'map size matches the server's hardcoded bounds' fails when they drift. */
+ * proximity grouping uses the clamped position). The two packages can't import
+ * each other, so both pin the same literals in a test (client tilemap.test.ts
+ * 'map size', server logic.test.ts 'MAP_WIDTH/MAP_HEIGHT'): changing either
+ * side alone fails its own test. */
 export const MAP_WIDTH = 2600;
 export const MAP_HEIGHT = 2150;
 

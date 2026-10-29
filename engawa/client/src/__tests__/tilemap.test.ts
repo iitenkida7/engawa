@@ -60,7 +60,8 @@ function findTile(predicate: (t: number) => boolean): { col: number; row: number
 // The server clamps positions against its own hardcoded copy of the map size
 // (server/src/logic.ts MAP_WIDTH/MAP_HEIGHT) because it has no tilemap. They
 // drifted once already (#229 grew the map and the server kept 2500), which pins
-// players short of the real right edge, so pin both sides here.
+// players short of the real right edge. The packages can't import each other, so
+// the server's logic.test.ts pins the same literals.
 describe('map size', () => {
   it("matches the server's hardcoded bounds (server/src/logic.ts)", () => {
     expect(MAP_COLS * TILE_SIZE).toBe(2600);

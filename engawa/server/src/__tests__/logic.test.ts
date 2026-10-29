@@ -165,6 +165,13 @@ describe('clampPosition', () => {
     expect(clampPosition(500, 600)).toEqual({ x: 500, y: 600 });
   });
 
+  // Must equal the client's map size (office.json 52×43 tiles × 50px). The client
+  // can't be imported from here, so its tilemap.test.ts pins the same literals.
+  test('MAP_WIDTH/MAP_HEIGHT match the client map size', () => {
+    expect(MAP_WIDTH).toBe(2600);
+    expect(MAP_HEIGHT).toBe(2150);
+  });
+
   test('clamps negative coordinates to 0', () => {
     expect(clampPosition(-100, -50)).toEqual({ x: 0, y: 0 });
   });

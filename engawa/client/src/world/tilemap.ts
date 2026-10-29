@@ -89,7 +89,7 @@ function seatOf(u: DeskUnit): [number, number] {
   return [u.c, u.r + (u.facing === 'south' ? -1 : 1)];
 }
 
-function buildOfficeMap(): { grid: number[][]; trees: MapDef['trees'] } {
+function buildOfficeMap(): number[][] {
   const m: number[][] = [];
   for (let r = 0; r < MAP_ROWS; r++) {
     m.push(new Array(MAP_COLS).fill(Tile.GRASS));
@@ -132,30 +132,31 @@ function buildOfficeMap(): { grid: number[][]; trees: MapDef['trees'] } {
   // ── Outdoors: ponds and trees (both solid) ──
   for (const p of MAP.ponds) fill(p.c, p.r, p.w, p.h, Tile.POND);
   // Trees are stamped last, so a tree over anything else would overwrite it —
-  // and a solid 2×2 dropped on a doorway or the gate corridor seals it with no
-  // error. Grass only (the guard the generated scatter used to apply); a tree
-  // that lands anywhere else is simply not placed.
+  // and a solid 2×2 dropped on a doorway or the gate corridor seals it. Grass
+  // only, checked one tree at a time against the grid so far (so two trees
+  // can't overlap either); a misplaced tree is a map error, not silently dropped.
   const onGrass = (c: number, r: number, span: number): boolean => {
     for (let rr = r; rr < r + span; rr++)
       for (let cc = c; cc < c + span; cc++) {
-        if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) return false;
-        if (m[rr][cc] !== Tile.GRASS) return false;
+        if (m[rr]?.[cc] !== Tile.GRASS) return false;
       }
     return true;
   };
-  const planted = MAP.trees.filter((t) => onGrass(t.c, t.r, t.size));
-  for (const t of planted) fill(t.c, t.r, t.size, t.size, Tile.TREE);
+  MAP.trees.forEach((t, i) => {
+    if (!onGrass(t.c, t.r, t.size))
+      throw new Error(`invalid map data: trees[${i}] at ${t.c},${t.r} is not on open grass`);
+    fill(t.c, t.r, t.size, t.size, Tile.TREE);
+  });
 
-  return { grid: m, trees: planted };
+  return m;
 }
 
-const built = buildOfficeMap();
-export const officeMap = built.grid;
+export const officeMap = buildOfficeMap();
 
 // One tree on the grounds: its top-left pixel and tile span (1 = small, 2 = a big
 // 2×2 tree). The renderer draws from this list.
 export type Tree = { x: number; y: number; tiles: number; variant: number };
-export const TREES: Tree[] = built.trees.map((t) => ({
+export const TREES: Tree[] = MAP.trees.map((t) => ({
   x: t.c * TILE_SIZE,
   y: t.r * TILE_SIZE,
   tiles: t.size,
@@ -243,12 +244,11 @@ export function isDeskSeat(px: number, py: number): boolean {
 // SEAT_CONNECT_RADIUS). It makes each private seat legible: step onto someone's
 // rug and you connect, stay off it and you don't. The desk is drawn over the
 // desk-side row of the rug.
-export const POD_RUGS: { rect: Rect; style: FloorStyle }[] = MAP.desks
-  .filter((u) => u.rug)
-  .map((u) => {
-    const [sc, sr] = seatOf(u);
-    return { rect: toPx({ c: sc - 1, r: sr - 1, w: 3, h: 3 }), style: u.rug ?? PLAIN_FLOOR };
-  });
+export const POD_RUGS: { rect: Rect; style: FloorStyle }[] = MAP.desks.flatMap((u) => {
+  if (!u.rug) return [];
+  const [sc, sr] = seatOf(u);
+  return [{ rect: toPx({ c: sc - 1, r: sr - 1, w: 3, h: 3 }), style: u.rug }];
+});
 
 // Team areas: a shared rug where everyone on it is in one call, like a room, but
 // it is NOT a zone on the client: it looks and behaves like a pod rug (no meeting
