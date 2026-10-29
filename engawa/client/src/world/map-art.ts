@@ -2,6 +2,7 @@
 // walls, furniture, outdoor grounds). The per-frame renderer (canvas.ts) only
 // blits the result, so nothing here runs per frame.
 
+import type { Facing, FurnitureKind } from '@maps/map-def';
 import { propFor } from '@/world/decor';
 import { FLOOR_THEMES } from '@/world/floor-styles';
 import {
@@ -9,6 +10,7 @@ import {
   ARMCHAIR_GAP,
   type FloorPattern,
   type FloorStyle,
+  FURNITURE,
   floorStyleAt,
   LOUNGE_RECTS,
   LOUNGE_TABLE_RECTS,
@@ -139,6 +141,27 @@ const PALETTE = {
   cabinet: '#b6bcc6',
   cabinetDark: '#9aa1ad',
   cabinetHandle: '#6f7784',
+  // Household furniture (house maps).
+  wood: '#b98d62',
+  woodDark: '#9a7049',
+  woodHi: '#d3ad84',
+  sheet: '#fbf8f2',
+  pillow: '#ffffff',
+  blanket: '#9fb8cf',
+  blanketShade: '#87a2bb',
+  tvBody: '#2f343c',
+  tvScreen: '#46566a',
+  counter: '#e9e6df',
+  counterEdge: '#c9c4b8',
+  steel: '#c3c9cf',
+  steelDark: '#9aa2aa',
+  burner: '#3e4148',
+  fridge: '#f1f3f4',
+  fridgeEdge: '#c8ced3',
+  porcelain: '#fbfcfd',
+  porcelainEdge: '#cfd6dc',
+  bathWater: '#bfe0ee',
+  books: ['#c9785f', '#6f93a3', '#d8b35a', '#7d9b6a', '#a28bb4', '#d38f9b'],
 } as const;
 
 // Scale an `rgba(r,g,b,a)` string's alpha by a factor (used to soften heavier
@@ -232,6 +255,9 @@ export function buildMapCache(dpr: number): HTMLCanvasElement {
   // Meeting-room furniture: proper tables with chairs (and an exec desk for the
   // president's office), drawn over the rug once the tiles are laid down.
   for (const f of ROOM_FURNITURE) drawRoomFurniture(cx, f);
+
+  // Household furniture (house maps), each drawn front-down and turned to face.
+  for (const f of FURNITURE) drawFurniture(cx, f.kind, f.facing, f.rect);
 
   // Lounge: sofas around a round coffee table, over the sage rug.
   for (let i = 0; i < LOUNGE_RECTS.length; i++)
@@ -411,6 +437,262 @@ function drawLounge(
   cx.fillStyle = PALETTE.leafDark;
   circle(cx, cxp, vy - 2, 3.5);
 }
+
+// ─── Household furniture (house maps) ───
+// Each piece is drawn in its own frame, front side down, in its south-facing
+// footprint (w×h px), then turned into place: north = half a turn, east/west =
+// a quarter turn (their map rect has w and h swapped).
+const TURN: Record<Facing, number> = {
+  south: 0,
+  north: Math.PI,
+  east: -Math.PI / 2,
+  west: Math.PI / 2,
+};
+
+function drawFurniture(
+  cx: CanvasRenderingContext2D,
+  kind: FurnitureKind,
+  facing: Facing,
+  rect: { x: number; y: number; w: number; h: number },
+) {
+  // The dining set is symmetric and its chairs sit outside its rect: no turning.
+  if (kind === 'dining') {
+    drawRoomFurniture(cx, {
+      ...rect,
+      ix: rect.x,
+      iy: rect.y - TILE_SIZE,
+      iw: rect.w,
+      ih: rect.h + TILE_SIZE * 2,
+    });
+    return;
+  }
+  const turned = facing === 'east' || facing === 'west';
+  const w = turned ? rect.h : rect.w;
+  const h = turned ? rect.w : rect.h;
+  cx.save();
+  cx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2);
+  cx.rotate(TURN[facing]);
+  cx.translate(-w / 2, -h / 2);
+  FURNITURE_ART[kind](cx, w, h);
+  cx.restore();
+}
+
+const FURNITURE_ART: Record<
+  Exclude<FurnitureKind, 'dining'>,
+  (cx: CanvasRenderingContext2D, w: number, h: number) => void
+> = {
+  bed(cx, w, h) {
+    softShadow(cx, w / 2, h - 3, w / 2 - 6, 6);
+    // Wooden frame with a headboard at the back.
+    roundRect(cx, 5, 3, w - 10, h - 8, 6);
+    cx.fillStyle = PALETTE.wood;
+    cx.fill();
+    roundRect(cx, 5, 3, w - 10, 9, 4);
+    cx.fillStyle = PALETTE.woodDark;
+    cx.fill();
+    // Mattress, pillow, then the blanket folded back over the lower part.
+    roundRect(cx, 10, 12, w - 20, h - 22, 5);
+    cx.fillStyle = PALETTE.sheet;
+    cx.fill();
+    roundRect(cx, 18, 17, w - 36, 22, 7);
+    cx.fillStyle = PALETTE.pillow;
+    cx.fill();
+    cx.strokeStyle = PALETTE.porcelainEdge;
+    cx.lineWidth = 1;
+    cx.stroke();
+    roundRect(cx, 10, 50, w - 20, h - 60, 5);
+    cx.fillStyle = PALETTE.blanket;
+    cx.fill();
+    cx.fillStyle = PALETTE.blanketShade;
+    cx.fillRect(10, 50, w - 20, 6);
+  },
+  sofa(cx, w, h) {
+    softShadow(cx, w / 2, h - 2, w / 2 - 4, 5);
+    roundRect(cx, 3, 6, w - 6, h - 10, 9);
+    cx.fillStyle = PALETTE.sofa;
+    cx.fill();
+    // Backrest along the back, arms at both ends.
+    roundRect(cx, 3, 6, w - 6, 11, 7);
+    cx.fillStyle = PALETTE.sofaBack;
+    cx.fill();
+    cx.fillStyle = PALETTE.sofaArm;
+    roundRect(cx, 3, 6, 10, h - 10, 6);
+    cx.fill();
+    roundRect(cx, w - 13, 6, 10, h - 10, 6);
+    cx.fill();
+    // One cushion per seat.
+    const n = Math.round(w / TILE_SIZE);
+    const cw = (w - 26) / n;
+    cx.fillStyle = PALETTE.sofaHi;
+    for (let i = 0; i < n; i++) {
+      roundRect(cx, 14 + i * cw, 19, cw - 2, h - 26, 5);
+      cx.fill();
+    }
+  },
+  tv(cx, w, h) {
+    softShadow(cx, w / 2, h - 6, w / 2 - 6, 5);
+    // Low wooden board.
+    roundRect(cx, 6, 14, w - 12, h - 22, 4);
+    cx.fillStyle = PALETTE.wood;
+    cx.fill();
+    cx.strokeStyle = PALETTE.woodDark;
+    cx.lineWidth = 1;
+    cx.beginPath();
+    cx.moveTo(w / 3, 16);
+    cx.lineTo(w / 3, h - 10);
+    cx.moveTo((w * 2) / 3, 16);
+    cx.lineTo((w * 2) / 3, h - 10);
+    cx.stroke();
+    // The set itself, seen from above: a slim body with the screen toward the front.
+    const tw = w * 0.62;
+    roundRect(cx, (w - tw) / 2, 8, tw, 9, 2);
+    cx.fillStyle = PALETTE.tvBody;
+    cx.fill();
+    cx.fillStyle = PALETTE.tvScreen;
+    cx.fillRect((w - tw) / 2 + 2, 14, tw - 4, 2);
+    cx.fillStyle = PALETTE.tvBody;
+    cx.fillRect(w / 2 - 8, 17, 16, 5);
+  },
+  lowTable(cx, w, h) {
+    const x = 16;
+    const y = 10;
+    const tw = w - 32;
+    const th = h - 20;
+    softShadow(cx, w / 2, y + th + 2, tw / 2, 5);
+    roundRect(cx, x, y + 3, tw, th, 8);
+    cx.fillStyle = PALETTE.coffeeTable;
+    cx.fill();
+    roundRect(cx, x, y, tw, th, 8);
+    cx.fillStyle = PALETTE.coffeeTableTop;
+    cx.fill();
+    // A magazine and a mug.
+    cx.fillStyle = PALETTE.sheet;
+    cx.fillRect(x + 14, y + 7, 20, 14);
+    cx.fillStyle = PALETTE.marker1;
+    cx.fillRect(x + 14, y + 7, 20, 4);
+    cx.fillStyle = PALETTE.pillow;
+    circle(cx, x + tw - 20, y + th / 2, 5);
+    cx.strokeStyle = PALETTE.woodDark;
+    cx.lineWidth = 1;
+    cx.stroke();
+  },
+  kitchen(cx, w, h) {
+    softShadow(cx, w / 2, h - 2, w / 2 - 3, 4);
+    cx.fillStyle = PALETTE.counterEdge;
+    roundRect(cx, 2, 4, w - 4, h - 6, 3);
+    cx.fill();
+    cx.fillStyle = PALETTE.counter;
+    roundRect(cx, 2, 2, w - 4, h - 9, 3);
+    cx.fill();
+    // Sink on the left with a tap at the back.
+    roundRect(cx, 10, 10, 38, 26, 6);
+    cx.fillStyle = PALETTE.steel;
+    cx.fill();
+    roundRect(cx, 14, 14, 30, 18, 5);
+    cx.fillStyle = PALETTE.steelDark;
+    cx.fill();
+    cx.fillStyle = PALETTE.steelDark;
+    cx.fillRect(27, 4, 4, 8);
+    // A cutting board in the middle.
+    roundRect(cx, 62, 14, 26, 18, 3);
+    cx.fillStyle = PALETTE.woodHi;
+    cx.fill();
+    // Two-burner stove on the right.
+    roundRect(cx, w - 52, 8, 44, 30, 4);
+    cx.fillStyle = PALETTE.tvBody;
+    cx.fill();
+    cx.strokeStyle = PALETTE.steelDark;
+    cx.lineWidth = 2;
+    for (const bx of [w - 41, w - 19]) {
+      cx.beginPath();
+      cx.arc(bx, 23, 7, 0, Math.PI * 2);
+      cx.stroke();
+    }
+  },
+  fridge(cx, w, h) {
+    softShadow(cx, w / 2, h - 2, w / 2 - 4, 4);
+    roundRect(cx, 5, 3, w - 10, h - 6, 5);
+    cx.fillStyle = PALETTE.fridge;
+    cx.fill();
+    cx.strokeStyle = PALETTE.fridgeEdge;
+    cx.lineWidth = 1.5;
+    cx.stroke();
+    // Door seam and handle on the front.
+    cx.beginPath();
+    cx.moveTo(8, h - 15);
+    cx.lineTo(w - 8, h - 15);
+    cx.stroke();
+    cx.fillStyle = PALETTE.steelDark;
+    cx.fillRect(w / 2 - 9, h - 11, 18, 3);
+  },
+  shelf(cx, w, h) {
+    softShadow(cx, w / 2, h - 4, w / 2 - 4, 4);
+    roundRect(cx, 3, 4, w - 6, h - 20, 3);
+    cx.fillStyle = PALETTE.woodDark;
+    cx.fill();
+    // Book spines toward the front, in a few colours and heights.
+    const n = 12;
+    const bw = (w - 12) / n;
+    for (let i = 0; i < n; i++) {
+      cx.fillStyle = PALETTE.books[(i * 5) % PALETTE.books.length];
+      const inset = (i * 7) % 3;
+      cx.fillRect(6 + i * bw, 7 + inset, bw - 1, h - 26 - inset);
+    }
+  },
+  bathtub(cx, w, h) {
+    softShadow(cx, w / 2, h - 2, w / 2 - 3, 4);
+    roundRect(cx, 3, 3, w - 6, h - 6, 12);
+    cx.fillStyle = PALETTE.porcelain;
+    cx.fill();
+    cx.strokeStyle = PALETTE.porcelainEdge;
+    cx.lineWidth = 1.5;
+    cx.stroke();
+    roundRect(cx, 9, 9, w - 18, h - 18, 9);
+    cx.fillStyle = PALETTE.bathWater;
+    cx.fill();
+    cx.fillStyle = PALETTE.steelDark;
+    cx.fillRect(w - 16, h / 2 - 3, 8, 6);
+  },
+  toilet(cx, w, h) {
+    softShadow(cx, w / 2, h - 3, 13, 4);
+    // Tank at the back, bowl toward the front.
+    roundRect(cx, 11, 4, w - 22, 12, 3);
+    cx.fillStyle = PALETTE.porcelain;
+    cx.fill();
+    cx.strokeStyle = PALETTE.porcelainEdge;
+    cx.lineWidth = 1.5;
+    cx.stroke();
+    cx.beginPath();
+    cx.ellipse(w / 2, 30, 12, 15, 0, 0, Math.PI * 2);
+    cx.fillStyle = PALETTE.porcelain;
+    cx.fill();
+    cx.stroke();
+    cx.beginPath();
+    cx.ellipse(w / 2, 31, 7, 9, 0, 0, Math.PI * 2);
+    cx.fillStyle = PALETTE.bathWater;
+    cx.fill();
+  },
+  washbasin(cx, w, h) {
+    softShadow(cx, w / 2, h - 3, w / 2 - 5, 4);
+    // Mirror strip on the back wall, then the vanity with its bowl.
+    cx.fillStyle = PALETTE.screenGlow;
+    cx.fillRect(10, 2, w - 20, 4);
+    roundRect(cx, 5, 8, w - 10, h - 14, 4);
+    cx.fillStyle = PALETTE.counter;
+    cx.fill();
+    cx.strokeStyle = PALETTE.counterEdge;
+    cx.lineWidth = 1;
+    cx.stroke();
+    cx.beginPath();
+    cx.ellipse(w / 2, 28, 11, 8, 0, 0, Math.PI * 2);
+    cx.fillStyle = PALETTE.porcelain;
+    cx.fill();
+    cx.strokeStyle = PALETTE.porcelainEdge;
+    cx.stroke();
+    cx.fillStyle = PALETTE.steelDark;
+    cx.fillRect(w / 2 - 2, 12, 4, 9);
+  },
+};
 
 // A small floor lamp (lounge accent): warm glow, trapezoid shade, thin pole,
 // round base. (bx, by) is the base centre; it rises upward from there.
