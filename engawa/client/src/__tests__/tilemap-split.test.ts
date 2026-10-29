@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import { floorKindAt, roomKindAt } from '@/world/decor';
 import {
   ARMCHAIR_SPOTS,
   callZoneAt,
@@ -19,7 +18,6 @@ import {
   POD_RUGS,
   POND_RECTS,
   podRugAt,
-  podRugStyle,
   ROOM_FURNITURE,
   seatAt,
   TEAM_AREAS,
@@ -48,7 +46,7 @@ describe('generated layout is unchanged by the tilemap split', () => {
       grid.push(line);
     }
     expect(grid).toMatchSnapshot();
-    expect(POD_RUGS.map((_, i) => podRugStyle(i))).toMatchSnapshot();
+    expect(POD_RUGS.map((p) => p.style)).toMatchSnapshot();
     expect(TEAM_AREAS[0].style).toMatchSnapshot();
   });
 });
@@ -63,7 +61,7 @@ describe('derived world is unchanged by the map-data move', () => {
       ZONES,
       ROOM_FURNITURE,
       MEETING_ROOM_RECTS,
-      POD_RUGS,
+      POD_RUGS: POD_RUGS.map((p) => p.rect),
       TEAM_AREAS,
       OPEN_DESK_CHAIRS,
       LOUNGE_RECTS,
@@ -91,8 +89,6 @@ describe('derived world is unchanged by the map-data move', () => {
             deskFacesSouth(c, r) ? 'v' : '',
             seat ? `${seat.facing}${seat.lift}` : '',
             rug ? `${rug.x},${rug.y}` : '',
-            roomKindAt(c, r) ?? '',
-            floorKindAt(c, r),
           ].join('/'),
         );
       }

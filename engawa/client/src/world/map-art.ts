@@ -19,7 +19,6 @@ import {
   officeMap,
   POD_RUGS,
   POND_RECTS,
-  podRugStyle,
   ROOM_FURNITURE,
   type RoomFurniture,
   TEAM_AREAS,
@@ -220,9 +219,7 @@ export function buildMapCache(dpr: number): HTMLCanvasElement {
 
   // Pod rugs under the desks (over the floor, under the desks), each with its
   // own style, and the team areas' shared rugs.
-  POD_RUGS.forEach((rug, i) => {
-    drawPodRug(cx, rug, podRugStyle(i));
-  });
+  for (const rug of POD_RUGS) drawPodRug(cx, rug.rect, rug.style);
   for (const area of TEAM_AREAS) drawPodRug(cx, area.rect, area.style);
 
   // Pass 2 — props: plants here; open-office desks are drawn per 3-wide unit

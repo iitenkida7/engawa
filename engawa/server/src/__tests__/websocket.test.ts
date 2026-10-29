@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ServerWebSocket } from 'bun';
-import { PROXIMITY_STILL_MS } from '../logic';
+import { MAP_WIDTH, PROXIMITY_STILL_MS } from '../logic';
 import type { Outfit, ServerMessage, WsData } from '../types';
 import { createWebSocketHandler } from '../websocket';
 
@@ -339,13 +339,13 @@ describe('createWebSocketHandler — move', () => {
     if (moved?.type !== 'player-moved') throw new Error('expected player-moved');
     expect(moved).toMatchObject({
       userId: mover.data.userId,
-      x: 2500,
+      x: MAP_WIDTH,
       y: 0,
       vx: 1,
       vy: -2,
     });
     // Server-side state is updated to the clamped value.
-    expect(mover.data.x).toBe(2500);
+    expect(mover.data.x).toBe(MAP_WIDTH);
     expect(mover.data.y).toBe(0);
   });
 

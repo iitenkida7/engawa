@@ -21,7 +21,6 @@ import {
   POD_RUGS,
   POND_RECTS,
   podRugAt,
-  podRugStyle,
   SOLID,
   seatAt,
   TEAM_AREAS,
@@ -31,10 +30,14 @@ import {
   zoneAt,
 } from '@/world/tilemap';
 
-// The office building's origin in the map (world/maps/office.json): the samples
-// below are written in building-local tiles and shifted by these (#229).
-const COL_OFF = 10;
-const ROW_OFF = 8;
+// The samples below are written in the building-local tiles the layout used
+// before it moved into map data, and shifted into the map by these (#229). The
+// building's outer wall starts two columns LEFT of building-local 0 (the
+// president's office was widened leftwards), hence the +2 — derived from the map
+// so moving the building in office.json keeps every sample on its tile.
+const [BUILDING] = MAP.buildings;
+const COL_OFF = BUILDING.c + 2;
+const ROW_OFF = BUILDING.r;
 const [POND] = MAP.ponds;
 const [POND_RECT] = POND_RECTS;
 const [TEAM_AREA] = TEAM_AREAS;
@@ -53,6 +56,47 @@ function findTile(predicate: (t: number) => boolean): { col: number; row: number
   }
   throw new Error('no matching tile');
 }
+
+// The server clamps positions against its own hardcoded copy of the map size
+// (server/src/logic.ts MAP_WIDTH/MAP_HEIGHT) because it has no tilemap. They
+// drifted once already (#229 grew the map and the server kept 2500), which pins
+// players short of the real right edge, so pin both sides here.
+describe('map size', () => {
+  it("matches the server's hardcoded bounds (server/src/logic.ts)", () => {
+    expect(MAP_COLS * TILE_SIZE).toBe(2600);
+    expect(MAP_ROWS * TILE_SIZE).toBe(2150);
+  });
+});
+
+// Trees/ponds/plants are stamped into the grid from the map data, and a solid
+// 2×2 dropped on a doorway would seal it with no error at all (the map still
+// loads, looking plausible). Pin every door — and the tile you step onto outside
+// each building gate — as walkable.
+describe('doors', () => {
+  it('are walkable, as is the ground outside every building gate', () => {
+    for (const room of MAP.rooms) {
+      for (const [c, r] of room.doors) {
+        const { x, y } = center(c, r);
+        expect({ room: room.id, solid: isSolid(x, y) }).toEqual({ room: room.id, solid: false });
+      }
+    }
+    for (const b of MAP.buildings) {
+      for (const [c, r] of b.doors) {
+        const { x, y } = center(c, r);
+        expect(isSolid(x, y)).toBe(false);
+        // The gate is in a wall of the building rect, so stepping out of it means
+        // leaving that rect — check the tile just beyond.
+        const oc = c === b.c ? c - 1 : c === b.c + b.w - 1 ? c + 1 : c;
+        const or = r === b.r ? r - 1 : r === b.r + b.h - 1 ? r + 1 : r;
+        const out = center(oc, or);
+        expect({ gate: `${c},${r}`, solid: isSolid(out.x, out.y) }).toEqual({
+          gate: `${c},${r}`,
+          solid: false,
+        });
+      }
+    }
+  });
+});
 
 describe('isSolid', () => {
   it('returns true for a SOLID tile coordinate', () => {
@@ -277,7 +321,7 @@ describe('podRugAt (desk-pod focus veil)', () => {
       const rug = podRugAt(x, y);
       expect(rug).not.toBeNull();
       // The returned rug is one of the exported POD_RUGS and actually contains it.
-      expect(POD_RUGS).toContain(rug!);
+      expect(POD_RUGS.map((p) => p.rect)).toContain(rug!);
       expect(x).toBeGreaterThanOrEqual(rug!.x);
       expect(x).toBeLessThan(rug!.x + rug!.w);
       expect(y).toBeGreaterThanOrEqual(rug!.y);
@@ -340,10 +384,17 @@ describe('floor styles (randomised rugs)', () => {
     expect(same(left, right)).toBe(false);
   });
 
-  it('shares a style within an island but differs between neighbours', () => {
-    // Two pod rugs per island → rug 0 and rug 1 are the same island.
-    expect(podRugStyle(0)).toEqual(podRugStyle(1));
-    expect(same(podRugStyle(0), podRugStyle(2))).toBe(false); // next island along
+  it('shares a style within every island, and differs from the next island', () => {
+    // Two pod rugs per island (the desks back to back), so rugs pair up 0-1,
+    // 2-3, … Nothing in the map data ties an island's two halves together, so
+    // check every pair rather than just the first (a hand-edited office.json
+    // would otherwise split one island across two patterns).
+    expect(POD_RUGS.length % 2).toBe(0);
+    for (let i = 0; i < POD_RUGS.length; i += 2) {
+      expect(POD_RUGS[i].style).toEqual(POD_RUGS[i + 1].style);
+      const next = POD_RUGS[i + 2];
+      if (next) expect(same(POD_RUGS[i].style, next.style)).toBe(false);
+    }
   });
 });
 

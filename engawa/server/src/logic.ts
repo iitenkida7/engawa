@@ -5,10 +5,13 @@
 import type { GroupMethod, Outfit, PlayerStatus, SfuTrack, StreamKind } from './types';
 
 /** Map bounds used to clamp player positions. The server has no tilemap, so this
- * is hardcoded and MUST match world/tilemap.ts MAP_COLS/ROWS × TILE_SIZE — a
- * 34×27 building plus an 8-tile grass margin on each side = 50×43 tiles × 50px.
- * (The client derives its copy from tilemap; keep this in sync by hand.) */
-export const MAP_WIDTH = 2500;
+ * is hardcoded and MUST match the client's MAP_WIDTH/MAP_HEIGHT (core/types.ts),
+ * which it derives from the map data: client/src/world/maps/office.json is
+ * 52×43 tiles × 50px. Keep this in sync by hand — too small and everyone gets
+ * pinned short of the real edge (others then render them in the wrong place and
+ * proximity grouping uses the clamped position). The client test
+ * 'map size matches the server's hardcoded bounds' fails when they drift. */
+export const MAP_WIDTH = 2600;
 export const MAP_HEIGHT = 2150;
 
 /**

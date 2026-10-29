@@ -1,6 +1,6 @@
 import { getLang } from '@/core/i18n';
 import type { FloorStyle } from '@/world/floor-styles';
-import type { MapDef, RoomKind, TileRect } from '@/world/map-def';
+import { assertMapDef, type MapDef, type RoomKind, type TileRect } from '@/world/map-def';
 import officeDef from '@/world/maps/office.json';
 import type { Direction } from '@/world/outfit';
 
@@ -17,7 +17,7 @@ export {
 // grid, call zones and every derived rect from it, and answers position queries.
 // It stays pure layout + collision: tile colours and part art live with the
 // renderer (world/map-art.ts).
-export const MAP = officeDef as MapDef;
+export const MAP = assertMapDef(officeDef as MapDef);
 
 export const TILE_SIZE = 50;
 export const MAP_COLS = MAP.cols;
@@ -40,8 +40,9 @@ export const SOLID = new Set<number>([Tile.WALL, Tile.DESK, Tile.PLANT, Tile.TRE
 
 type Rect = { x: number; y: number; w: number; h: number };
 
-// Tile rect → pixel rect.
-function px(t: TileRect): Rect {
+// Tile rect → pixel rect. NOT `px`: that is the pixel-x parameter name of
+// every position query below, which would shadow it there.
+function toPx(t: TileRect): Rect {
   return { x: t.c * TILE_SIZE, y: t.r * TILE_SIZE, w: t.w * TILE_SIZE, h: t.h * TILE_SIZE };
 }
 
@@ -49,8 +50,10 @@ function inRect(r: Rect, x: number, y: number): boolean {
   return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
 }
 
-// Rug look for an area that doesn't pick one.
-const PLAIN_FLOOR: FloorStyle = { pattern: 'none', color: 0 };
+// Rug look for an area that doesn't pick one. Frozen because every area without
+// a rug is handed this same object (the map's own styles are frozen too, see
+// assertMapDef) — one stray write would restyle the map for the session.
+const PLAIN_FLOOR: FloorStyle = Object.freeze({ pattern: 'none', color: 0 });
 
 export function isSolid(px: number, py: number): boolean {
   const col = Math.floor(px / TILE_SIZE);
@@ -59,7 +62,7 @@ export function isSolid(px: number, py: number): boolean {
   if (SOLID.has(officeMap[row][col])) return true;
   // Sub-tile props that don't align to the grid (e.g. the lounge coffee table).
   for (const r of SOLID_RECTS) {
-    if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return true;
+    if (inRect(r, px, py)) return true;
   }
   return false;
 }
@@ -86,7 +89,7 @@ function seatOf(u: DeskUnit): [number, number] {
   return [u.c, u.r + (u.facing === 'south' ? -1 : 1)];
 }
 
-function buildOfficeMap(): number[][] {
+function buildOfficeMap(): { grid: number[][]; trees: MapDef['trees'] } {
   const m: number[][] = [];
   for (let r = 0; r < MAP_ROWS; r++) {
     m.push(new Array(MAP_COLS).fill(Tile.GRASS));
@@ -128,17 +131,31 @@ function buildOfficeMap(): number[][] {
 
   // ── Outdoors: ponds and trees (both solid) ──
   for (const p of MAP.ponds) fill(p.c, p.r, p.w, p.h, Tile.POND);
-  for (const t of MAP.trees) fill(t.c, t.r, t.size, t.size, Tile.TREE);
+  // Trees are stamped last, so a tree over anything else would overwrite it —
+  // and a solid 2×2 dropped on a doorway or the gate corridor seals it with no
+  // error. Grass only (the guard the generated scatter used to apply); a tree
+  // that lands anywhere else is simply not placed.
+  const onGrass = (c: number, r: number, span: number): boolean => {
+    for (let rr = r; rr < r + span; rr++)
+      for (let cc = c; cc < c + span; cc++) {
+        if (rr < 0 || rr >= MAP_ROWS || cc < 0 || cc >= MAP_COLS) return false;
+        if (m[rr][cc] !== Tile.GRASS) return false;
+      }
+    return true;
+  };
+  const planted = MAP.trees.filter((t) => onGrass(t.c, t.r, t.size));
+  for (const t of planted) fill(t.c, t.r, t.size, t.size, Tile.TREE);
 
-  return m;
+  return { grid: m, trees: planted };
 }
 
-export const officeMap = buildOfficeMap();
+const built = buildOfficeMap();
+export const officeMap = built.grid;
 
 // One tree on the grounds: its top-left pixel and tile span (1 = small, 2 = a big
 // 2×2 tree). The renderer draws from this list.
 export type Tree = { x: number; y: number; tiles: number; variant: number };
-export const TREES: Tree[] = MAP.trees.map((t) => ({
+export const TREES: Tree[] = built.trees.map((t) => ({
   x: t.c * TILE_SIZE,
   y: t.r * TILE_SIZE,
   tiles: t.size,
@@ -146,7 +163,7 @@ export const TREES: Tree[] = MAP.trees.map((t) => ({
 }));
 
 // Pixel rects of the outdoor ponds; the renderer draws the water.
-export const POND_RECTS: Rect[] = MAP.ponds.map(px);
+export const POND_RECTS: Rect[] = MAP.ponds.map(toPx);
 
 // Furniture footprint for the renderer: the room's table rect (the meeting-table
 // surface) plus the room interior rect (to bound chair placement). Every room —
@@ -163,14 +180,14 @@ export type RoomFurniture = {
 };
 
 export const ROOM_FURNITURE: RoomFurniture[] = MAP.rooms.map((room) => {
-  const t = px(room.table);
-  const i = px(room);
+  const t = toPx(room.table);
+  const i = toPx(room);
   return { ...t, ix: i.x, iy: i.y, iw: i.w, ih: i.h };
 });
 
 // Interior pixel rects of the meeting rooms, for the renderer to add a wall
 // whiteboard and a filing cabinet.
-export const MEETING_ROOM_RECTS: Rect[] = MAP.rooms.filter((r) => r.kind === 'meeting').map(px);
+export const MEETING_ROOM_RECTS: Rect[] = MAP.rooms.filter((r) => r.kind === 'meeting').map(toPx);
 
 // Desk tiles drawn facing south (map coords), for the renderer's monitor flip.
 const SOUTH_DESK_TILES = new Set<string>(
@@ -226,23 +243,19 @@ export function isDeskSeat(px: number, py: number): boolean {
 // SEAT_CONNECT_RADIUS). It makes each private seat legible: step onto someone's
 // rug and you connect, stay off it and you don't. The desk is drawn over the
 // desk-side row of the rug.
-const RUG_DESKS = MAP.desks.filter((u) => u.rug);
-export const POD_RUGS: Rect[] = RUG_DESKS.map((u) => {
-  const [sc, sr] = seatOf(u);
-  return px({ c: sc - 1, r: sr - 1, w: 3, h: 3 });
-});
-
-// Rug style of POD_RUGS[i].
-export function podRugStyle(i: number): FloorStyle {
-  return RUG_DESKS[i]?.rug ?? PLAIN_FLOOR;
-}
+export const POD_RUGS: { rect: Rect; style: FloorStyle }[] = MAP.desks
+  .filter((u) => u.rug)
+  .map((u) => {
+    const [sc, sr] = seatOf(u);
+    return { rect: toPx({ c: sc - 1, r: sr - 1, w: 3, h: 3 }), style: u.rug ?? PLAIN_FLOOR };
+  });
 
 // Team areas: a shared rug where everyone on it is in one call, like a room, but
 // it is NOT a zone on the client: it looks and behaves like a pod rug (no meeting
 // layout, frame or exit mute) and only reports a call zone id to the server for
 // grouping (callZoneAt).
 export const TEAM_AREAS: { id: string; rect: Rect; style: FloorStyle }[] = MAP.teamAreas.map(
-  (a) => ({ id: a.id, rect: px(a), style: a.floor ?? PLAIN_FLOOR }),
+  (a) => ({ id: a.id, rect: toPx(a), style: a.floor ?? PLAIN_FLOOR }),
 );
 
 /**
@@ -251,15 +264,17 @@ export const TEAM_AREAS: { id: string; rect: Rect; style: FloorStyle }[] = MAP.t
  * conversation is active — the same dim veil as a meeting room (#223) but
  * scoped to the rug.
  */
+const ALL_RUGS: Rect[] = [...POD_RUGS.map((p) => p.rect), ...TEAM_AREAS.map((a) => a.rect)];
+
 export function podRugAt(px: number, py: number): Rect | null {
-  for (const rug of [...POD_RUGS, ...TEAM_AREAS.map((a) => a.rect)]) {
+  for (const rug of ALL_RUGS) {
     if (inRect(rug, px, py)) return rug;
   }
   return null;
 }
 
 // Pixel rect of each café, for the renderer (rug accent + sofas/coffee table).
-export const LOUNGE_RECTS: Rect[] = MAP.lounges.map(px);
+export const LOUNGE_RECTS: Rect[] = MAP.lounges.map(toPx);
 
 // Pixel rect of each café's coffee table, centered in the café (46% × 20% of it).
 // Shared by the renderer (draws it) and collision (SOLID_RECTS) so the two can't
@@ -379,7 +394,7 @@ function buildZones(): { zones: Zone[]; grid: number[][]; styles: Map<string, Fl
         if (onlyTile === undefined || officeMap[rr][cc] === onlyTile) grid[rr][cc] = idx;
       }
     }
-    zones.push({ id: area.id, name: area.name[lang] ?? area.name.en, kind, ...px(area) });
+    zones.push({ id: area.id, name: area.name[lang] ?? area.name.en, kind, ...toPx(area) });
     styles.set(area.id, area.floor ?? PLAIN_FLOOR);
   };
   for (const room of MAP.rooms) add(room, room.kind);
@@ -392,9 +407,14 @@ const { zones: zonesList, grid: zoneGrid, styles: zoneStyles } = buildZones();
 export const ZONES: Zone[] = zonesList;
 
 // The meeting rooms proper (kind 'meeting'), as opposed to the president's
-// office, 1-on-1 rooms, booths and cafés.
+// office, 1-on-1 rooms, booths and cafés. A Set, not a scan: the game loop calls
+// this every frame (core/app.ts).
+const MEETING_ROOM_IDS = new Set<string>(
+  ZONES.filter((z) => z.kind === 'meeting').map((z) => z.id),
+);
+
 export function isMeetingRoom(zoneId: string | null | undefined): boolean {
-  return !!zoneId && ZONES.some((z) => z.id === zoneId && z.kind === 'meeting');
+  return !!zoneId && MEETING_ROOM_IDS.has(zoneId);
 }
 
 // Every zone is a conversation-restricted call bubble (meeting rooms, 1-on-1
