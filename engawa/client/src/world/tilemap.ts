@@ -1,4 +1,13 @@
-import { type MapDef, type RoomKind, TILE_SIZE, type TileRect } from '@maps/map-def';
+import {
+  type Facing,
+  type FurnitureKind,
+  furnitureRect,
+  furnitureSeats,
+  type MapDef,
+  type RoomKind,
+  TILE_SIZE,
+  type TileRect,
+} from '@maps/map-def';
 import { getLang } from '@/core/i18n';
 import type { FloorStyle } from '@/world/floor-styles';
 import { takeMap } from '@/world/map-data';
@@ -127,7 +136,14 @@ function buildOfficeMap(): number[][] {
     fill(c + w, r - 1, 1, h + 2, Tile.WALL); // right wall
     fill(c, r, w, h, Tile.MEETING); // interior
     for (const [dc, dr] of room.doors) set(dc, dr, Tile.FLOOR);
-    fill(room.table.c, room.table.r, room.table.w, room.table.h, Tile.DESK);
+    if (room.table) fill(room.table.c, room.table.r, room.table.w, room.table.h, Tile.DESK);
+  }
+
+  // ── Household furniture: solid bodies (a sofa is all seats, so walkable) ──
+  for (const f of MAP.furniture ?? []) {
+    if (f.kind === 'sofa') continue;
+    const t = furnitureRect(f);
+    fill(t.c, t.r, t.w, t.h, Tile.DESK);
   }
 
   // ── Café rugs (walkable), then desks + greenery ──
@@ -173,11 +189,18 @@ export type RoomFurniture = {
   ih: number;
 };
 
-export const ROOM_FURNITURE: RoomFurniture[] = MAP.rooms.map((room) => {
+export const ROOM_FURNITURE: RoomFurniture[] = MAP.rooms.flatMap((room) => {
+  if (!room.table) return [];
   const t = toPx(room.table);
   const i = toPx(room);
-  return { ...t, ix: i.x, iy: i.y, iw: i.w, ih: i.h };
+  return [{ ...t, ix: i.x, iy: i.y, iw: i.w, ih: i.h }];
 });
+
+// Household furniture for the renderer: each piece's pixel rect (already turned
+// for east/west) and the way it faces.
+export const FURNITURE: { kind: FurnitureKind; facing: Facing; rect: Rect }[] = (
+  MAP.furniture ?? []
+).map((f) => ({ kind: f.kind, facing: f.facing ?? 'south', rect: toPx(furnitureRect(f)) }));
 
 // Interior pixel rects of the meeting rooms, for the renderer to add a wall
 // whiteboard and a filing cabinet.
@@ -334,12 +357,23 @@ const DESK_SEATS = new Map<string, Seat>(
   }),
 );
 
+// Map facing → the way a sitter looks.
+const LOOK: Record<Facing, Direction> = { south: 'down', north: 'up', east: 'right', west: 'left' };
+
+// Sofa seats and dining chairs: drawn centred on their tile, so no lift.
+const FURNITURE_SEATS = new Map<string, Seat>(
+  (MAP.furniture ?? [])
+    .flatMap(furnitureSeats)
+    .map((s): [string, Seat] => [`${s.c},${s.r}`, { facing: LOOK[s.facing], lift: 0 }]),
+);
+
 /**
  * The seat at (px,py), or null when it is not a chair. Pure geometry; the caller
  * decides *when* to sit (standing still).
  */
 export function seatAt(px: number, py: number): Seat | null {
-  const desk = DESK_SEATS.get(`${Math.floor(px / TILE_SIZE)},${Math.floor(py / TILE_SIZE)}`);
+  const tile = `${Math.floor(px / TILE_SIZE)},${Math.floor(py / TILE_SIZE)}`;
+  const desk = DESK_SEATS.get(tile) ?? FURNITURE_SEATS.get(tile);
   if (desk) return desk;
   for (const a of ARMCHAIR_SPOTS) {
     if (Math.hypot(px - a.x, py - a.y) <= ARMCHAIR_SEAT_RADIUS) {

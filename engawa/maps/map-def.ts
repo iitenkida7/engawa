@@ -54,9 +54,72 @@ export type NameDef = { ja: string; en: string };
 /**
  * Room category. Every room is an isolated call zone; the kind only picks the
  * details: 'meeting' rooms get a whiteboard + cabinet and start SFU cameras on
- * the lowest simulcast layer (and count for the recording reminder).
+ * the lowest simulcast layer (and count for the recording reminder). A
+ * 'private' room is someone's own room (a house's bedroom): no table needed.
  */
-export type RoomKind = 'exec' | 'meeting' | 'oneonone' | 'booth';
+export type RoomKind = 'exec' | 'meeting' | 'oneonone' | 'booth' | 'private';
+
+/** Which way a part faces (its front side): south = toward the bottom of the map. */
+export type Facing = 'south' | 'north' | 'east' | 'west';
+
+/**
+ * Household furniture (a house map's parts). Each kind has a fixed footprint,
+ * given here facing south; facing east/west turns it, swapping w and h.
+ * Everything is solid except the seats: a sofa's tiles and a dining table's
+ * chairs are walkable spots you sit on.
+ */
+export type FurnitureKind =
+  | 'bed' // single bed, pillow at the back
+  | 'sofa' // three-seater, its seats face `facing`
+  | 'tv' // TV on a low board, screen toward `facing`
+  | 'lowTable' // living-room coffee table
+  | 'dining' // 2×2 table with two chairs above and two below
+  | 'kitchen' // counter with a sink and a stove
+  | 'fridge'
+  | 'shelf' // bookshelf
+  | 'bathtub'
+  | 'toilet'
+  | 'washbasin';
+
+export const FURNITURE_SIZE: Record<FurnitureKind, { w: number; h: number }> = {
+  bed: { w: 2, h: 3 },
+  sofa: { w: 3, h: 1 },
+  tv: { w: 3, h: 1 },
+  lowTable: { w: 3, h: 1 },
+  dining: { w: 2, h: 2 },
+  kitchen: { w: 3, h: 1 },
+  fridge: { w: 1, h: 1 },
+  shelf: { w: 2, h: 1 },
+  bathtub: { w: 2, h: 1 },
+  toilet: { w: 1, h: 1 },
+  washbasin: { w: 1, h: 1 },
+};
+
+export type FurnitureDef = { kind: FurnitureKind; c: number; r: number; facing?: Facing };
+
+/** The tiles a piece covers (turned for east/west). */
+export function furnitureRect(f: FurnitureDef): TileRect {
+  const { w, h } = FURNITURE_SIZE[f.kind];
+  const turned = f.facing === 'east' || f.facing === 'west';
+  return { c: f.c, r: f.r, w: turned ? h : w, h: turned ? w : h };
+}
+
+/** The walkable seats a piece offers, each with the way its sitter faces. */
+export function furnitureSeats(f: FurnitureDef): { c: number; r: number; facing: Facing }[] {
+  if (f.kind === 'sofa') {
+    const t = furnitureRect(f);
+    const out: { c: number; r: number; facing: Facing }[] = [];
+    for (let r = t.r; r < t.r + t.h; r++)
+      for (let c = t.c; c < t.c + t.w; c++) out.push({ c, r, facing: f.facing ?? 'south' });
+    return out;
+  }
+  if (f.kind === 'dining')
+    return [0, 1].flatMap((dc) => [
+      { c: f.c + dc, r: f.r - 1, facing: 'south' as const },
+      { c: f.c + dc, r: f.r + 2, facing: 'north' as const },
+    ]);
+  return [];
+}
 
 export type MapDef = {
   version: 1;
@@ -68,13 +131,14 @@ export type MapDef = {
   buildings: (TileRect & { doors: TilePos[] })[];
   // Walled rooms (call zones): the rect is the INTERIOR — the wall ring is
   // stamped just outside it. `doors` open wall tiles; `table` is the solid
-  // meeting-table footprint, drawn with chairs around it.
+  // meeting-table footprint, drawn with chairs around it (only a 'private'
+  // room may go without one).
   rooms: (TileRect & {
     id: string;
     kind: RoomKind;
     name: NameDef;
     doors: TilePos[];
-    table: TileRect;
+    table?: TileRect;
     floor?: FloorDef;
   })[];
   // Desk units: a 3-tile desk centred on (c,r) with one chair in front of it —
@@ -89,6 +153,8 @@ export type MapDef = {
   ponds: TileRect[];
   // size 1 = a small tree, 2 = a big 2×2 tree; variant picks its look (0/1).
   trees: { c: number; r: number; size: 1 | 2; variant: 0 | 1 }[];
+  // Household furniture (see FurnitureKind). Optional: the office has none.
+  furniture?: FurnitureDef[];
   // Where newcomers appear (the client snaps it to the nearest walkable tile).
   // Defaults to the first building's floor, or the whole map without one.
   spawn?: TileRect;
@@ -106,7 +172,14 @@ const MAP_KEYS = [
   'ponds',
   'trees',
 ] as const;
-const ROOM_KINDS = new Set<string>(['exec', 'meeting', 'oneonone', 'booth'] satisfies RoomKind[]);
+const ROOM_KINDS = new Set<string>([
+  'exec',
+  'meeting',
+  'oneonone',
+  'booth',
+  'private',
+] satisfies RoomKind[]);
+const FACINGS = new Set<string>(['south', 'north', 'east', 'west'] satisfies Facing[]);
 
 function deepFreeze<T>(v: T): T {
   if (v && typeof v === 'object') for (const child of Object.values(v)) deepFreeze(child);
@@ -216,10 +289,19 @@ export function assertMapDef(input: unknown): MapDef {
     name(at, room.name);
     rect(at, room, 1); // + its wall ring
     doors(at, room, room.doors, 1);
-    rect(`${at} table`, room.table);
-    const t = room.table;
-    if (t.c < room.c || t.r < room.r || t.c + t.w > room.c + room.w || t.r + t.h > room.r + room.h)
-      bad(`${at} table: must sit inside the room`);
+    if (room.table === undefined) {
+      if (room.kind !== 'private') bad(`${at}: needs a table (only a 'private' room may omit it)`);
+    } else {
+      rect(`${at} table`, room.table);
+      const t = room.table;
+      if (
+        t.c < room.c ||
+        t.r < room.r ||
+        t.c + t.w > room.c + room.w ||
+        t.r + t.h > room.r + room.h
+      )
+        bad(`${at} table: must sit inside the room`);
+    }
     floor(at, room.floor);
   });
   def.desks.forEach((u, i) => {
@@ -255,6 +337,19 @@ export function assertMapDef(input: unknown): MapDef {
     if (t.variant !== 0 && t.variant !== 1)
       bad(`trees[${i}]: variant must be 0 or 1 (got ${JSON.stringify(t.variant)})`);
     rect(`trees[${i}]`, { c: t.c, r: t.r, w: t.size, h: t.size });
+  });
+  const furniture = def.furniture ?? [];
+  if (!Array.isArray(furniture)) bad(`'furniture' must be an array`);
+  furniture.forEach((f, i) => {
+    obj(`furniture[${i}]`, f);
+    if (!Object.hasOwn(FURNITURE_SIZE, f.kind))
+      bad(`furniture[${i}]: unknown kind ${JSON.stringify(f.kind)}`);
+    if (f.facing !== undefined && !FACINGS.has(f.facing))
+      bad(
+        `furniture[${i}]: facing must be south/north/east/west (got ${JSON.stringify(f.facing)})`,
+      );
+    rect(`furniture[${i}] (${f.kind})`, furnitureRect(f));
+    for (const s of furnitureSeats(f)) pos(`furniture[${i}] (${f.kind}) seat`, [s.c, s.r]);
   });
   if (def.spawn !== undefined) rect('spawn', def.spawn);
 
@@ -304,6 +399,12 @@ export function assertMapDef(input: unknown): MapDef {
     blocks(`desks[${i}]`, desk);
     build(desk);
   });
+  furniture.forEach((f, i) => {
+    // Seats stay walkable; only the solid body can seal a doorway.
+    const body = f.kind === 'sofa' ? [] : tiles(furnitureRect(f));
+    blocks(`furniture[${i}] (${f.kind})`, body);
+    build(tiles(furnitureRect(f)));
+  });
   def.plants.forEach(([c, r], i) => {
     blocks(`plants[${i}]`, [key(c, r)]);
     build([key(c, r)]);
@@ -317,17 +418,22 @@ export function assertMapDef(input: unknown): MapDef {
     if (ks.some((k) => built.has(k))) bad(`trees[${i}] at ${t.c},${t.r} is not on open grass`);
     build(ks);
   });
-  // Newcomers appear anywhere in the spawn area, so it must stay out of the
-  // rooms: a room is an always-on call zone, and landing in one drops you into
-  // a stranger's meeting the moment you join. The default area is a whole
-  // building floor, rooms included, so a map with rooms has to name its spawn.
+  // Newcomers appear anywhere in the spawn area, so it must stay out of every
+  // call zone: landing in one drops you into a stranger's conversation the
+  // moment you join. The default area is a whole building floor, its rooms
+  // included, so a map with rooms has to name its spawn.
   const spawnTiles = new Set(tiles(spawnArea(def)));
-  for (const room of def.rooms)
-    if (tiles(room).some((k) => spawnTiles.has(k)))
+  const callZones: [string, TileRect][] = [
+    ...def.rooms.map((r): [string, TileRect] => [`room '${r.id}'`, r]),
+    ...def.teamAreas.map((a): [string, TileRect] => [`teamArea '${a.id}'`, a]),
+    ...def.lounges.map((lo): [string, TileRect] => [`lounge '${lo.id}'`, lo]),
+  ];
+  for (const [what, rect] of callZones)
+    if (tiles(rect).some((k) => spawnTiles.has(k)))
       bad(
         def.spawn
-          ? `spawn overlaps room '${room.id}'`
-          : `the default spawn area covers room '${room.id}': give the map a spawn`,
+          ? `spawn overlaps ${what}`
+          : `the default spawn area covers ${what}: give the map a spawn`,
       );
   return deepFreeze(def);
 }

@@ -10,12 +10,14 @@ function serve(body: string, status = 200): typeof fetch {
 const OFFICE_JSON = JSON.stringify(office);
 
 describe('mapWorld', () => {
-  // The bounds and spawn aisle the server hardcoded before maps became data.
+  // The bounds the server hardcoded before maps became data, and its center
+  // aisle — now pulled clear of the team area it used to overlap, so joining
+  // cannot drop you into the call already running on that rug.
   test('gives the office its 52×43-tile bounds and center-aisle spawn', () => {
     expect(OFFICE_WORLD).toEqual({
       width: 2600,
       height: 2150,
-      spawn: { x: 1200, y: 800, w: 400, h: 600 },
+      spawn: { x: 1200, y: 800, w: 300, h: 600 },
     });
   });
 });
@@ -64,7 +66,7 @@ describe('bundled presets', () => {
       // maps/ also holds its own biome.json; everything else there is a map.
       .filter((f) => f.endsWith('.json') && f !== 'biome.json')
       .map((f) => f.slice(0, -'.json'.length));
-    expect(names).toEqual(expect.arrayContaining(['office_medium', 'office_small']));
+    expect(names).toEqual(expect.arrayContaining(['office_medium', 'office_small', 'house_4ldk']));
     for (const name of names) expect((await loadMap(name)).source).toBe(`preset '${name}'`);
   });
 });

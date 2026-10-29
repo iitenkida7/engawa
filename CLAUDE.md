@@ -174,8 +174,9 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   チェックした人だけ使う。
   **`requestWindow()` は操作許可を消費する**ため、必ず `getDisplayMedia` の**後**に開く（逆順だと共有自体が失敗しうる）。
   `media/speaking.ts` — `SpeakingDetector` と純粋なしきい値判定 `isLoud()`。
-- `engawa/maps/map-def.ts` / `engawa/maps/*.json` — **マップはデータ**（`MapDef`）。server / client 共有（コンテナでは `/maps` にマウント）。建物・部屋（`kind`: exec/meeting/oneonone/booth・名前 ja/en・ドア・テーブル）・
-  デスク・チームエリア・カフェ・植木・池・木の**配置**と、床柄（`FLOOR_PATTERNS`＋色番号）の**選択**だけを持つ。座標はマップ絶対のタイル。
+- `engawa/maps/map-def.ts` / `engawa/maps/*.json` — **マップはデータ**（`MapDef`）。server / client 共有（コンテナでは `/maps` にマウント）。建物・部屋（`kind`: exec/meeting/oneonone/booth/private・名前 ja/en・ドア・テーブル。テーブルなしは private＝個室だけ）・
+  デスク・チームエリア・カフェ・植木・池・木・家具（`furniture`: ベッド・ソファ・TV・ローテーブル・ダイニング・キッチン・冷蔵庫・本棚・浴槽・トイレ・洗面台。
+  向き `facing` で東西に回すと縦横が入れ替わる。ソファとダイニングの椅子だけ座れる歩行可能マス、他は当たり判定あり）の**配置**と、床柄（`FLOOR_PATTERNS`＋色番号）の**選択**だけを持つ。座標はマップ絶対のタイル。
   パーツの見た目はアプリ内包（`map-art.ts`）で、JSON から絵は持ち込めない。部屋の種類は ID の文字列ではなく `kind` で判定する。
   JSON は型だけでは守れないので、読み込み時に `assertMapDef` が version・床柄/色番号・各矩形の範囲に加え、ドアを塞ぐ固形パーツ・部屋外のテーブル・
   芝生以外の木を検査して**壊れたマップは名前付きで即エラー**にし、そのうえで MapDef を**凍結**する（床スタイルは JSON の実体をそのまま配るため）。
