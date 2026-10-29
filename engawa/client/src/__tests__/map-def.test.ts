@@ -180,7 +180,9 @@ describe('assertMapDef', () => {
     expect(() => assertMapDef(d)).toThrow(/spawn overlaps room 'r1'/);
     // Rooms with no spawn named fall back to the whole building floor, rooms included.
     const e = map({ spawn: undefined });
-    expect(() => assertMapDef(e)).toThrow(/default spawn area covers room 'r1': give the map a spawn/);
+    expect(() => assertMapDef(e)).toThrow(
+      /default spawn area covers room 'r1': give the map a spawn/,
+    );
   });
 
   it('spawns in the map spawn rect, else inside the first building, else anywhere', () => {
@@ -191,7 +193,12 @@ describe('assertMapDef', () => {
       h: 2,
     });
     expect(spawnArea(map({ spawn: undefined }))).toEqual({ c: 3, r: 3, w: 8, h: 8 });
-    expect(spawnArea(map({ spawn: undefined, buildings: [] }))).toEqual({ c: 0, r: 0, w: 20, h: 20 });
+    expect(spawnArea(map({ spawn: undefined, buildings: [] }))).toEqual({
+      c: 0,
+      r: 0,
+      w: 20,
+      h: 20,
+    });
     const d = map({ spawn: { c: 19, r: 0, w: 2, h: 1 } });
     expect(() => assertMapDef(d)).toThrow(/spawn: rect .* runs outside/);
   });
