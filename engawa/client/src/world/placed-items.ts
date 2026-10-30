@@ -10,8 +10,8 @@ import {
   MAP_COLS,
   MAP_ROWS,
   officeMap,
-  SOLID,
   type Seat,
+  SOLID,
   seatAt,
   TILE_SIZE,
 } from '@/world/tilemap';

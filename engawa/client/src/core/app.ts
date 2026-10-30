@@ -71,8 +71,8 @@ import { DesktopNotifier, isBackgrounded, knockAlertLevel } from '@/ui/desktop-n
 import { KeyHelpPanel } from '@/ui/keyhelp';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
-import { PlacementMode } from '@/ui/placement';
 import { NotifyHelpPanel } from '@/ui/notify-help';
+import { PlacementMode } from '@/ui/placement';
 import { loadProfileImage } from '@/ui/profile-image';
 import { isPttKey, PTT_KEY } from '@/ui/ptt';
 import { ReactionToasts } from '@/ui/reaction-toast';
