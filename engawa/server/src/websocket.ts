@@ -1,5 +1,6 @@
 import type { ServerWebSocket, WebSocketHandler } from 'bun';
 import { createEventRecorderFromEnv, type EventRecorder } from './events';
+import { createItemStore, normalizeItemId, normalizePlacement } from './items';
 import {
   clampPosition,
   computeProximityGroups,
@@ -32,7 +33,6 @@ import {
   sfuLatchSeeds,
   verifyAccessPassword,
 } from './logic';
-import { createItemStore, normalizeItemId, normalizePlacement } from './items';
 import { isSfuEnabled } from './sfu';
 import type { ClientMessage, Player, ServerMessage, WsData } from './types';
 
