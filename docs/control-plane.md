@@ -88,6 +88,7 @@ rather than two.
 ```json
 {
   "ACCESS_PASSWORD": "hunter22",
+  "ENTRY_MODE": "password",
   "CLOUDFLARE_TURN_TOKEN_ID": "...",
   "CLOUDFLARE_TURN_TOKEN_SECRET": "...",
   "CLOUDFLARE_REALTIME_APP_ID": "...",
@@ -102,7 +103,7 @@ rather than two.
 
 ### What may be set (a whitelist)
 
-Only the ten keys above. **`PORT` and `MAP` are not accepted** — they shape the process and the
+Only the eleven keys above. **`PORT` and `MAP` are not accepted** — they shape the process and the
 world at boot, and letting a remote endpoint set arbitrary environment variables would be a much
 larger thing to trust than this feature asks for.
 
@@ -120,6 +121,7 @@ larger thing to trust than this feature asks for.
 | Setting | Effective |
 |---|---|
 | `ACCESS_PASSWORD` | **From the next join** (no restart) |
+| `ENTRY_MODE` | **From the next join** (no restart). See [`entry-token.md`](./entry-token.md) |
 | `CLOUDFLARE_TURN_*` | **From the next credential issued** (established calls keep theirs) |
 | `CLOUDFLARE_REALTIME_*` | **From the next group recompute** (including enabling/disabling SFU) |
 | `SFU_PROMOTE_AT` | **From the next group recompute** |

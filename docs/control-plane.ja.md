@@ -83,6 +83,7 @@ res.type('application/json').send(body);   // ← 同じバイト列を送るこ
 ```json
 {
   "ACCESS_PASSWORD": "hunter22",
+  "ENTRY_MODE": "password",
   "CLOUDFLARE_TURN_TOKEN_ID": "...",
   "CLOUDFLARE_TURN_TOKEN_SECRET": "...",
   "CLOUDFLARE_REALTIME_APP_ID": "...",
@@ -97,7 +98,7 @@ res.type('application/json').send(body);   // ← 同じバイト列を送るこ
 
 ### 受け付ける設定（ホワイトリスト）
 
-上の 10 個だけです。**`PORT` と `MAP` は受け付けません** — プロセスと世界の形を起動時に決めるものであり、
+上の 11 個だけです。**`PORT` と `MAP` は受け付けません** — プロセスと世界の形を起動時に決めるものであり、
 外部のエンドポイントに任意の環境変数を設定させるのは、ここで求めている信頼より大きな話になるためです。
 
 - 知らないキーは**黙って無視**します（新しいコントロールプレーンと古いサーバーが共存できるように）。
@@ -112,6 +113,7 @@ res.type('application/json').send(body);   // ← 同じバイト列を送るこ
 | 設定 | いつ効くか |
 |---|---|
 | `ACCESS_PASSWORD` | **次の入室から**（再起動不要） |
+| `ENTRY_MODE` | **次の入室から**（再起動不要）。[`entry-token.ja.md`](./entry-token.ja.md) 参照 |
 | `CLOUDFLARE_TURN_*` | **次に発行する TURN クレデンシャルから**（確立済みの通話は従来どおり持ち続けます） |
 | `CLOUDFLARE_REALTIME_*` | **次のグループ再計算から**（SFU の有効/無効を含む） |
 | `SFU_PROMOTE_AT` | **次のグループ再計算から** |

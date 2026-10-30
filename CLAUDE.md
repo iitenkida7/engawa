@@ -28,6 +28,7 @@ Slack のハドルや Gather.town のような「ばったり話す」体験を�
 ├ .env.example
 ├ docs/webhook{,.ja}.md   # イベント Webhook の API 仕様（英語 / 日本語）
 ├ docs/control-plane{,.ja}.md  # 設定を外部エンドポイントから受け取る仕様（英語 / 日本語）
+├ docs/entry-token{,.ja}.md    # 入室券（コントロールプレーン発行）の仕様（英語 / 日本語）
 ├ examples/webhook-gas/   # Webhook 受信サンプル（Google Apps Script。本体の関心事外）
 └ engawa/
    ├ client/src/          # フロントエンド
@@ -121,6 +122,10 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
   開始/終了を JSON で POST するだけで、保存・集計は受信側の関心事（受信サンプルは `examples/webhook-gas/`）。
   会話の追跡は純粋関数 `trackConversations`（近接グループの差分から開始/継続/終了を判定）。開いている滞在・会話は
   一時メモリのみ（不変条件 #2）。**API 仕様（イベントの型・フィールド）を変えたら `docs/webhook.md`（英語）と `docs/webhook.ja.md`（日本語）の両方を更新する。**
+- `entry.ts` — **入室券**（任意。`ENTRY_MODE=token`。仕様は `docs/entry-token.md`）。コントロールプレーンが
+  `CONTROL_PLANE_TOKEN` で HMAC-SHA256 署名した券を**ローカルで検証**するだけの純粋関数（`verifyEntryToken` /
+  `signEntryToken` / `normalizeEntryMode`）。外部に問い合わせない・状態を持たない。署名照合は定数時間で、
+  長さ不一致も通常の拒否にする。券の `name` を表示名に使うので**クライアントの自己申告は信じない**。
 - `types.ts` — `WsData`（接続ごとの状態）, `ClientMessage` / `ServerMessage`。
 
 ### クライアント（`engawa/client/src/`）
@@ -128,7 +133,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 `tsconfig.json` の `paths` と `vite.config.ts` の `resolve.alias` で定義。Bun test も `paths` を解決する）で
 参照する。エントリは `core/boot.ts`（`index.html` が読む。`/api/map` を取得して `world/map-data.ts` に入れてから `core/main.ts` を動的 import する）。
 共有のマップ形式は `@maps/` エイリアス（`../maps`）で参照する。同一フォルダ内でも `@/` で参照し位置非依存にしてある。
-- **`core/`** — オーケストレーションと基盤: `app.ts`, `boot.ts`, `main.ts`, `types.ts`, `lifecycle.ts`, `network.ts`, `proximity.ts`, `reload.ts`, `background-ticker.ts`
+- **`core/`** — オーケストレーションと基盤: `app.ts`, `boot.ts`, `main.ts`, `types.ts`, `lifecycle.ts`, `network.ts`, `proximity.ts`, `reload.ts`, `background-ticker.ts`, `entry-token.ts`（入室券の取り回し: リンクから取る・アドレスバーから消す・保持。純粋関数）
 - **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `mesh-recovery.ts`（mesh ピア再構築 #184）, `sfu-recovery.ts`（SFU 作り直しのバックオフ #254）, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`, `diag.ts`（デバッグコンソールの接続判定・原因推定・Claude 用診断レポート。純粋関数）
 - **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`, `noise.ts`, `noise-worklet.ts`, `rnnoise-wasm.ts`, `voice-gate.ts`, `lowpass.ts`
 - **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `map-data.ts`（取得したマップの受け渡し）, `floor-styles.ts`（床柄・色のパレット）, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`, `movement.ts`（自分のグリッド移動・クリック移動）
@@ -219,6 +224,11 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   **名前入力の前**にパスワードゲートを表示（`POST /api/verify-password` で照合）。join でも
   再検証する（`logic.ts` の `verifyAccessPassword` / `isPasswordRequired` 参照）。
   ※複数ワークスペース（`?workspace=`）は廃止。全員が単一スペースに入る。
+- `ENTRY_MODE` — 入室ゲートの種類（任意）。未設定・`password` なら従来どおり `ACCESS_PASSWORD`。`token` にすると
+  **コントロールプレーンが署名した入室券**（`/?t=…`）だけで入室でき、**表示名は券から取る**（クライアントの自己申告を使わない）。
+  検証鍵は `CONTROL_PLANE_TOKEN`（ホワイトリストには**入れない** = 遠隔から鍵を差し替えられない）で、検証は
+  オフィス内で完結し外部への問い合わせは発生しない。2 つのゲートは排他。純粋ロジックは `server/src/entry.ts`。
+  **仕様を変えたら `docs/entry-token.md`（英語）と `docs/entry-token.ja.md`（日本語）の両方を更新する。**
 - `MAP` — 使うマップ（任意）。同梱プリセット名（`engawa/maps/<name>.json`。既定 `office_medium`。名前は `<種類>_<規模>` で揃える）か、http(s) の外部 JSON の URL
   （1MB まで）。不正なマップはサーバーが起動を拒否する。読み込みは起動時のみ。
 - `EVENT_WEBHOOK_URL` / `EVENT_WEBHOOK_SECRET` / `EVENT_INCLUDE_NAMES` — イベント Webhook（任意）。URL 未設定なら無効。
