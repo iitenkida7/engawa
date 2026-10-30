@@ -98,6 +98,7 @@ import {
   isDeskSeat,
   isMeetingRoom,
   isMeetingZone,
+  wallBetween,
   zoneAt,
 } from '@/world/tilemap';
 
@@ -107,6 +108,9 @@ import {
 const JOIN_CHIME_GRACE_MS = 2500;
 // How long a roster click keeps the camera on someone before it returns to self.
 const LOCATE_MS = 10_000;
+// Players within this distance (px) are checked for a wall in between: just past the
+// server's disconnect radius (150), beyond which a pair is never in one call anyway.
+const OCCLUSION_CHECK_RADIUS = 160;
 
 // Persist our own position so next login returns us to "our usual spot" (the
 // server honours it only when it's still clear of others). Saved at most this
@@ -249,6 +253,9 @@ export class App {
 
   // Throttle for SFU simulcast layer re-selection (see updateSfuLayers).
   private lastLayerUpdate = 0;
+  // Throttle + last-sent value for the behind-a-wall report (see updateOcclusion).
+  private lastOcclusionAt = 0;
+  private occludedKey = '';
   // Throttle for the remote-video stall check (#312, see RemoteMediaView.tickStalls).
   private lastStallTick = 0;
 
@@ -1586,6 +1593,26 @@ export class App {
     }
   }
 
+  // Tell the server which nearby players have a wall between us, so it does not
+  // put people on the two sides of a wall into one call. Only pairs inside the
+  // disconnect radius matter (further apart they are never connected anyway), and
+  // only a change is sent. Both ends report their side; the server takes the union.
+  private updateOcclusion() {
+    const me = this.me;
+    if (!me) return;
+    const ids: string[] = [];
+    for (const p of this.players.values()) {
+      if (p.isSelf) continue;
+      if (Math.hypot(p.x - me.x, p.y - me.y) > OCCLUSION_CHECK_RADIUS) continue;
+      if (wallBetween(me.x, me.y, p.x, p.y)) ids.push(p.userId);
+    }
+    ids.sort();
+    const key = ids.join(',');
+    if (key === this.occludedKey) return;
+    this.occludedKey = key;
+    this.net.send({ type: 'occluded', ids });
+  }
+
   private update(dt: number) {
     // Move self by input (frame-rate independent: dt × speed-per-second)
     let selfVx = 0;
@@ -1686,6 +1713,12 @@ export class App {
     if (now - this.lastStallTick > 500) {
       this.lastStallTick = now;
       this.view.tickStalls(now, this.netTierState.tier);
+    }
+
+    // Who is close enough to talk to but behind a wall (~7Hz).
+    if (now - this.lastOcclusionAt > 150) {
+      this.lastOcclusionAt = now;
+      this.updateOcclusion();
     }
 
     // SFU simulcast: re-pick each remote camera's layer by tile size (~1s cadence).

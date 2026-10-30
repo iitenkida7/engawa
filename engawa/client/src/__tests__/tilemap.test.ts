@@ -28,6 +28,7 @@ import {
   TEAM_AREAS,
   TILE_SIZE,
   Tile,
+  wallBetween,
   ZONES,
   zoneAt,
 } from '@/world/tilemap';
@@ -542,5 +543,48 @@ describe('seatAt (sitting spots)', () => {
 
   it('open floor is not a seat', () => {
     expect(seatAt(0, 0)).toBeNull();
+  });
+});
+
+describe('wallBetween (no talking through walls)', () => {
+  // A wall tile with walkable floor directly left and right of it: one tile of
+  // wall between two people standing side by side.
+  const walkable = (col: number, row: number) =>
+    !isSolid(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2) &&
+    officeMap[row][col] !== Tile.WALL;
+  const find = () => {
+    for (let row = 1; row < MAP_ROWS - 1; row++) {
+      for (let col = 1; col < MAP_COLS - 1; col++) {
+        if (officeMap[row][col] === Tile.WALL && walkable(col - 1, row) && walkable(col + 1, row)) {
+          return { col, row };
+        }
+      }
+    }
+    throw new Error('no wall tile with floor on both sides');
+  };
+
+  it('is true across a wall, a tile either side of it', () => {
+    const { col, row } = find();
+    const y = row * TILE_SIZE + TILE_SIZE / 2;
+    const left = (col - 1) * TILE_SIZE + TILE_SIZE / 2;
+    const right = (col + 1) * TILE_SIZE + TILE_SIZE / 2;
+    expect(wallBetween(left, y, right, y)).toBe(true);
+    expect(wallBetween(right, y, left, y)).toBe(true);
+  });
+
+  it('is false for two points on the same open floor', () => {
+    const { col, row } = find();
+    const y = row * TILE_SIZE + TILE_SIZE / 2;
+    const left = (col - 1) * TILE_SIZE + TILE_SIZE / 2;
+    expect(wallBetween(left, y, left - 30, y)).toBe(false);
+    expect(wallBetween(left, y, left, y)).toBe(false);
+  });
+
+  it('does not count the wall tile a person is standing against as between them', () => {
+    const { col, row } = find();
+    const y = row * TILE_SIZE + TILE_SIZE / 2;
+    const left = (col - 1) * TILE_SIZE + TILE_SIZE / 2;
+    // From the wall's own tile edge back out to the floor: nothing in between.
+    expect(wallBetween(left, y, left + 10, y)).toBe(false);
   });
 });

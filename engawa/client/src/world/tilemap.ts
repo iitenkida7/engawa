@@ -91,6 +91,33 @@ export function canOccupy(cx: number, cy: number, radius: number): boolean {
   );
 }
 
+/**
+ * True when a WALL tile lies on the straight line between two points — people on
+ * opposite sides of a wall (inside the building vs. on the grass outside, around
+ * a corner) can be a few pixels apart and still not be able to talk. Only walls
+ * count: desks, plants, trees and the pond are things you talk over or around,
+ * and the endpoints' own tiles never block (you may stand right against a wall).
+ * Sampled at a quarter of a tile, so a one-tile-thick wall can't be stepped over.
+ */
+export function wallBetween(x0: number, y0: number, x1: number, y1: number): boolean {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / (TILE_SIZE / 4)));
+  const tileAt = (px: number, py: number): [number, number] => [
+    Math.floor(px / TILE_SIZE),
+    Math.floor(py / TILE_SIZE),
+  ];
+  const [c0, r0] = tileAt(x0, y0);
+  const [c1, r1] = tileAt(x1, y1);
+  for (let i = 1; i < steps; i++) {
+    const [col, row] = tileAt(x0 + (dx * i) / steps, y0 + (dy * i) / steps);
+    if ((col === c0 && row === r0) || (col === c1 && row === r1)) continue;
+    if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) continue;
+    if (officeMap[row][col] === Tile.WALL) return true;
+  }
+  return false;
+}
+
 // ── Desk units ──
 // Each open-office desk is an isolated workstation (#263 follow-up): a 3-tile
 // desk with ONE chair centred in front, so a desk seat is a private one-person
