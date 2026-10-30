@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createHmac } from 'node:crypto';
 import {
   applySettings,
   fetchSettings,
+  isAcceptableControlPlaneUrl,
   normalizeIntervalSeconds,
   parseSettings,
   resetSettings,
   setting,
   settingsEnv,
+  verifySettingsSignature,
 } from '../settings';
 
 afterEach(() => resetSettings());
@@ -112,9 +115,69 @@ describe('normalizeIntervalSeconds', () => {
   });
 });
 
+describe('isAcceptableControlPlaneUrl', () => {
+  test('accepts https', () => {
+    expect(isAcceptableControlPlaneUrl('https://control.example/settings')).toBe(true);
+  });
+
+  test('rejects plain http, which would put credentials on the wire', () => {
+    expect(isAcceptableControlPlaneUrl('http://control.example/settings')).toBe(false);
+  });
+
+  test('allows http against localhost, where there is no wire', () => {
+    expect(isAcceptableControlPlaneUrl('http://localhost:8000/settings')).toBe(true);
+    expect(isAcceptableControlPlaneUrl('http://127.0.0.1:8000/settings')).toBe(true);
+  });
+
+  test('rejects anything that is not a URL', () => {
+    expect(isAcceptableControlPlaneUrl('')).toBe(false);
+    expect(isAcceptableControlPlaneUrl('control.example')).toBe(false);
+    expect(isAcceptableControlPlaneUrl('file:///etc/passwd')).toBe(false);
+  });
+});
+
+describe('verifySettingsSignature', () => {
+  const secret = 'tenant-token';
+  const body = '{"ACCESS_PASSWORD":"hunter22"}';
+  const sign = (b: string, s: string) =>
+    `sha256=${createHmac('sha256', s).update(b).digest('hex')}`;
+
+  test('accepts a signature made with our token', () => {
+    expect(verifySettingsSignature(body, sign(body, secret), secret)).toBe(true);
+  });
+
+  test('rejects one made with a different token', () => {
+    expect(verifySettingsSignature(body, sign(body, 'someone-elses'), secret)).toBe(false);
+  });
+
+  test('rejects a signature for different bytes', () => {
+    expect(verifySettingsSignature(body, sign('{"ACCESS_PASSWORD":""}', secret), secret)).toBe(
+      false,
+    );
+  });
+
+  test('rejects a missing or malformed header', () => {
+    expect(verifySettingsSignature(body, null, secret)).toBe(false);
+    expect(verifySettingsSignature(body, '', secret)).toBe(false);
+    expect(verifySettingsSignature(body, 'sha256=nope', secret)).toBe(false);
+  });
+});
+
 describe('fetchSettings', () => {
   const originalFetch = globalThis.fetch;
+  const TOKEN = 'tenant-token';
   const env = { CONTROL_PLANE_URL: 'https://control.example/settings' };
+  const signed = { ...env, CONTROL_PLANE_TOKEN: TOKEN };
+
+  function signedResponse(payload: unknown, secret = TOKEN): Response {
+    const body = JSON.stringify(payload);
+    return new Response(body, {
+      headers: {
+        'content-type': 'application/json',
+        'x-engawa-signature': `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`,
+      },
+    });
+  }
 
   // Bun's fetch type carries extras a stub has no use for, so the cast goes
   // through unknown.
@@ -148,14 +211,52 @@ describe('fetchSettings', () => {
     let seen: string | null = 'unset';
     stubFetch(async (_url, init) => {
       seen = new Headers(init?.headers).get('authorization');
-      return Response.json({});
+      return signedResponse({});
     });
 
     await fetchSettings(env);
     expect(seen).toBeNull();
 
-    await fetchSettings({ ...env, CONTROL_PLANE_TOKEN: 'sekrit' });
-    expect(seen).toBe('Bearer sekrit');
+    await fetchSettings(signed);
+    expect(seen).toBe(`Bearer ${TOKEN}`);
+  });
+
+  test('refuses settings whose signature does not verify', async () => {
+    applySettings({ ACCESS_PASSWORD: 'still-good' });
+    // A perfectly well-formed response from someone who does not hold the
+    // token. That it looks valid is exactly what makes it dangerous.
+    stubFetch(async () => signedResponse({ ACCESS_PASSWORD: 'attacker' }, 'wrong-token'));
+
+    expect(await fetchSettings(signed)).toBe(false);
+    expect(setting('ACCESS_PASSWORD', {})).toBe('still-good');
+  });
+
+  test('refuses settings with no signature at all', async () => {
+    applySettings({ ACCESS_PASSWORD: 'still-good' });
+    stubFetch(async () => Response.json({ ACCESS_PASSWORD: 'attacker' }));
+
+    expect(await fetchSettings(signed)).toBe(false);
+    expect(setting('ACCESS_PASSWORD', {})).toBe('still-good');
+  });
+
+  test('accepts a correctly signed response', async () => {
+    stubFetch(async () => signedResponse({ ACCESS_PASSWORD: 'from-control-plane' }));
+
+    expect(await fetchSettings(signed)).toBe(true);
+    expect(setting('ACCESS_PASSWORD', {})).toBe('from-control-plane');
+  });
+
+  test('will not fetch over plain http', async () => {
+    let called = false;
+    stubFetch(async () => {
+      called = true;
+      return signedResponse({});
+    });
+
+    expect(await fetchSettings({ CONTROL_PLANE_URL: 'http://control.example/settings' })).toBe(
+      false,
+    );
+    expect(called).toBe(false);
   });
 
   test('keeps the previous settings when the control plane errors', async () => {

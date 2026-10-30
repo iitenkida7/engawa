@@ -20,20 +20,61 @@ engawa サーバーは、設定を**環境変数の代わりに外部の HTTP �
 
 | 変数 | 既定 | 説明 |
 |---|---|---|
-| `CONTROL_PLANE_URL` | 未設定 | 設定を取得する URL。**未設定なら機能ごと無効**（環境変数だけを見ます）。 |
-| `CONTROL_PLANE_TOKEN` | 未設定 | 設定すると `Authorization: Bearer <token>` を付けて取得します。 |
+| `CONTROL_PLANE_URL` | 未設定 | 設定を取得する URL。**未設定なら機能ごと無効**（環境変数だけを見ます）。**https 必須**（`localhost` のみ http 可）。 |
+| `CONTROL_PLANE_TOKEN` | 未設定 | **`CONTROL_PLANE_URL` を設定したときは必須**。リクエストの Bearer と、レスポンス署名の鍵を兼ねます。 |
 | `CONTROL_PLANE_INTERVAL_S` | `60` | 再取得の間隔（秒）。最小 10 秒。 |
+
+`CONTROL_PLANE_URL` があるのに `CONTROL_PLANE_TOKEN` が無い、または https でない場合、**サーバーは起動しません**。
+認証できないコントロールプレーンは、無いより悪い状態だからです（答えた相手が誰であれ、その資格情報を受け入れてしまう）。
+
+### トークンはサーバー 1 台ごとに別のものを
+
+ホスティングする場合、**トークンはテナント（= サーバー 1 台）ごとに発行**してください。共有しないこと。
+
+- 1 本漏れても影響が 1 テナントに閉じます。
+- コントロールプレーン側は**トークンから相手のテナントを決める**設計にしてください。
+  URL のクエリやパスでテナントを指定し、トークンは「通しの鍵」として共通にすると、
+  1 本のトークンで他社の設定（＝他社の Cloudflare 鍵）を引けてしまいます。
 
 ## リクエスト
 
 ```
 GET {CONTROL_PLANE_URL}
 Accept: application/json
-Authorization: Bearer {CONTROL_PLANE_TOKEN}   ← CONTROL_PLANE_TOKEN 設定時のみ
+Authorization: Bearer {CONTROL_PLANE_TOKEN}
 ```
 
 起動時に 1 回、その後 `CONTROL_PLANE_INTERVAL_S` ごとに取得します。
 **起動時の 1 回は待ち合わせます**（起動時にしか読まない設定があるため）。
+
+## レスポンスの署名（必須）
+
+`CONTROL_PLANE_TOKEN` を設定したとき、**レスポンスには署名が必要**です。無い／合わないものは破棄し、
+直前の設定を使い続けます。
+
+```
+X-Engawa-Signature: sha256=<hex>
+```
+
+`<hex>` は、**送出するボディの生バイト列**を `CONTROL_PLANE_TOKEN` で HMAC-SHA256 した 16 進文字列です。
+Webhook の署名（[`webhook.ja.md`](./webhook.ja.md)）と**同じ方式**なので、覚えることは増えません。
+
+### なぜ必要か
+
+Bearer は「engawa → コントロールプレーン」の認証にすぎません。署名が無いと、
+**答えた相手が本当にコントロールプレーンなのか**を engawa 側が確かめられません。
+設定には Cloudflare や Groq の鍵が含まれるため、**正しそうに見える設定を誰からでも受け取る**状態は、
+コントロールプレーンを使わないより危険です。
+
+```js
+// 署名の付け方（Node.js）
+const body = JSON.stringify(settings);
+res.set('X-Engawa-Signature',
+  'sha256=' + crypto.createHmac('sha256', tenantToken).update(body).digest('hex'));
+res.type('application/json').send(body);   // ← 同じバイト列を送ること
+```
+
+> JSON を組み立て直すと**別のバイト列**になり、署名が合いません。署名した文字列をそのまま送ってください。
 
 ## レスポンス
 
@@ -102,23 +143,32 @@ Authorization: Bearer {CONTROL_PLANE_TOKEN}   ← CONTROL_PLANE_TOKEN 設定時�
 コントロールプレーン側は「JSON を返す 1 本の GET」だけです。
 
 ```js
-// Express での例
+// Express での例。テナントは「トークンから」決めること。
 app.get('/engawa/settings', (req, res) => {
-  if (req.get('authorization') !== `Bearer ${process.env.ENGAWA_TOKEN}`) {
-    return res.sendStatus(401);
-  }
-  const tenant = lookupTenant(req);
-  res.json({
+  const token = (req.get('authorization') ?? '').replace(/^Bearer /, '');
+  const tenant = token ? findTenantByToken(token) : null;   // ← 定数時間比較で照合する
+  if (!tenant) return res.sendStatus(401);
+
+  const body = JSON.stringify({
     ACCESS_PASSWORD: tenant.accessPassword ?? null,
     CLOUDFLARE_TURN_TOKEN_ID: tenant.turnTokenId ?? null,
     CLOUDFLARE_TURN_TOKEN_SECRET: tenant.turnTokenSecret ?? null,
     GROQ_API_KEY: tenant.groqApiKey ?? null,
   });
+
+  res.set('X-Engawa-Signature',
+    'sha256=' + crypto.createHmac('sha256', token).update(body).digest('hex'));
+  res.type('application/json').send(body);
 });
 ```
 
 ## セキュリティ上の注意
 
-- **URL は HTTPS にしてください。** 応答には資格情報が入ります。
-- `CONTROL_PLANE_TOKEN` はイメージに焼かず、実行時のシークレットで渡します。
+- **HTTPS は強制**です（`localhost` を除く）。応答には資格情報が入ります。
+- **トークンはテナントごとに発行**し、コントロールプレーン側は**トークンからテナントを決める**。
+- トークンの照合は**定数時間比較**で（`crypto.timingSafeEqual` 等）。
+- `CONTROL_PLANE_TOKEN` はイメージに焼かず、**実行時のシークレット**で渡します（fly なら `fly secrets set`）。
+- **ログに設定値を出さない。** engawa 側はステータスコードしか記録しません。
 - コントロールプレーンは**このサーバーの設定を変えられる**立場です。到達できる範囲を絞ってください。
+- トークンを入れ替えるときは、コントロールプレーン側で新旧 2 本を一時的に受け付け、
+  各オフィスのシークレットを更新してから旧トークンを無効化します。

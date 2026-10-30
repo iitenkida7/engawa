@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
 // Runtime settings, from the environment or from a control plane.
 //
 // A self-hosted engawa configures itself with environment variables and that is
@@ -13,6 +15,18 @@
 //
 // What is live and what needs a restart is deliberate, not accidental — see
 // docs/control-plane.md.
+//
+// Both directions are authenticated when a token is configured. The request
+// carries it as a bearer so the control plane knows which office is asking; the
+// response must carry an HMAC of its body so the office knows the answer came
+// from the control plane and not from whatever else the URL now resolves to.
+// Settings include credentials — accepting them from an unauthenticated
+// responder would be worse than having no control plane at all.
+
+// Header carrying the HMAC-SHA256 of the response body, hex, prefixed `sha256=`.
+// Same scheme as the outbound event webhook (docs/webhook.md) — one idea, used
+// in both directions, rather than two things to learn.
+export const SETTINGS_SIGNATURE_HEADER = 'x-engawa-signature';
 
 // Settings a control plane may supply. Deliberately a whitelist: PORT and MAP
 // shape the process and the world at boot, and letting a remote endpoint set
@@ -132,6 +146,49 @@ export function isControlPlaneConfigured(env = process.env): boolean {
   return Boolean(env.CONTROL_PLANE_URL);
 }
 
+/**
+ * Is this a URL we're willing to take credentials from? Plain HTTP would put
+ * the office's Cloudflare and transcription keys on the wire in the clear, so
+ * only HTTPS is allowed — except against localhost, where there is no wire and
+ * a developer should not have to mint a certificate.
+ */
+export function isAcceptableControlPlaneUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+
+  if (url.protocol === 'https:') return true;
+  if (url.protocol !== 'http:') return false;
+
+  return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+}
+
+/**
+ * Does this body carry a signature made with our token? Constant-time, and
+ * false for a missing or malformed header rather than throwing — a bad
+ * signature and no signature deserve the same answer.
+ */
+export function verifySettingsSignature(
+  rawBody: string,
+  header: string | null,
+  secret: string,
+): boolean {
+  if (!header) return false;
+
+  const expected = `sha256=${createHmac('sha256', secret).update(rawBody).digest('hex')}`;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(header);
+
+  // timingSafeEqual throws on a length mismatch, which would itself leak the
+  // length; compare lengths first and only then in constant time.
+  if (a.length !== b.length) return false;
+
+  return timingSafeEqual(a, b);
+}
+
 /** Refresh interval in seconds, floored so a misconfiguration can't hammer. */
 export function normalizeIntervalSeconds(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === '') return DEFAULT_INTERVAL_S;
@@ -150,11 +207,16 @@ export async function fetchSettings(env = process.env): Promise<boolean> {
   const url = env.CONTROL_PLANE_URL;
   if (!url) return false;
 
+  if (!isAcceptableControlPlaneUrl(url)) {
+    console.warn('[settings] CONTROL_PLANE_URL must be https (or localhost); settings not fetched');
+    return false;
+  }
+
+  const token = env.CONTROL_PLANE_TOKEN;
+
   try {
     const headers: Record<string, string> = { Accept: 'application/json' };
-    if (env.CONTROL_PLANE_TOKEN) {
-      headers.Authorization = `Bearer ${env.CONTROL_PLANE_TOKEN}`;
-    }
+    if (token) headers.Authorization = `Bearer ${token}`;
 
     const res = await fetch(url, {
       headers,
@@ -167,7 +229,21 @@ export async function fetchSettings(env = process.env): Promise<boolean> {
       return false;
     }
 
-    applySettings(parseSettings(await res.json()));
+    // Read as text so the signature covers the exact bytes that were sent —
+    // re-serialising parsed JSON would check a different document.
+    const rawBody = await res.text();
+
+    if (
+      token &&
+      !verifySettingsSignature(rawBody, res.headers.get(SETTINGS_SIGNATURE_HEADER), token)
+    ) {
+      // Whoever answered could not prove they hold the token. The body may well
+      // be valid settings; that is exactly what makes accepting it dangerous.
+      console.warn('[settings] response signature did not verify; keeping previous settings');
+      return false;
+    }
+
+    applySettings(parseSettings(JSON.parse(rawBody)));
     return true;
   } catch (err) {
     console.warn(`[settings] control plane fetch failed: ${err}; keeping previous settings`);
@@ -182,6 +258,18 @@ export async function fetchSettings(env = process.env): Promise<boolean> {
  */
 export async function startSettingsSync(env = process.env): Promise<void> {
   if (!isControlPlaneConfigured(env)) return;
+
+  // A control plane that cannot be authenticated is a worse position than none:
+  // the office would take its credentials from whoever answers. Refuse to boot
+  // rather than quietly run unprotected.
+  if (!isAcceptableControlPlaneUrl(env.CONTROL_PLANE_URL ?? '')) {
+    throw new Error(
+      'CONTROL_PLANE_URL must be an https:// URL (http:// is allowed only for localhost)',
+    );
+  }
+  if (!env.CONTROL_PLANE_TOKEN) {
+    throw new Error('CONTROL_PLANE_TOKEN is required when CONTROL_PLANE_URL is set');
+  }
 
   await fetchSettings(env);
 

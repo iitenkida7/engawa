@@ -21,20 +21,64 @@ So: a place to fetch settings from, re-read periodically.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CONTROL_PLANE_URL` | unset | Where to GET settings. **Unset disables the feature** (environment only). |
-| `CONTROL_PLANE_TOKEN` | unset | When set, sent as `Authorization: Bearer <token>`. |
+| `CONTROL_PLANE_URL` | unset | Where to GET settings. **Unset disables the feature** (environment only). **HTTPS required** (plain http only for `localhost`). |
+| `CONTROL_PLANE_TOKEN` | unset | **Required whenever `CONTROL_PLANE_URL` is set.** Serves as both the request bearer and the key the response is signed with. |
 | `CONTROL_PLANE_INTERVAL_S` | `60` | Refresh interval in seconds. Floored at 10. |
+
+If `CONTROL_PLANE_URL` is set without a token, or over plain http, **the server refuses to start**.
+A control plane that cannot be authenticated is a worse position than none: the office would take
+its credentials from whoever answers.
+
+### One token per server, not one per fleet
+
+When hosting, **issue a token per tenant** — that is, per office — and never share one.
+
+- A leaked token is then confined to a single tenant.
+- Have the control plane **derive the tenant from the token**. Naming the tenant in the URL and
+  using one shared token as a gate means that single token can read any customer's settings, which
+  is to say any customer's Cloudflare keys.
 
 ## Request
 
 ```
 GET {CONTROL_PLANE_URL}
 Accept: application/json
-Authorization: Bearer {CONTROL_PLANE_TOKEN}   ← only when CONTROL_PLANE_TOKEN is set
+Authorization: Bearer {CONTROL_PLANE_TOKEN}
 ```
 
 Fetched once at boot and then every `CONTROL_PLANE_INTERVAL_S`. **The boot fetch is awaited**,
 because some settings are read only once at startup.
+
+## Response signature (required)
+
+With `CONTROL_PLANE_TOKEN` set, **the response must be signed**. One that isn't, or doesn't verify,
+is discarded and the previous settings stay in place.
+
+```
+X-Engawa-Signature: sha256=<hex>
+```
+
+`<hex>` is the HMAC-SHA256 of the **exact bytes of the response body**, keyed with
+`CONTROL_PLANE_TOKEN`. It is the **same scheme as the outbound event webhook**
+([`webhook.md`](./webhook.md)) — one idea, used in both directions.
+
+### Why it is required
+
+The bearer authenticates engawa *to* the control plane. Without a signature the office has no way
+to know that whoever answered **is** the control plane. Settings carry Cloudflare and transcription
+credentials, so accepting plausible-looking settings from an unauthenticated responder is worse
+than running with no control plane at all.
+
+```js
+// Signing (Node.js)
+const body = JSON.stringify(settings);
+res.set('X-Engawa-Signature',
+  'sha256=' + crypto.createHmac('sha256', tenantToken).update(body).digest('hex'));
+res.type('application/json').send(body);   // send the same bytes you signed
+```
+
+> Re-serialising the JSON produces **different bytes** and the signature won't match. Send the
+> string you signed.
 
 ## Response
 
@@ -109,23 +153,32 @@ configured (by environment or control plane) it is treated as **one key for ever
 The control-plane side is one GET that returns JSON.
 
 ```js
-// Express
+// Express. The tenant comes from the token, never from the URL.
 app.get('/engawa/settings', (req, res) => {
-  if (req.get('authorization') !== `Bearer ${process.env.ENGAWA_TOKEN}`) {
-    return res.sendStatus(401);
-  }
-  const tenant = lookupTenant(req);
-  res.json({
+  const token = (req.get('authorization') ?? '').replace(/^Bearer /, '');
+  const tenant = token ? findTenantByToken(token) : null;   // compare in constant time
+  if (!tenant) return res.sendStatus(401);
+
+  const body = JSON.stringify({
     ACCESS_PASSWORD: tenant.accessPassword ?? null,
     CLOUDFLARE_TURN_TOKEN_ID: tenant.turnTokenId ?? null,
     CLOUDFLARE_TURN_TOKEN_SECRET: tenant.turnTokenSecret ?? null,
     GROQ_API_KEY: tenant.groqApiKey ?? null,
   });
+
+  res.set('X-Engawa-Signature',
+    'sha256=' + crypto.createHmac('sha256', token).update(body).digest('hex'));
+  res.type('application/json').send(body);
 });
 ```
 
 ## Security notes
 
-- **Use HTTPS.** The response carries credentials.
-- Keep `CONTROL_PLANE_TOKEN` out of the image; pass it as a runtime secret.
+- **HTTPS is enforced** (except `localhost`). The response carries credentials.
+- **Issue a token per tenant**, and derive the tenant from the token.
+- Compare tokens in **constant time** (`crypto.timingSafeEqual` or equivalent).
+- Keep `CONTROL_PLANE_TOKEN` out of the image; pass it as a **runtime secret**.
+- **Never log settings values.** engawa logs only status codes for this reason.
 - The control plane can **change this server's settings**. Keep it reachable only to the server.
+- To rotate, accept both the old and new token on the control plane, update each office's secret,
+  then retire the old one.
