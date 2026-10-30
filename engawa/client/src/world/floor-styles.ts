@@ -1,30 +1,13 @@
-// Floor rug patterns the renderer can draw. Named here so a room/café can request
-// a specific one; the renderer (canvas.ts) maps each to a drawing.
-export type FloorPattern =
-  | 'none'
-  | 'stripe'
-  | 'vstripe'
-  | 'checker'
-  | 'houndstooth'
-  | 'brick'
-  | 'crosshatch'
-  | 'herringbone'
-  | 'chevron';
+import type { FloorPattern } from '@maps/map-def';
+
+// Floor rug patterns the renderer can draw: named by the shared map format
+// (maps/map-def.ts), so the server can validate a map without the client.
+export { FLOOR_PATTERNS, type FloorPattern } from '@maps/map-def';
 
 // ===== Rug styles (#263 follow-up) =====
 // Every room, café and desk pod gets a (pattern, colour) rug, picked per area in
-// the map data (world/map-def.ts FloorDef). The renderer (map-art.ts) maps the
+// the map data (maps/map-def.ts FloorDef). The renderer (map-art.ts) maps the
 // colour index to a concrete base/accent theme.
-export const FLOOR_PATTERNS: FloorPattern[] = [
-  'stripe',
-  'vstripe',
-  'checker',
-  'houndstooth',
-  'brick',
-  'crosshatch',
-  'herringbone',
-  'chevron',
-];
 export const FLOOR_COLOR_COUNT = 8;
 // Extra colour index past the regular 0..FLOOR_COLOR_COUNT-1 themes: the cafés'
 // dedicated red theme.
@@ -33,8 +16,8 @@ export type FloorStyle = { pattern: FloorPattern; color: number };
 
 // Rug colour themes (#263 follow-up): a pale base fill + a matching accent for
 // the pattern marks, indexed by FloorStyle.color (the regular themes, then
-// CAFE_COLOR). Kept here rather than with the renderer so the map validator
-// bounds `color` by this very list and the two cannot drift.
+// CAFE_COLOR). The shared map validator bounds `color` by FLOOR_THEME_COUNT
+// (maps/map-def.ts), which a test pins to this list's length.
 export const FLOOR_THEMES: { base: string; accent: string }[] = [
   // Muted, greyed mid-tones (calm, not colourful) — matched to the slate feel.
   { base: '#b4c2a8', accent: 'rgba(84,106,78,0.32)' }, // green — greyed sage

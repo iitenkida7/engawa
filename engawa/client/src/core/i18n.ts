@@ -64,6 +64,10 @@ const STR: Record<string, Record<Lang, string>> = {
   'pass.next': { ja: '次へ', en: 'Next' },
 
   // -- join screen ----------------------------------------------------------
+  'boot.mapFailed': {
+    ja: 'マップを読み込めませんでした。再読み込みしてください',
+    en: "Couldn't load the map. Please reload the page",
+  },
   'join.title': { ja: 'engawa に参加', en: 'Join engawa' },
   'join.name': { ja: '名前を入力', en: 'Enter your name' },
   'join.editAvatar': {

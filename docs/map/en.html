@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Map JSON (MapDef) spec — engawa</title>
+<meta name="description" content="How to write an engawa map (MapDef v1): buildings, rooms, desks, call zones and floor patterns, illustrated with the office map the app actually draws and the JSON rects overlaid on it.">
+<link rel="alternate" hreflang="ja" href="https://iitenkida7.github.io/engawa/map/">
+<link rel="alternate" hreflang="en" href="https://iitenkida7.github.io/engawa/map/en.html">
+<link rel="icon" type="image/png" href="../assets/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+1:wght@500;700;800&family=IBM+Plex+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column; each spec section = schematic canvas beside its JSON + field notes, stacking on phones. */
+:root {
+  --bg: #e9edf1;
+  --surface: #f6f8fa;
+  --ink: #1d2733;
+  --muted: #5b6878;
+  --line: #c9d1da;
+  --signal: #0f8a86;
+  --warm: #c46a3a;
+  --code-bg: #dfe5eb;
+  --f-display: 'M PLUS 1', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  --f-body: 'IBM Plex Sans JP', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  --f-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141a21; --surface: #1b232c; --ink: #e3e9ef; --muted: #93a1b0; --line: #2d3945;
+    --signal: #3cc4bd; --warm: #e59262; --code-bg: #10161c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141a21; --surface: #1b232c; --ink: #e3e9ef; --muted: #93a1b0; --line: #2d3945;
+  --signal: #3cc4bd; --warm: #e59262; --code-bg: #10161c; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.75; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 40px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 56px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.3; margin: 0; }
+h1 { font-size: clamp(28px, 5vw, 42px); font-weight: 800; letter-spacing: 0.01em; }
+h2 { font-size: 24px; font-weight: 700; }
+h3 { font-size: 17px; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+code, pre, .mono { font-family: var(--f-mono); font-size: 13px; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+pre { background: var(--code-bg); margin: 0; padding: 12px 14px; border-radius: 6px; overflow-x: auto; line-height: 1.55; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--signal); }
+header { display: flex; flex-direction: column; gap: 14px; }
+header .lede { color: var(--muted); font-size: 16px; }
+section { display: flex; flex-direction: column; gap: 18px; }
+.sec-head { display: flex; flex-direction: column; gap: 6px; border-top: 2px solid var(--signal); padding-top: 14px; }
+.sec-head p { color: var(--muted); }
+
+.map-shell { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
+.map-box { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.canvas-holder { width: 100%; overflow-x: auto; }
+canvas { display: block; image-rendering: pixelated; }
+#main-map { cursor: crosshair; border-radius: 4px; }
+.layers { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.layers label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.layers input:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid rgba(0,0,0,0.25); }
+.inspector { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+.inspector .tile { font-family: var(--f-mono); font-size: 20px; font-weight: 500; color: var(--signal); font-variant-numeric: tabular-nums; }
+.inspector ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.inspector li .path { font-family: var(--f-mono); color: var(--warm); }
+.inspector pre { font-size: 11.5px; white-space: pre-wrap; word-break: break-all; }
+.hint { color: var(--muted); font-size: 13px; }
+
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--f-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+td:first-child { white-space: nowrap; }
+.tbl { overflow-x: auto; }
+
+.anatomy { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.figure figcaption { font-size: 13px; color: var(--muted); }
+.notes { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.notes ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.dash { width: 16px; height: 0; border-top: 2px dashed var(--signal); display: inline-block; }
+
+.palette { display: grid; grid-template-columns: 110px repeat(9, minmax(28px, 1fr)); gap: 4px; align-items: center; font-size: 12px; min-width: 520px; }
+.palette .h { font-family: var(--f-mono); color: var(--muted); text-align: center; }
+.palette .h.special { color: var(--warm); }
+.palette .rowname { font-family: var(--f-mono); }
+.palette canvas { width: 100%; aspect-ratio: 1; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06); }
+
+.checks { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.check-col { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.check-col.ok h3 { color: var(--signal); }
+.check-col.no h3 { color: var(--warm); }
+.check-col ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+
+@media (max-width: 820px) {
+  .map-shell, .anatomy, .checks { grid-template-columns: minmax(0, 1fr); }
+  .inspector { position: static; }
+}
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.eyebrow a { color: inherit; text-decoration: none; }
+.eyebrow a:hover { text-decoration: underline; }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow"><a href="../">engawa</a> / maps/*.json · version 1 · <a href="./" hreflang="ja" lang="ja">日本語</a></div>
+    <h1>Map JSON (MapDef) spec</h1>
+    <p class="lede">A map JSON only says what goes where. The app draws every part itself (desks, chairs, trees: <code>world/map-art.ts</code>), and the only looks a map picks are a floor pattern and a colour index. Every figure on this page is the real map, exported with the app's own renderer (<code>buildMapCache</code>), with the JSON rects drawn on top.</p>
+  </header>
+
+  <section id="office">
+    <div class="sec-head">
+      <div class="eyebrow">today's office_medium.json</div>
+      <h2>The real map, drawn from JSON</h2>
+      <p>This is what the app draws from the current <code>maps/office_medium.json</code> (52×43 tiles), minus avatars and room-name tags. Hover a tile (tap on a phone) to see which JSON entry defines it, and its outline. Turn on “JSON rects” to overlay every entry's rect, coloured by kind.</p>
+    </div>
+    <div class="map-shell">
+      <div class="map-box">
+        <div class="layers" id="layers"></div>
+        <div class="canvas-holder" id="main-holder"><canvas id="main-map" aria-label="The real map drawn from office_medium.json"></canvas></div>
+      </div>
+      <aside class="inspector" aria-live="polite">
+        <div class="eyebrow">this tile</div>
+        <div class="tile" id="insp-tile">[c, r]</div>
+        <ul id="insp-list"><li class="hint">Hover over the map.</li></ul>
+        <pre id="insp-json" hidden></pre>
+      </aside>
+    </div>
+  </section>
+
+  <section id="coords">
+    <div class="sec-head">
+      <div class="eyebrow">conventions</div>
+      <h2>Coordinates are tiles, origin at the top left</h2>
+    </div>
+    <div class="anatomy">
+      <figure class="figure" style="margin:0">
+        <div class="canvas-holder"><canvas data-diagram="coords"></canvas></div>
+        <figcaption>Around the President's office. The plant is the point <code>[9, 14]</code>; the office interior is the rect <code>{ c: 9, r: 9, w: 6, h: 4 }</code>. Axis numbers are absolute map coordinates.</figcaption>
+      </figure>
+      <div class="notes">
+        <ul>
+          <li>Coordinates are <strong>absolute map positions</strong>, never relative to a building or room.</li>
+          <li><code>c</code> grows to the right and <code>r</code> grows downward. <code>[0, 0]</code> is the top-left tile.</li>
+          <li>A point (<code>TilePos</code>) is <code>[c, r]</code>; a rect (<code>TileRect</code>) is <code>{ "c", "r", "w", "h" }</code>.</li>
+          <li>All values are integers. <code>w</code> and <code>h</code> are at least 1.</li>
+          <li>Any tile nothing is placed on is <strong>outdoor grass</strong>.</li>
+        </ul>
+<pre>"plants": [[9, 14]]
+"rooms":  [{ "id": "ceo", "c": 9, "r": 9, "w": 6, "h": 4, … }]</pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="top">
+    <div class="sec-head">
+      <div class="eyebrow">top level</div>
+      <h2>Keys</h2>
+      <p>Everything but <code>spawn</code> is required. A kind you don't use is still written, as an empty array <code>[]</code>.</p>
+    </div>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Key</th><th>Type</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>version</code></td><td class="mono">1</td><td>Format version. The current build reads only 1.</td></tr>
+          <tr><td><code>cols</code> / <code>rows</code></td><td class="mono">positive int</td><td>Map width and height in tiles. The office is 52×43.</td></tr>
+          <tr><td><code>buildings</code></td><td class="mono">Building[]</td><td>Buildings with an outer wall.</td></tr>
+          <tr><td><code>rooms</code></td><td class="mono">Room[]</td><td>Walled rooms. Each room is one call zone.</td></tr>
+          <tr><td><code>desks</code></td><td class="mono">Desk[]</td><td>One desk with one chair.</td></tr>
+          <tr><td><code>teamAreas</code></td><td class="mono">TeamArea[]</td><td>Wall-less shared rugs. Everyone on one is in the same call.</td></tr>
+          <tr><td><code>lounges</code></td><td class="mono">Lounge[]</td><td>Wall-less café call zones.</td></tr>
+          <tr><td><code>plants</code></td><td class="mono">[c, r][]</td><td>Potted plants (one tile).</td></tr>
+          <tr><td><code>ponds</code></td><td class="mono">TileRect[]</td><td>Ponds.</td></tr>
+          <tr><td><code>trees</code></td><td class="mono">Tree[]</td><td>Outdoor trees.</td></tr>
+          <tr><td><code>furniture</code></td><td class="mono">Furniture[]</td><td>Home furniture (beds, sofas, a kitchen and so on).</td></tr>
+          <tr><td><code>spawn</code></td><td class="mono">TileRect (optional)</td><td>Where newcomers appear. Left out, it falls back to the whole floor of the first building — which the checks reject if any room sits there.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="buildings">
+    <div class="sec-head">
+      <div class="eyebrow">buildings</div>
+      <h2>Buildings: the wall is the rect's own edge</h2>
+    </div>
+    <div class="anatomy">
+      <figure class="figure" style="margin:0">
+        <div class="canvas-holder"><canvas data-diagram="building"></canvas></div>
+        <figcaption>The left side of the building. Two wall tiles ([8, 21] and [8, 22]) open as doors onto Lounge 1 outside.</figcaption>
+        <div class="legend"><span><i class="dash"></i>JSON rect</span><span><i class="swatch" style="background:var(--signal)"></i>Tile named in the JSON (doors, centres)</span></div>
+      </figure>
+      <div class="notes">
+<pre>{ "c": 8, "r": 8, "w": 36, "h": 27,
+  "doors": [[8, 21], [43, 21], [8, 22], [43, 22]] }</pre>
+        <ul>
+          <li>The <strong>outermost ring of tiles inside the rect</strong> becomes the wall; everything inside it is floor.</li>
+          <li>Each tile in <code>doors</code> turns a wall tile back into floor, making an entrance.</li>
+          <li>A door must sit on the wall (the rect's edge). A door anywhere else is an error.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="rooms">
+    <div class="sec-head">
+      <div class="eyebrow">rooms</div>
+      <h2>Rooms: the rect is the interior, the wall goes outside it</h2>
+      <p>The opposite of buildings: a room's rect does not include its wall. The wall ring is stamped one tile outside it, so the room plus its wall must fit on the map.</p>
+    </div>
+    <div class="anatomy">
+      <figure class="figure" style="margin:0">
+        <div class="canvas-holder"><canvas data-diagram="room"></canvas></div>
+        <figcaption>Meeting room 1. The ring one tile outside the dashed interior is wall, open only at the two door tiles. Its kind is meeting, so it gets a whiteboard and a cabinet.</figcaption>
+        <div class="legend"><span><i class="dash"></i>JSON rect</span><span><i class="swatch" style="background:var(--signal)"></i>Tile named in the JSON (doors, centres)</span></div>
+      </figure>
+      <div class="notes">
+<pre>{ "id": "meeting-1", "kind": "meeting",
+  "name": { "ja": "会議室1", "en": "Meeting room 1" },
+  "c": 29, "r": 9, "w": 4, "h": 4,
+  "doors": [[30, 13], [31, 13]],
+  "table": { "c": 30, "r": 10, "w": 2, "h": 2 },
+  "floor": { "pattern": "crosshatch", "color": 5 } }</pre>
+        <div class="tbl"><table>
+          <tbody>
+            <tr><td><code>id</code></td><td>Non-empty string, unique across rooms, teamAreas and lounges. The server groups calls by this id, so two areas sharing one would merge into a single call through the wall.</td></tr>
+            <tr><td><code>kind</code></td><td><code>exec</code> / <code>meeting</code> / <code>oneonone</code> / <code>booth</code> / <code>private</code>. Only <code>meeting</code> rooms get a whiteboard and a cabinet, start cameras on the light q simulcast layer, and count for the recording reminder. <code>private</code> (a home's own room) is the only kind that may omit its <code>table</code>.</td></tr>
+            <tr><td><code>name</code></td><td>Display name as <code>{ ja, en }</code>.</td></tr>
+            <tr><td><code>doors</code></td><td>Tiles on the wall ring (one tile outside the rect).</td></tr>
+            <tr><td><code>table</code></td><td>Solid meeting table, drawn with chairs around it.</td></tr>
+            <tr><td><code>floor</code></td><td>Optional. The rug look (see the palette below).</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="desks">
+    <div class="sec-head">
+      <div class="eyebrow">desks</div>
+      <h2>Desks: (c, r) is the middle of the desk</h2>
+    </div>
+    <div class="anatomy">
+      <figure class="figure" style="margin:0">
+        <div class="canvas-holder"><canvas data-diagram="desk"></canvas></div>
+        <figcaption>Two islands, each a south desk above a north desk. Filled squares are the JSON (c, r), the middle of each desk; dashed squares are the 3×3 rugs centred on the chairs.</figcaption>
+        <div class="legend"><span><i class="dash"></i>JSON rect</span><span><i class="swatch" style="background:var(--signal)"></i>Tile named in the JSON (doors, centres)</span></div>
+      </figure>
+      <div class="notes">
+<pre>{ "c": 14, "r": 17, "facing": "south",
+  "rug": { "pattern": "chevron", "color": 2 } }
+{ "c": 14, "r": 18, "facing": "north",
+  "rug": { "pattern": "chevron", "color": 2 } }
+{ "c": 31, "r": 25, "facing": "south" }</pre>
+        <ul>
+          <li>A desk three tiles wide (<code>c-1</code> to <code>c+1</code>) is centred on <code>(c, r)</code>.</li>
+          <li><code>facing</code> is the way the seated person faces. With <code>"south"</code> the chair is one tile above the desk; with <code>"north"</code> it is one tile below.</li>
+          <li>With <code>rug</code>, a <strong>3×3 rug centred on the chair</strong> is laid down. Leave it out for no rug.</li>
+          <li>The office stacks a <code>south</code> desk above a <code>north</code> desk to make face-to-face islands.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="zones">
+    <div class="sec-head">
+      <div class="eyebrow">teamAreas · lounges</div>
+      <h2>Call zones without walls</h2>
+      <p>Everyone standing inside either rect joins one call. Unlike rooms, no wall is stamped.</p>
+    </div>
+    <div class="anatomy">
+      <figure class="figure" style="margin:0">
+        <div class="canvas-holder"><canvas data-diagram="team"></canvas></div>
+        <div class="canvas-holder"><canvas data-diagram="lounge"></canvas></div>
+        <figcaption>Top: a teamArea, here holding desks without rugs. Bottom: a lounge (rug, coffee table and armchairs).</figcaption>
+      </figure>
+      <div class="notes">
+<pre>"teamAreas": [{ "id": "team-area",
+  "c": 30, "r": 23, "w": 9, "h": 6,
+  "floor": { "pattern": "vstripe", "color": 2 } }]
+
+"lounges": [{ "id": "cafe-left",
+  "name": { "ja": "ラウンジ1", "en": "Lounge 1" },
+  "c": 2, "r": 24, "w": 6, "h": 5,
+  "floor": { "pattern": "stripe", "color": 8 } }]</pre>
+        <ul>
+          <li>As with rooms, <code>id</code> is unique across all zones.</li>
+          <li>A lounge needs a display <code>name</code>; a teamArea does not.</li>
+          <li>Colour index <code>8</code> is reserved for lounges.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="props">
+    <div class="sec-head">
+      <div class="eyebrow">plants · ponds · trees</div>
+      <h2>Plants, ponds and trees</h2>
+    </div>
+    <div class="anatomy">
+      <figure class="figure" style="margin:0">
+        <div class="canvas-holder"><canvas data-diagram="props"></canvas></div>
+        <figcaption>The top right of the map. The pond is a rect; trees are size 1 (1×1) or size 2 (2×2). Dashed squares are each tree's footprint in the JSON; the drawn canopy and shadow spill past it.</figcaption>
+      </figure>
+      <div class="notes">
+<pre>"plants": [[9, 14], …],
+"ponds":  [{ "c": 44, "r": 2, "w": 5, "h": 4 }],
+"trees":  [{ "c": 39, "r": 2, "size": 1, "variant": 1 },
+           { "c": 48, "r": 7, "size": 2, "variant": 1 }, …]</pre>
+        <ul>
+          <li>A plant is a point <code>[c, r]</code>. The office uses them indoors, in room corners and along corridors.</li>
+          <li>A tree's <code>size</code> is 1 or 2, with <code>(c, r)</code> as its top-left tile.</li>
+          <li>A tree's <code>variant</code> (0 or 1) picks its look.</li>
+          <li>Trees <strong>go on grass only</strong>. A tree overlapping a building or room is rejected by <code>tilemap</code>.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="furniture">
+    <div class="sec-head">
+      <div class="eyebrow">furniture</div>
+      <h2>Furniture: each kind has a fixed footprint</h2>
+      <p>Parts for a home map (<code>house_4ldk</code>). Unlike desks and meeting tables, a piece is placed by its <strong>kind, its top-left <code>(c, r)</code> and a facing</strong> — the size comes with the kind.</p>
+    </div>
+    <div class="anatomy">
+      <div class="notes">
+      <pre>"furniture": [
+  { "kind": "bed",    "c": 4,  "r": 4,  "facing": "south" },
+  { "kind": "shelf",  "c": 4,  "r": 7,  "facing": "north" },
+  { "kind": "dining", "c": 18, "r": 8 },
+  { "kind": "sofa",   "c": 13, "r": 12, "facing": "north" }
+]</pre>
+        <ul>
+          <li><code>facing</code> is <code>south</code> (default), <code>north</code>, <code>east</code> or <code>west</code>. <strong><code>east</code> / <code>west</code> turns the piece</strong>, swapping w and h (a 3×1 sofa becomes 1×3).</li>
+          <li><strong>Only a sofa's tiles and a dining table's chairs are walkable, and they are seats.</strong> Every other piece is solid.</li>
+          <li>The sizes below are w×h with <code>facing</code> south or north.</li>
+        </ul>
+      </div>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>kind</th><th>Size</th><th>Notes</th></tr></thead>
+          <tbody>
+          <tr><td><code>bed</code></td><td class="mono">2×3</td><td>A single bed, pillow at the back (opposite <code>facing</code>).</td></tr>
+          <tr><td><code>sofa</code></td><td class="mono">3×1</td><td>A three-seater. <strong>Every tile is a seat</strong>, and sitters face <code>facing</code>.</td></tr>
+          <tr><td><code>tv</code></td><td class="mono">3×1</td><td>A TV on a low board, screen toward <code>facing</code>.</td></tr>
+          <tr><td><code>lowTable</code></td><td class="mono">3×1</td><td>A living-room coffee table.</td></tr>
+          <tr><td><code>dining</code></td><td class="mono">2×2</td><td>A dining table. <strong>Two chairs above and two below</strong> (4 seats), just outside the rect.</td></tr>
+          <tr><td><code>kitchen</code></td><td class="mono">3×1</td><td>A counter with a sink and a stove.</td></tr>
+          <tr><td><code>fridge</code></td><td class="mono">1×1</td><td>A fridge.</td></tr>
+          <tr><td><code>shelf</code></td><td class="mono">2×1</td><td>A bookshelf.</td></tr>
+          <tr><td><code>bathtub</code></td><td class="mono">2×1</td><td>A bathtub.</td></tr>
+          <tr><td><code>toilet</code></td><td class="mono">1×1</td><td>A toilet.</td></tr>
+          <tr><td><code>washbasin</code></td><td class="mono">1×1</td><td>A washbasin.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="floors">
+    <div class="sec-head">
+      <div class="eyebrow">floor · rug</div>
+      <h2>Floor palette: <code>{ pattern, color }</code></h2>
+      <p>A room's <code>floor</code>, a desk's <code>rug</code>, and a teamArea's or lounge's <code>floor</code> all pick from the same palette. <code>color</code> is an index into the app's <code>FLOOR_THEMES</code> (<code>world/floor-styles.ts</code>).</p>
+    </div>
+    <div class="tbl"><div class="palette" id="palette"></div></div>
+    <p class="hint">Swatches use the app's own pattern code; each cell shows 2×2 tiles. <code>none</code> is a plain rug.</p>
+  </section>
+
+  <section id="validation">
+    <div class="sec-head">
+      <div class="eyebrow">assertMapDef</div>
+      <h2>Checks at load time</h2>
+      <p>TypeScript types cannot guard a JSON file, so the map is checked when it loads. A mistake stops loading at once with an error that names the spot (for example <code>invalid map data: room 'meeting-1' door 0: tile [4,7] is not on its wall</code>). A map that passes is frozen so nothing can modify it.</p>
+    </div>
+    <div class="checks">
+      <div class="check-col no">
+        <h3>Stops with an error</h3>
+        <ul>
+          <li><code>version</code> other than 1</li>
+          <li>A missing top-level array</li>
+          <li>Non-integer positions or sizes; <code>w</code> or <code>h</code> below 1</li>
+          <li>Points or rects off the map (rooms are checked with their wall)</li>
+          <li>Doors not on their wall</li>
+          <li>Unknown <code>kind</code> or <code>pattern</code>; <code>color</code> out of range</li>
+          <li><code>name</code> that is not <code>{ ja, en }</code> strings</li>
+          <li>Empty or duplicate zone ids</li>
+          <li><code>facing</code> other than south / north; a bad tree <code>size</code> or <code>variant</code></li>
+          <li>Trees off the grass</li>
+          <li>A plant, desk, pond or another room's wall covering a door</li>
+          <li>A <code>table</code> outside its room</li>
+          <li>A <code>spawn</code> reaching into a call zone — a room, teamArea or lounge (you would land in a stranger's call)</li>
+          <li>A room other than <code>private</code> with no <code>table</code></li>
+          <li>An unknown furniture <code>kind</code>; a <code>facing</code> other than south/north/east/west</li>
+        </ul>
+      </div>
+      <div class="check-col ok">
+        <h3>Not checked (layout judgement)</h3>
+        <ul>
+          <li>Rooms, desks or zones overlapping each other</li>
+          <li>Whether rooms and desks sit inside a building</li>
+          <li>Whether a door leads anywhere walkable</li>
+        </ul>
+        <p class="hint">Check these on screen and in the snapshot test when you change the map.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="use">
+    <div class="sec-head">
+      <div class="eyebrow">MAP</div>
+      <h2>Putting your map to work</h2>
+      <p>The server reads and validates the map named by the <code>MAP</code> environment variable once at boot, then serves it at <code>GET /api/map</code>. The browser builds the world from what it receives, so the server picks the map.</p>
+    </div>
+    <div class="notes">
+      <ul>
+        <li>A template name such as <code>MAP=office_medium</code>, <code>MAP=office_small</code> or <code>MAP=house_4ldk</code> means the bundled <code>maps/&lt;name&gt;.json</code>. Unset means <code>office_medium</code>. Names read <code>&lt;kind&gt;_&lt;size&gt;</code>.</li>
+        <li><code>MAP=https://…/map.json</code> fetches an external JSON file (http(s) only, up to 1MB, 10s timeout). To call your own map by a template name instead, mount it into the container at <code>/maps</code>.</li>
+        <li>A map that fails the checks makes the <strong>server refuse to start</strong>, with the reason in its log — clearer than serving a broken map that every browser then fails to build.</li>
+        <li>Changing the map and restarting changes the boot id, so browsers left open reload and fetch the new map.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="ops">
+    <div class="sec-head">
+      <div class="eyebrow">maintenance</div>
+      <h2>What else to update when the map changes</h2>
+    </div>
+    <div class="notes">
+      <ul>
+        <li>Changing <code>cols</code> / <code>rows</code> needs no constant updated by hand: the server derives its clamp bounds and spawn area from the map (<code>mapWorld</code> in <code>server/src/map.ts</code>).</li>
+        <li>The tile grid built from the map is pinned by snapshots in <code>__tests__/tilemap-split.test.ts</code>. After an intended change, update them with <code>bun test -u</code>.</li>
+        <li>Room behaviour depends on <code>kind</code>, not on the id. The id only identifies the call group.</li>
+        <li>This page's map image (<code>docs/map/office-medium-map.webp</code>) and the office_medium.json embedded in the page are snapshots. When the map changes, replace both, in this page and in the Japanese one. To export the image, open the dev server (http://localhost:5173 after <code>make up</code>) and run this in the browser console:</li>
+      </ul>
+<pre>const c = (await import('/src/world/map-art.ts')).buildMapCache(1);
+c.toBlob((b) => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b);
+  a.download = 'office-medium-map.webp';
+  a.click();
+}, 'image/webp', 0.9);</pre>
+    </div>
+  </section>
+</div>
+
+<script>
+const OFFICE = {"version":1,"cols":52,"rows":43,"buildings":[{"c":8,"r":8,"w":36,"h":27,"doors":[[8,21],[43,21],[8,22],[43,22]]}],"rooms":[{"id":"ceo","kind":"exec","name":{"ja":"社長室","en":"President's office"},"c":9,"r":9,"w":6,"h":4,"doors":[[11,13],[12,13]],"table":{"c":9,"r":10,"w":2,"h":2},"floor":{"pattern":"vstripe","color":2}},{"id":"all-hands","kind":"meeting","name":{"ja":"大会議室","en":"All-hands room"},"c":16,"r":9,"w":12,"h":4,"doors":[[21,13],[22,13]],"table":{"c":20,"r":10,"w":4,"h":2},"floor":{"pattern":"brick","color":4}},{"id":"meeting-1","kind":"meeting","name":{"ja":"会議室1","en":"Meeting room 1"},"c":29,"r":9,"w":4,"h":4,"doors":[[30,13],[31,13]],"table":{"c":30,"r":10,"w":2,"h":2},"floor":{"pattern":"crosshatch","color":5}},{"id":"meeting-2","kind":"meeting","name":{"ja":"会議室2","en":"Meeting room 2"},"c":34,"r":9,"w":4,"h":4,"doors":[[35,13],[36,13]],"table":{"c":35,"r":10,"w":2,"h":2},"floor":{"pattern":"stripe","color":7}},{"id":"meeting-3","kind":"meeting","name":{"ja":"会議室3","en":"Meeting room 3"},"c":39,"r":9,"w":4,"h":4,"doors":[[40,13],[41,13]],"table":{"c":40,"r":10,"w":2,"h":2},"floor":{"pattern":"herringbone","color":6}},{"id":"1on1-1","kind":"oneonone","name":{"ja":"1on1ルーム1","en":"1-on-1 room 1"},"c":9,"r":31,"w":3,"h":3,"doors":[[10,30]],"table":{"c":10,"r":32,"w":1,"h":1},"floor":{"pattern":"stripe","color":7}},{"id":"1on1-2","kind":"oneonone","name":{"ja":"1on1ルーム2","en":"1-on-1 room 2"},"c":13,"r":31,"w":3,"h":3,"doors":[[14,30]],"table":{"c":14,"r":32,"w":1,"h":1},"floor":{"pattern":"vstripe","color":2}},{"id":"1on1-3","kind":"oneonone","name":{"ja":"1on1ルーム3","en":"1-on-1 room 3"},"c":17,"r":31,"w":3,"h":3,"doors":[[18,30]],"table":{"c":18,"r":32,"w":1,"h":1},"floor":{"pattern":"houndstooth","color":5}},{"id":"1on1-4","kind":"oneonone","name":{"ja":"1on1ルーム4","en":"1-on-1 room 4"},"c":21,"r":31,"w":3,"h":3,"doors":[[22,30]],"table":{"c":22,"r":32,"w":1,"h":1},"floor":{"pattern":"checker","color":3}},{"id":"booth-1","kind":"booth","name":{"ja":"商談ブース1","en":"Meeting booth 1"},"c":25,"r":31,"w":3,"h":3,"doors":[[26,30]],"table":{"c":26,"r":32,"w":1,"h":1},"floor":{"pattern":"crosshatch","color":6}},{"id":"booth-2","kind":"booth","name":{"ja":"商談ブース2","en":"Meeting booth 2"},"c":29,"r":31,"w":3,"h":3,"doors":[[30,30]],"table":{"c":30,"r":32,"w":1,"h":1},"floor":{"pattern":"brick","color":1}},{"id":"booth-3","kind":"booth","name":{"ja":"商談ブース3","en":"Meeting booth 3"},"c":33,"r":31,"w":3,"h":3,"doors":[[34,30]],"table":{"c":34,"r":32,"w":1,"h":1},"floor":{"pattern":"chevron","color":4}},{"id":"booth-4","kind":"booth","name":{"ja":"商談ブース4","en":"Meeting booth 4"},"c":37,"r":31,"w":3,"h":3,"doors":[[38,30]],"table":{"c":38,"r":32,"w":1,"h":1},"floor":{"pattern":"herringbone","color":0}},{"id":"hanare","kind":"booth","name":{"ja":"離れ","en":"Annex"},"c":46,"r":31,"w":3,"h":3,"doors":[[47,30]],"table":{"c":47,"r":32,"w":1,"h":1},"floor":{"pattern":"crosshatch","color":2}}],"desks":[{"c":14,"r":17,"facing":"south","rug":{"pattern":"chevron","color":2}},{"c":14,"r":18,"facing":"north","rug":{"pattern":"chevron","color":2}},{"c":19,"r":17,"facing":"south","rug":{"pattern":"brick","color":1}},{"c":19,"r":18,"facing":"north","rug":{"pattern":"brick","color":1}},{"c":24,"r":17,"facing":"south","rug":{"pattern":"vstripe","color":5}},{"c":24,"r":18,"facing":"north","rug":{"pattern":"vstripe","color":5}},{"c":29,"r":17,"facing":"south","rug":{"pattern":"stripe","color":6}},{"c":29,"r":18,"facing":"north","rug":{"pattern":"stripe","color":6}},{"c":34,"r":17,"facing":"south","rug":{"pattern":"checker","color":3}},{"c":34,"r":18,"facing":"north","rug":{"pattern":"checker","color":3}},{"c":39,"r":17,"facing":"south","rug":{"pattern":"houndstooth","color":7}},{"c":39,"r":18,"facing":"north","rug":{"pattern":"houndstooth","color":7}},{"c":14,"r":25,"facing":"south","rug":{"pattern":"crosshatch","color":7}},{"c":14,"r":26,"facing":"north","rug":{"pattern":"crosshatch","color":7}},{"c":19,"r":25,"facing":"south","rug":{"pattern":"vstripe","color":5}},{"c":19,"r":26,"facing":"north","rug":{"pattern":"vstripe","color":5}},{"c":24,"r":25,"facing":"south","rug":{"pattern":"stripe","color":6}},{"c":24,"r":26,"facing":"north","rug":{"pattern":"stripe","color":6}},{"c":31,"r":25,"facing":"south"},{"c":31,"r":26,"facing":"north"},{"c":34,"r":25,"facing":"south"},{"c":34,"r":26,"facing":"north"},{"c":37,"r":25,"facing":"south"},{"c":37,"r":26,"facing":"north"},{"c":13,"r":10,"facing":"south"}],"teamAreas":[{"id":"team-area","c":30,"r":23,"w":9,"h":6,"floor":{"pattern":"vstripe","color":2}}],"lounges":[{"id":"cafe-left","name":{"ja":"ラウンジ1","en":"Lounge 1"},"c":2,"r":24,"w":6,"h":5,"floor":{"pattern":"stripe","color":8}},{"id":"cafe-right","name":{"ja":"ラウンジ2","en":"Lounge 2"},"c":44,"r":16,"w":6,"h":5,"floor":{"pattern":"vstripe","color":8}}],"plants":[[9,14],[9,29],[42,14],[42,29],[17,20],[36,20],[16,9],[27,9],[16,12],[27,12],[41,31],[42,33]],"ponds":[{"c":44,"r":2,"w":5,"h":4}],"trees":[{"c":33,"r":3,"size":2,"variant":1},{"c":21,"r":3,"size":2,"variant":0},{"c":39,"r":2,"size":1,"variant":1},{"c":17,"r":1,"size":2,"variant":1},{"c":1,"r":6,"size":1,"variant":1},{"c":12,"r":5,"size":2,"variant":0},{"c":29,"r":5,"size":2,"variant":0},{"c":8,"r":3,"size":2,"variant":0},{"c":4,"r":5,"size":2,"variant":1},{"c":50,"r":2,"size":1,"variant":0},{"c":15,"r":3,"size":1,"variant":1},{"c":15,"r":5,"size":1,"variant":0},{"c":48,"r":7,"size":2,"variant":1},{"c":15,"r":37,"size":2,"variant":1},{"c":10,"r":38,"size":1,"variant":1},{"c":39,"r":38,"size":1,"variant":1},{"c":6,"r":39,"size":1,"variant":1},{"c":3,"r":38,"size":1,"variant":1},{"c":26,"r":37,"size":1,"variant":1},{"c":45,"r":37,"size":2,"variant":0},{"c":39,"r":41,"size":1,"variant":0},{"c":23,"r":38,"size":1,"variant":1},{"c":3,"r":35,"size":1,"variant":1},{"c":41,"r":40,"size":2,"variant":1},{"c":42,"r":37,"size":2,"variant":0},{"c":19,"r":40,"size":2,"variant":0},{"c":50,"r":40,"size":1,"variant":1},{"c":34,"r":38,"size":2,"variant":0},{"c":4,"r":40,"size":1,"variant":0},{"c":8,"r":40,"size":2,"variant":1},{"c":22,"r":40,"size":2,"variant":0},{"c":37,"r":39,"size":1,"variant":0},{"c":12,"r":39,"size":2,"variant":1},{"c":26,"r":39,"size":2,"variant":1},{"c":30,"r":36,"size":1,"variant":0},{"c":21,"r":37,"size":1,"variant":1},{"c":32,"r":40,"size":1,"variant":1},{"c":5,"r":33,"size":2,"variant":0},{"c":4,"r":30,"size":1,"variant":1},{"c":3,"r":8,"size":2,"variant":0},{"c":47,"r":12,"size":1,"variant":0},{"c":47,"r":27,"size":2,"variant":0},{"c":49,"r":10,"size":1,"variant":1},{"c":4,"r":17,"size":1,"variant":1},{"c":2,"r":17,"size":1,"variant":0},{"c":3,"r":13,"size":2,"variant":0},{"c":45,"r":9,"size":2,"variant":0},{"c":46,"r":40,"size":2,"variant":1},{"c":42,"r":5,"size":1,"variant":0},{"c":46,"r":7,"size":1,"variant":0},{"c":41,"r":1,"size":1,"variant":0}],"spawn":{"c":24,"r":16,"w":6,"h":12}};
+const MAP_SRC = 'office-medium-map.webp';
+const TILE = 50; // world px per tile in the baked image
+
+const THEMES = [
+  { base: '#b4c2a8', accent: 'rgba(84,106,78,0.32)' },
+  { base: '#b2c0d4', accent: 'rgba(74,100,138,0.32)' },
+  { base: '#c3bcce', accent: 'rgba(104,92,134,0.3)' },
+  { base: '#d2bcc3', accent: 'rgba(158,108,126,0.3)' },
+  { base: '#f4efdd', accent: 'rgba(176,152,88,0.22)' },
+  { base: '#dce2e0', accent: 'rgba(108,128,124,0.24)' },
+  { base: '#d1b8ab', accent: 'rgba(158,104,78,0.3)' },
+  { base: '#bcc4d6', accent: 'rgba(84,100,132,0.32)' },
+  { base: '#dcd4c6', accent: 'rgba(122,110,90,0.26)' },
+];
+const THEME_NAMES = ['green', 'blue', 'lavender', 'pink', 'amber', 'teal', 'terracotta', 'slate', 'lounge'];
+const PATTERNS = ['stripe', 'vstripe', 'checker', 'houndstooth', 'brick', 'crosshatch', 'herringbone', 'chevron', 'none'];
+const KIND_COLORS = { buildings: '#2f3a46', rooms: '#0f8a86', desks: '#c4572a', teamAreas: '#3c62b8', lounges: '#8a4fb0', plants: '#2e7d32', ponds: '#1f78b4', trees: '#2e7d32' };
+
+const img = new Image();
+const ready = new Promise((res) => { img.onload = res; });
+img.src = MAP_SRC;
+
+function tok(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+// view = { c0, r0, cols, rows } in map tiles. Returns a tile-space drawing helper.
+function setup(canvas, view, maxTs) {
+  const avail = Math.max(240, canvas.parentElement.clientWidth);
+  const ts = Math.max(6, Math.min(maxTs, avail / view.cols));
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.floor(view.cols * ts), h = Math.floor(view.rows * ts);
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, view.c0 * TILE, view.r0 * TILE, view.cols * TILE, view.rows * TILE, 0, 0, view.cols * ts, view.rows * ts);
+  const X = (c) => (c - view.c0) * ts, Y = (r) => (r - view.r0) * ts;
+  return { ctx, ts, X, Y };
+}
+
+function outline(g, rc, color, opts = {}) {
+  const { ctx, ts, X, Y } = g;
+  ctx.save();
+  ctx.lineWidth = opts.width || 2.5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.setLineDash([]);
+  ctx.strokeRect(X(rc.c) + 1.5, Y(rc.r) + 1.5, rc.w * ts - 3, rc.h * ts - 3);
+  ctx.strokeStyle = color; ctx.setLineDash(opts.solid ? [] : [6, 4]);
+  ctx.strokeRect(X(rc.c) + 1.5, Y(rc.r) + 1.5, rc.w * ts - 3, rc.h * ts - 3);
+  ctx.restore();
+}
+function mark(g, c, r, color) {
+  const { ctx, ts, X, Y } = g;
+  ctx.save();
+  ctx.fillStyle = color; ctx.globalAlpha = 0.35; ctx.fillRect(X(c), Y(r), ts, ts);
+  ctx.globalAlpha = 1; ctx.lineWidth = 2.5; ctx.strokeStyle = color;
+  ctx.strokeRect(X(c) + 1.5, Y(r) + 1.5, ts - 3, ts - 3);
+  ctx.restore();
+}
+function tag(g, text, c, r, color, align = 'center') {
+  const { ctx, ts, X, Y } = g;
+  ctx.save();
+  ctx.font = `500 ${Math.max(11, Math.min(13, ts * 0.36))}px 'IBM Plex Mono', monospace`;
+  ctx.textBaseline = 'middle';
+  const w = ctx.measureText(text).width + 10, h = 20;
+  let x = X(c); if (align === 'center') x -= w / 2; else if (align === 'right') x -= w;
+  ctx.fillStyle = color; ctx.fillRect(x, Y(r) - h / 2, w, h);
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.fillText(text, x + 5, Y(r) + 0.5);
+  ctx.restore();
+}
+function axes(g, view) {
+  const { ctx, ts, X, Y } = g;
+  ctx.save();
+  ctx.fillStyle = 'rgba(20,30,40,0.55)';
+  ctx.fillRect(0, 0, view.cols * ts, 16); ctx.fillRect(0, 16, 22, view.rows * ts);
+  ctx.font = `500 10px 'IBM Plex Mono', monospace`; ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  for (let c = view.c0; c < view.c0 + view.cols; c++) ctx.fillText(String(c), X(c + 0.5), 8);
+  for (let r = view.r0 + 1; r < view.r0 + view.rows; r++) ctx.fillText(String(r), 11, Y(r + 0.5));
+  ctx.restore();
+}
+function grid(g, view, alpha = 0.18) {
+  const { ctx, ts, X, Y } = g;
+  ctx.save(); ctx.strokeStyle = `rgba(20,30,40,${alpha})`; ctx.lineWidth = 1;
+  for (let c = view.c0; c <= view.c0 + view.cols; c++) { ctx.beginPath(); ctx.moveTo(Math.round(X(c)) + 0.5, 0); ctx.lineTo(Math.round(X(c)) + 0.5, view.rows * ts); ctx.stroke(); }
+  for (let r = view.r0; r <= view.r0 + view.rows; r++) { ctx.beginPath(); ctx.moveTo(0, Math.round(Y(r)) + 0.5); ctx.lineTo(view.cols * ts, Math.round(Y(r)) + 0.5); ctx.stroke(); }
+  ctx.restore();
+}
+
+const room = (id) => OFFICE.rooms.find((r) => r.id === id);
+const DIAGRAMS = {
+  coords: { view: { c0: 7, r0: 7, cols: 11, rows: 9 }, draw(g, s) {
+    mark(g, 9, 14, s); tag(g, '[9, 14]', 10.2, 14.5, s, 'left');
+    outline(g, { c: 9, r: 9, w: 6, h: 4 }, s); tag(g, 'c:9 r:9 w:6 h:4', 12, 13.5, s);
+  } },
+  building: { view: { c0: 0, r0: 16, cols: 14, rows: 14 }, draw(g, s) {
+    const b = OFFICE.buildings[0];
+    outline(g, b, s);
+    for (const [c, r] of b.doors) mark(g, c, r, s);
+    tag(g, 'doors', 8, 20.3, s, 'center');
+    tag(g, 'buildings[0] edge = wall', 8.6, 17.5, s, 'left');
+  } },
+  room: { view: { c0: 27, r0: 7, cols: 8, rows: 8 }, draw(g, s) {
+    const rm = room('meeting-1');
+    outline(g, { c: rm.c - 1, r: rm.r - 1, w: rm.w + 2, h: rm.h + 2 }, '#c4572a', { width: 2 });
+    outline(g, rm, s);
+    outline(g, rm.table, '#8a6a4f', { solid: true, width: 2 });
+    for (const [c, r] of rm.doors) mark(g, c, r, s);
+    tag(g, 'interior', 29.1, 12.5, s, 'left'); tag(g, 'wall ring', 33.9, 14.4, '#c4572a', 'right'); tag(g, 'table', 31, 10.5 + 0.5, '#8a6a4f');
+  } },
+  desk: { view: { c0: 11, r0: 14, cols: 11, rows: 8 }, draw(g, s) {
+    for (const d of OFFICE.desks.filter((d) => (d.c === 14 || d.c === 19) && (d.r === 17 || d.r === 18))) {
+      const chairR = d.r + (d.facing === 'south' ? -1 : 1);
+      outline(g, { c: d.c - 1, r: chairR - 1, w: 3, h: 3 }, d.facing === 'south' ? s : '#c4572a', { width: 2 });
+      mark(g, d.c, d.r, d.facing === 'south' ? s : '#c4572a');
+    }
+    tag(g, 'south (14,17)', 14.5, 15, s); tag(g, 'north (14,18)', 14.5, 21, '#c4572a');
+  } },
+  team: { view: { c0: 28, r0: 21, cols: 13, rows: 10 }, draw(g, s) {
+    const a = OFFICE.teamAreas[0];
+    outline(g, a, s); tag(g, 'team-area', a.c + 0.2, a.r - 0.5, s, 'left');
+  } },
+  lounge: { view: { c0: 0, r0: 22, cols: 10, rows: 9 }, draw(g, s) {
+    const lo = OFFICE.lounges.find((l) => l.id === 'cafe-left');
+    outline(g, lo, s); tag(g, 'cafe-left', lo.c + 0.2, lo.r - 0.5, s, 'left');
+  } },
+  props: { view: { c0: 38, r0: 0, cols: 14, rows: 11 }, draw(g, s) {
+    const p = OFFICE.ponds[0];
+    outline(g, p, '#1f78b4'); tag(g, 'ponds[0]', p.c + p.w / 2, p.r + p.h + 0.5, '#1f78b4');
+    for (const t of OFFICE.trees) {
+      if (t.c < 38 || t.r > 10) continue;
+      outline(g, { c: t.c, r: t.r, w: t.size, h: t.size }, s, { width: 2 });
+    }
+    tag(g, 'size 1', 40, 3.6, s, 'center'); tag(g, 'size 2', 49, 9.4, s, 'center');
+  } },
+};
+
+function drawDiagrams() {
+  const s = tok('--signal') || '#0f8a86';
+  document.querySelectorAll('canvas[data-diagram]').forEach((cv) => {
+    const d = DIAGRAMS[cv.dataset.diagram];
+    const g = setup(cv, d.view, 64);
+    grid(g, d.view, 0.12);
+    d.draw(g, s);
+    axes(g, d.view);
+  });
+}
+
+// ---- Main map with inspector
+const opts = { grid: false, frames: false, labels: true };
+const layersEl = document.getElementById('layers');
+for (const [key, label] of [['frames', 'JSON rects'], ['grid', 'Tile grid'], ['labels', 'Names']]) {
+  const wrap = document.createElement('label');
+  wrap.innerHTML = `<input type="checkbox" id="opt-${key}"${opts[key] ? ' checked' : ''}>${label}`;
+  wrap.querySelector('input').addEventListener('change', (e) => { opts[key] = e.target.checked; drawMain(); });
+  layersEl.appendChild(wrap);
+}
+const legend = document.createElement('div');
+legend.className = 'legend'; legend.id = 'frame-legend'; legend.hidden = true;
+legend.innerHTML = Object.entries({ buildings: 'Buildings', rooms: 'Rooms', desks: 'Desks', teamAreas: 'Team areas', lounges: 'Lounges', plants: 'Plants · trees', ponds: 'Ponds' })
+  .map(([k, v]) => `<span><i class="swatch" style="background:${KIND_COLORS[k]}"></i>${v}</span>`).join('');
+layersEl.after(legend);
+
+const mainCanvas = document.getElementById('main-map');
+const FULL = { c0: 0, r0: 0, cols: OFFICE.cols, rows: OFFICE.rows };
+let hover = null, mainTs = 12;
+
+function within(rc, c, r) { return c >= rc.c && c < rc.c + rc.w && r >= rc.r && r < rc.r + rc.h; }
+function deskRect(d) { const chairR = d.r + (d.facing === 'south' ? -1 : 1); return d.rug ? { c: d.c - 1, r: chairR - 1, w: 3, h: 3 } : { c: d.c - 1, r: Math.min(d.r, chairR), w: 3, h: 2 }; }
+function hitsAt(def, c, r) {
+  const out = [];
+  def.rooms.forEach((rm, i) => {
+    const ring = { c: rm.c - 1, r: rm.r - 1, w: rm.w + 2, h: rm.h + 2 };
+    if (!within(ring, c, r)) return;
+    let part = 'interior';
+    if (!within(rm, c, r)) part = rm.doors.some((d) => d[0] === c && d[1] === r) ? 'door' : 'wall';
+    else if (within(rm.table, c, r)) part = 'table';
+    out.push({ path: `rooms[${i}]`, desc: `${rm.name.en} (${rm.kind}) · ${part}`, rect: rm, obj: rm });
+  });
+  def.desks.forEach((d, i) => {
+    const chairR = d.r + (d.facing === 'south' ? -1 : 1);
+    let part = null;
+    if (within({ c: d.c - 1, r: d.r, w: 3, h: 1 }, c, r)) part = 'desk';
+    else if (c === d.c && r === chairR) part = 'chair';
+    else if (d.rug && within(deskRect(d), c, r)) part = 'rug';
+    if (part) out.push({ path: `desks[${i}]`, desc: `facing ${d.facing} · ${part}`, rect: deskRect(d), obj: d });
+  });
+  def.teamAreas.forEach((a, i) => { if (within(a, c, r)) out.push({ path: `teamAreas[${i}]`, desc: a.id, rect: a, obj: a }); });
+  def.lounges.forEach((lo, i) => { if (within(lo, c, r)) out.push({ path: `lounges[${i}]`, desc: lo.name.en, rect: lo, obj: lo }); });
+  def.plants.forEach((p, i) => { if (p[0] === c && p[1] === r) out.push({ path: `plants[${i}]`, desc: 'plant', rect: { c, r, w: 1, h: 1 }, obj: p }); });
+  def.ponds.forEach((p, i) => { if (within(p, c, r)) out.push({ path: `ponds[${i}]`, desc: 'pond', rect: p, obj: p }); });
+  def.trees.forEach((t, i) => { const rc = { c: t.c, r: t.r, w: t.size, h: t.size }; if (within(rc, c, r)) out.push({ path: `trees[${i}]`, desc: `tree size ${t.size}`, rect: rc, obj: t }); });
+  def.buildings.forEach((b, i) => {
+    if (!within(b, c, r)) return;
+    const edge = c === b.c || c === b.c + b.w - 1 || r === b.r || r === b.r + b.h - 1;
+    const part = !edge ? 'floor' : b.doors.some((d) => d[0] === c && d[1] === r) ? 'door' : 'wall';
+    out.push({ path: `buildings[${i}]`, desc: `building · ${part}`, rect: b, obj: b });
+  });
+  return out;
+}
+function compact(obj) {
+  return JSON.stringify(obj).replace(/,"/g, ', "').replace(/":/g, '": ').replace(/\{"/g, '{ "').replace(/}/g, ' }');
+}
+function drawMain() {
+  const g = setup(mainCanvas, FULL, 30);
+  mainTs = g.ts;
+  const { ctx, ts, X, Y } = g;
+  document.getElementById('frame-legend').hidden = !opts.frames;
+  if (opts.grid) grid(g, FULL, 0.14);
+  if (opts.frames) {
+    const thin = { width: 1.5 };
+    for (const b of OFFICE.buildings) outline(g, b, KIND_COLORS.buildings, thin);
+    for (const a of OFFICE.teamAreas) outline(g, a, KIND_COLORS.teamAreas, thin);
+    for (const lo of OFFICE.lounges) outline(g, lo, KIND_COLORS.lounges, thin);
+    for (const rm of OFFICE.rooms) outline(g, rm, KIND_COLORS.rooms, thin);
+    for (const d of OFFICE.desks) outline(g, deskRect(d), KIND_COLORS.desks, thin);
+    for (const p of OFFICE.ponds) outline(g, p, KIND_COLORS.ponds, thin);
+    for (const t of OFFICE.trees) outline(g, { c: t.c, r: t.r, w: t.size, h: t.size }, KIND_COLORS.trees, thin);
+    for (const [c, r] of OFFICE.plants) outline(g, { c, r, w: 1, h: 1 }, KIND_COLORS.plants, thin);
+  }
+  if (opts.labels) {
+    ctx.save();
+    ctx.font = `600 ${Math.max(9, Math.min(12, ts * 0.6))}px 'IBM Plex Sans JP', sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const lbl = (text, x, y) => {
+      const w = ctx.measureText(text).width + 8, h = Math.max(14, ts * 0.8);
+      ctx.fillStyle = 'rgba(29,39,51,0.78)'; ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.fillStyle = '#fff'; ctx.fillText(text, x, y + 0.5);
+    };
+    for (const rm of OFFICE.rooms) lbl(rm.name.en, X(rm.c + rm.w / 2), Y(rm.r + rm.h) - ts * 0.45);
+    for (const lo of OFFICE.lounges) lbl(lo.name.en, X(lo.c + lo.w / 2), Y(lo.r + lo.h) - ts * 0.45);
+    ctx.restore();
+  }
+  if (hover) {
+    const hits = hitsAt(OFFICE, hover[0], hover[1]);
+    if (hits.length) outline(g, hits[0].rect, tok('--signal') || '#0f8a86', { width: 3 });
+    ctx.save(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.strokeRect(X(hover[0]) + 1, Y(hover[1]) + 1, ts - 2, ts - 2);
+    ctx.strokeStyle = '#1d2733'; ctx.lineWidth = 1; ctx.strokeRect(X(hover[0]) + 2.5, Y(hover[1]) + 2.5, ts - 5, ts - 5); ctx.restore();
+  }
+}
+function inspect(c, r) {
+  if (c < 0 || r < 0 || c >= OFFICE.cols || r >= OFFICE.rows) return;
+  if (hover && hover[0] === c && hover[1] === r) return;
+  hover = [c, r];
+  const hits = hitsAt(OFFICE, c, r);
+  document.getElementById('insp-tile').textContent = `[${c}, ${r}]`;
+  const list = document.getElementById('insp-list');
+  const pre = document.getElementById('insp-json');
+  list.innerHTML = '';
+  if (!hits.length) {
+    list.innerHTML = '<li>Nothing placed here → <strong>outdoor grass</strong></li>';
+    pre.hidden = true;
+  } else {
+    for (const h of hits) {
+      const li = document.createElement('li');
+      li.innerHTML = '<span class="path"></span> <span class="d"></span>';
+      li.querySelector('.path').textContent = h.path;
+      li.querySelector('.d').textContent = h.desc;
+      list.appendChild(li);
+    }
+    pre.hidden = false;
+    pre.textContent = compact(hits[0].obj);
+  }
+  drawMain();
+}
+function pointerTile(e) {
+  const rect = mainCanvas.getBoundingClientRect();
+  return [Math.floor((e.clientX - rect.left) / mainTs), Math.floor((e.clientY - rect.top) / mainTs)];
+}
+mainCanvas.addEventListener('mousemove', (e) => inspect(...pointerTile(e)));
+mainCanvas.addEventListener('click', (e) => inspect(...pointerTile(e)));
+
+// Swatches use the app's own floor-pattern code (map-art.ts buildFloorPattern).
+function scaleAlpha(rgba, factor) {
+  if (factor >= 1) return rgba;
+  const m = rgba.match(/rgba?\(([^)]+)\)/);
+  if (!m) return rgba;
+  const [r, g, b, a = '1'] = m[1].split(',').map((s) => s.trim());
+  return `rgba(${r}, ${g}, ${b}, ${(Number.parseFloat(a) * factor).toFixed(3)})`;
+}
+function buildFloorPattern(cx, pattern, accent) {
+  const sizes = { stripe: [14, 14], vstripe: [16, 16], checker: [20, 20], brick: [46, 32], houndstooth: [28, 28], crosshatch: [18, 18], herringbone: [48, 48], chevron: [24, 12] };
+  const size = sizes[pattern];
+  if (!size) return null;
+  const p = document.createElement('canvas');
+  p.width = size[0]; p.height = size[1];
+  const g = p.getContext('2d');
+  const softer = { vstripe: 0.55, brick: 0.6 };
+  const ink = scaleAlpha(accent, softer[pattern] ?? 1);
+  g.fillStyle = ink; g.strokeStyle = ink;
+  switch (pattern) {
+    case 'stripe': g.fillRect(0, 0, 14, 2); break;
+    case 'vstripe': g.fillRect(0, 0, 8, 16); break;
+    case 'checker': g.fillRect(0, 0, 10, 10); g.fillRect(10, 10, 10, 10); break;
+    case 'brick': g.fillRect(0, 0, 46, 2); g.fillRect(0, 16, 46, 2); g.fillRect(0, 0, 2, 16); g.fillRect(23, 16, 2, 16); break;
+    case 'houndstooth': {
+      const u = 7, mask = [[1, 1, 0, 1], [1, 1, 1, 0], [0, 1, 1, 1], [1, 0, 1, 1]];
+      for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) if (mask[y][x]) g.fillRect(x * u, y * u, u, u);
+      break;
+    }
+    case 'crosshatch': { const s = 18; g.lineWidth = 1.5; g.beginPath(); g.moveTo(0, 0); g.lineTo(s, s); g.moveTo(0, s); g.lineTo(s, 0); g.stroke(); break; }
+    case 'herringbone': {
+      const T = 48, sp = 12; g.lineWidth = 1.5;
+      g.save(); g.beginPath(); g.rect(0, 0, T / 2, T); g.clip(); g.beginPath();
+      for (let k = -T; k <= T; k += sp) { g.moveTo(k, 0); g.lineTo(k + T, T); }
+      g.stroke(); g.restore();
+      g.save(); g.beginPath(); g.rect(T / 2, 0, T / 2, T); g.clip(); g.beginPath();
+      for (let k = 0; k <= 2 * T; k += sp) { g.moveTo(k, 0); g.lineTo(k - T, T); }
+      g.stroke(); g.restore();
+      break;
+    }
+    case 'chevron': {
+      const W = 24, H = 12; g.lineWidth = 3; g.lineJoin = 'miter'; g.beginPath();
+      for (let y = -H; y <= H * 2; y += H) { g.moveTo(0, y); g.lineTo(W / 2, y - H / 2); g.lineTo(W, y); }
+      g.stroke();
+      break;
+    }
+  }
+  return cx.createPattern(p, 'repeat');
+}
+function drawSwatch(cv, theme, pattern) {
+  const s = cv.clientWidth || 40, dpr = window.devicePixelRatio || 1;
+  cv.width = s * dpr; cv.height = s * dpr;
+  const ctx = cv.getContext('2d');
+  const k = (s * dpr) / (TILE * 2); // two tiles across, at the app's own scale
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  ctx.fillStyle = theme.base; ctx.fillRect(0, 0, TILE * 2, TILE * 2);
+  const pat = buildFloorPattern(ctx, pattern, theme.accent);
+  if (pat) { ctx.fillStyle = pat; ctx.fillRect(0, 0, TILE * 2, TILE * 2); }
+  ctx.strokeStyle = 'rgba(90,75,50,0.07)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(TILE - 0.5, 0); ctx.lineTo(TILE - 0.5, TILE * 2); ctx.moveTo(0, TILE - 0.5); ctx.lineTo(TILE * 2, TILE - 0.5); ctx.stroke();
+}
+function drawPalette() {
+  const el = document.getElementById('palette');
+  el.innerHTML = '';
+  const head = document.createElement('div'); head.className = 'h'; head.textContent = 'pattern \\ color'; el.appendChild(head);
+  THEMES.forEach((_, i) => { const h = document.createElement('div'); h.className = 'h' + (i === 8 ? ' special' : ''); h.textContent = String(i); el.appendChild(h); });
+  const cells = [];
+  for (const p of PATTERNS) {
+    const n = document.createElement('div'); n.className = 'rowname'; n.textContent = p; el.appendChild(n);
+    THEMES.forEach((th, i) => {
+      const cv = document.createElement('canvas');
+      cv.setAttribute('aria-label', `${p} / ${THEME_NAMES[i]}`);
+      el.appendChild(cv); cells.push([cv, th, p]);
+    });
+  }
+  const blank = document.createElement('div'); el.appendChild(blank);
+  THEME_NAMES.forEach((nm, i) => { const d = document.createElement('div'); d.className = 'h' + (i === 8 ? ' special' : ''); d.style.fontSize = '10px'; d.textContent = nm; el.appendChild(d); });
+  requestAnimationFrame(() => cells.forEach(([cv, th, p]) => drawSwatch(cv, th, p)));
+}
+
+function drawAll() { drawMain(); drawDiagrams(); drawPalette(); }
+let rt;
+window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(drawAll, 120); });
+Promise.all([ready, document.fonts ? document.fonts.ready : null]).then(() => { drawAll(); inspect(30, 11); });
+</script>
+
+</body>
+</html>

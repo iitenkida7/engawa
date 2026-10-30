@@ -2,7 +2,7 @@
 
 **ブラウザだけで使える、社内向けの仮想オフィス。**
 
-🌐 **紹介ページ: [iitenkida7.github.io/engawa/ja](https://iitenkida7.github.io/engawa/ja/)（[English](https://iitenkida7.github.io/engawa/)）**　｜　📖 [技術読本](https://iitenkida7.github.io/engawa/reader/)（[English](https://iitenkida7.github.io/engawa/reader/en.html)）
+🌐 **紹介ページ: [iitenkida7.github.io/engawa/ja](https://iitenkida7.github.io/engawa/ja/)（[English](https://iitenkida7.github.io/engawa/)）**　｜　📖 [技術読本](https://iitenkida7.github.io/engawa/reader/)（[English](https://iitenkida7.github.io/engawa/reader/en.html)）　｜　🗺️ [マップ JSON 仕様](https://iitenkida7.github.io/engawa/map/)（[English](https://iitenkida7.github.io/engawa/map/en.html)）
 
 2D マップ上でアバターを動かし、誰かに近づくと自動で音声・映像・画面共有がつながります。
 Slack のハドルや Gather.town のような「ちょっと話しかける」体験を、軽量・低コストで実現することを目指したツールです。
@@ -244,6 +244,9 @@ SFU_PROMOTE_AT=
 # 入室パスワード（任意 — 設定すると入室時にパスワードを求める。未設定ならオープン）
 ACCESS_PASSWORD=
 
+# 使うマップ（任意 — 同梱プリセット名か外部マップ JSON の URL。未設定なら office_medium）
+MAP=
+
 # イベント Webhook（任意 — 入退室・会話の開始/終了を JSON で POST。未設定なら送らない）
 EVENT_WEBHOOK_URL=
 EVENT_WEBHOOK_SECRET=
@@ -254,6 +257,7 @@ EVENT_INCLUDE_NAMES=
 - **SFU** を使う場合は Cloudflare Dashboard → Realtime → SFU で App を作成し、App ID と Token を設定します。未設定でも全機能はメッシュで動作します（大人数時のスケールのみ制限されます）。
 - **SFU_PROMOTE_AT** は屋外グループが SFU に切り替わる人数です（既定 `2` = 2 人の会話も SFU 経由。接続の安定性を優先した既定値）。`4` にすると 2〜3 人は P2P メッシュのままになり、遅延が 1 ホップぶん減って SFU の帯域も使いません。会議室ゾーンは人数によらず常に SFU です。SFU 未設定ならこの値は無視されます。
 - **ACCESS_PASSWORD** を設定すると、入室時にパスワードが必要になります（名前入力の前に確認）。未設定ならパスワードは求めません。
+- **MAP** は使うマップです。同梱プリセット名（`office_medium` / `office_small`）か、外部マップ JSON の URL を書きます。未設定なら `office_medium`。独自のマップはコンテナの `/maps` にマウントしてプリセット名で呼ぶか、URL で渡します。書き方は [マップ JSON 仕様](https://iitenkida7.github.io/engawa/map/)（[English](https://iitenkida7.github.io/engawa/map/en.html)）。検査に通らないマップはサーバーが起動を拒否します。
 - **EVENT_WEBHOOK_URL** を設定すると、入退室と会話の始まり・終わりを JSON で POST します（MTG の統計などに）。サーバーは送るだけで何も保存しません。参加者は既定で匿名 ID、`EVENT_INCLUDE_NAMES=true` で表示名になります。`EVENT_WEBHOOK_SECRET` で署名を付けられます。仕様は [`docs/webhook.ja.md`](./docs/webhook.ja.md)（[English](./docs/webhook.md)）、Google スプレッドシートに貯める受信サンプルは [`examples/webhook-gas/`](./examples/webhook-gas/README.ja.md) にあります。
 
 ---

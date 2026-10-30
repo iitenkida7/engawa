@@ -30,7 +30,8 @@ Slack のハドルや Gather.town のような「ばったり話す」体験を�
 ├ examples/webhook-gas/   # Webhook 受信サンプル（Google Apps Script。本体の関心事外）
 └ engawa/
    ├ client/src/          # フロントエンド
-   └ server/src/          # シグナリングサーバー
+   ├ server/src/          # シグナリングサーバー
+   └ maps/                # マップ形式（map-def.ts）と同梱マップ（*.json）。server/client 共有
 ```
 
 ## コマンド（すべて Docker 経由）
@@ -98,7 +99,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 ### サーバー（`engawa/server/src/`）
 - `index.ts` — Bun.serve エントリ。ルーティングは手書き:
   `/ws`（WebSocket 升級, userId を UUID で発行）, `/api/turn-credentials`,
-  `/api/sfu/*`（SFU 制御プロキシ）, `/api/health`, それ以外は `./public` の静的配信
+  `/api/sfu/*`（SFU 制御プロキシ）, `/api/map`（マップ JSON）, `/api/health`, それ以外は `./public` の静的配信
   （SPA フォールバックあり）。接続中クライアントは単一の in-memory `Map<userId, ws>` で管理。
 - `websocket.ts` — WS メッセージハンドラ。入室・位置更新・シグナリング転送・退室に加え、
   **グループ方式の算出・配信（`group-update`）と SFU トラックディレクトリの中継（`sfu-publish`
@@ -109,6 +110,8 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
   一方向ラッチ）を割り当てる純粋関数。**開放フロアで新しく会話が始まるには双方が静止している（直近
   `PROXIMITY_STILL_MS`=700ms 位置が変わっていない）ことが必要**（すれ違いで通知音が鳴らないように。既存グループの維持・
   会議室は対象外）。停止後はサーバーのタイマー（`scheduleStillRegroup`）が再判定する。閾値の正規化も純粋関数 `normalizeSfuPromoteAt`。
+- `map.ts` — 起動時に `MAP`（同梱プリセット名、または外部 JSON の URL）からマップを読み込み `assertMapDef` で検証する
+  （不正なら**起動を拒否**）。`/api/map` で配信し、座標クランプの範囲とスポーン範囲（`mapWorld`）もマップから導出する。
 - `turn.ts` — Cloudflare API を叩いて短期 ICE クレデンシャルを発行。**API キーはサーバーのみ保持**。
 - `sfu.ts` — Cloudflare Realtime SFU の制御プレーン（セッション/トラック）を**プロキシ**する。
   App ID/Token はサーバーのみ保持しブラウザに渡さない（turn.ts と同じ作法）。転送先パスはホワイト
@@ -122,11 +125,12 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
 ### クライアント（`engawa/client/src/`）
 ファイルは責務ごとに **5 フォルダ**へ分割し、import は **`@/` エイリアス**（`@/<folder>/<name>` 形式。
 `tsconfig.json` の `paths` と `vite.config.ts` の `resolve.alias` で定義。Bun test も `paths` を解決する）で
-参照する。エントリは `core/main.ts`（`index.html` が読む）。同一フォルダ内でも `@/` で参照し位置非依存にしてある。
-- **`core/`** — オーケストレーションと基盤: `app.ts`, `main.ts`, `types.ts`, `lifecycle.ts`, `network.ts`, `proximity.ts`, `reload.ts`, `background-ticker.ts`
+参照する。エントリは `core/boot.ts`（`index.html` が読む。`/api/map` を取得して `world/map-data.ts` に入れてから `core/main.ts` を動的 import する）。
+共有のマップ形式は `@maps/` エイリアス（`../maps`）で参照する。同一フォルダ内でも `@/` で参照し位置非依存にしてある。
+- **`core/`** — オーケストレーションと基盤: `app.ts`, `boot.ts`, `main.ts`, `types.ts`, `lifecycle.ts`, `network.ts`, `proximity.ts`, `reload.ts`, `background-ticker.ts`
 - **`rtc/`** — メディアトランスポート（不変条件 #1 の経路）: `webrtc.ts`, `sfu.ts`, `mesh-recovery.ts`（mesh ピア再構築 #184）, `sfu-recovery.ts`（SFU 作り直しのバックオフ #254）, `sdp.ts`, `cam-bitrate.ts`, `rtcstats.ts`, `diag.ts`（デバッグコンソールの接続判定・原因推定・Claude 用診断レポート。純粋関数）
 - **`media/`** — 取得・加工・録画: `media.ts`, `recorder.ts`, `compositor.ts`, `vbg.ts`, `speaking.ts`, `noise.ts`, `noise-worklet.ts`, `rnnoise-wasm.ts`, `voice-gate.ts`, `lowpass.ts`
-- **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `map-def.ts`（マップ定義の型）, `maps/office.json`（オフィスのマップデータ）, `floor-styles.ts`（床柄・色のパレット）, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`, `movement.ts`（自分のグリッド移動・クリック移動）
+- **`world/`** — 2D マップ描画・移動: `canvas.ts`, `tilemap.ts`, `map-data.ts`（取得したマップの受け渡し）, `floor-styles.ts`（床柄・色のパレット）, `pathfind.ts`, `sprites.ts`, `decor.ts`, `player.ts`, `input.ts`, `movement.ts`（自分のグリッド移動・クリック移動）
 - **`ui/`** — DOM パネル・コントロール: `toolbar.ts`, `remote-media.ts`, `panels.ts`, `draggable.ts`, `roster.ts`, `chat.ts`, `notify.ts`, `rec-indicator.ts`, `debug-console.ts`, `sounds.ts`, `video-stall.ts`（映像停止の理由判定。純粋関数）, `face-pip.ts`, `camera-lab.ts`（⋯メニューから別タブで開く `camera-lab.html` のロジック。`SFU_CAM_LAYERS` をループバック接続で実エンコードして見比べる画質ラボ）
 
 `core/app.ts`（旧 `game.ts`。クラス名 `App`）が中心のオーケストレータで、ゲームループ・移動・近接判定・
@@ -170,16 +174,19 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   チェックした人だけ使う。
   **`requestWindow()` は操作許可を消費する**ため、必ず `getDisplayMedia` の**後**に開く（逆順だと共有自体が失敗しうる）。
   `media/speaking.ts` — `SpeakingDetector` と純粋なしきい値判定 `isLoud()`。
-- `world/map-def.ts` / `world/maps/*.json` — **マップはデータ**（`MapDef`）。建物・部屋（`kind`: exec/meeting/oneonone/booth・名前 ja/en・ドア・テーブル）・
-  デスク・チームエリア・カフェ・植木・池・木の**配置**と、床柄（`FLOOR_PATTERNS`＋色番号）の**選択**だけを持つ。座標はマップ絶対のタイル。
+- `engawa/maps/map-def.ts` / `engawa/maps/*.json` — **マップはデータ**（`MapDef`）。server / client 共有（コンテナでは `/maps` にマウント）。建物・部屋（`kind`: exec/meeting/oneonone/booth/private・名前 ja/en・ドア・テーブル。テーブルなしは private＝個室だけ）・
+  デスク・チームエリア・カフェ・植木・池・木・家具（`furniture`: ベッド・ソファ・TV・ローテーブル・ダイニング・キッチン・冷蔵庫・本棚・浴槽・トイレ・洗面台。
+  向き `facing` で東西に回すと縦横が入れ替わる。ソファとダイニングの椅子だけ座れる歩行可能マス、他は当たり判定あり）の**配置**と、床柄（`FLOOR_PATTERNS`＋色番号）の**選択**だけを持つ。座標はマップ絶対のタイル。
   パーツの見た目はアプリ内包（`map-art.ts`）で、JSON から絵は持ち込めない。部屋の種類は ID の文字列ではなく `kind` で判定する。
-  JSON は型だけでは守れないので、読み込み時に `assertMapDef` が version・床柄/色番号・各矩形の範囲を検査して**壊れたマップは名前付きで即エラー**にし、
-  そのうえで MapDef を**凍結**する（床スタイルは JSON の実体をそのまま配るため）。マップのサイズを変えたらサーバーの `MAP_WIDTH`/`MAP_HEIGHT`（`server/src/logic.ts`）も直す。
+  JSON は型だけでは守れないので、読み込み時に `assertMapDef` が version・床柄/色番号・各矩形の範囲に加え、ドアを塞ぐ固形パーツ・部屋外のテーブル・
+  芝生以外の木を検査して**壊れたマップは名前付きで即エラー**にし、そのうえで MapDef を**凍結**する（床スタイルは JSON の実体をそのまま配るため）。
+  サーバーが起動時に同じ検証をかけ、クライアントは `/api/map` で受け取ったマップから世界を組み立てる（テストは preload で office を入れる）。
+  `spawn`（任意）は新規入室者の出現範囲。色テーマ数 `FLOOR_THEME_COUNT` はクライアントの `FLOOR_THEMES` とテストで一致を保証する。
 - `world/tilemap.ts` — `MapDef` からタイルグリッド・ゾーン・派生矩形を組み立て、`canOccupy`（衝突判定）などの位置クエリに答える。
   派生結果は `__tests__/tilemap-split.test.ts` のスナップショットで固定している（マップを意図して変えたら `bun test -u` で更新）。**座る姿勢**は位置だけで決まる純粋関数 `seatAt()`（デスクの椅子タイル／カフェのアームチェア → 向き＋`lift`）。`canvas.ts` が静止中のみ座り姿（`CharacterSheet.draw` の `sit`: シートに座りフレームが無いため、立ちフレームをそのまま少し沈めて描く）で描く。`lift` は椅子の絵が机に寄せて描かれるぶんの補正で、**机の下側の椅子（上向き）だけ半タイル持ち上げる**（1タイルだと机に乗って見える）。スプライト・名前ラベル・吹き出しが同じ `lift` で動くので一体のまま。位置から全員が同じ姿を導けるので通信は増えない。`world/pathfind.ts` — タイル上の A*（クリック移動の経路探索, 純粋関数）。
 - `world/canvas.ts` — Canvas 2D 描画。**2 層構成**: 背景層（焼き込み済みマップ＋部屋枠。`#canvas` の直前に挿入する別 canvas）はズーム・いる部屋・サイズが変わるか、カメラが余白 `BG_MARGIN` を超えて動いたときだけ描き直し、それ以外は CSS transform で滑らせるだけ。前景の `#canvas` は透明でアバター・ラベルのみを描き、**画面が前フレームと同じなら再描画をスキップ**する（`sceneKey`。取りこぼし対策に 0.5 秒ごとに強制再描画）。アバターの見た目に効く状態を増やしたら `sceneKey` にも足すこと。`world/input.ts` — キー入力。`world/player.ts` — プレイヤー状態。
   `ui/draggable.ts` — ビデオ/画面共有パネルのドラッグ。`media/compositor.ts` — 録画用の映像合成。`ui/sounds.ts` — 効果音。
-- `core/types.ts` — クライアント側の共有定数/型。`core/main.ts` — エントリ。
+- `core/types.ts` — クライアント側の共有定数/型。`core/main.ts` — 入室画面と App の起動（`core/boot.ts` から読まれる）。
 
 **「純粋ロジックをモジュールに切り出してテストする」パターン**が server(`logic.ts` の各正規化関数と
 `computeProximityGroups`)/client(`core/proximity.ts`, `world/pathfind.ts`, `rtc/sdp.ts`, `media/speaking.ts` の `isLoud()`,
@@ -211,6 +218,8 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   **名前入力の前**にパスワードゲートを表示（`POST /api/verify-password` で照合）。join でも
   再検証する（`logic.ts` の `verifyAccessPassword` / `isPasswordRequired` 参照）。
   ※複数ワークスペース（`?workspace=`）は廃止。全員が単一スペースに入る。
+- `MAP` — 使うマップ（任意）。同梱プリセット名（`engawa/maps/<name>.json`。既定 `office_medium`。名前は `<種類>_<規模>` で揃える）か、http(s) の外部 JSON の URL
+  （1MB まで）。不正なマップはサーバーが起動を拒否する。読み込みは起動時のみ。
 - `EVENT_WEBHOOK_URL` / `EVENT_WEBHOOK_SECRET` / `EVENT_INCLUDE_NAMES` — イベント Webhook（任意）。URL 未設定なら無効。
   SECRET はボディの HMAC-SHA256 署名（`X-Engawa-Signature`）。参加者は既定で日替わりの匿名 ID、`true` で表示名。
 
@@ -264,6 +273,9 @@ engawa は **host 非依存の OSS**。リリースとは「**バージョンタ
 - **技術読本**: `docs/reader/index.html`（日本語）と英語版 `docs/reader/en.html`（どちらも自己完結の 1 ファイル）。SFU・simulcast・帯域推定・音声・
   画面共有などを公開ソースと engawa の実装で照合した読み物。実装の数値（レイヤ構成・tier・ノイズ除去の設定など）を
   変えたら、読本の該当箇所も**日英両方**更新する。
+- **マップ JSON 仕様**: `docs/map/index.html`（日本語）と英語版 `docs/map/en.html`（どちらも自己完結の 1 ファイル。画像 `office-medium-map.webp` は共用）。アプリの `buildMapCache` で書き出した実物のマップに
+  JSON の枠を重ねて MapDef を図解する。画像と埋め込みの office_medium.json は書き出し時点のコピーなので、**`map-def.ts` の形式や `maps/office_medium.json` を変えたら
+  このページも日英両方とも更新する**（画像の書き出し手順はページ末尾の運用メモ）。
 - **スクショ**は `docs/assets/screens/`。実アプリの撮影は **Caddy 経由 `https://engawa.localhost`** で行う
   （`localhost:5173` は Vite が WS の 101 升級を中継できず入室できない）。MCP ブラウザの自己署名証明書エラーは
   Chrome のエラー画面で `thisisunsafe` とタイプして回避。画像は `sips` で中央クロップ＋縮小。favicon は

@@ -15,7 +15,9 @@ import {
   LOUNGE_TABLE_RECTS,
   MAP,
   MAP_COLS,
+  MAP_HEIGHT,
   MAP_ROWS,
+  MAP_WIDTH,
   OPEN_DESK_CHAIRS,
   officeMap,
   POD_RUGS,
@@ -34,7 +36,7 @@ import {
 // before it moved into map data, and shifted into the map by these (#229). The
 // building's outer wall starts two columns LEFT of building-local 0 (the
 // president's office was widened leftwards), hence the +2 — derived from the map
-// so moving the building in office.json keeps every sample on its tile.
+// so moving the building in office_medium.json keeps every sample on its tile.
 const [BUILDING] = MAP.buildings;
 const COL_OFF = BUILDING.c + 2;
 const ROW_OFF = BUILDING.r;
@@ -57,15 +59,12 @@ function findTile(predicate: (t: number) => boolean): { col: number; row: number
   throw new Error('no matching tile');
 }
 
-// The server clamps positions against its own hardcoded copy of the map size
-// (server/src/logic.ts MAP_WIDTH/MAP_HEIGHT) because it has no tilemap. They
-// drifted once already (#229 grew the map and the server kept 2500), which pins
-// players short of the real right edge. The packages can't import each other, so
-// the server's logic.test.ts pins the same literals.
+// The server clamps positions to the same size, derived from the same map
+// (server/src/map.ts mapWorld).
 describe('map size', () => {
-  it("matches the server's hardcoded bounds (server/src/logic.ts)", () => {
-    expect(MAP_COLS * TILE_SIZE).toBe(2600);
-    expect(MAP_ROWS * TILE_SIZE).toBe(2150);
+  it('is the map grid in pixels', () => {
+    expect(MAP_WIDTH).toBe(MAP.cols * TILE_SIZE);
+    expect(MAP_HEIGHT).toBe(MAP.rows * TILE_SIZE);
   });
 });
 
@@ -388,7 +387,7 @@ describe('floor styles (randomised rugs)', () => {
   it('shares a style within every island, and differs from the next island', () => {
     // Two pod rugs per island (the desks back to back), so rugs pair up 0-1,
     // 2-3, … Nothing in the map data ties an island's two halves together, so
-    // check every pair rather than just the first (a hand-edited office.json
+    // check every pair rather than just the first (a hand-edited office_medium.json
     // would otherwise split one island across two patterns).
     expect(POD_RUGS.length % 2).toBe(0);
     for (let i = 0; i < POD_RUGS.length; i += 2) {

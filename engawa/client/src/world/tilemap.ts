@@ -1,7 +1,16 @@
+import {
+  type Facing,
+  type FurnitureKind,
+  furnitureRect,
+  furnitureSeats,
+  type MapDef,
+  type RoomKind,
+  TILE_SIZE,
+  type TileRect,
+} from '@maps/map-def';
 import { getLang } from '@/core/i18n';
 import type { FloorStyle } from '@/world/floor-styles';
-import { assertMapDef, type MapDef, type RoomKind, type TileRect } from '@/world/map-def';
-import officeDef from '@/world/maps/office.json';
+import { takeMap } from '@/world/map-data';
 import type { Direction } from '@/world/outfit';
 
 // Split-out modules, re-exported so callers keep importing from tilemap.
@@ -13,15 +22,21 @@ export {
   type FloorStyle,
 } from '@/world/floor-styles';
 
-// The layout itself is data (world/map-def.ts); this module builds the walkable
-// grid, call zones and every derived rect from it, and answers position queries.
-// It stays pure layout + collision: tile colours and part art live with the
-// renderer (world/map-art.ts).
-export const MAP = assertMapDef(officeDef as MapDef);
+export { TILE_SIZE };
 
-export const TILE_SIZE = 50;
+// The layout itself is data (maps/map-def.ts), served by the server and
+// installed before this module loads (world/map-data.ts); this module builds the
+// walkable grid, call zones and every derived rect from it, and answers position
+// queries. It stays pure layout + collision: tile colours and part art live with
+// the renderer (world/map-art.ts).
+export const MAP = takeMap();
+
 export const MAP_COLS = MAP.cols;
 export const MAP_ROWS = MAP.rows;
+// Pixel size of the whole map. The server clamps positions to the same bounds,
+// derived from the same map.
+export const MAP_WIDTH = MAP_COLS * TILE_SIZE;
+export const MAP_HEIGHT = MAP_ROWS * TILE_SIZE;
 
 export const Tile = {
   FLOOR: 0,
@@ -121,7 +136,14 @@ function buildOfficeMap(): number[][] {
     fill(c + w, r - 1, 1, h + 2, Tile.WALL); // right wall
     fill(c, r, w, h, Tile.MEETING); // interior
     for (const [dc, dr] of room.doors) set(dc, dr, Tile.FLOOR);
-    fill(room.table.c, room.table.r, room.table.w, room.table.h, Tile.DESK);
+    if (room.table) fill(room.table.c, room.table.r, room.table.w, room.table.h, Tile.DESK);
+  }
+
+  // ── Household furniture: solid bodies (a sofa is all seats, so walkable) ──
+  for (const f of MAP.furniture ?? []) {
+    if (f.kind === 'sofa') continue;
+    const t = furnitureRect(f);
+    fill(t.c, t.r, t.w, t.h, Tile.DESK);
   }
 
   // ── Café rugs (walkable), then desks + greenery ──
@@ -130,23 +152,10 @@ function buildOfficeMap(): number[][] {
   for (const [c, r] of MAP.plants) set(c, r, Tile.PLANT);
 
   // ── Outdoors: ponds and trees (both solid) ──
+  // Trees go down last; assertMapDef has already checked each is on open grass,
+  // so none overwrites anything (or seals a doorway).
   for (const p of MAP.ponds) fill(p.c, p.r, p.w, p.h, Tile.POND);
-  // Trees are stamped last, so a tree over anything else would overwrite it —
-  // and a solid 2×2 dropped on a doorway or the gate corridor seals it. Grass
-  // only, checked one tree at a time against the grid so far (so two trees
-  // can't overlap either); a misplaced tree is a map error, not silently dropped.
-  const onGrass = (c: number, r: number, span: number): boolean => {
-    for (let rr = r; rr < r + span; rr++)
-      for (let cc = c; cc < c + span; cc++) {
-        if (m[rr]?.[cc] !== Tile.GRASS) return false;
-      }
-    return true;
-  };
-  MAP.trees.forEach((t, i) => {
-    if (!onGrass(t.c, t.r, t.size))
-      throw new Error(`invalid map data: trees[${i}] at ${t.c},${t.r} is not on open grass`);
-    fill(t.c, t.r, t.size, t.size, Tile.TREE);
-  });
+  for (const t of MAP.trees) fill(t.c, t.r, t.size, t.size, Tile.TREE);
 
   return m;
 }
@@ -180,11 +189,18 @@ export type RoomFurniture = {
   ih: number;
 };
 
-export const ROOM_FURNITURE: RoomFurniture[] = MAP.rooms.map((room) => {
+export const ROOM_FURNITURE: RoomFurniture[] = MAP.rooms.flatMap((room) => {
+  if (!room.table) return [];
   const t = toPx(room.table);
   const i = toPx(room);
-  return { ...t, ix: i.x, iy: i.y, iw: i.w, ih: i.h };
+  return [{ ...t, ix: i.x, iy: i.y, iw: i.w, ih: i.h }];
 });
+
+// Household furniture for the renderer: each piece's pixel rect (already turned
+// for east/west) and the way it faces.
+export const FURNITURE: { kind: FurnitureKind; facing: Facing; rect: Rect }[] = (
+  MAP.furniture ?? []
+).map((f) => ({ kind: f.kind, facing: f.facing ?? 'south', rect: toPx(furnitureRect(f)) }));
 
 // Interior pixel rects of the meeting rooms, for the renderer to add a wall
 // whiteboard and a filing cabinet.
@@ -341,12 +357,23 @@ const DESK_SEATS = new Map<string, Seat>(
   }),
 );
 
+// Map facing → the way a sitter looks.
+const LOOK: Record<Facing, Direction> = { south: 'down', north: 'up', east: 'right', west: 'left' };
+
+// Sofa seats and dining chairs: drawn centred on their tile, so no lift.
+const FURNITURE_SEATS = new Map<string, Seat>(
+  (MAP.furniture ?? [])
+    .flatMap(furnitureSeats)
+    .map((s): [string, Seat] => [`${s.c},${s.r}`, { facing: LOOK[s.facing], lift: 0 }]),
+);
+
 /**
  * The seat at (px,py), or null when it is not a chair. Pure geometry; the caller
  * decides *when* to sit (standing still).
  */
 export function seatAt(px: number, py: number): Seat | null {
-  const desk = DESK_SEATS.get(`${Math.floor(px / TILE_SIZE)},${Math.floor(py / TILE_SIZE)}`);
+  const tile = `${Math.floor(px / TILE_SIZE)},${Math.floor(py / TILE_SIZE)}`;
+  const desk = DESK_SEATS.get(tile) ?? FURNITURE_SEATS.get(tile);
   if (desk) return desk;
   for (const a of ARMCHAIR_SPOTS) {
     if (Math.hypot(px - a.x, py - a.y) <= ARMCHAIR_SEAT_RADIUS) {

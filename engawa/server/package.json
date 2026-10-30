@@ -6,7 +6,7 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "biome ci src",
+    "lint": "biome ci src && cd ../maps && biome ci .",
     "test": "bun test"
   },
   "devDependencies": {

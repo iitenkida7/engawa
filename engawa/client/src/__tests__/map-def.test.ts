@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'bun:test';
+import house from '@maps/house_4ldk.json';
+import {
+  assertMapDef,
+  FLOOR_THEME_COUNT,
+  furnitureRect,
+  furnitureSeats,
+  type MapDef,
+  spawnArea,
+} from '@maps/map-def';
+import office from '@maps/office_medium.json';
 import { FLOOR_THEMES } from '@/world/floor-styles';
-import { assertMapDef, type MapDef } from '@/world/map-def';
 
 // A map is JSON: the MapDef types say nothing about what actually loads, so the
 // validator is the only thing between a typo and an undefined deep inside the
@@ -30,6 +39,7 @@ const BASE: MapDef = {
   plants: [[3, 9]],
   ponds: [{ c: 15, r: 2, w: 2, h: 2 }],
   trees: [{ c: 16, r: 10, size: 2, variant: 0 }],
+  spawn: { c: 3, r: 8, w: 3, h: 2 },
 };
 
 // assertMapDef freezes what it is given, so every case gets its own copy.
@@ -98,7 +108,7 @@ describe('assertMapDef', () => {
     expect(() => assertMapDef(d as MapDef)).toThrow(/'ponds' must be an array/);
     const e = map();
     delete (e.rooms[0] as Partial<MapDef['rooms'][number]>).table;
-    expect(() => assertMapDef(e)).toThrow(/room 'r1' table: missing/);
+    expect(() => assertMapDef(e)).toThrow(/room 'r1': needs a table/);
     const f = map();
     f.lounges = [{ id: 'cafe', c: 14, r: 14, w: 2, h: 2 } as MapDef['lounges'][number]];
     expect(() => assertMapDef(f)).toThrow(/lounge 'cafe': name must be/);
@@ -125,6 +135,89 @@ describe('assertMapDef', () => {
     expect(() => assertMapDef(f)).toThrow(/unknown kind 'lobby'/);
   });
 
+  it('accepts the bundled office map', () => {
+    expect(() => assertMapDef(structuredClone(office))).not.toThrow();
+  });
+
+  it('rejects a solid part on a doorway (the room or building would be sealed)', () => {
+    const d = map();
+    d.plants[0] = [5, 3]; // the room's door
+    expect(() => assertMapDef(d)).toThrow(/plants\[0\] covers a door of room 'r1' at \[5,3\]/);
+    const e = map();
+    e.desks[0] = { c: 3, r: 6, facing: 'south' }; // over the building's door [2,6]
+    expect(() => assertMapDef(e)).toThrow(/desks\[0\] covers a door of buildings\[0\]/);
+    const f = map();
+    f.ponds[0] = { c: 1, r: 5, w: 2, h: 2 };
+    expect(() => assertMapDef(f)).toThrow(/ponds\[0\] covers a door/);
+  });
+
+  it("rejects a room whose wall lands on another room's door", () => {
+    const d = map();
+    // A second room right above r1: its bottom wall is r1's top wall, door included.
+    d.rooms.push({
+      ...structuredClone(d.rooms[0]),
+      id: 'r2',
+      r: 2,
+      h: 1,
+      doors: [],
+      table: { c: 5, r: 2, w: 1, h: 1 },
+    });
+    expect(() => assertMapDef(d)).toThrow(/room 'r2' wall covers a door of room 'r1'/);
+  });
+
+  it('rejects a table outside its room', () => {
+    const d = map();
+    d.rooms[0].table = { c: 8, r: 5, w: 1, h: 1 };
+    expect(() => assertMapDef(d)).toThrow(/table: must sit inside the room/);
+  });
+
+  it('rejects a tree off the open grass (it would overwrite what is there)', () => {
+    const d = map();
+    d.trees[0] = { c: 5, r: 9, size: 1, variant: 0 }; // inside the building
+    expect(() => assertMapDef(d)).toThrow(/trees\[0\] at 5,9 is not on open grass/);
+    const e = map();
+    e.trees[0] = { c: 15, r: 3, size: 2, variant: 0 }; // over the pond
+    expect(() => assertMapDef(e)).toThrow(/not on open grass/);
+    const f = map();
+    f.trees.push({ c: 17, r: 11, size: 1, variant: 1 }); // inside the first 2×2 tree
+    expect(() => assertMapDef(f)).toThrow(/trees\[1\] at 17,11 is not on open grass/);
+  });
+
+  it('rejects a spawn that reaches into a call zone (you would land in its call)', () => {
+    const d = map({ spawn: { c: 4, r: 4, w: 2, h: 2 } });
+    expect(() => assertMapDef(d)).toThrow(/spawn overlaps room 'r1'/);
+    // Team areas and lounges gather a call the same way a room does.
+    const t = map({ teamAreas: [{ id: 'rug', c: 3, r: 8, w: 2, h: 2 }] });
+    expect(() => assertMapDef(t)).toThrow(/spawn overlaps teamArea 'rug'/);
+    // Rooms with no spawn named fall back to the whole building floor, rooms included.
+    const e = map({ spawn: undefined });
+    expect(() => assertMapDef(e)).toThrow(
+      /default spawn area covers room 'r1': give the map a spawn/,
+    );
+  });
+
+  it('spawns in the map spawn rect, else inside the first building, else anywhere', () => {
+    expect(spawnArea(map({ spawn: { c: 3, r: 4, w: 2, h: 2 } }))).toEqual({
+      c: 3,
+      r: 4,
+      w: 2,
+      h: 2,
+    });
+    expect(spawnArea(map({ spawn: undefined }))).toEqual({ c: 3, r: 3, w: 8, h: 8 });
+    expect(spawnArea(map({ spawn: undefined, buildings: [] }))).toEqual({
+      c: 0,
+      r: 0,
+      w: 20,
+      h: 20,
+    });
+    const d = map({ spawn: { c: 19, r: 0, w: 2, h: 1 } });
+    expect(() => assertMapDef(d)).toThrow(/spawn: rect .* runs outside/);
+  });
+
+  it('counts exactly the colour themes the renderer has', () => {
+    expect(FLOOR_THEMES.length).toBe(FLOOR_THEME_COUNT);
+  });
+
   it('bounds floor colours by the renderer palette itself', () => {
     const d = map();
     d.rooms[0].floor = { pattern: 'brick', color: FLOOR_THEMES.length - 1 };
@@ -143,5 +236,76 @@ describe('assertMapDef', () => {
       if (floor) floor.color = 7;
     }).toThrow();
     expect(def.rooms[0].floor?.color).toBe(1);
+  });
+});
+
+// Household furniture (the house preset). A piece is placed by its top-left
+// tile; east/west turn its footprint, and only seats stay walkable.
+describe('furniture', () => {
+  it('turns its footprint for east/west', () => {
+    expect(furnitureRect({ kind: 'bed', c: 1, r: 2, facing: 'south' })).toEqual({
+      c: 1,
+      r: 2,
+      w: 2,
+      h: 3,
+    });
+    expect(furnitureRect({ kind: 'bed', c: 1, r: 2, facing: 'east' })).toEqual({
+      c: 1,
+      r: 2,
+      w: 3,
+      h: 2,
+    });
+    expect(furnitureRect({ kind: 'sofa', c: 1, r: 2 })).toEqual({ c: 1, r: 2, w: 3, h: 1 });
+  });
+
+  it('seats a sofa on every tile and a dining set on its four chairs', () => {
+    expect(furnitureSeats({ kind: 'sofa', c: 1, r: 2, facing: 'west' })).toEqual([
+      { c: 1, r: 2, facing: 'west' },
+      { c: 1, r: 3, facing: 'west' },
+      { c: 1, r: 4, facing: 'west' },
+    ]);
+    expect(furnitureSeats({ kind: 'dining', c: 5, r: 5 })).toEqual([
+      { c: 5, r: 4, facing: 'south' },
+      { c: 5, r: 7, facing: 'north' },
+      { c: 6, r: 4, facing: 'south' },
+      { c: 6, r: 7, facing: 'north' },
+    ]);
+    expect(furnitureSeats({ kind: 'bed', c: 1, r: 1 })).toEqual([]);
+  });
+
+  it('accepts the bundled house', () => {
+    expect(() => assertMapDef(structuredClone(house))).not.toThrow();
+  });
+
+  it('rejects an unknown kind or facing', () => {
+    expect(() =>
+      assertMapDef(map({ furniture: [{ kind: 'piano' as 'bed', c: 3, r: 8 }] })),
+    ).toThrow(/unknown kind "piano"/);
+    expect(() =>
+      assertMapDef(map({ furniture: [{ kind: 'bed', c: 3, r: 8, facing: 'up' as 'north' }] })),
+    ).toThrow(/facing must be/);
+  });
+
+  it('rejects a piece that runs off the map once turned', () => {
+    expect(() => assertMapDef(map({ furniture: [{ kind: 'bed', c: 18, r: 0 }] }))).not.toThrow();
+    expect(() =>
+      assertMapDef(map({ furniture: [{ kind: 'bed', c: 18, r: 0, facing: 'east' }] })),
+    ).toThrow(/runs outside/);
+  });
+
+  it('rejects a solid piece on a doorway, but lets a sofa (all seats) sit there', () => {
+    expect(() => assertMapDef(map({ furniture: [{ kind: 'fridge', c: 2, r: 6 }] }))).toThrow(
+      /covers a door of buildings\[0\]/,
+    );
+    expect(() => assertMapDef(map({ furniture: [{ kind: 'sofa', c: 2, r: 6 }] }))).not.toThrow();
+  });
+
+  it("lets only a 'private' room go without a table", () => {
+    const priv = map();
+    priv.rooms[0] = { ...priv.rooms[0], kind: 'private', table: undefined };
+    expect(() => assertMapDef(priv)).not.toThrow();
+    const meeting = map();
+    meeting.rooms[0] = { ...meeting.rooms[0], table: undefined };
+    expect(() => assertMapDef(meeting)).toThrow(/needs a table/);
   });
 });
