@@ -1,4 +1,5 @@
 import type { ServerWebSocket, WebSocketHandler } from 'bun';
+import { type EntryClaims, entryAuth, verifyEntryToken } from './entry';
 import { createEventRecorderFromEnv, type EventRecorder } from './events';
 import {
   clampPosition,
@@ -350,13 +351,40 @@ export function createWebSocketHandler(
           if (ws.data.joined) return;
 
           const workspace = normalizeWorkspace(msg.workspace);
-          // Single access-password gate (defense in depth — the client also checks
-          // via /api/verify-password before showing the name step).
-          if (!verifyAccessPassword(msg.password, accessPassword ?? setting('ACCESS_PASSWORD'))) {
+          // The entry gate. Exactly one of the two is in force (entry.ts):
+          //  - `token`: a control plane decides who may enter and signs a ticket
+          //    saying so. The password is not consulted at all in this mode.
+          //  - `password` (the default, and what a self-hosted office does): the
+          //    single shared ACCESS_PASSWORD, unchanged.
+          // Either way this is the authoritative check — the pre-join HTTP
+          // endpoints are only there so the browser can show the right screen.
+          const entry = entryAuth();
+          let entryClaims: EntryClaims | null = null;
+          if (entry.mode === 'token') {
+            const verdict = verifyEntryToken(msg.entryToken, entry.secret, now());
+            if (!verdict.ok) {
+              // The reason stays here: the browser is told to go get a new
+              // ticket, and which of "expired" or "forged" it was is not its
+              // business. Nothing about the ticket or the key is logged.
+              console.warn(`[ws] entry ticket rejected (${verdict.reason})`);
+              send(ws, { type: 'auth-error', message: '入室券が無効です' });
+              ws.close(4001, 'auth failed');
+              return;
+            }
+            entryClaims = verdict.claims;
+          } else if (
+            !verifyAccessPassword(msg.password, accessPassword ?? setting('ACCESS_PASSWORD'))
+          ) {
             send(ws, { type: 'auth-error', message: 'パスワードが正しくありません' });
             ws.close(4001, 'auth failed');
             return;
           }
+
+          // In entry-token mode the display name is the control plane's, not the
+          // client's: it is covered by the signature, so it cannot be spoofed —
+          // which is what makes a transcript or a recording a record of who was
+          // actually in the room.
+          const entryName = entryClaims ? normalizeName(entryClaims.name) : null;
 
           // Session resume (issue #187): a valid token identifying a connection
           // in its leave-grace window (or a half-open predecessor the server
@@ -385,7 +413,7 @@ export function createWebSocketHandler(
             // spurious player-left for the identity we are resuming.
             clients.delete(ws.data.userId);
             ws.data.userId = prev.data.userId;
-            ws.data.name = prev.data.name;
+            ws.data.name = entryName ?? prev.data.name;
             ws.data.workspace = prev.data.workspace;
             ws.data.x = prev.data.x;
             ws.data.y = prev.data.y;
@@ -446,7 +474,7 @@ export function createWebSocketHandler(
             }
           }
 
-          ws.data.name = normalizeName(msg.name);
+          ws.data.name = entryName ?? normalizeName(msg.name);
           ws.data.workspace = workspace;
           ws.data.outfit = sanitizeOutfit(msg.outfit);
           ws.data.avatarImage = sanitizeAvatarImage(msg.avatarImage);

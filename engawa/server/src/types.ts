@@ -50,6 +50,10 @@ export type ClientMessage =
       name: string;
       workspace?: string;
       password?: string;
+      // Entry ticket, when the office runs in entry-token mode (ENTRY_MODE,
+      // see entry.ts and docs/entry-token.md). Signed by the control plane; the
+      // display name is taken from it and `name` above is ignored.
+      entryToken?: string;
       outfit?: Outfit;
       avatarImage?: string | null;
       resumeToken?: string;

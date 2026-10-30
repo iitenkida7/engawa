@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { ServerWebSocket } from 'bun';
+import { type EntryClaims, signEntryToken } from '../entry';
 import { PROXIMITY_STILL_MS } from '../logic';
 import { OFFICE_WORLD } from '../map';
+import { applySettings, resetSettings } from '../settings';
 import type { Outfit, ServerMessage, WsData } from '../types';
 import { createWebSocketHandler } from '../websocket';
 
@@ -1693,5 +1695,144 @@ describe('createWebSocketHandler — occluded report', () => {
     deliver(h, a, { type: 'occluded', ids: ['x'] });
     expect(a.sent.length).toBe(sent);
     expect(a.data.occluded).toEqual(['x']);
+  });
+});
+
+describe('createWebSocketHandler — entry-ticket gate', () => {
+  const KEY = 'control-plane-shared-secret';
+  // Fixed clock for the handler, so expiry is decided by the ticket, not by
+  // how long the suite takes to run.
+  const NOW_MS = Date.UTC(2026, 0, 1);
+  const NOW_S = NOW_MS / 1000;
+
+  let clients: Map<string, ServerWebSocket<WsData>>;
+  let handler: ReturnType<typeof createWebSocketHandler>;
+  let savedKey: string | undefined;
+
+  const ticket = (over: Partial<EntryClaims> = {}) =>
+    signEntryToken({ userId: 'u_1', name: 'Ishii', exp: NOW_S + 3600, ...over }, KEY);
+
+  beforeEach(() => {
+    clients = new Map();
+    handler = createWebSocketHandler(clients, undefined, 'dev', new Set(), () => NOW_MS);
+    // The mode is a setting (a control plane may flip it live); the key is the
+    // shared secret and only ever comes from the environment.
+    applySettings({ ENTRY_MODE: 'token' });
+    savedKey = process.env.CONTROL_PLANE_TOKEN;
+    process.env.CONTROL_PLANE_TOKEN = KEY;
+  });
+
+  afterEach(() => {
+    resetSettings();
+    if (savedKey === undefined) delete process.env.CONTROL_PLANE_TOKEN;
+    else process.env.CONTROL_PLANE_TOKEN = savedKey;
+  });
+
+  /** Join with whatever the test wants to present, and report what happened. */
+  function join(msg: Record<string, unknown>) {
+    const ws = makeWs();
+    handler.open!(ws);
+    deliver(handler, ws, { type: 'join', name: 'Typed Name', ...msg });
+    return ws;
+  }
+
+  test('a valid ticket gets in', () => {
+    const ws = join({ entryToken: ticket() });
+    expect(ws.data.joined).toBe(true);
+    expect(ws.closed).toBeNull();
+    expect(ws.sent.some((m) => m.type === 'welcome')).toBe(true);
+  });
+
+  test('the name comes from the ticket, not from the client', () => {
+    // This is the point of the whole mode: a transcript or a recording names
+    // who the control plane says was there, not who the browser claims to be.
+    const ws = join({ entryToken: ticket({ name: 'Ishii' }), name: 'Someone Else' });
+    expect(ws.data.name).toBe('Ishii');
+    const welcome = ws.sent.find((m) => m.type === 'welcome');
+    expect(welcome?.type === 'welcome' && welcome.self.name).toBe('Ishii');
+  });
+
+  test('an over-long name in a ticket is still capped', () => {
+    const ws = join({ entryToken: ticket({ name: 'あ'.repeat(40) }) });
+    expect(ws.data.name).toHaveLength(24);
+  });
+
+  test('a join with no ticket is refused', () => {
+    const ws = join({});
+    expect(ws.data.joined).toBe(false);
+    expect(ws.sent).toContainEqual({ type: 'auth-error', message: '入室券が無効です' });
+    expect(ws.closed).toEqual({ code: 4001, reason: 'auth failed' });
+  });
+
+  test('an expired ticket is refused', () => {
+    const ws = join({ entryToken: ticket({ exp: NOW_S - 1 }) });
+    expect(ws.data.joined).toBe(false);
+    expect(ws.closed).toEqual({ code: 4001, reason: 'auth failed' });
+  });
+
+  test('a ticket signed with another key is refused', () => {
+    const forged = signEntryToken({ userId: 'u_1', name: 'Ishii', exp: NOW_S + 3600 }, 'other-key');
+    const ws = join({ entryToken: forged });
+    expect(ws.data.joined).toBe(false);
+    expect(ws.closed).toEqual({ code: 4001, reason: 'auth failed' });
+  });
+
+  test('a tampered ticket is refused', () => {
+    const token = ticket();
+    const ws = join({ entryToken: `${token.slice(0, -1)}${token.endsWith('A') ? 'B' : 'A'}` });
+    expect(ws.data.joined).toBe(false);
+    expect(ws.closed).toEqual({ code: 4001, reason: 'auth failed' });
+  });
+
+  test('the access password is not a way around the ticket', () => {
+    // The two gates are exclusive: a password left over in the environment
+    // opens nothing while tickets are in force.
+    const h = createWebSocketHandler(clients, 'secret', 'dev', new Set(), () => NOW_MS);
+    const ws = makeWs();
+    h.open!(ws);
+    deliver(h, ws, { type: 'join', name: 'Alice', password: 'secret' });
+    expect(ws.data.joined).toBe(false);
+    expect(ws.closed).toEqual({ code: 4001, reason: 'auth failed' });
+  });
+
+  test('without a key in the environment nobody gets in', () => {
+    delete process.env.CONTROL_PLANE_TOKEN;
+    const ws = join({ entryToken: ticket() });
+    expect(ws.data.joined).toBe(false);
+    expect(ws.closed).toEqual({ code: 4001, reason: 'auth failed' });
+  });
+});
+
+describe('createWebSocketHandler — entry mode off', () => {
+  afterEach(() => resetSettings());
+
+  test('a ticket is neither required nor consulted in the default mode', () => {
+    // The self-hosted case: ENTRY_MODE unset, so the password gate (here: an
+    // open space) is the only thing that decides, exactly as before.
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const handler = createWebSocketHandler(clients);
+    const ws = makeWs();
+    handler.open!(ws);
+    deliver(handler, ws, { type: 'join', name: 'Alice' });
+
+    expect(ws.data.joined).toBe(true);
+    expect(ws.data.name).toBe('Alice');
+    expect(ws.closed).toBeNull();
+  });
+
+  test('a stray entryToken on a join changes nothing', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const handler = createWebSocketHandler(clients, 'secret');
+    const ws = makeWs();
+    handler.open!(ws);
+    deliver(handler, ws, {
+      type: 'join',
+      name: 'Alice',
+      password: 'secret',
+      entryToken: signEntryToken({ userId: 'u_1', name: 'Mallory', exp: 2 ** 31 }, 'whatever'),
+    });
+
+    expect(ws.data.joined).toBe(true);
+    expect(ws.data.name).toBe('Alice');
   });
 });
