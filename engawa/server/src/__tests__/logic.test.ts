@@ -821,7 +821,7 @@ describe('walls between players (blocked pairs)', () => {
     expect(groups).toHaveLength(2);
   });
 
-  test('the other side\'s report blocks the pair too (either end is enough)', () => {
+  test('a report from the other side blocks the pair too (either end is enough)', () => {
     const groups = computeProximityGroups([m('a', 0), m('b', 20, ['a'])], { sfuEnabled: true });
     expect(groups).toHaveLength(2);
   });
