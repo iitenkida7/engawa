@@ -7,6 +7,8 @@
 // through this proxy; it relays signaling (SDP offer/answer, track ops) only,
 // so the no-media-through-our-server invariant (#1) holds.
 
+import { setting } from './settings';
+
 const CLOUDFLARE_REALTIME_BASE = 'https://rtc.live.cloudflare.com/v1';
 
 // Abort a control-plane request if Cloudflare stalls, so a hung upstream doesn't
@@ -29,9 +31,7 @@ const ALLOWED_SESSION_PATHS = [
 // feature is disabled and every proximity group falls back to mesh, so the app
 // behaves exactly as it did before SFU support (no new hard dependency).
 export function isSfuEnabled(): boolean {
-  return Boolean(
-    process.env.CLOUDFLARE_REALTIME_APP_ID && process.env.CLOUDFLARE_REALTIME_APP_TOKEN,
-  );
+  return Boolean(setting('CLOUDFLARE_REALTIME_APP_ID') && setting('CLOUDFLARE_REALTIME_APP_TOKEN'));
 }
 
 // Pure guard: is this session sub-path one of the documented control-plane
@@ -53,8 +53,8 @@ export async function proxySfuRequest(
   sessionPath: string,
   body: unknown,
 ): Promise<SfuProxyResult> {
-  const appId = process.env.CLOUDFLARE_REALTIME_APP_ID;
-  const token = process.env.CLOUDFLARE_REALTIME_APP_TOKEN;
+  const appId = setting('CLOUDFLARE_REALTIME_APP_ID');
+  const token = setting('CLOUDFLARE_REALTIME_APP_TOKEN');
   if (!appId || !token) {
     return {
       status: 503,

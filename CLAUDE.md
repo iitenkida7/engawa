@@ -27,6 +27,7 @@ Slack のハドルや Gather.town のような「ばったり話す」体験を�
 ├ Makefile                # 主要操作の入口（すべて Docker 経由）
 ├ .env.example
 ├ docs/webhook{,.ja}.md   # イベント Webhook の API 仕様（英語 / 日本語）
+├ docs/control-plane{,.ja}.md  # 設定を外部エンドポイントから受け取る仕様（英語 / 日本語）
 ├ examples/webhook-gas/   # Webhook 受信サンプル（Google Apps Script。本体の関心事外）
 └ engawa/
    ├ client/src/          # フロントエンド
