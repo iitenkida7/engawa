@@ -83,7 +83,7 @@ import { SoundManager } from '@/ui/sounds';
 import { StatusMenu } from '@/ui/status-menu';
 import { type MediaSink, ToolbarController } from '@/ui/toolbar';
 import { sessionLabel, TranscriptPanel } from '@/ui/transcript';
-import { loadGroqKey, TranscriptSetup } from '@/ui/transcript-setup';
+import { fetchProvidedGroqKey, loadGroqKey, TranscriptSetup } from '@/ui/transcript-setup';
 import { CanvasRenderer } from '@/world/canvas';
 import { OUTFIT_COUNTS } from '@/world/character';
 import { InputManager } from '@/world/input';
@@ -1280,6 +1280,9 @@ export class App {
         // endpoints; the resume token arms the NEXT reconnect (issue #187).
         this.myResumeToken = msg.resumeToken ?? null;
         setMediaToken(msg.token);
+        // The deployment may provide one transcription key for everybody here;
+        // the endpoint needs the media token we just got.
+        void fetchProvidedGroqKey();
         markActiveTab(this.tabId);
         if (resumed) {
           // Soft path (issue #187): the server kept our identity, so the live

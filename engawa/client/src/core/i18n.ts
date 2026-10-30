@@ -421,6 +421,10 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: 'キーの形式が正しくないようです（gsk_ で始まります）',
     en: 'That does not look like a Groq key (they start with gsk_)',
   },
+  'transcript.providedKey': {
+    ja: 'このスペースでは共通の API キーが用意されているため、キーを入力しなくても文字起こしできます。',
+    en: 'This space provides a shared API key, so you can transcribe without entering one.',
+  },
   'transcript.setupStart': { ja: '開始', en: 'Start' },
   'transcript.setupSave': { ja: '保存', en: 'Save' },
   'transcript.clearKey': { ja: 'キーを削除', en: 'Remove key' },

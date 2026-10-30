@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from 'bun';
 import { isPasswordRequired, verifyAccessPassword } from './logic';
 import { loadMap, mapWorld } from './map';
+import { setting, startSettingsSync } from './settings';
 import { isAllowedSessionPath, isSfuEnabled, proxySfuRequest } from './sfu';
 import { getTurnCredentials } from './turn';
 import type { WsData } from './types';
@@ -9,9 +10,10 @@ import { createWebSocketHandler } from './websocket';
 const clients = new Map<string, ServerWebSocket<WsData>>();
 const PUBLIC_DIR = './public';
 
-// Single optional access password. When unset the space is open (no password is
-// ever requested); the client asks /api/config whether to show the gate.
-const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD;
+// Settings a control plane supplies (CONTROL_PLANE_URL), fetched before
+// anything reads them. Without one this is a no-op and the environment is the
+// only source. See docs/control-plane.md.
+await startSettingsSync();
 
 // Valid short-lived media tokens, minted per connection on a successful join and
 // removed on close (see websocket.ts). Requiring one on the Cloudflare-backed
@@ -111,6 +113,19 @@ const server = Bun.serve({
       });
     }
 
+    // The transcription key, when the deployment provides one for everybody
+    // (GROQ_API_KEY / a control plane) instead of each person bringing their
+    // own. Behind the media token like the other credential endpoints: the key
+    // is billable, and an anonymous HTTP client must not be able to farm it.
+    // Unconfigured answers `null`, and the client falls back to asking the user.
+    if (url.pathname === '/api/transcription-credentials') {
+      if (!hasValidMediaToken(req)) return unauthorized();
+      return Response.json(
+        { apiKey: setting('GROQ_API_KEY') ?? null },
+        { headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
+
     if (url.pathname === '/api/health') {
       return Response.json({ ok: true, clients: clients.size });
     }
@@ -128,7 +143,7 @@ const server = Bun.serve({
     // uses this to decide whether to show the password gate before the name step.
     if (url.pathname === '/api/config') {
       return Response.json(
-        { passwordRequired: isPasswordRequired(ACCESS_PASSWORD) },
+        { passwordRequired: isPasswordRequired(setting('ACCESS_PASSWORD')) },
         { headers: { 'Cache-Control': 'no-store' } },
       );
     }
@@ -141,7 +156,7 @@ const server = Bun.serve({
       const body = (await req.json().catch(() => ({}))) as { password?: unknown };
       const password = typeof body.password === 'string' ? body.password : undefined;
       return Response.json(
-        { ok: verifyAccessPassword(password, ACCESS_PASSWORD) },
+        { ok: verifyAccessPassword(password, setting('ACCESS_PASSWORD')) },
         { headers: { 'Cache-Control': 'no-store' } },
       );
     }
@@ -189,7 +204,9 @@ const server = Bun.serve({
   // undefined = that parameter's default (clock, leave grace, event webhook).
   websocket: createWebSocketHandler(
     clients,
-    ACCESS_PASSWORD,
+    // undefined = resolve the access password per join, so a control-plane
+    // change takes effect without dropping everyone in the office.
+    undefined,
     BOOT_ID,
     mediaTokens,
     undefined,
