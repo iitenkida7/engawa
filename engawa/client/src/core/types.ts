@@ -53,6 +53,9 @@ export type ClientMessage =
       name: string;
       workspace?: string;
       password?: string;
+      // Entry ticket, in entry-token mode (core/entry-token.ts). The server
+      // takes the display name from it, so `name` above is ignored there.
+      entryToken?: string;
       outfit?: Outfit;
       avatarImage?: string | null;
       resumeToken?: string;

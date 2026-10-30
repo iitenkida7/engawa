@@ -800,10 +800,14 @@ export class App {
 
   private joinedName = '';
   private joinedPassword = '';
+  // Entry ticket, in entry-token mode (core/entry-token.ts). '' otherwise. Held
+  // for the session because every reconnect re-joins and must present it again.
+  private joinedEntryToken = '';
 
-  start(name: string, password: string) {
+  start(name: string, password: string, entryToken = '') {
     this.joinedName = name;
     this.joinedPassword = password;
+    this.joinedEntryToken = entryToken;
     // No permission prompt on join: if notifications aren't already allowed the
     // toggle starts OFF, and turning it on runs the test + fix-it flow.
     this.desktopNotifier.syncOnJoin();
@@ -1119,6 +1123,7 @@ export class App {
       outfit: this.editor.getOutfit(),
       avatarImage: loadProfileImage(),
       ...(this.joinedPassword ? { password: this.joinedPassword } : {}),
+      ...(this.joinedEntryToken ? { entryToken: this.joinedEntryToken } : {}),
       ...(this.myResumeToken ? { resumeToken: this.myResumeToken } : {}),
       clientId: this.clientId,
       ...(spawn ? { spawn } : {}),
@@ -1333,7 +1338,9 @@ export class App {
             new PlayerState({ ...p, outfit: normalizeOutfit(p.outfit, OUTFIT_COUNTS) }, false),
           );
         }
-        this.view.setSelfName(this.joinedName);
+        // The server's name, not the one we typed: in entry-token mode it comes
+        // from the signed ticket, and it is the normalized one either way.
+        this.view.setSelfName(msg.self.name);
         document.getElementById('toolbar')?.classList.remove('hidden');
         document.getElementById('corner-nav')?.classList.remove('hidden');
         this.statusMenu.refresh();

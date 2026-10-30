@@ -63,6 +63,13 @@ const STR: Record<string, Record<Lang, string>> = {
   'pass.remember': { ja: 'この端末で記憶する', en: 'Remember on this device' },
   'pass.next': { ja: '次へ', en: 'Next' },
 
+  // -- entry ticket (docs/entry-token.md) -----------------------------------
+  'entry.title': { ja: '入室券が必要です', en: 'An entry link is required' },
+  'entry.message': {
+    ja: 'このオフィスは入室リンクからのみ入れます。管理画面から入室リンクを開き直してください。',
+    en: 'This office can only be entered from an entry link. Open a fresh entry link from wherever you got the last one.',
+  },
+
   // -- join screen ----------------------------------------------------------
   'boot.mapFailed': {
     ja: 'マップを読み込めませんでした。再読み込みしてください',

@@ -180,6 +180,16 @@
         font-size: 13px;
       }
 
+      /* Entry-ticket mode (docs/entry-token.md): the "you need a link" card.
+         Nothing to type here, so it is text only. */
+      .entry-note {
+        margin: 0;
+        max-width: 34ch;
+        color: #aab2c5;
+        font-size: 13px;
+        line-height: 1.7;
+      }
+
       .pass-remember {
         display: flex;
         align-items: center;
@@ -3042,7 +3052,18 @@
           </label>
           <button type="submit" data-i18n="pass.next">次へ</button>
         </form>
-        <!-- Step 2: name + avatar. No password field here. -->
+        <!-- Entry-ticket mode (docs/entry-token.md): shown when the browser
+             arrived without a usable ticket, or the server turned the one it had
+             away. There is nothing to type — the way in is a fresh link from
+             whoever runs this office. -->
+        <div class="card hidden" id="join-entry-error">
+          <h1 data-i18n="entry.title">入室券が必要です</h1>
+          <p class="entry-note" data-i18n="entry.message">
+            このオフィスは入室リンクからのみ入れます。管理画面から入室リンクを開き直してください。
+          </p>
+        </div>
+        <!-- Step 2: name + avatar. No password field here. In entry-ticket mode
+             the name field is hidden — the name comes from the ticket. -->
         <form class="card hidden" id="join-form">
           <h1 data-i18n="join.title">engawa に参加</h1>
           <!-- Current profile picture (circular), updated when the editor changes it. -->
