@@ -104,6 +104,7 @@ export const SHORTCUT_HELP: { keys: string[]; labelKey: string }[] = [
   { keys: [`1–${REACTION_EMOJIS.length}`], labelKey: 'keys.reaction' },
   { keys: ['Shift + S'], labelKey: 'keys.screen' },
   { keys: ['Shift + R'], labelKey: 'keys.record' },
+  { keys: ['R'], labelKey: 'keys.rotate' },
   { keys: ['?'], labelKey: 'keys.help' },
   { keys: ['Esc'], labelKey: 'keys.escape' },
 ];

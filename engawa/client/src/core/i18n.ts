@@ -110,6 +110,15 @@ const STR: Record<string, Record<Lang, string>> = {
   // Avatar action menu (click an avatar on the map).
   'annot.pointer': { ja: '🔴 ポインタ', en: '🔴 Pointer' },
   'annot.pen': { ja: '✏️ ペン', en: '✏️ Pen' },
+  'toolbar.placement': { ja: '🪑 配置モード（椅子などを置く）', en: '🪑 Place chairs & more' },
+  'place.chair': { ja: '🪑 椅子', en: '🪑 Chair' },
+  'place.bench': { ja: '🛋 ベンチ', en: '🛋 Bench' },
+  'place.plant': { ja: '🪴 植物', en: '🪴 Plant' },
+  'place.erase': { ja: '🗑 撤去', en: '🗑 Remove' },
+  'place.rotate': { ja: '↻ 回す (R)', en: '↻ Rotate (R)' },
+  'place.hint': { ja: 'タイルをクリックで置く', en: 'Click a tile to place' },
+  'place.done': { ja: '完了', en: 'Done' },
+  'keys.rotate': { ja: '配置モード: 向きを回す', en: 'Placement mode: rotate' },
   'avatar.goto': { ja: 'そこへ行く', en: 'Go there' },
   'avatar.knock': { ja: '呼ぶ', en: 'Call' },
 

@@ -58,6 +58,8 @@ export class ToolbarController {
   private onRecordingChange: (recording: boolean) => void;
   private onOpenAvatar: () => void;
   private onOpenShortcuts: () => void;
+  private onTogglePlacement: () => void;
+  private isPlacementOpen: () => boolean;
   private onTestNotify: () => void;
   private toggleDebug: () => void;
   private isDebugOpen: () => boolean;
@@ -110,6 +112,9 @@ export class ToolbarController {
     onRecordingChange: (recording: boolean) => void;
     onOpenAvatar: () => void;
     onOpenShortcuts: () => void;
+    // Chairs / benches / plants placement mode (optional: tests don't need it).
+    onTogglePlacement?: () => void;
+    isPlacementOpen?: () => boolean;
     onTestNotify: () => void;
     toggleDebug: () => void;
     isDebugOpen: () => boolean;
@@ -142,6 +147,8 @@ export class ToolbarController {
     this.onRecordingChange = opts.onRecordingChange;
     this.onOpenAvatar = opts.onOpenAvatar;
     this.onOpenShortcuts = opts.onOpenShortcuts;
+    this.onTogglePlacement = opts.onTogglePlacement ?? (() => {});
+    this.isPlacementOpen = opts.isPlacementOpen ?? (() => false);
     this.onTestNotify = opts.onTestNotify;
     this.toggleDebug = opts.toggleDebug;
     this.isDebugOpen = opts.isDebugOpen;
@@ -884,6 +891,9 @@ export class ToolbarController {
       menu.appendChild(item);
     };
     addItem(t('toolbar.editAvatar'), () => this.onOpenAvatar());
+    addItem((this.isPlacementOpen() ? '✓ ' : '') + t('toolbar.placement'), () =>
+      this.onTogglePlacement(),
+    );
     addItem(t('toolbar.shortcuts'), () => this.onOpenShortcuts());
     addItem(t('toolbar.testNotify'), () => this.onTestNotify());
     addItem(this.isDebugOpen() ? t('toolbar.closeDebug') : t('toolbar.openDebug'), () =>

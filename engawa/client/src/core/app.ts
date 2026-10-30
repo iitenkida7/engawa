@@ -71,6 +71,7 @@ import { DesktopNotifier, isBackgrounded, knockAlertLevel } from '@/ui/desktop-n
 import { KeyHelpPanel } from '@/ui/keyhelp';
 import { KnockController } from '@/ui/knock';
 import { Toasts } from '@/ui/notify';
+import { PlacementMode } from '@/ui/placement';
 import { NotifyHelpPanel } from '@/ui/notify-help';
 import { loadProfileImage } from '@/ui/profile-image';
 import { isPttKey, PTT_KEY } from '@/ui/ptt';
@@ -89,6 +90,7 @@ import { OUTFIT_COUNTS } from '@/world/character';
 import { InputManager } from '@/world/input';
 import { MovementController } from '@/world/movement';
 import { normalizeOutfit } from '@/world/outfit';
+import { canPlaceAt, placedItems } from '@/world/placed-items';
 import { PlayerState } from '@/world/player';
 import {
   callZoneAt,
@@ -98,6 +100,7 @@ import {
   isDeskSeat,
   isMeetingRoom,
   isMeetingZone,
+  TILE_SIZE,
   zoneAt,
 } from '@/world/tilemap';
 
@@ -154,6 +157,12 @@ export class App {
   private rateLimitsNotified = new Set<string>();
   private toasts = new Toasts();
   private reactionToasts = new ReactionToasts();
+  // Placing chairs / benches / plants on the map (⋯ menu → 配置モード).
+  private placement = new PlacementMode(() => this.updatePlacementGhost());
+  // Where the pointer last went down (client px), to tell a click from a pan.
+  private placementDown: { x: number; y: number } | null = null;
+  // The tile under the pointer in placement mode, for the preview.
+  private hoverTile: { col: number; row: number } | null = null;
   private roster = new RosterPanel({
     getPlayers: () => this.players,
     onLocate: (userId) => this.locatePlayer(userId),
@@ -291,6 +300,10 @@ export class App {
   // (an inline arrow can't be removed). See issue #127.
   private onCanvasDblClick = (e: MouseEvent) => this.handleCanvasDblClick(e);
   private onCanvasClick = (e: MouseEvent) => this.handleCanvasClick(e);
+  private onCanvasDown = (e: PointerEvent) => {
+    this.placementDown = { x: e.clientX, y: e.clientY };
+  };
+  private onCanvasHover = (e: PointerEvent) => this.handlePlacementHover(e);
   private avatarMenuEl = document.getElementById('avatar-menu') as HTMLDivElement;
   private onShortcutKey = (e: KeyboardEvent) => this.handleShortcutKey(e);
   private onPttKeyUp = (e: KeyboardEvent) => {
@@ -530,6 +543,8 @@ export class App {
           name: this.me?.name ?? this.joinedName,
         }),
       onOpenShortcuts: () => this.keyHelp.toggle(),
+      onTogglePlacement: () => this.placement.toggle(),
+      isPlacementOpen: () => this.placement.isOpen,
       onTestNotify: () => void this.testDesktopNotify(),
       // The 🐛 debug console lives in the toolbar's "⋯" menu (issue #113). These
       // resolve lazily on click, so referencing this.debug (built below) is fine.
@@ -609,6 +624,8 @@ export class App {
     // Double-click the map to walk to that point (A* around walls, boosted speed).
     this.canvas.addEventListener('dblclick', this.onCanvasDblClick);
     this.canvas.addEventListener('click', this.onCanvasClick);
+    this.canvas.addEventListener('pointerdown', this.onCanvasDown);
+    this.canvas.addEventListener('pointermove', this.onCanvasHover);
 
     // Keyboard shortcuts: reactions on 1–6 (issue #23) plus the media/view
     // toggles (issue #297, re-laid-out in #302). Ignored while typing in a
@@ -630,6 +647,17 @@ export class App {
     // Skipped while typing, same guard as world/input.ts and the Esc handler in
     // ui/remote-media.ts — 'm' in a message is an 'm', not "mute".
     if (isTypingTarget(e.target)) return;
+    // Placement mode: R turns the item, Esc leaves the mode.
+    if (this.placement.isOpen && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (e.key.toLowerCase() === 'r' && !e.shiftKey) {
+        if (!e.repeat) this.placement.rotate();
+        return;
+      }
+      if (e.key === 'Escape') {
+        this.placement.close();
+        return;
+      }
+    }
     // Push-to-talk: hold Space = transmit (the keyup / blur handlers release
     // it). preventDefault stops Space scrolling the page or pressing a focused
     // button; auto-repeat keydowns are swallowed too.
@@ -678,7 +706,7 @@ export class App {
   }
 
   private handleCanvasDblClick(e: MouseEvent) {
-    if (!this.me) return;
+    if (!this.me || this.placement.isOpen) return;
     e.preventDefault();
     const world = this.renderer.screenToWorld(e.clientX, e.clientY, this.me);
     // Snap a click on a wall/desk to the nearest walkable tile.
@@ -686,10 +714,68 @@ export class App {
     this.movement.walkTo(this.me, goal);
   }
 
+  // ---- Placement mode (chairs / benches / plants) ----
+
+  private tileAt(clientX: number, clientY: number): { col: number; row: number } | null {
+    if (!this.me) return null;
+    const w = this.renderer.screenToWorld(clientX, clientY, this.me);
+    return { col: Math.floor(w.x / TILE_SIZE), row: Math.floor(w.y / TILE_SIZE) };
+  }
+
+  // The translucent preview on the hovered tile (red where it can't go).
+  private updatePlacementGhost() {
+    const tool = this.placement.currentTool;
+    const tile = this.hoverTile;
+    if (!this.placement.isOpen || !tile || tool === 'erase') {
+      this.renderer.setPlacementGhost(null);
+      return;
+    }
+    this.renderer.setPlacementGhost({
+      kind: tool,
+      col: tile.col,
+      row: tile.row,
+      facing: this.placement.facing,
+      valid: canPlaceAt(tile.col, tile.row),
+    });
+  }
+
+  private handlePlacementHover(e: PointerEvent) {
+    if (!this.placement.isOpen) return;
+    this.hoverTile = this.tileAt(e.clientX, e.clientY);
+    this.updatePlacementGhost();
+  }
+
+  // A click places (or, with the eraser, removes) at that tile. A press that
+  // travelled is a pan, not a click.
+  private handlePlacementClick(e: MouseEvent) {
+    const down = this.placementDown;
+    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return;
+    const tile = this.tileAt(e.clientX, e.clientY);
+    if (!tile) return;
+    const tool = this.placement.currentTool;
+    if (tool === 'erase') {
+      const it = placedItems.at(tile.col, tile.row);
+      if (it) this.net.send({ type: 'remove-item', id: it.id });
+      return;
+    }
+    if (!canPlaceAt(tile.col, tile.row)) return;
+    this.net.send({
+      type: 'place-item',
+      kind: tool,
+      col: tile.col,
+      row: tile.row,
+      facing: this.placement.facing,
+    });
+  }
+
   // Single click: if it landed on another avatar (body or name), open the action
   // menu (go to them / call); otherwise dismiss any open menu.
   private handleCanvasClick(e: MouseEvent) {
     if (!this.me) return;
+    if (this.placement.isOpen) {
+      this.handlePlacementClick(e);
+      return;
+    }
     const world = this.renderer.screenToWorld(e.clientX, e.clientY, this.me);
     const hit = this.playerAt(world.x, world.y);
     if (hit && !hit.isSelf) this.openAvatarMenu(hit.userId, e.clientX, e.clientY);
@@ -922,6 +1008,8 @@ export class App {
     this.bgTicker = null;
     this.canvas.removeEventListener('dblclick', this.onCanvasDblClick);
     this.canvas.removeEventListener('click', this.onCanvasClick);
+    this.canvas.removeEventListener('pointerdown', this.onCanvasDown);
+    this.canvas.removeEventListener('pointermove', this.onCanvasHover);
     window.removeEventListener('keydown', this.onShortcutKey);
     window.removeEventListener('keyup', this.onPttKeyUp);
     window.removeEventListener('blur', this.onPttRelease);
@@ -1444,6 +1532,15 @@ export class App {
         this.view.receiveAnnotation(from, body);
         break;
       }
+      case 'items':
+        placedItems.set(msg.items);
+        break;
+      case 'item-added':
+        placedItems.add(msg.item);
+        break;
+      case 'item-removed':
+        placedItems.remove(msg.id);
+        break;
       case 'transcript': {
         // A line someone else in our call transcribed. Rendered as a text node
         // (ui/transcript.ts) — it is model output relayed through a peer.

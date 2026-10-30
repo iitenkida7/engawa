@@ -32,6 +32,7 @@ import {
   sfuLatchSeeds,
   verifyAccessPassword,
 } from './logic';
+import { createItemStore, normalizeItemId, normalizePlacement } from './items';
 import { isSfuEnabled } from './sfu';
 import type { ClientMessage, Player, ServerMessage, WsData } from './types';
 
@@ -217,6 +218,9 @@ export function createWebSocketHandler(
   // Per-workspace SFU latch state. Lives for the handler's lifetime (one server
   // process); reset on restart, never persisted (invariant #2).
   const groupState: GroupState = new Map();
+
+  // User-placed chairs / benches / plants (items.ts). One shared space, memory only.
+  const itemStore = createItemStore();
 
   // One pending regroup per connection, fired just after its still window ends
   // (PROXIMITY_STILL_MS), so two people who both stopped actually get connected.
@@ -426,6 +430,7 @@ export function createWebSocketHandler(
               resumeToken: ws.data.resumeToken,
               resumed: true,
             });
+            send(ws, { type: 'items', items: itemStore.list() });
             // No player-joined broadcast — peers never saw us leave. Groups are
             // recomputed in case topology changed during the gap.
             broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
@@ -493,6 +498,7 @@ export function createWebSocketHandler(
             token: mediaToken,
             resumeToken: ws.data.resumeToken,
           });
+          send(ws, { type: 'items', items: itemStore.list() });
 
           broadcast(
             clients,
@@ -694,6 +700,26 @@ export function createWebSocketHandler(
             if (!members.includes(c.data.userId)) continue;
             send(c, { type: 'annotate', from: ws.data.userId, ...a });
           }
+          break;
+        }
+
+        case 'place-item': {
+          if (!ws.data.joined) return;
+          const placement = normalizePlacement(msg);
+          if (!placement) return;
+          const item = itemStore.add(placement);
+          // Taken tile or a full space: nothing to announce; the sender's own
+          // preview simply never turns into an item.
+          if (!item) return;
+          broadcast(clients, ws.data.workspace, { type: 'item-added', item });
+          break;
+        }
+
+        case 'remove-item': {
+          if (!ws.data.joined) return;
+          const id = normalizeItemId(msg.id);
+          if (id === null || !itemStore.remove(id)) return;
+          broadcast(clients, ws.data.workspace, { type: 'item-removed', id });
           break;
         }
 

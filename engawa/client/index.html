@@ -1915,6 +1915,49 @@
         border-color: #3d6fd9;
       }
 
+      /* Placement bar (ui/placement.ts): what to put down, above the toolbar. */
+      #placement-bar {
+        position: fixed;
+        left: 50%;
+        bottom: 84px;
+        transform: translateX(-50%);
+        z-index: 1050;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+        max-width: calc(100vw - 16px);
+        padding: 6px 8px;
+        border-radius: 12px;
+        background: rgba(20, 23, 30, 0.92);
+        border: 1px solid #3a4050;
+        backdrop-filter: blur(8px);
+      }
+      .placement-btn {
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: #2a2f3a;
+        color: #e6e8ee;
+        font-size: 13px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      .placement-btn:hover {
+        background: #353b49;
+      }
+      .placement-btn.active {
+        border-color: #5aa0ff;
+        background: rgba(90, 160, 255, 0.25);
+      }
+      .placement-btn.done {
+        background: #2f6fed;
+      }
+      .placement-hint {
+        font-size: 12px;
+        color: #9da3b0;
+        padding: 0 4px;
+      }
+
       /* ===== Participant roster (#242) ===== */
       #roster {
         position: absolute;

@@ -44,6 +44,18 @@ export type AnnotateBody = {
   end?: boolean;
 };
 
+// Things users place on the map themselves (server/src/items.ts). Chairs and
+// benches are sitting spots; plants are decoration.
+export type ItemKind = 'chair' | 'bench' | 'plant';
+export type ItemFacing = 'up' | 'down' | 'left' | 'right';
+export type PlacedItem = {
+  id: string;
+  kind: ItemKind;
+  col: number;
+  row: number;
+  facing: ItemFacing;
+};
+
 export type ClientMessage =
   // Single-space now: the client no longer sends `workspace`. `password` is only
   // present when an access password is configured (verified pre-join).
@@ -104,6 +116,9 @@ export type ClientMessage =
   // An emoji reaction, broadcast to the whole workspace (whitelist-validated)
   // and rendered as a short-lived bubble above the sender's avatar.
   | { type: 'reaction'; emoji: string }
+  // Put a chair / bench / plant on a tile, or take one away; the server shares it.
+  | { type: 'place-item'; kind: ItemKind; col: number; row: number; facing: ItemFacing }
+  | { type: 'remove-item'; id: string }
   // Pointer / pen over a screenshare, relayed to our call only. Coordinates are
   // 0–1 fractions of the shared frame (ui/annotate-logic.ts).
   | ({ type: 'annotate' } & AnnotateBody)
@@ -177,6 +192,10 @@ export type ServerMessage =
   // An emoji reaction from a workspace peer (from === self for our own echo),
   // shown floating above that user's avatar.
   | { type: 'reaction'; userId: string; emoji: string }
+  // The placed items: the full list after a welcome, then single changes.
+  | { type: 'items'; items: PlacedItem[] }
+  | { type: 'item-added'; item: PlacedItem }
+  | { type: 'item-removed'; id: string }
   // A call peer's pointer / stroke over a screenshare.
   | ({ type: 'annotate'; from: string } & AnnotateBody)
   // A workspace peer's speaking state changed; drives the on-map speech bubble so

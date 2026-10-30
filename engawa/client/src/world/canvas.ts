@@ -2,6 +2,8 @@ import { t } from '@/core/i18n';
 import type { Point } from '@/core/proximity';
 import {
   CONNECT_RADIUS,
+  type ItemFacing,
+  type ItemKind,
   MAP_HEIGHT,
   MAP_WIDTH,
   PLAYER_RADIUS,
@@ -16,6 +18,7 @@ import {
 import { STATUS_EMOJI } from '@/ui/status-menu';
 import { CharacterSheet } from '@/world/character';
 import { buildMapCache, roundRect } from '@/world/map-art';
+import { drawPlacedItem, placedItems, placedSeatAt } from '@/world/placed-items';
 import type { PlayerState } from '@/world/player';
 import {
   callZoneAt,
@@ -154,6 +157,17 @@ export class CanvasRenderer {
   private viewWidth = 0;
   private viewHeight = 0;
   // What the avatar layer last drew, and when (see sceneKey / IDLE_REDRAW_MS).
+  // Preview of the item about to be placed (placement mode): drawn translucent on
+  // the hovered tile, tinted red when it can't go there. null = no preview.
+  private ghost: {
+    kind: ItemKind;
+    col: number;
+    row: number;
+    facing: ItemFacing;
+    valid: boolean;
+  } | null = null;
+  private ghostKey = '';
+
   private lastSceneKey = '';
   private lastDrawAt = 0;
   // Decoded profile pictures for the map name labels, keyed by userId. Rebuilt
@@ -511,6 +525,10 @@ export class CanvasRenderer {
       ctx.restore();
     }
 
+    // User-placed chairs / benches / plants sit on the floor, under the avatars.
+    for (const it of placedItems.all()) drawPlacedItem(ctx, it);
+    this.drawGhost(ctx);
+
     // players
     const selfAway = self?.status === 'away';
     for (const p of sortedPlayers) {
@@ -544,6 +562,24 @@ export class CanvasRenderer {
     this.drawNameLabels(ctx, sortedPlayers, w, h, selfAway);
   }
 
+  // Set (or clear, with null) the placement preview; part of the idle-frame key.
+  setPlacementGhost(
+    g: { kind: ItemKind; col: number; row: number; facing: ItemFacing; valid: boolean } | null,
+  ) {
+    this.ghost = g;
+    this.ghostKey = g ? `${g.kind},${g.col},${g.row},${g.facing},${g.valid}` : '';
+  }
+
+  private drawGhost(ctx: CanvasRenderingContext2D) {
+    const g = this.ghost;
+    if (!g) return;
+    if (!g.valid) {
+      ctx.fillStyle = 'rgba(229, 72, 77, 0.3)';
+      ctx.fillRect(g.col * TILE_SIZE, g.row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+    }
+    drawPlacedItem(ctx, g, g.valid ? 0.6 : 0.35);
+  }
+
   // Everything the avatar layer's pixels depend on, as a string; render() skips
   // the frame when it matches the last drawn one. null = animating (a pulsing
   // focus ring, a speech bubble, a floating reaction, a walk cycle), which
@@ -559,7 +595,7 @@ export class CanvasRenderer {
     // Positions to 1/20 px: below that nothing visibly moves, and it lets a
     // remote avatar's exponential ease settle into a stable key.
     const q = (v: number) => Math.round(v * 20);
-    let key = `${q(this.camX)},${q(this.camY)},${this.zoomLevel},${this.viewWidth}x${this.viewHeight},${mediaActive},${inConversation}`;
+    let key = `${q(this.camX)},${q(this.camY)},${this.zoomLevel},${this.viewWidth}x${this.viewHeight},${mediaActive},${inConversation}|i${placedItems.version}|g${this.ghostKey}`;
     if (moveTarget) key += `|t${q(moveTarget.x)},${q(moveTarget.y)}`;
     for (const p of players) {
       // Mid-stride (the next draw settles the pose) or a pulsing speech bubble.
@@ -1012,7 +1048,9 @@ export class CanvasRenderer {
 // Reads walkCol(), never advanceWalk(): the cycle is advanced once per frame, in
 // drawPlayer, and advancing it again here would reset it to the standing frame.
 function seatOf(p: PlayerState): Seat | null {
-  return p.walkCol() === 0 ? seatAt(p.x, p.y) : null;
+  if (p.walkCol() !== 0) return null;
+  // The map's own chairs first, then the ones users have placed.
+  return seatAt(p.x, p.y) ?? placedSeatAt(p.x, p.y);
 }
 
 // Dev only: the baked map image is cached on the Renderer instance, which

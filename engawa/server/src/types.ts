@@ -1,3 +1,5 @@
+import type { ItemFacing, ItemKind, PlacedItem } from './items';
+
 // Modular avatar configuration (#141): an integer index per category. The server
 // treats it as opaque data — it only sanitizes (sanitizeOutfit) and relays it,
 // never interprets it — so it stays stateless (invariant #2).
@@ -100,6 +102,10 @@ export type ClientMessage =
   // An emoji reaction, broadcast to the whole workspace (whitelist-validated)
   // and rendered as a short-lived bubble above the sender's avatar.
   | { type: 'reaction'; emoji: string }
+  // Place a chair / bench / plant on a map tile, or take one away. Shared with
+  // everyone via `item-added` / `item-removed` (see items.ts; memory only).
+  | { type: 'place-item'; kind: ItemKind; col: number; row: number; facing: ItemFacing }
+  | { type: 'remove-item'; id: string }
   // Share annotation (pointer / pen strokes over a screenshare), relayed to the
   // sender's own call only. Coordinates are 0–1 fractions of the shared frame so
   // every viewer's window size lines up. Validated by normalizeAnnotation.
@@ -183,6 +189,10 @@ export type ServerMessage =
   // An emoji reaction from a workspace peer (from === self for our own echo),
   // shown floating above that user's avatar.
   | { type: 'reaction'; userId: string; emoji: string }
+  // The placed items, sent in full after every welcome, then kept in step.
+  | { type: 'items'; items: PlacedItem[] }
+  | { type: 'item-added'; item: PlacedItem }
+  | { type: 'item-removed'; id: string }
   // A call peer's pointer / pen stroke over a screenshare (see ClientMessage).
   | {
       type: 'annotate';

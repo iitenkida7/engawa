@@ -33,7 +33,7 @@ import {
 // rugs in the meeting rooms, warm off-white walls, minimal white desks, and sage
 // plants in terracotta pots. Drawn procedurally (no tile sprites), so there are
 // no pixel-art patterns and nothing to license for the map.
-const PALETTE = {
+export const PALETTE = {
   floorWood: '#efe3d7', // open-office floor — light warm beige
   floorWoodSeam: 'rgba(196,178,148,0.45)',
   floorRug: '#efe9e0', // meeting-room cream rug
@@ -1072,7 +1072,7 @@ function drawDeskChair(cx: CanvasRenderingContext2D, tx: number, ty: number, fac
 
 // Sage plant in a terracotta pot: a small trapezoid pot with a cluster of
 // rounded leaves — a bit of greenery without pixel-art clutter.
-function drawPlant(cx: CanvasRenderingContext2D, tx: number, ty: number) {
+export function drawPlant(cx: CanvasRenderingContext2D, tx: number, ty: number) {
   const S = TILE_SIZE;
   const cx0 = tx + S / 2;
   softShadow(cx, cx0, ty + S * 0.86, S * 0.26, S * 0.08);

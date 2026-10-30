@@ -1649,3 +1649,78 @@ describe('createWebSocketHandler — share annotation relay', () => {
     expect(b.sent.length).toBe(before);
   });
 });
+
+describe('createWebSocketHandler — placed items', () => {
+  const setup = () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const h = createWebSocketHandler(clients, undefined, 'dev', new Set(), () => 1000);
+    const join = (name: string) => {
+      const ws = makeWs();
+      h.open!(ws);
+      deliver(h, ws, { type: 'join', name, workspace: 'ws1' });
+      return ws;
+    };
+    return { h, join };
+  };
+  const itemsOf = (ws: FakeWs) => [...ws.sent].reverse().find((m) => m.type === 'items');
+
+  test('a joiner is sent the current items', () => {
+    const { h, join } = setup();
+    const a = join('A');
+    deliver(h, a, { type: 'place-item', kind: 'chair', col: 3, row: 4, facing: 'down' });
+    const b = join('B');
+    const list = itemsOf(b);
+    expect(list?.type === 'items' && list.items).toHaveLength(1);
+  });
+
+  test('placing is broadcast to everyone, the placer included', () => {
+    const { h, join } = setup();
+    const a = join('A');
+    const b = join('B');
+    deliver(h, a, { type: 'place-item', kind: 'plant', col: 5, row: 6, facing: 'up' });
+    for (const ws of [a, b]) {
+      const added = ws.sent.find((m) => m.type === 'item-added');
+      expect(added?.type === 'item-added' && added.item).toMatchObject({
+        kind: 'plant',
+        col: 5,
+        row: 6,
+        facing: 'up',
+      });
+    }
+  });
+
+  test('a taken tile or a malformed placement announces nothing', () => {
+    const { h, join } = setup();
+    const a = join('A');
+    const b = join('B');
+    deliver(h, a, { type: 'place-item', kind: 'chair', col: 1, row: 1, facing: 'down' });
+    b.sent.length = 0;
+    deliver(h, a, { type: 'place-item', kind: 'chair', col: 1, row: 1, facing: 'up' });
+    deliver(h, a, { type: 'place-item', kind: 'sofa', col: 2, row: 2, facing: 'up' });
+    deliver(h, a, { type: 'place-item', kind: 'chair', col: -1, row: 2, facing: 'up' });
+    expect(b.sent.some((m) => m.type === 'item-added')).toBe(false);
+  });
+
+  test('anyone can remove an item, and it is announced once', () => {
+    const { h, join } = setup();
+    const a = join('A');
+    const b = join('B');
+    deliver(h, a, { type: 'place-item', kind: 'bench', col: 7, row: 7, facing: 'left' });
+    const added = b.sent.find((m) => m.type === 'item-added');
+    const id = added?.type === 'item-added' ? added.item.id : '';
+    deliver(h, b, { type: 'remove-item', id });
+    expect(a.sent.filter((m) => m.type === 'item-removed')).toHaveLength(1);
+    deliver(h, b, { type: 'remove-item', id });
+    expect(a.sent.filter((m) => m.type === 'item-removed')).toHaveLength(1);
+  });
+
+  test('an unjoined socket cannot place', () => {
+    const { h, join } = setup();
+    const a = join('A');
+    const ghost = makeWs();
+    h.open!(ghost);
+    a.sent.length = 0;
+    deliver(h, ghost, { type: 'place-item', kind: 'chair', col: 1, row: 1, facing: 'up' });
+    expect(a.sent).toHaveLength(0);
+  });
+});
