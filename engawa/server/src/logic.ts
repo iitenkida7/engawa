@@ -443,6 +443,9 @@ export type GroupMember = {
   // Position changed within the last PROXIMITY_STILL_MS (see there). Only gates
   // forming a NEW open-floor edge.
   moving?: boolean;
+  // userIds this member reports a wall between itself and. Either side's report
+  // keeps the pair apart on the open floor, however close they stand.
+  blocked?: readonly string[];
 };
 
 export type ProximityGroup = {
@@ -513,6 +516,8 @@ export function computeProximityGroups(
     if (a.zoneId !== null || b.zoneId !== null) {
       return a.zoneId !== null && a.zoneId === b.zoneId;
     }
+    // A wall between two people: close on the map, but not in the same room.
+    if (a.blocked?.includes(b.userId) || b.blocked?.includes(a.userId)) return false;
     const d = Math.hypot(b.x - a.x, b.y - a.y);
     // A desk seat is private: when either is seated, only an adjacent tile
     // connects (never a passer-by two tiles away).
@@ -678,6 +683,26 @@ export function normalizeAnnotation(msg: unknown): NormalizedAnnotation | null {
     return { shareId, kind: 'stroke', id: m.id, pts, end: m.end === true };
   }
   return null;
+}
+
+// Upper bound on the ids one `occluded` report may carry: only people within about
+// one proximity radius can be in it, so a crowd of this size is already absurd.
+export const OCCLUDED_MAX_IDS = 64;
+const OCCLUDED_ID_MAX_LENGTH = 64;
+
+/**
+ * Validate a client `occluded` list: an array of short strings, de-duplicated and
+ * capped. Anything else yields an empty list (the safe reading: nobody blocked).
+ */
+export function normalizeOccludedIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const ids = new Set<string>();
+  for (const v of raw) {
+    if (typeof v !== 'string' || v.length === 0 || v.length > OCCLUDED_ID_MAX_LENGTH) continue;
+    ids.add(v);
+    if (ids.size >= OCCLUDED_MAX_IDS) break;
+  }
+  return [...ids];
 }
 
 // How far a client-supplied transcript timestamp may sit from the server's own

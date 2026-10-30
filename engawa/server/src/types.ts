@@ -100,6 +100,10 @@ export type ClientMessage =
   // An emoji reaction, broadcast to the whole workspace (whitelist-validated)
   // and rendered as a short-lived bubble above the sender's avatar.
   | { type: 'reaction'; emoji: string }
+  // The nearby players this client has a wall between it and (see the client's
+  // wallBetween). Their pairs never share an open-floor call. Replaces the
+  // previous list; bounded by normalizeOccludedIds.
+  | { type: 'occluded'; ids: string[] }
   // Share annotation (pointer / pen strokes over a screenshare), relayed to the
   // sender's own call only. Coordinates are 0–1 fractions of the shared frame so
   // every viewer's window size lines up. Validated by normalizeAnnotation.
@@ -260,6 +264,9 @@ export type WsData = {
   // to tell "walking past" from "standing still": a new open-floor conversation
   // only starts once both sides have stopped (logic.ts PROXIMITY_STILL_MS).
   lastMoveAt: number;
+  // userIds this client reports a wall between itself and (client-computed, like
+  // zoneId). computeProximityGroups never joins a blocked pair on the open floor.
+  occluded: string[];
   joined: boolean;
   // Away mode (#220): a joined client that has stepped away. Stays connected and
   // keeps receiving broadcasts, but is hidden from peers (treated like a leave:

@@ -18,6 +18,7 @@ import {
   normalizeClientId,
   normalizeIceServers,
   normalizeName,
+  normalizeOccludedIds,
   normalizePlayerStatus,
   normalizeSfuPromoteAt,
   normalizeSfuTracks,
@@ -803,5 +804,69 @@ describe('normalizeAnnotation', () => {
   test('forwards nothing beyond the validated fields', () => {
     const a = normalizeAnnotation({ shareId: 's', kind: 'pointer', x: 0, y: 0, evil: '<script>' });
     expect(a).toEqual({ shareId: 's', kind: 'pointer', x: 0, y: 0 });
+  });
+});
+
+describe('walls between players (blocked pairs)', () => {
+  const m = (userId: string, x: number, blocked?: string[]): GroupMember => ({
+    userId,
+    x,
+    y: 0,
+    zoneId: null,
+    blocked,
+  });
+
+  test('a pair one side reports as walled off stays apart however close they are', () => {
+    const groups = computeProximityGroups([m('a', 0, ['b']), m('b', 20)], { sfuEnabled: true });
+    expect(groups).toHaveLength(2);
+  });
+
+  test('the other side\'s report blocks the pair too (either end is enough)', () => {
+    const groups = computeProximityGroups([m('a', 0), m('b', 20, ['a'])], { sfuEnabled: true });
+    expect(groups).toHaveLength(2);
+  });
+
+  test('a wall also splits a pair that was already together', () => {
+    const groups = computeProximityGroups([m('a', 0, ['b']), m('b', 20)], {
+      sfuEnabled: true,
+      prevGroupMemberSets: [['a', 'b']],
+      disconnectRadius: PROXIMITY_DISCONNECT_RADIUS,
+    });
+    expect(groups).toHaveLength(2);
+  });
+
+  test('only the listed pair is affected', () => {
+    const groups = computeProximityGroups([m('a', 0, ['b']), m('b', 20), m('c', 40)], {
+      sfuEnabled: true,
+    });
+    // a-b blocked, but c is next to both: all three still end up one call via c.
+    expect(groups).toHaveLength(1);
+  });
+
+  test('meeting rooms ignore the report (zones are their own boundary)', () => {
+    const a: GroupMember = { userId: 'a', x: 0, y: 0, zoneId: 'room', blocked: ['b'] };
+    const b: GroupMember = { userId: 'b', x: 900, y: 0, zoneId: 'room' };
+    expect(computeProximityGroups([a, b], { sfuEnabled: true })).toHaveLength(1);
+  });
+});
+
+describe('normalizeOccludedIds', () => {
+  test('keeps short strings, dropping duplicates', () => {
+    expect(normalizeOccludedIds(['a', 'b', 'a'])).toEqual(['a', 'b']);
+  });
+
+  test('anything that is not a list is nobody', () => {
+    expect(normalizeOccludedIds(undefined)).toEqual([]);
+    expect(normalizeOccludedIds('a')).toEqual([]);
+    expect(normalizeOccludedIds({ 0: 'a' })).toEqual([]);
+  });
+
+  test('drops non-strings, empty and over-long ids', () => {
+    expect(normalizeOccludedIds([1, null, '', 'x'.repeat(65), 'ok'])).toEqual(['ok']);
+  });
+
+  test('caps the list', () => {
+    const many = Array.from({ length: 200 }, (_, i) => `id${i}`);
+    expect(normalizeOccludedIds(many)).toHaveLength(64);
   });
 });

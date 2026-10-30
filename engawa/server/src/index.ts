@@ -84,6 +84,7 @@ const server = Bun.serve({
           clientId: null,
           lastGroupAt: 0,
           lastMoveAt: 0,
+          occluded: [],
           joined: false,
           away: false,
         } satisfies WsData,

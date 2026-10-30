@@ -14,6 +14,7 @@ import {
   normalizeBool,
   normalizeClientId,
   normalizeName,
+  normalizeOccludedIds,
   normalizePlayerStatus,
   normalizeResumeToken,
   normalizeSfuPromoteAt,
@@ -121,6 +122,7 @@ function broadcastGroups(
       zoneId: c.data.zoneId,
       seated: c.data.seated,
       moving: nowMs - c.data.lastMoveAt < PROXIMITY_STILL_MS,
+      blocked: c.data.occluded,
     });
     wsClients.push(c);
   }
@@ -694,6 +696,18 @@ export function createWebSocketHandler(
             if (!members.includes(c.data.userId)) continue;
             send(c, { type: 'annotate', from: ws.data.userId, ...a });
           }
+          break;
+        }
+
+        case 'occluded': {
+          if (!ws.data.joined) return;
+          const ids = normalizeOccludedIds(msg.ids);
+          // Only a change matters; the client already de-duplicates, but a repeat
+          // must not trigger another O(n²) regroup.
+          const prev = ws.data.occluded;
+          if (ids.length === prev.length && ids.every((id, i) => id === prev[i])) break;
+          ws.data.occluded = ids;
+          if (!ws.data.away) broadcastGroups(clients, ws.data.workspace, groupState, now());
           break;
         }
 

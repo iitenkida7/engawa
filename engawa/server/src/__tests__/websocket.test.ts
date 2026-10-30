@@ -53,6 +53,7 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       clientId: data.clientId ?? null,
       lastGroupAt: data.lastGroupAt ?? 0,
       lastMoveAt: data.lastMoveAt ?? 0,
+      occluded: data.occluded ?? [],
       joined: data.joined ?? false,
       away: data.away ?? false,
     } satisfies WsData,
@@ -1647,5 +1648,49 @@ describe('createWebSocketHandler — share annotation relay', () => {
     const before = b.sent.length;
     deliver(h, a, { type: 'annotate', shareId: 's', kind: 'stroke', id: 'bad id', pts: [0, 0] });
     expect(b.sent.length).toBe(before);
+  });
+});
+
+describe('createWebSocketHandler — occluded report', () => {
+  test('a wall report keeps two close, still players out of one call', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const h = createWebSocketHandler(clients, undefined, 'dev', new Set(), () => 5000);
+    const mk = (x: number) => {
+      const ws = makeWs();
+      h.open!(ws);
+      deliver(h, ws, { type: 'join', name: 'U', workspace: 'ws1' });
+      ws.data.x = x;
+      ws.data.y = 100;
+      ws.data.lastMoveAt = 0;
+      deliver(h, ws, { type: 'move', x, y: 100, vx: 0, vy: 0 });
+      return ws;
+    };
+    const a = mk(100);
+    const b = mk(140);
+    deliver(h, a, { type: 'move', x: 100, y: 100, vx: 0, vy: 0 });
+    deliver(h, b, { type: 'move', x: 140, y: 100, vx: 0, vy: 0 });
+    expect(a.data.groupKey).toContain(b.data.userId);
+
+    // a reports a wall to b: the call splits...
+    deliver(h, a, { type: 'occluded', ids: [b.data.userId] });
+    expect(a.data.groupKey).not.toContain(b.data.userId);
+    expect(b.data.groupKey).not.toContain(a.data.userId);
+
+    // ...and clearing the report lets them reconnect.
+    deliver(h, a, { type: 'occluded', ids: [] });
+    expect(a.data.groupKey).toContain(b.data.userId);
+  });
+
+  test('a repeated identical report does not regroup again', () => {
+    const clients = new Map<string, ServerWebSocket<WsData>>();
+    const h = createWebSocketHandler(clients, undefined, 'dev', new Set(), () => 5000);
+    const a = makeWs();
+    h.open!(a);
+    deliver(h, a, { type: 'join', name: 'A', workspace: 'ws1' });
+    deliver(h, a, { type: 'occluded', ids: ['x'] });
+    const sent = a.sent.length;
+    deliver(h, a, { type: 'occluded', ids: ['x'] });
+    expect(a.sent.length).toBe(sent);
+    expect(a.data.occluded).toEqual(['x']);
   });
 });

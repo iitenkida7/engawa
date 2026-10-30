@@ -104,6 +104,10 @@ export type ClientMessage =
   // An emoji reaction, broadcast to the whole workspace (whitelist-validated)
   // and rendered as a short-lived bubble above the sender's avatar.
   | { type: 'reaction'; emoji: string }
+  // The nearby players we cannot talk to because a wall is between us. The server
+  // keeps those pairs out of the same call however close they are. Re-sent only
+  // when the set changes.
+  | { type: 'occluded'; ids: string[] }
   // Pointer / pen over a screenshare, relayed to our call only. Coordinates are
   // 0–1 fractions of the shared frame (ui/annotate-logic.ts).
   | ({ type: 'annotate' } & AnnotateBody)
