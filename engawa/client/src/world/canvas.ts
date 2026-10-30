@@ -26,6 +26,7 @@ import {
   podRugAt,
   type Seat,
   seatAt,
+  TILE_SIZE,
   ZONES,
   zoneAt,
 } from '@/world/tilemap';
