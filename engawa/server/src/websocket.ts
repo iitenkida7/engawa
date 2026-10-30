@@ -707,7 +707,9 @@ export function createWebSocketHandler(
           const prev = ws.data.occluded;
           if (ids.length === prev.length && ids.every((id, i) => id === prev[i])) break;
           ws.data.occluded = ids;
-          if (!ws.data.away) broadcastGroups(clients, ws.data.workspace, groupState, now());
+          if (!ws.data.away) {
+            broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
+          }
           break;
         }
 
