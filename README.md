@@ -321,9 +321,9 @@ docker compose up -d
 アバター（キャラメイク）のドット絵素材は **LPC（[Universal-LPC-Spritesheet-Character-Generator](https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator)）** を使用しています。
 
 - パーツごとの作者・ライセンス・出典 URL は [`engawa/client/src/assets/lpc/CREDITS.csv`](./engawa/client/src/assets/lpc/CREDITS.csv) に個別に記録しています。各ライセンスの全文も同じディレクトリに同梱しています（`LICENSE-CC-BY-SA-3.0.txt` / `LICENSE-CC-BY-3.0.txt` / `LICENSE-CC-BY-4.0.txt` / `LICENSE-OGA-BY-3.0.txt` / `LICENSE-CC0-1.0.txt` / `LICENSE-GPL-3.0.txt` / `LICENSE-GPL-2.0.txt`）。
-- LPC アートのライセンスは **CC-BY-SA 3.0 / CC-BY 3.0 / CC-BY 4.0 / OGA-BY 3.0 / GPL 2.0 / GPL 3.0 / CC0** がパーツごとに混在します。**CC-BY-SA 3.0 は ShareAlike**（合成・色変えなどの派生も同ライセンス）です。キャラメイク画面の下部にも「素材: LPC · クレジット」リンクを表示しています。
+- LPC アートのライセンスは **CC-BY-SA 3.0 / CC-BY 3.0 / CC-BY 4.0 / OGA-BY 3.0 / GPL 2.0 / GPL 3.0 / CC0** がパーツごとに混在します（詳しくは[ライセンス](#-ライセンス)）。キャラメイク画面の下部にも「素材: LPC · クレジット」リンクを表示しています。
 - マップのタイル素材は **[Kenney](https://kenney.nl) の Roguelike Indoors（CC0）** を使用しています（[`engawa/client/src/assets/KENNEY-roguelike-indoors-LICENSE.txt`](./engawa/client/src/assets/KENNEY-roguelike-indoors-LICENSE.txt)）。
-- **これらの素材ライセンスは、engawa 本体のコードのライセンスとは分離して扱います。**
+- **これらの素材ライセンスは、engawa 本体のコード（MIT）とは分離して扱います。**
 
 ---
 
@@ -334,3 +334,25 @@ docker compose up -d
 - アプリに関する操作（ビルド・テスト・依存追加など）はすべて Docker 経由で行います。
 
 詳しいルールは [`CLAUDE.md`](./CLAUDE.md) を参照してください。
+
+---
+
+## 📄 ライセンス
+
+engawa の**ソースコードは [MIT License](./LICENSE)** です。
+
+一方で**同梱のアート素材は第三者の著作物**で、それぞれ別のライセンスに従います。コードと素材は分けて扱ってください。
+
+| 対象 | ライセンス |
+|---|---|
+| ソースコード | **MIT** |
+| マップタイル（Kenney "Roguelike Indoors"） | **CC0**（制約なし） |
+| アバター素材（LPC） | パーツごとに **CC0 / OGA-BY 3.0 / CC-BY 3.0 / CC-BY 4.0 / CC-BY-SA 3.0 / GPL 2.0 / GPL 3.0** |
+
+LPC 素材について、誤解されやすい点を先に書いておきます。
+
+- **GPL だけのパーツはありません。** [`CREDITS.csv`](./engawa/client/src/assets/lpc/CREDITS.csv) の `;` 区切りは「**このうちどれを選んでもよい**」というマルチライセンス表記（LPC の慣習）です。GPL が選択肢に入っているパーツはすべて CC 系ライセンスでも利用できます。**アバター素材が理由で engawa 本体のコードが GPL になることはありません。**
+- **ShareAlike が必須なのは一部です。** 選択の余地なく CC-BY-SA 3.0 になるのは髪型 7 種です。これらを含むアバター画像を**改変して再配布**するときは、その画像を CC-BY-SA 3.0 で配布する必要があります（engawa をそのまま自分たちでホストして使うぶんには関係ありません）。
+- **帰属表示（クレジット）は必要です。** OGA-BY / CC-BY / CC-BY-SA はいずれも作者名の表示を求めます。engawa は CREDITS.csv・この README・キャラメイク画面の 3 箇所で表示しています。素材を同梱したまま再配布するときは、この 3 箇所を残してください。
+
+素材のライセンスを一切気にせず使いたい場合は、`engawa/client/src/assets/` を自前の素材に差し替えてください。
