@@ -1,277 +1,311 @@
-# engawa（縁側）
+# engawa
 
-**ブラウザだけで使える、社内向けの仮想オフィス。**
+**English** ｜ [日本語](./README.ja.md)
 
-🌐 **紹介ページ: [iitenkida7.github.io/engawa/ja](https://iitenkida7.github.io/engawa/ja/)（[English](https://iitenkida7.github.io/engawa/)）**　｜　📖 [技術読本](https://iitenkida7.github.io/engawa/reader/)（[English](https://iitenkida7.github.io/engawa/reader/en.html)）　｜　🗺️ [マップ JSON 仕様](https://iitenkida7.github.io/engawa/map/)（[English](https://iitenkida7.github.io/engawa/map/en.html)）
+**A virtual office for your team, running in nothing but a browser.**
 
-2D マップ上でアバターを動かし、誰かに近づくと自動で音声・映像・画面共有がつながります。
-Slack のハドルや Gather.town のような「ちょっと話しかける」体験を、軽量・低コストで実現することを目指したツールです。
+🌐 **Landing page: [iitenkida7.github.io/engawa](https://iitenkida7.github.io/engawa/)（[日本語](https://iitenkida7.github.io/engawa/ja/)）**　｜　📖 [Engineering notes](https://iitenkida7.github.io/engawa/reader/en.html)（[日本語](https://iitenkida7.github.io/engawa/reader/)）　｜　🗺️ [Map JSON spec](https://iitenkida7.github.io/engawa/map/en.html)（[日本語](https://iitenkida7.github.io/engawa/map/)）
+
+Walk an avatar around a 2D map. Get close to someone and voice, video and screen share
+connect on their own — walk away and they drop. It goes after the part of an office that
+remote work loses, the minute of talk you never scheduled, and keeps it light and cheap.
 
 ```
-        ┌─────────────────────────────────────────┐
-        │   . . . . . . . . . . . . . . . . . . .   │
-        │        (•‿•) ───近づくと通話──→ (^_^)      │
-        │         あなた                  田中さん    │
-        │   . . . . . . . . . . . . . . . . . . .   │
-        └─────────────────────────────────────────┘
+        ┌──────────────────────────────────────────────┐
+        │  . . . . . . . . . . . . . . . . . . . . . . │
+        │     (•‿•) ──── walk closer ────→ (^_^)       │
+        │      you                        Tanaka       │
+        │  . . . . . . . . . . . . . . . . . . . . . . │
+        └──────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🍵 名前の由来
+## 🍵 Where the name comes from
 
-> 縁側は、家の内と外のあいだにある板の間。
-> 用がなくても腰掛けられて、通りかかった人となんとなく言葉を交わす——そんな場所でした。
+> An *engawa* is the wooden strip of floor along the edge of a Japanese house, between the
+> inside and the garden. You could sit on it without an errand, and trade a few words with
+> whoever happened to walk past — that kind of place.
 >
-> リモートワークで失われがちな「ばったり会って、ちょっと話す」を、画面の中に取り戻したい。
-> engawa は、誰かのとなりに気軽に居られる、オフィスの縁側です。
+> engawa is that edge of the office: somewhere you can be next to someone without a meeting.
 
 ---
 
-## ✨ 主な機能
+## ✨ What it does
 
-| | 機能 | 説明 |
+| | Feature | Notes |
 |---|---|---|
-| 🚶 | アバター移動 | 矢印キー / `h` `j` `k` `l`（vim 配列）でマップ上を歩く。クリックした場所へ自動で歩くことも可能 |
-| 🔊 | 近接音声通話 | 一定距離まで近づくと自動で音声がつながる（離れると自動で切断） |
-| 📷 | ビデオ通話 | カメラ ON で顔出し。話している人は枠が光る |
-| 🖥 | 画面共有 | ワンクリックで共有。小窓 / サイドパネル / 全画面を切り替え可能 |
-| 🪟 | 共有中も顔が見える | 画面共有を始めると相手の顔タイルが常に最前面の小窓に出る（Chrome / Edge。シングルディスプレイ向け）。⋯メニューの「🪟 画面共有中に顔を小窓に出す」にチェックを入れた人だけ有効（既定オフ） |
-| ⏺ | 録画 | 画面全体（フロア＋画面共有＋全カメラ）と全員の音声を合成してブラウザ上で録画。**ファイルは ■ 停止を押したときにダウンロード**される。録画中は画面右上に「録画中 + 経過時間」の表示とタブタイトルの「● REC」が出続け、停止せずにタブを閉じようとした場合はその時点までの録画を自動でダウンロードする（`-autosave` 付きファイル名） |
-| 🟢 | ステータス表示 | オンライン / 取り込み中 / 離席中 を切り替え |
-| 🔔 | 近接チャイム | 人が近づいた / 離れたときに軽い効果音 |
-| 🚪 | 退室で自動オフ | 会議室・ラウンジなどの部屋から出ると、マイク・カメラ・画面共有が自動で OFF（録画は継続。戻っても自動では ON にしない） |
-| 🔒 | 入室パスワード | `ACCESS_PASSWORD` を設定すると入室時にパスワードを確認（任意。未設定ならオープン） |
-| 👥 | 安定した通話 | 2 人以上の通話は既定で SFU 配信（大人数でもそのままスケール。要 Cloudflare Realtime SFU 設定。未設定なら全員 P2P） |
-| 📲 | アプリとしてインストール | デスクトップ Chrome / Edge でインストール可能（PWA）。独立ウィンドウで起動でき、Dock / タスクバーに常駐できる |
+| 🚶 | Move around | Arrow keys, `h` `j` `k` `l` (vim) or `w` `a` `s` `d`. Click a tile to walk there |
+| 🔊 | Proximity voice | Audio connects by itself within a radius, and drops when you leave |
+| 📷 | Video | Turn the camera on to show your face. Whoever is speaking gets a lit border |
+| 🖥 | Screen share | One click. Switch between a small window, a side panel and full screen |
+| 🪟 | Faces stay visible while sharing | Their camera tile mirrors into an always-on-top window (Chrome / Edge, for single-display setups). Off by default — tick "🪟 Face in a small window while screen sharing" in the ⋯ menu |
+| ⏺ | Recording | Records the whole screen (floor + screen share + every camera) with everyone's audio, in the browser. **The file downloads when you press ■ stop.** While recording, a "REC + elapsed" badge sits top-right and the tab title shows "● REC"; closing the tab without stopping saves what was recorded so far (filename gets `-autosave`) |
+| 🟢 | Status | Online / busy / away |
+| 🔔 | Proximity chime | A light sound when someone arrives or leaves |
+| 🚪 | Leaving a room turns media off | Walking out of a meeting room or lounge switches mic, camera and screen share off (recording continues; coming back does not turn them on again) |
+| 🔒 | Entry password | Set `ACCESS_PASSWORD` and the office asks for it at the door (optional — open by default) |
+| 👥 | Calls that hold up | Two or more people go through the SFU by default, so a crowd scales (needs Cloudflare Realtime SFU; without it everyone is P2P) |
+| 📲 | Installable | Installs as a PWA on desktop Chrome / Edge — its own window, parked in the Dock or taskbar |
 
 ---
 
-## 🎮 使い方
+## 🎮 Using it
 
-1. ブラウザでアプリを開く
-2. 名前（と、必要ならパスワード）を入力して入室
-3. **矢印キー**、または vim 配列の **`h` `j` `k` `l`** でアバターを動かす
-4. 話したい相手に**近づくだけ**で通話が始まります
+1. Open the app in a browser
+2. Enter a name (and a password, if the office has one)
+3. Move with the **arrow keys**, or **`h` `j` `k` `l`** if your hands live on the home row
+4. **Walk up to someone** — that is the whole act of starting a call
 
-ツールバーからマイク・カメラ・画面共有・録画・ステータスを操作できます。
+The toolbar has mic, camera, screen share, recording and status.
 
-### ⌨ キーバインド
+### ⌨ Keys
 
-覚えることは 1 行です。**単押しは自分だけに効く操作、`Shift` 付きはほかの人に見える操作**（画面共有・録画）。
+There is one line to remember: **a bare key does something only you notice, `Shift` does
+something everyone notices** (screen share, recording).
 
-移動は 3 流派そのまま使えます。
+All three movement dialects work as they are.
 
-| キー | 操作 |
+| Key | Action |
 |---|---|
-| `←` `↓` `↑` `→` | 移動（矢印） |
-| `h` `j` `k` `l` | 移動（vim） |
-| `w` `a` `s` `d` | 移動（WASD） |
+| `←` `↓` `↑` `→` | Move (arrows) |
+| `h` `j` `k` `l` | Move (vim) |
+| `w` `a` `s` `d` | Move (WASD) |
 
-| キー | 操作 |
+| Key | Action |
 |---|---|
-| `m` | マイク ON/OFF |
-| `c` | カメラ ON/OFF |
-| `v` | 会議表示 ⇄ マップ表示 |
-| `z` | 自分にズーム ⇄ 全体表示 |
-| `p` | 参加者リスト 開閉 |
-| `1`–`6` | リアクション |
-| `Shift` + `S` | 画面共有 ON/OFF |
-| `Shift` + `R` | 録画 開始/停止 |
-| `?` | キーバインド一覧 開閉 |
-| `Esc` | 最大化表示を戻す |
+| `m` | Mic on/off |
+| `c` | Camera on/off |
+| `v` | Meeting view ⇄ map view |
+| `z` | Zoom to yourself ⇄ whole floor |
+| `p` | Participant list |
+| `1`–`6` | Reactions |
+| `Shift` + `S` | Screen share on/off |
+| `Shift` + `R` | Start/stop recording |
+| `?` | Key reference |
+| `Esc` | Back out of a maximized panel |
 
-入力欄にカーソルがあるときは動きません。`?` のほか、ツールバーの **⋯ → キーバインド一覧** からも確認できます。
+Keys do nothing while the cursor is in a text field. The same reference is under
+**⋯ → Keyboard shortcuts** in the toolbar.
 
-> `ACCESS_PASSWORD` を設定している場合は、名前入力の前にパスワードの確認画面が表示されます。
+> With `ACCESS_PASSWORD` set, a password screen comes before the name screen.
 
-> **アプリとしてインストール**: デスクトップ Chrome / Edge ではアドレスバーのインストールアイコン（またはメニューの「アプリをインストール」）から、ブラウザの枠のない独立ウィンドウで起動できます。
+> **Install it as an app**: on desktop Chrome / Edge, the install icon in the address bar
+> (or "Install app" in the menu) gives it its own window with no browser chrome.
 
 ---
 
-## 🚀 動かす（開発環境）
+## 🚀 Running it (development)
 
-アプリの操作はすべて Docker 経由で行います。`docker-compose.yml` と `Makefile` はリポジトリ最上位にあります。
+Everything goes through Docker. `docker-compose.yml` and the `Makefile` sit at the
+repository root.
 
 ```bash
-cp .env.example .env   # （任意）TURN やパスワードを使う場合のみ編集
-make up                # 起動（バックグラウンド）
+cp .env.example .env   # optional — only to set TURN or a password
+make up                # start in the background
 ```
 
-開発環境は **Caddy リバースプロキシが HTTPS を終端** します。次の URL で開きます:
+Development runs behind **Caddy, which terminates HTTPS**:
 
-- **アプリ: https://engawa.localhost** ← これが開発の入口
-- 初回は Caddy のローカル CA を信頼していないため証明書警告が出ます。下記「ローカル CA を信頼する」を参照。
+- **App: https://engawa.localhost** ← this is the way in
+- The first visit warns about the certificate, because Caddy's local CA isn't trusted yet.
+  See "Trusting the local CA" below.
 
-> `.localhost` ドメインは OS が自動で `127.0.0.1` に解決するため、hosts ファイルの編集は不要です。
+> `.localhost` resolves to `127.0.0.1` on its own, so there is no hosts file to edit.
 
-| コマンド | 内容 |
+| Command | What it does |
 |---|---|
-| `make up` | 起動（`docker compose up -d`） |
-| `make down` | 停止 |
-| `make restart` | 再起動 |
-| `make test` | テスト実行（server / client 両方） |
-| `make build` | クライアントの本番ビルド |
+| `make up` | Start (`docker compose up -d`) |
+| `make down` | Stop |
+| `make restart` | Restart |
+| `make test` | Run the tests (server and client) |
+| `make build` | Type-check and build the client for production |
 
-> WebRTC は **HTTPS または localhost でのみ** 動作します。アプリ自身は TLS を持たず、**TLS 終端はリバースプロキシの責務** です。本番でも各自のリバースプロキシ（Caddy / nginx / クラウドの LB など）で HTTPS（`wss://` を含む）を終端してください。
+> WebRTC only runs on **HTTPS or localhost**. The app carries no TLS of its own: **terminating
+> TLS is the reverse proxy's job**. In production, terminate HTTPS (including `wss://`) at your
+> own proxy — Caddy, nginx, a cloud load balancer, whatever you already run.
 
-### ローカル CA を信頼する
+### Trusting the local CA
 
-`tls internal` が発行する証明書はローカル CA 署名です。警告を消すには CA ルート証明書を OS に取り込みます:
+`tls internal` issues certificates signed by a local CA. To silence the warning, install that
+CA's root certificate:
 
 ```bash
-# Caddy コンテナから CA ルート証明書を取り出す
+# Take the CA root certificate out of the Caddy container
 docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
 ```
 
-- **macOS**: `caddy-root.crt` をダブルクリック →「キーチェーンアクセス」で「常に信頼」に設定
-- **Windows**: 「信頼されたルート証明機関」ストアにインポート
-- **Linux**: `/usr/local/share/ca-certificates/` に置いて `sudo update-ca-certificates`
+- **macOS**: double-click `caddy-root.crt`, then set it to "Always Trust" in Keychain Access
+- **Windows**: import into "Trusted Root Certification Authorities"
+- **Linux**: drop it in `/usr/local/share/ca-certificates/` and run `sudo update-ca-certificates`
 
-### LAN 内の別端末（スマホ等）から実機テストする
+### Testing from a phone on the same LAN
 
-別端末で WebRTC を試すには HTTPS が必須です。`tls internal` の証明書は他端末では既定で信頼されないため、次の準備が必要です:
+WebRTC on another device needs HTTPS, and `tls internal` certificates aren't trusted there by
+default, so:
 
-1. ホスト PC の LAN IP を調べる（例: `192.168.1.10`）
-2. 別端末の hosts に `192.168.1.10 engawa.localhost` を追加する（証明書は `engawa.localhost` 向けに発行されるため、IP 直アクセスではなくこの名前で開く）
-   - iOS など hosts を編集できない端末では、社内 DNS で同名を引かせる等の代替が必要です
-3. 上記の `caddy-root.crt` をその端末に転送してインストール・信頼する
-4. 別端末で **https://engawa.localhost** を開く
+1. Find the host machine's LAN IP (say `192.168.1.10`)
+2. Add `192.168.1.10 engawa.localhost` to the other device's hosts file — the certificate is
+   issued for `engawa.localhost`, so open that name rather than the bare IP
+   - On iOS and anything else without an editable hosts file, you need an alternative such as
+     resolving the same name through an internal DNS server
+3. Copy `caddy-root.crt` to that device and install and trust it
+4. Open **https://engawa.localhost** there
 
-> これらの設定（hosts・CA 配布）は端末環境ごとに異なるため、各自の環境に合わせて行ってください。本リポジトリは特定ホスティング前提のデプロイ設定は持ちません。
+> These steps (hosts, distributing the CA) depend on your own devices. This repository carries
+> no deployment configuration tied to a particular host.
 
 ---
 
-## 🧱 技術スタック
+## 🧱 Stack
 
-**サーバー**
-- [Bun](https://bun.sh/) + 標準の WebSocket（外部依存ほぼなし）
-- 役割は「位置同期」「WebRTC シグナリング中継」「グループ方式(mesh/SFU)の判定・配信」「TURN/SFU 制御のプロキシ」のみ（メディアは通さない）
+**Server**
+- [Bun](https://bun.sh/) with the standard WebSocket — close to no dependencies
+- Its whole job: sync positions, relay WebRTC signaling, decide and publish each group's
+  transport (mesh/SFU), and proxy the TURN/SFU control plane. Media never passes through it
 
-**クライアント**
+**Client**
 - TypeScript + [Vite](https://vitejs.dev/)
-- 描画は素の Canvas 2D API（UI フレームワークなし）
-- WebRTC は [simple-peer](https://github.com/feross/simple-peer)（P2P メッシュ）＋ Cloudflare Realtime SFU（大人数・会議室、simulcast 多レイヤ）
+- Drawing is the plain Canvas 2D API — no UI framework
+- WebRTC through [simple-peer](https://github.com/feross/simple-peer) (P2P mesh) plus
+  Cloudflare Realtime SFU (crowds and meeting rooms, with simulcast layers)
 
-**インフラ**
-- STUN: Google 公開 STUN
-- TURN: Cloudflare Realtime（NAT 越えできない場合のみ経由）
-- SFU: Cloudflare Realtime SFU（会議室・大人数グループの配信。未設定ならすべて P2P メッシュ）
+**Infrastructure**
+- STUN: Google's public servers
+- TURN: Cloudflare Realtime, used only when a direct path can't be found
+- SFU: Cloudflare Realtime SFU, for meeting rooms and larger groups. Without it, everything
+  falls back to a P2P mesh
 
 ---
 
-## 🏗 アーキテクチャ
+## 🏗 Architecture
 
-メディア（音声・映像・画面共有）は **engawa のサーバーを経由しません**。2 人以上の通話は既定で Cloudflare Realtime SFU 経由（`SFU_PROMOTE_AT` で閾値を変えると少人数は P2P メッシュ）、SFU 未設定ならすべて P2P メッシュ——どちらでもメディアは自前サーバーを通りません。サーバーがやるのは、出会いの仲介・位置同期・グループ方式の判定だけです。
+Media — audio, video, screen share — **never travels through the engawa server**. Two or more
+people go through Cloudflare Realtime SFU by default (raise `SFU_PROMOTE_AT` and small groups
+stay on a P2P mesh); with no SFU configured, every group is a mesh. Either way your own server
+stays media-free. What it does is introduce people, sync positions, and decide the transport.
 
 ```
-[ブラウザA]                 [サーバー (Bun)]                 [ブラウザB]
-   │  WebSocket  ←───────→  ├ 位置のブロードキャスト  ←──────→  │  WebSocket
-   │                        ├ WebRTC シグナリング中継（mesh）    │
-   │                        ├ グループ方式(mesh/SFU)の判定・配信  │
+[browser A]                 [server (Bun)]                   [browser B]
+   │  WebSocket  ←───────→  ├ broadcast positions  ←────────→  │  WebSocket
+   │                        ├ relay WebRTC signaling (mesh)     │
+   │                        ├ decide + publish mesh/SFU groups  │
    │                        ├ /api/turn-credentials             │
-   │                        └ /api/sfu/*（SFU 制御のプロキシ）    │
+   │                        └ /api/sfu/* (SFU control proxy)    │
    │                                                            │
-   ├── 2 人以上の通話（既定）: Cloudflare Realtime SFU 経由 ────┤
-   └── SFU 未設定 / 閾値未満: WebRTC P2P メッシュ ──────────────┘
-            ※ メディアは engawa を経由しない（P2P / Cloudflare のみ）
+   ├── two or more people (default): via Cloudflare Realtime SFU ┤
+   └── no SFU configured / below the threshold: WebRTC P2P mesh ─┘
+          media never passes through engawa (P2P or Cloudflare only)
 ```
 
-### サーバーの責務
-1. **静的ファイル配信**
-2. **位置同期** — クライアントの座標を受け取り全員にブロードキャスト
-3. **WebRTC シグナリング中継** — offer / answer / ICE candidate を相手に転送（メッシュ）
-4. **グループ方式の判定・配信** — 位置と会議室ゾーンから近接グループを求め、mesh / SFU を決めて配る
-5. **TURN / SFU の発行・プロキシ** — Cloudflare API を叩いて短期トークンを返す／SFU 制御を中継（API キーはサーバーのみ保持）
+### What the server is responsible for
+1. **Serving static files**
+2. **Position sync** — take each client's coordinates and broadcast them
+3. **WebRTC signaling relay** — forward offer / answer / ICE candidates (mesh)
+4. **Deciding and publishing groups** — derive proximity groups from positions and meeting-room
+   zones, pick mesh or SFU, and tell everyone
+5. **Issuing and proxying TURN / SFU** — call the Cloudflare API for short-lived credentials and
+   relay SFU control requests (the API keys stay on the server)
 
 ---
 
-## 📁 ディレクトリ構成
+## 📁 Layout
 
 ```
 engawa/
-├ client/                # Vite + TypeScript フロントエンド
+├ client/                   # Vite + TypeScript front end
 │  └ src/
-│     ├ app.ts           # トップレベルのオーケストレータ（ゲームループ・各サブシステムの配線）
-│     ├ toolbar.ts       # マイク / カメラ / 画面共有 / 録画ボタンと各種メニュー
-│     ├ remote-media.ts  # リモートのビデオ / 音声 / 画面共有タイルの DOM 管理
-│     ├ face-pip.ts      # 画面共有中の顔小窓（Document Picture-in-Picture）
-│     ├ panels.ts        # フローティングパネルの配置
-│     ├ speaking.ts      # 発話検出
-│     ├ canvas.ts        # Canvas 描画
-│     ├ player.ts        # プレイヤー状態
-│     ├ media.ts         # マイク / カメラ / 画面共有
-│     ├ webrtc.ts        # WebRTC 接続管理（P2P メッシュ）
-│     ├ sfu.ts           # Cloudflare Realtime SFU 接続管理（大人数・会議室、simulcast）
-│     ├ network.ts       # WebSocket 通信
-│     ├ proximity.ts     # 近接判定（接続 / 切断のしきい値）
-│     ├ recorder.ts      # 録画
-│     ├ sounds.ts        # 効果音
-│     ├ tilemap.ts       # マップ
-│     ├ input.ts         # キー入力
-│     └ types.ts         # 共有型定義
-└ server/
-   └ src/
-      ├ index.ts         # Bun サーバーエントリ
-      ├ websocket.ts     # WS メッセージハンドラ
-      ├ logic.ts         # 入室・位置同期などのロジック
-      ├ turn.ts          # Cloudflare TURN クレデンシャル発行
-      ├ sfu.ts           # Cloudflare Realtime SFU 制御のプロキシ
-      ├ events.ts        # イベント Webhook の送信（任意。docs/webhook.md）
-      └ types.ts         # サーバー側型定義
+│     ├ core/               # orchestration and plumbing (app.ts's game loop, network.ts, proximity.ts)
+│     ├ rtc/                # the media paths (webrtc.ts = P2P mesh, sfu.ts = Cloudflare SFU, sdp.ts)
+│     ├ media/              # capture, processing, recording (media.ts, recorder.ts, noise.ts, vbg.ts)
+│     ├ world/              # drawing and walking the 2D map (canvas.ts, tilemap.ts, pathfind.ts)
+│     └ ui/                 # DOM panels and controls (toolbar.ts, remote-media.ts, roster.ts)
+├ server/
+│  └ src/
+│     ├ index.ts            # Bun server entry — wiring only
+│     ├ http.ts             # HTTP routing (/api/* and static files)
+│     ├ websocket.ts        # WS message handlers
+│     ├ logic.ts            # pure logic (coordinates, proximity grouping, entry checks)
+│     ├ map.ts              # loading and validating the map
+│     ├ settings.ts         # settings from a control plane (optional)
+│     ├ entry.ts            # signing and verifying entry tickets (ENTRY_MODE=token)
+│     ├ turn.ts             # Cloudflare TURN credentials
+│     ├ sfu.ts              # proxy for the Cloudflare Realtime SFU control plane
+│     └ events.ts           # event webhook (optional — docs/webhook.md)
+└ maps/                     # the map format (map-def.ts) and bundled maps (*.json), shared by both
 ```
 
 ---
 
-## ⚙️ 設定（環境変数）
+## ⚙️ Configuration
 
-`.env`（`.env.example` をコピーして作成）:
+`.env` (copy `.env.example`):
 
 ```bash
 PORT=3000
 
-# Cloudflare TURN（任意 — 設定しなければ STUN のみで動作）
+# Cloudflare TURN (optional — without it, STUN only)
 CLOUDFLARE_TURN_TOKEN_ID=
 CLOUDFLARE_TURN_TOKEN_SECRET=
 
-# Cloudflare Realtime SFU（任意 — 通話の配信。未設定なら全員 P2P メッシュ）
+# Cloudflare Realtime SFU (optional — without it, everyone is on a P2P mesh)
 CLOUDFLARE_REALTIME_APP_ID=
 CLOUDFLARE_REALTIME_APP_TOKEN=
 
-# SFU に切り替わる人数（任意 — 既定 2 = 2 人以上の通話はすべて SFU 経由）
+# Group size at which calls move to the SFU (optional — default 2, i.e. every call)
 SFU_PROMOTE_AT=
 
-# 入室パスワード（任意 — 設定すると入室時にパスワードを求める。未設定ならオープン）
+# Entry password (optional — without it the office is open)
 ACCESS_PASSWORD=
 
-# 使うマップ（任意 — 同梱プリセット名か外部マップ JSON の URL。未設定なら office_medium）
+# Which map to use (optional — a bundled preset name or a URL; default office_medium)
 MAP=
 
-# イベント Webhook（任意 — 入退室・会話の開始/終了を JSON で POST。未設定なら送らない）
+# Event webhook (optional — POSTs arrivals, departures and conversations as JSON)
 EVENT_WEBHOOK_URL=
 EVENT_WEBHOOK_SECRET=
 EVENT_INCLUDE_NAMES=
 ```
 
-- **TURN** を使う場合は Cloudflare Dashboard → Realtime → TURN で Token を作成して設定します。
-- **SFU** を使う場合は Cloudflare Dashboard → Realtime → SFU で App を作成し、App ID と Token を設定します。未設定でも全機能はメッシュで動作します（大人数時のスケールのみ制限されます）。
-- **SFU_PROMOTE_AT** は屋外グループが SFU に切り替わる人数です（既定 `2` = 2 人の会話も SFU 経由。接続の安定性を優先した既定値）。`4` にすると 2〜3 人は P2P メッシュのままになり、遅延が 1 ホップぶん減って SFU の帯域も使いません。会議室ゾーンは人数によらず常に SFU です。SFU 未設定ならこの値は無視されます。
-- **ACCESS_PASSWORD** を設定すると、入室時にパスワードが必要になります（名前入力の前に確認）。未設定ならパスワードは求めません。
-- **ENTRY_MODE=token** にすると、入室の可否を**コントロールプレーンに委ねます**。合言葉の代わりに、管理側が署名した
-  短命の**入室券**付きリンク（`/?t=…`）で入室し、**表示名は券から取る**ので詐称できません（文字起こし・録画の記録が本物になります）。
-  検証は `CONTROL_PLANE_TOKEN` を使って**オフィス内で完結**し、外部への問い合わせは発生しません。
-  詳細は [`docs/entry-token.ja.md`](./docs/entry-token.ja.md)（[English](./docs/entry-token.md)）。未設定なら従来の ACCESS_PASSWORD のままです。
-- **CONTROL_PLANE_URL** を設定すると、上記の設定を**外部の HTTP エンドポイントから定期的に受け取り**ます。
-  engawa を誰かのために運用していて、**再起動＝全員切断**を避けながら設定を変えたいときに使います。
-  詳細は [`docs/control-plane.ja.md`](./docs/control-plane.ja.md)。未設定なら環境変数だけを見ます（自己ホストの通常の動作）。
-- **MAP** は使うマップです。同梱プリセット名（`office_medium` / `office_small`）か、外部マップ JSON の URL を書きます。未設定なら `office_medium`。独自のマップはコンテナの `/maps` にマウントしてプリセット名で呼ぶか、URL で渡します。書き方は [マップ JSON 仕様](https://iitenkida7.github.io/engawa/map/)（[English](https://iitenkida7.github.io/engawa/map/en.html)）。検査に通らないマップはサーバーが起動を拒否します。
-- **EVENT_WEBHOOK_URL** を設定すると、入退室と会話の始まり・終わりを JSON で POST します（MTG の統計などに）。サーバーは送るだけで何も保存しません。参加者は既定で匿名 ID、`EVENT_INCLUDE_NAMES=true` で表示名になります。`EVENT_WEBHOOK_SECRET` で署名を付けられます。仕様は [`docs/webhook.ja.md`](./docs/webhook.ja.md)（[English](./docs/webhook.md)）、Google スプレッドシートに貯める受信サンプルは [`examples/webhook-gas/`](./examples/webhook-gas/README.ja.md) にあります。
+- For **TURN**, create a token under Cloudflare Dashboard → Realtime → TURN.
+- For the **SFU**, create an app under Cloudflare Dashboard → Realtime → SFU and set the app id
+  and token. Everything still works without it, on a mesh — only scaling to a crowd is limited.
+- **SFU_PROMOTE_AT** is the group size at which an open-floor call moves to the SFU (default `2`,
+  so even a pair goes through it — chosen for how reliably it connects). Set it to `4` and groups
+  of two or three stay P2P, saving a hop of latency and the SFU's bandwidth. Meeting-room zones
+  always use the SFU whatever the headcount. Ignored when no SFU is configured.
+- **ACCESS_PASSWORD** puts a password in front of the name screen. Unset, the office is open.
+- **ENTRY_MODE=token** hands the question of who may enter to **a control plane**. Instead of a
+  shared password, people arrive through a link carrying a short-lived **entry ticket** signed by
+  whoever runs the office (`/?t=…`), and **the display name comes from the ticket**, so it cannot
+  be faked (which makes transcripts and recordings attributable). Verification happens **inside the
+  office** using `CONTROL_PLANE_TOKEN` — nothing is asked of an outside service. See
+  [`docs/entry-token.md`](./docs/entry-token.md)（[日本語](./docs/entry-token.ja.md)）. Unset,
+  `ACCESS_PASSWORD` behaves as before.
+- **CONTROL_PLANE_URL** makes the server **fetch the settings above from an HTTP endpoint**,
+  periodically. It is for running engawa on someone's behalf and changing settings without a
+  restart, which would disconnect everyone. See
+  [`docs/control-plane.md`](./docs/control-plane.md)（[日本語](./docs/control-plane.ja.md)）.
+  Unset, only the environment is read — the normal self-hosted case.
+- **MAP** picks the map: a bundled preset (`office_medium` / `office_small`) or the URL of a map
+  JSON. Default `office_medium`. Mount your own at `/maps` in the container and name it, or pass a
+  URL. The format is in the [Map JSON spec](https://iitenkida7.github.io/engawa/map/en.html)
+  （[日本語](https://iitenkida7.github.io/engawa/map/)）. A map that fails validation stops the
+  server from starting.
+- **EVENT_WEBHOOK_URL** POSTs arrivals, departures and the start and end of conversations as JSON
+  (for meeting statistics, say). The server only sends; it stores nothing. Participants are
+  anonymous ids by default, or display names with `EVENT_INCLUDE_NAMES=true`. `EVENT_WEBHOOK_SECRET`
+  signs the body. The contract is in [`docs/webhook.md`](./docs/webhook.md)
+  （[日本語](./docs/webhook.ja.md)）, and a receiver that files everything into a Google Sheet is in
+  [`examples/webhook-gas/`](./examples/webhook-gas/README.md).
 
 ---
 
-## 🐳 本番デプロイ（コンテナ）
+## 🐳 Deploying (container)
 
-本番用の **host 非依存なコンテナイメージ** を同梱しています（`Dockerfile`）。Bun サーバーがクライアントのビルド成果物を `./public` から配信し、静的ファイル・`/ws`・`/api` を**単一ポート / 同一オリジン**で提供します。
+A **host-agnostic container image** comes with the repository (`Dockerfile`). The Bun server
+serves the built client out of `./public`, so static files, `/ws` and `/api` all sit behind a
+**single port and a single origin**.
 
 ```bash
 docker build -t engawa .
@@ -281,78 +315,111 @@ docker run -p 3000:3000 \
   engawa
 ```
 
-`v*` タグを push すると GitHub Actions（`.github/workflows/release.yml`）が **GHCR** にイメージを公開します: `ghcr.io/<owner>/engawa`。
+Pushing a `v*` tag has GitHub Actions (`.github/workflows/release.yml`) publish the image to
+**GHCR**: `ghcr.io/<owner>/engawa`.
 
-### Caddy 付きの本番サンプル（[`production_sample/docker_compose/`](./production_sample/docker_compose/)）
+### A production sample with Caddy ([`production_sample/docker_compose/`](./production_sample/docker_compose/))
 
-VPS などにそのまま置いて動かせるサンプルを [`production_sample/docker_compose/`](./production_sample/docker_compose/) に同梱しています。**Caddy が Let's Encrypt で HTTPS を自動終端**し、GHCR の公開イメージへリバースプロキシします。
+[`production_sample/docker_compose/`](./production_sample/docker_compose/) holds a sample you can
+drop on a VPS as it is. **Caddy terminates HTTPS with Let's Encrypt** and reverse-proxies to the
+published GHCR image.
 
 ```bash
-# 実ドメインが解決でき、80/443 がインターネットから到達できるホストで:
+# on a host with a real domain pointed at it, ports 80/443 reachable:
 cd production_sample/docker_compose
-cp .env.example .env   # ENGAWA_DOMAIN / ACME_EMAIL / TURN などを設定
+cp .env.example .env   # set ENGAWA_DOMAIN / ACME_EMAIL / TURN and so on
 docker compose up -d
 ```
 
-- `ENGAWA_DOMAIN` の DNS を当ホストに向け、ポート **80/443** を開けておくと、Caddy が証明書を自動取得・更新します。
-- イメージは `ENGAWA_IMAGE` で指定（既定 `ghcr.io/iitenkida7/engawa:latest`）。本番では `:vX.Y.Z` のように**バージョンタグを固定**するのを推奨。
-- server コンテナはホストにポート公開せず、**Caddy 経由のみ**で到達します（単一オリジンで static・`/ws`・`/api` を配信）。
-- 詳しい前提・構成は [`production_sample/docker_compose/README.md`](./production_sample/docker_compose/README.md) を参照。開発用の `docker-compose.yml` / `Caddyfile`（リポジトリ最上位。`tls internal` / `engawa.localhost`）とは別物です。
+- Point `ENGAWA_DOMAIN`'s DNS at the host and open ports **80/443**; Caddy obtains and renews the
+  certificate on its own.
+- `ENGAWA_IMAGE` picks the image (default `ghcr.io/iitenkida7/engawa:latest`). In production,
+  **pin a version tag** such as `:vX.Y.Z`.
+- The server container publishes no port to the host — it is reachable **only through Caddy**,
+  which keeps static files, `/ws` and `/api` on one origin.
+- For the details, see
+  [`production_sample/docker_compose/README.md`](./production_sample/docker_compose/README.md).
+  It is a different thing from the development `docker-compose.yml` / `Caddyfile` at the repository
+  root (`tls internal`, `engawa.localhost`).
 
-注意点:
+Worth knowing:
 
-- **TLS 終端はリバースプロキシ / プラットフォームのエッジの責務**。アプリ自身は TLS を持ちません。`fly.toml` などの**特定ホスティング向け設定は本リポジトリに含めません**（各自の環境側で管理）。
-- ⚠️ **必ず 1 インスタンスで動かす**。位置同期・シグナリングはインメモリの単一プロセスで、水平スケールすると別インスタンスのユーザーが見えなくなります（メディアは P2P なので台数に依存しません）。
-- TURN トークンや `ACCESS_PASSWORD` はイメージに焼かず、**実行時の環境変数 / シークレット**で渡します。
-
----
-
-## 🧭 設計の指針（変えるときに外さないでほしい点）
-
-1. **音声 / 映像 / 画面共有は絶対に engawa サーバーを経由しない** — P2P / TURN、または Cloudflare Realtime SFU 経由のみ（SFU でも自前サーバーはメディアを通さない）。
-2. **シグナリングサーバーは状態を持たない** — DB 不要。グループ情報や SFU の一時状態もメモリ上で完結し、再起動でリセットして良い。
-3. **Cloudflare の API キー（TURN / SFU とも）はサーバー側のみ保持** — ブラウザには短期クレデンシャル / プロキシ経由のアクセスだけを渡す。
-4. **HTTPS 必須**（localhost 開発を除く）。
-
----
-
-## 🎨 クレジット
-
-アバター（キャラメイク）のドット絵素材は **LPC（[Universal-LPC-Spritesheet-Character-Generator](https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator)）** を使用しています。
-
-- パーツごとの作者・ライセンス・出典 URL は [`engawa/client/src/assets/lpc/CREDITS.csv`](./engawa/client/src/assets/lpc/CREDITS.csv) に個別に記録しています。各ライセンスの全文も同じディレクトリに同梱しています（`LICENSE-CC-BY-SA-3.0.txt` / `LICENSE-CC-BY-3.0.txt` / `LICENSE-CC-BY-4.0.txt` / `LICENSE-OGA-BY-3.0.txt` / `LICENSE-CC0-1.0.txt` / `LICENSE-GPL-3.0.txt` / `LICENSE-GPL-2.0.txt`）。
-- LPC アートのライセンスは **CC-BY-SA 3.0 / CC-BY 3.0 / CC-BY 4.0 / OGA-BY 3.0 / GPL 2.0 / GPL 3.0 / CC0** がパーツごとに混在します（詳しくは[ライセンス](#-ライセンス)）。キャラメイク画面の下部にも「素材: LPC · クレジット」リンクを表示しています。
-- マップのタイル素材は **[Kenney](https://kenney.nl) の Roguelike Indoors（CC0）** を使用しています（[`engawa/client/src/assets/KENNEY-roguelike-indoors-LICENSE.txt`](./engawa/client/src/assets/KENNEY-roguelike-indoors-LICENSE.txt)）。
-- **これらの素材ライセンスは、engawa 本体のコード（MIT）とは分離して扱います。**
+- **Terminating TLS belongs to your reverse proxy or your platform's edge.** The app has no TLS of
+  its own, and **configuration tied to a particular host does not live in this repository**
+  (`fly.toml` and the like belong in your own environment).
+- ⚠️ **Run exactly one instance.** Position sync and signaling live in one process's memory;
+  scaled horizontally, people on different instances stop seeing each other. (Media is P2P, so it
+  doesn't care how many instances there are.)
+- Don't bake TURN tokens or `ACCESS_PASSWORD` into the image — pass them as **runtime environment
+  variables or secrets**.
 
 ---
 
-## 🤝 開発に参加する
+## 🧭 Design invariants
 
-- コミットメッセージ・コード中のコメントは英語で書きます。
-- TypeScript strict モード / セミコロンあり / シングルクォート / インデント 2 スペース。
-- アプリに関する操作（ビルド・テスト・依存追加など）はすべて Docker 経由で行います。
-
-詳しいルールは [`CLAUDE.md`](./CLAUDE.md) を参照してください。
+1. **Audio, video and screen share never pass through the engawa server** — only P2P / TURN or
+   Cloudflare Realtime SFU. Even with the SFU, your own server stays media-free.
+2. **The signaling server holds no state** — no database. Group information and the SFU's
+   temporary state live in memory and may be thrown away on restart.
+3. **Cloudflare API keys (TURN and SFU alike) stay on the server** — the browser only ever gets
+   short-lived credentials, or access through the proxy.
+4. **HTTPS is required** (localhost development aside).
 
 ---
 
-## 📄 ライセンス
+## 🎨 Credits
 
-engawa の**ソースコードは [MIT License](./LICENSE)** です。
+The avatar sprites (the character creator) come from **LPC
+([Universal-LPC-Spritesheet-Character-Generator](https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator))**.
 
-一方で**同梱のアート素材は第三者の著作物**で、それぞれ別のライセンスに従います。コードと素材は分けて扱ってください。
+- Author, license and source URL are recorded per part in
+  [`engawa/client/src/assets/lpc/CREDITS.csv`](./engawa/client/src/assets/lpc/CREDITS.csv). The full
+  text of every license sits in the same directory (`LICENSE-CC-BY-SA-3.0.txt` /
+  `LICENSE-CC-BY-3.0.txt` / `LICENSE-CC-BY-4.0.txt` / `LICENSE-OGA-BY-3.0.txt` /
+  `LICENSE-CC0-1.0.txt` / `LICENSE-GPL-3.0.txt` / `LICENSE-GPL-2.0.txt`).
+- LPC art is a mix of **CC-BY-SA 3.0 / CC-BY 3.0 / CC-BY 4.0 / OGA-BY 3.0 / GPL 2.0 / GPL 3.0 /
+  CC0**, part by part (see [License](#-license)). The character creator also carries an
+  "Art: LPC · credits" link at the bottom.
+- The map tiles are **[Kenney](https://kenney.nl)'s Roguelike Indoors (CC0)**
+  ([`engawa/client/src/assets/KENNEY-roguelike-indoors-LICENSE.txt`](./engawa/client/src/assets/KENNEY-roguelike-indoors-LICENSE.txt)).
+- **These asset licenses are a separate matter from engawa's own code (MIT).**
 
-| 対象 | ライセンス |
+---
+
+## 🤝 Contributing
+
+- Commit messages and code comments are written in English.
+- TypeScript strict mode, semicolons, single quotes, two-space indentation.
+- Anything touching the app (building, testing, adding dependencies) goes through Docker.
+
+The rules in full are in [`CLAUDE.md`](./CLAUDE.md).
+
+---
+
+## 📄 License
+
+engawa's **source code is under the [MIT License](./LICENSE)**.
+
+The **bundled art is third-party work** under its own licenses, which are a separate matter from
+the code.
+
+| | License |
 |---|---|
-| ソースコード | **MIT** |
-| マップタイル（Kenney "Roguelike Indoors"） | **CC0**（制約なし） |
-| アバター素材（LPC） | パーツごとに **CC0 / OGA-BY 3.0 / CC-BY 3.0 / CC-BY 4.0 / CC-BY-SA 3.0 / GPL 2.0 / GPL 3.0** |
+| Source code | **MIT** |
+| Map tiles (Kenney "Roguelike Indoors") | **CC0** (no conditions) |
+| Avatar art (LPC) | per part: **CC0 / OGA-BY 3.0 / CC-BY 3.0 / CC-BY 4.0 / CC-BY-SA 3.0 / GPL 2.0 / GPL 3.0** |
 
-LPC 素材について、誤解されやすい点を先に書いておきます。
+Three things about the LPC art are easy to misread, so to save you the trouble:
 
-- **GPL だけのパーツはありません。** [`CREDITS.csv`](./engawa/client/src/assets/lpc/CREDITS.csv) の `;` 区切りは「**このうちどれを選んでもよい**」というマルチライセンス表記（LPC の慣習）です。GPL が選択肢に入っているパーツはすべて CC 系ライセンスでも利用できます。**アバター素材が理由で engawa 本体のコードが GPL になることはありません。**
-- **ShareAlike が必須なのは一部です。** 選択の余地なく CC-BY-SA 3.0 になるのは髪型 7 種です。これらを含むアバター画像を**改変して再配布**するときは、その画像を CC-BY-SA 3.0 で配布する必要があります（engawa をそのまま自分たちでホストして使うぶんには関係ありません）。
-- **帰属表示（クレジット）は必要です。** OGA-BY / CC-BY / CC-BY-SA はいずれも作者名の表示を求めます。engawa は CREDITS.csv・この README・キャラメイク画面の 3 箇所で表示しています。素材を同梱したまま再配布するときは、この 3 箇所を残してください。
+- **No part is GPL-only.** The `;` separators in
+  [`CREDITS.csv`](./engawa/client/src/assets/lpc/CREDITS.csv) list licenses you may **choose
+  between** — that is the LPC convention, not a conjunction. Every part that offers GPL also offers
+  a Creative Commons license, so **the avatar art cannot pull engawa's code into the GPL**.
+- **ShareAlike binds only a few parts.** Seven hairstyles are CC-BY-SA 3.0 with no alternative. If
+  you **modify and redistribute** an avatar image containing them, that image has to go out under
+  CC-BY-SA 3.0. (Hosting engawa as it is, for your own people, doesn't enter into it.)
+- **Attribution is required.** OGA-BY, CC-BY and CC-BY-SA all ask for the author's name. engawa
+  shows it in three places: CREDITS.csv, this README, and the character creator. If you
+  redistribute with the art still in it, leave those three in place.
 
-素材のライセンスを一切気にせず使いたい場合は、`engawa/client/src/assets/` を自前の素材に差し替えてください。
+To be free of asset licensing altogether, replace `engawa/client/src/assets/` with your own art.

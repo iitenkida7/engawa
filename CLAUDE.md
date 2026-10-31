@@ -20,6 +20,7 @@ Slack のハドルや Gather.town のような「ばったり話す」体験を�
 ## リポジトリ構成の注意（重要）
 ソースコードは **リポジトリ直下ではなく `engawa/` サブディレクトリ配下** にある。
 `docker-compose.yml` / `Makefile` / `README.md` / この `CLAUDE.md` はリポジトリ最上位。
+**README は英語の `README.md` が本体、日本語は `README.ja.md`**（相互にリンク）。中身を変えるときは**両方**を更新する。
 
 ```
 / (リポジトリ最上位)
@@ -244,7 +245,7 @@ App が仲介する（既存の Manager-callback パターン）。主なモジ�
   **CC-BY-SA 3.0 は ShareAlike**（合成・色変えなどの派生も同ライセンス）。
   - 取り込んだパーツの作者・ライセンス・出典は `engawa/client/src/assets/lpc/CREDITS.csv` に**個別に**記録する。
     各ライセンス全文も同ディレクトリに同梱（`LICENSE-*.txt`）。新しいパーツを足すときは CREDITS.csv も必ず更新する。
-  - 帰属表示は **3 箇所**で行う: ①`assets/lpc/CREDITS.csv`＋ライセンス全文の同梱、②README の「クレジット」節、
+  - 帰属表示は **3 箇所**で行う: ①`assets/lpc/CREDITS.csv`＋ライセンス全文の同梱、②README（`README.md` / `README.ja.md`）の「クレジット」節、
     ③キャラメイク画面（avatar-editor）下部のクレジットリンク。
 - **素材のライセンスと engawa 本体コードのライセンスは分離して扱う。** 本体コードは **MIT**（最上位の `LICENSE`）。CC0 以外の素材を増やすときはこの方針に従う。
 - LPC の `CREDITS.csv` の `;` 区切りは**マルチライセンス（いずれかを選べる）**。GPL 単独のパーツは無いので、素材が理由で本体が GPL になることはない。README の「ライセンス」節がこの整理を持っているので、素材を増減したら**そこの件数・記述も更新する**。
