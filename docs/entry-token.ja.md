@@ -20,7 +20,8 @@ engawa のオフィスは、「誰を入れるか」の判断を**運用して�
 **コントロールプレーンが署名した券を受け取るだけ**にします。
 
 ```
-①  コントロールプレーン   入室券を発行:  HMAC-SHA256(CONTROL_PLANE_TOKEN, payload)
+①  コントロールプレーン   入室券を発行:  HMAC-SHA256(ticketKey, payload)
+                         ticketKey = HMAC-SHA256(CONTROL_PLANE_TOKEN, "engawa-entry-ticket-v1")
 ②  ブラウザ               https://office.example/?t=<入室券> を開く
 ③  オフィス               手元の鍵で検証し、券に書かれた名前で入室させる
 ```
@@ -68,7 +69,8 @@ engawa のオフィスは、「誰を入れるか」の判断を**運用して�
 ```
 
 - `payload` — クレーム JSON の `base64url`（**パディングなし**）。
-- `signature` — `HMAC-SHA256(CONTROL_PLANE_TOKEN, payload)` の `base64url`。
+- `signature` — `HMAC-SHA256(ticketKey, payload)` の `base64url`。
+  `ticketKey = HMAC-SHA256(CONTROL_PLANE_TOKEN, "engawa-entry-ticket-v1")`（hex ではなく生の 32 バイト）。
   ここでの `payload` は、**上の base64url 文字列そのもの**です（デコードした JSON ではありません）。
 
 JSON ではなくエンコード済みの文字列に署名するので、**券が運ぶバイト列と検証するバイト列が一致**します。
@@ -109,13 +111,20 @@ import { createHmac } from 'node:crypto';
 function mintEntryTicket(secret, { userId, name }, lifetimeS = 12 * 60 * 60) {
   const claims = { userId, name, exp: Math.floor(Date.now() / 1000) + lifetimeS };
   const payload = Buffer.from(JSON.stringify(claims), 'utf8').toString('base64url');
-  const signature = createHmac('sha256', secret).update(payload).digest('base64url');
+  // トークンそのものではなく、トークンから派生させた鍵で署名する（下記）。
+  const ticketKey = createHmac('sha256', secret).update('engawa-entry-ticket-v1').digest();
+  const signature = createHmac('sha256', ticketKey).update(payload).digest('base64url');
 
   return `${payload}.${signature}`;
 }
 
 const url = `https://office.example/?t=${mintEntryTicket(secret, user)}`;
 ```
+
+**なぜ派生鍵か。** `CONTROL_PLANE_TOKEN` は設定取得のたびに Bearer としても送られるため、
+コントロールプレーンのアクセスログ・リバースプロキシ・WAF・APM などに残りえます。券をトークンそのもので署名すると、
+そこで見えたトークンから**任意の名前の券を作れて**しまいます。固定ラベルで派生させた鍵で署名することで 2 つの用途を分けています。
+トークンそのもので署名した券は `bad-signature` で拒否されます。いずれにせよ `Authorization` ヘッダーはログに残さないでください。
 
 engawa 側の実装は `engawa/server/src/entry.ts` の `signEntryToken` です。
 コントロールプレーンが TypeScript なら、作り直さずそのまま使えます。

@@ -6,6 +6,7 @@ import {
   ENTRY_USER_ID_MAX_LENGTH,
   type EntryClaims,
   entryAuth,
+  entryTicketKey,
   normalizeEntryMode,
   signEntryToken,
   verifyEntryToken,
@@ -26,10 +27,18 @@ const claims = (over: Partial<EntryClaims> = {}): EntryClaims => ({
   ...over,
 });
 
+// The ticket key, written out from the documented contract rather than via
+// entryTicketKey, so the test pins the format a control plane implements.
+const ticketKey = (secret: string) =>
+  createHmac('sha256', secret).update('engawa-entry-ticket-v1').digest();
+
+const sign = (body: string, secret = KEY) =>
+  createHmac('sha256', ticketKey(secret)).update(body).digest('base64url');
+
 /** Mint a ticket whose payload is arbitrary JSON (valid claims or not). */
 function tokenOf(payload: unknown, secret = KEY): string {
   const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
-  return `${body}.${createHmac('sha256', secret).update(body).digest('base64url')}`;
+  return `${body}.${sign(body, secret)}`;
 }
 
 describe('normalizeEntryMode', () => {
@@ -241,10 +250,23 @@ describe('verifyEntryToken — shapes that are not tickets', () => {
 
   test('a payload that is not base64url JSON is malformed, not a crash', () => {
     const payload = 'not-base64url-json';
-    const signature = createHmac('sha256', KEY).update(payload).digest('base64url');
+    const signature = sign(payload);
     expect(verifyEntryToken(`${payload}.${signature}`, KEY, NOW_MS)).toEqual({
       ok: false,
       reason: 'malformed',
     });
+  });
+});
+
+describe('ticket key derivation', () => {
+  test('follows the documented contract', () => {
+    expect(entryTicketKey(KEY)).toEqual(ticketKey(KEY));
+    expect(verifyEntryToken(tokenOf(claims()), KEY, NOW_MS).ok).toBe(true);
+  });
+
+  test('a ticket signed with the raw CONTROL_PLANE_TOKEN is rejected', () => {
+    const body = Buffer.from(JSON.stringify(claims()), 'utf8').toString('base64url');
+    const raw = `${body}.${createHmac('sha256', KEY).update(body).digest('base64url')}`;
+    expect(verifyEntryToken(raw, KEY, NOW_MS)).toEqual({ ok: false, reason: 'bad-signature' });
   });
 });

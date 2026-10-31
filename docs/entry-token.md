@@ -23,7 +23,8 @@ Rather than teach engawa about users, sessions and sign-in — an entire second 
 kept in step with the first — the office accepts a ticket the control plane signed.
 
 ```
-①  control plane          mints a ticket:  HMAC-SHA256(CONTROL_PLANE_TOKEN, payload)
+①  control plane          mints a ticket:  HMAC-SHA256(ticketKey, payload)
+                            ticketKey = HMAC-SHA256(CONTROL_PLANE_TOKEN, "engawa-entry-ticket-v1")
 ②  browser                opens  https://office.example/?t=<ticket>
 ③  office                 verifies it with the key it already holds, and lets that person in
                            under the name the ticket carries
@@ -78,7 +79,9 @@ and a ticket, to one office.
 ```
 
 - `payload` — `base64url` of the claims JSON, **no padding**.
-- `signature` — `base64url` of `HMAC-SHA256(CONTROL_PLANE_TOKEN, payload)`, where `payload` is the
+- `signature` — `base64url` of `HMAC-SHA256(ticketKey, payload)`, where
+  `ticketKey = HMAC-SHA256(CONTROL_PLANE_TOKEN, "engawa-entry-ticket-v1")` (the raw 32 bytes, not hex)
+  and `payload` is the
   base64url **text above**, not the JSON it decodes to.
 
 Signing the encoded text rather than the JSON means the bytes a ticket carries are the bytes that
@@ -121,13 +124,21 @@ import { createHmac } from 'node:crypto';
 function mintEntryTicket(secret, { userId, name }, lifetimeS = 12 * 60 * 60) {
   const claims = { userId, name, exp: Math.floor(Date.now() / 1000) + lifetimeS };
   const payload = Buffer.from(JSON.stringify(claims), 'utf8').toString('base64url');
-  const signature = createHmac('sha256', secret).update(payload).digest('base64url');
+  // Sign with a key derived from the token, never the token itself (see below).
+  const ticketKey = createHmac('sha256', secret).update('engawa-entry-ticket-v1').digest();
+  const signature = createHmac('sha256', ticketKey).update(payload).digest('base64url');
 
   return `${payload}.${signature}`;
 }
 
 const url = `https://office.example/?t=${mintEntryTicket(secret, user)}`;
 ```
+
+**Why a derived key.** `CONTROL_PLANE_TOKEN` is also sent as the bearer on every settings fetch,
+so it can turn up in the control plane's access logs, a reverse proxy, a WAF or an APM. If tickets
+were signed with the token itself, anyone who saw it there could mint a ticket under any name.
+Signing with a key derived under a fixed label keeps the two uses apart. A ticket signed with the
+raw token is rejected (`bad-signature`). Don't log the `Authorization` header either way.
 
 engawa's own implementation of this is `signEntryToken` in `engawa/server/src/entry.ts`, if your
 control plane is in TypeScript and would rather import it than reimplement it.

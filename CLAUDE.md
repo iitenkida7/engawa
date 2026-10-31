@@ -123,7 +123,7 @@ docker compose run --rm --no-deps server bun test -t 'verifyAccessPassword'
   会話の追跡は純粋関数 `trackConversations`（近接グループの差分から開始/継続/終了を判定）。開いている滞在・会話は
   一時メモリのみ（不変条件 #2）。**API 仕様（イベントの型・フィールド）を変えたら `docs/webhook.md`（英語）と `docs/webhook.ja.md`（日本語）の両方を更新する。**
 - `entry.ts` — **入室券**（任意。`ENTRY_MODE=token`。仕様は `docs/entry-token.md`）。コントロールプレーンが
-  `CONTROL_PLANE_TOKEN` で HMAC-SHA256 署名した券を**ローカルで検証**するだけの純粋関数（`verifyEntryToken` /
+  `CONTROL_PLANE_TOKEN` から派生させた鍵（`HMAC(token, "engawa-entry-ticket-v1")`。Bearer で送るトークン自体では署名しない）で HMAC-SHA256 署名した券を**ローカルで検証**するだけの純粋関数（`verifyEntryToken` /
   `signEntryToken` / `normalizeEntryMode`）。外部に問い合わせない・状態を持たない。署名照合は定数時間で、
   長さ不一致も通常の拒否にする。券の `name` を表示名に使うので**クライアントの自己申告は信じない**。
 - `types.ts` — `WsData`（接続ごとの状態）, `ClientMessage` / `ServerMessage`。

@@ -28,7 +28,7 @@ import { setting } from './settings';
 //    record of who was actually there.
 //
 // Both sides already hold one secret (CONTROL_PLANE_TOKEN), so an HMAC is
-// enough — there is no third party to convince, and nothing here needs a key
+// enough (signed with a key derived from it — see entryTicketKey) — there is no third party to convince, and nothing here needs a key
 // pair. Same scheme as the settings response and the event webhook: one idea,
 // used everywhere, rather than three things to learn.
 //
@@ -111,8 +111,26 @@ function base64urlText(text: string): string {
   return Buffer.from(text, 'utf8').toString('base64url');
 }
 
+/**
+ * Label the ticket key is derived under. Versioned so the derivation can change
+ * without a ticket signed one way ever verifying the other.
+ */
+export const ENTRY_TICKET_KEY_LABEL = 'engawa-entry-ticket-v1';
+
+/**
+ * The key tickets are signed with: HMAC-SHA256(CONTROL_PLANE_TOKEN, label),
+ * never the token itself. The token also travels as the bearer on every
+ * settings fetch, so it can end up in a control plane's access logs, a proxy or
+ * an APM; deriving a separate key means a token seen there is not, on its own,
+ * a way to sign tickets with any name. It also keeps a ticket signature and a
+ * settings signature from ever being the same computation.
+ */
+export function entryTicketKey(secret: string): Buffer {
+  return createHmac('sha256', secret).update(ENTRY_TICKET_KEY_LABEL).digest();
+}
+
 function signPayload(payload: string, secret: string): string {
-  return createHmac('sha256', secret).update(payload).digest('base64url');
+  return createHmac('sha256', entryTicketKey(secret)).update(payload).digest('base64url');
 }
 
 /**
@@ -131,7 +149,7 @@ function signaturesMatch(expected: string, actual: string): boolean {
 
 /**
  * Mint a ticket: `base64url(JSON claims)` + `.` + `base64url(HMAC-SHA256 of
- * that text)`. Exported so the format has one definition that tests — and any
+ * that text, keyed with entryTicketKey)`. Exported so the format has one definition that tests — and any
  * control plane written in TypeScript — can use rather than reimplement.
  */
 export function signEntryToken(claims: EntryClaims, secret: string): string {
