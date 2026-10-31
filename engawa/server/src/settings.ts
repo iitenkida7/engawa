@@ -35,6 +35,7 @@ export const SETTINGS_SIGNATURE_HEADER = 'x-engawa-signature';
 // everyone's transcription history from their Groq account.
 export const CONTROL_PLANE_KEYS = [
   'ACCESS_PASSWORD',
+  'ENTRY_MODE',
   'CLOUDFLARE_TURN_TOKEN_ID',
   'CLOUDFLARE_TURN_TOKEN_SECRET',
   'CLOUDFLARE_REALTIME_APP_ID',

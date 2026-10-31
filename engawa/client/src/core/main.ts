@@ -1,4 +1,12 @@
 import { App } from '@/core/app';
+import {
+  clearEntryToken,
+  ENTRY_TOKEN_PARAM,
+  loadEntryToken,
+  pickEntryToken,
+  storeEntryToken,
+  urlWithoutEntryToken,
+} from '@/core/entry-token';
 import { applyI18n, getLang, type Lang, setLang } from '@/core/i18n';
 import { AvatarEditor } from '@/ui/avatar-editor';
 import { loadProfileImage } from '@/ui/profile-image';
@@ -11,6 +19,7 @@ const passError = document.getElementById('join-pass-error') as HTMLDivElement;
 const passRemember = document.getElementById('join-pass-remember') as HTMLInputElement;
 const nameForm = document.getElementById('join-form') as HTMLFormElement;
 const nameInput = document.getElementById('join-name') as HTMLInputElement;
+const entryErrorCard = document.getElementById('join-entry-error') as HTMLDivElement;
 const btnAvatarPre = document.getElementById('btn-avatar-pre') as HTMLButtonElement;
 const avatarThumb = document.getElementById('join-avatar-thumb') as HTMLDivElement;
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
@@ -62,6 +71,9 @@ btnAvatarPre.addEventListener('click', () =>
 let app: App | null = null;
 // Password verified at the gate; sent on join. '' when the space is open.
 let verifiedPassword = '';
+// Entry ticket (docs/entry-token.md), when this office is gated by one. '' in
+// the ordinary password/open modes, where there is no ticket to carry.
+let entryToken = '';
 
 // Remembered passphrase (opt-in, localStorage). Stored only after a successful
 // verify when "remember on this device" is checked, so returning users skip the
@@ -86,15 +98,37 @@ async function verifyPassword(password: string): Promise<boolean> {
 
 function showNameStep() {
   passForm.classList.add('hidden');
+  entryErrorCard.classList.add('hidden');
   nameForm.classList.remove('hidden');
   nameInput.focus();
 }
 
 function showPassStep() {
   nameForm.classList.add('hidden');
+  entryErrorCard.classList.add('hidden');
   passForm.classList.remove('hidden');
   passError.classList.add('hidden');
   passInput.focus();
+}
+
+// Entry-ticket mode, no usable ticket: a dead end on purpose. The way in is a
+// fresh link from whoever runs this office, so there is nothing to retry here.
+function showEntryErrorStep() {
+  passForm.classList.add('hidden');
+  nameForm.classList.add('hidden');
+  entryErrorCard.classList.remove('hidden');
+}
+
+// Entry-ticket mode, ticket in hand: straight to the name step, with the name
+// field taken out — the name is the ticket's, not ours to type. The step stays
+// (rather than joining on its own) so the avatar can still be set, and so entry
+// is a click: browsers only let sound play after one.
+function showTicketStep() {
+  nameInput.value = '';
+  nameInput.required = false;
+  nameInput.classList.add('hidden');
+  showNameStep();
+  renderJoinAvatarThumb();
 }
 
 // On load, ask the server whether a password is required. Only then show the
@@ -102,11 +136,18 @@ function showPassStep() {
 // (an open space never asks for a password).
 async function initLogin() {
   let passwordRequired = false;
+  let entryMode = 'password';
   try {
     const res = await fetch('/api/config');
-    passwordRequired = !!((await res.json()) as { passwordRequired?: boolean }).passwordRequired;
+    const cfg = (await res.json()) as { passwordRequired?: boolean; entryMode?: string };
+    passwordRequired = !!cfg.passwordRequired;
+    entryMode = cfg.entryMode === 'token' ? 'token' : 'password';
   } catch {
     passwordRequired = false;
+  }
+  if (entryMode === 'token') {
+    initTicketLogin();
+    return;
   }
   if (!passwordRequired) {
     showNameStep();
@@ -122,6 +163,27 @@ async function initLogin() {
   }
   if (saved) clearStoredPass();
   showPassStep();
+}
+
+// Entry-ticket mode: the ticket arrives in the link (`/?t=…`) and is kept for
+// the rest of its life, so a reload or a dropped connection doesn't send the
+// person back to the control plane to be let in again. It is stripped from the
+// address bar immediately — a query string is the most quoted, screenshotted
+// and Referer-leaked part of a URL, and this one is a credential.
+function initTicketLogin() {
+  const fromUrl = new URL(window.location.href).searchParams.get(ENTRY_TOKEN_PARAM);
+  const cleaned = urlWithoutEntryToken(window.location.href);
+  if (cleaned) history.replaceState(history.state, '', cleaned);
+
+  const token = pickEntryToken(fromUrl, loadEntryToken());
+  if (!token) {
+    clearEntryToken();
+    showEntryErrorStep();
+    return;
+  }
+  storeEntryToken(token);
+  entryToken = token;
+  showTicketStep();
 }
 
 passForm.addEventListener('submit', async (e) => {
@@ -142,20 +204,29 @@ passForm.addEventListener('submit', async (e) => {
 nameForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const name = nameInput.value.trim();
-  if (!name) return;
-  localStorage.setItem('engawa-name', name);
+  // With a ticket there is no name to give: the server reads it off the ticket.
+  if (!name && !entryToken) return;
+  if (name) localStorage.setItem('engawa-name', name);
   joinOverlay.classList.add('hidden');
 
   if (!app) {
     app = new App({ canvas, editor });
   }
-  app.start(name, verifiedPassword);
+  app.start(name, verifiedPassword, entryToken);
 });
 
 // If a later join is rejected (e.g. the password changed), the App re-shows the
 // overlay; the remembered passphrase is now wrong, so drop it and restart at the
 // gate with the error visible (so it doesn't silently auto-fill the stale one).
 window.addEventListener('engawa-auth-error', () => {
+  // A ticket that stopped working (expired, or the office rotated its key):
+  // drop it and say so. Retrying with the same one would only fail again.
+  if (entryToken) {
+    entryToken = '';
+    clearEntryToken();
+    showEntryErrorStep();
+    return;
+  }
   clearStoredPass();
   showPassStep();
   passError.classList.remove('hidden');

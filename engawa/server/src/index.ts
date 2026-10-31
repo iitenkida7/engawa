@@ -1,4 +1,5 @@
 import type { ServerWebSocket } from 'bun';
+import { entryAuth } from './entry';
 import { isPasswordRequired, verifyAccessPassword } from './logic';
 import { loadMap, mapWorld } from './map';
 import { setting, startSettingsSync } from './settings';
@@ -126,11 +127,20 @@ const server = Bun.serve({
       });
     }
 
-    // Public pre-join config: whether the space requires a password. The client
-    // uses this to decide whether to show the password gate before the name step.
+    // Public pre-join config: which gate this office uses, so the client knows
+    // which screen to show. `entryMode: 'token'` means entry is by signed ticket
+    // (docs/entry-token.md) and there is no password step — the two gates are
+    // exclusive, so an ACCESS_PASSWORD left over in the environment is not
+    // reported (nor checked) while tickets are in force. Nothing secret here:
+    // it is the same answer for everyone, before anyone has identified
+    // themselves. The join over the websocket is the gate that counts.
     if (url.pathname === '/api/config') {
+      const mode = entryAuth().mode;
       return Response.json(
-        { passwordRequired: isPasswordRequired(setting('ACCESS_PASSWORD')) },
+        {
+          entryMode: mode,
+          passwordRequired: mode === 'password' && isPasswordRequired(setting('ACCESS_PASSWORD')),
+        },
         { headers: { 'Cache-Control': 'no-store' } },
       );
     }
