@@ -285,3 +285,9 @@ describe('fetchSettings', () => {
     expect(setting('ACCESS_PASSWORD', {})).toBe('still-good');
   });
 });
+
+describe('transcription keys', () => {
+  test('a control plane cannot supply GROQ_API_KEY', () => {
+    expect(parseSettings({ GROQ_API_KEY: 'gsk_x' })).toEqual({});
+  });
+});

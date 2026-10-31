@@ -65,7 +65,7 @@ X-Engawa-Signature: sha256=<hex>
 ### Why it is required
 
 The bearer authenticates engawa *to* the control plane. Without a signature the office has no way
-to know that whoever answered **is** the control plane. Settings carry Cloudflare and transcription
+to know that whoever answered **is** the control plane. Settings carry Cloudflare
 credentials, so accepting plausible-looking settings from an unauthenticated responder is worse
 than running with no control plane at all.
 
@@ -93,7 +93,6 @@ rather than two.
   "CLOUDFLARE_REALTIME_APP_ID": "...",
   "CLOUDFLARE_REALTIME_APP_TOKEN": "...",
   "SFU_PROMOTE_AT": 4,
-  "GROQ_API_KEY": "gsk_...",
   "EVENT_WEBHOOK_URL": "https://hooks.example.com/engawa",
   "EVENT_WEBHOOK_SECRET": "...",
   "EVENT_INCLUDE_NAMES": false
@@ -102,7 +101,7 @@ rather than two.
 
 ### What may be set (a whitelist)
 
-Only the ten keys above. **`PORT` and `MAP` are not accepted** — they shape the process and the
+Only the nine keys above. **`PORT` and `MAP` are not accepted** — they shape the process and the
 world at boot, and letting a remote endpoint set arbitrary environment variables would be a much
 larger thing to trust than this feature asks for.
 
@@ -123,7 +122,6 @@ larger thing to trust than this feature asks for.
 | `CLOUDFLARE_TURN_*` | **From the next credential issued** (established calls keep theirs) |
 | `CLOUDFLARE_REALTIME_*` | **From the next group recompute** (including enabling/disabling SFU) |
 | `SFU_PROMOTE_AT` | **From the next group recompute** |
-| `GROQ_API_KEY` | **From the next client that fetches it** |
 | `EVENT_WEBHOOK_*` | **At boot only** — the event recorder is built once at startup |
 | `PORT` / `MAP` | Not accepted (environment only, at boot) |
 
@@ -135,18 +133,12 @@ larger thing to trust than this feature asks for.
 - If the boot fetch fails, the server starts on the environment alone.
 - Only the **status code** is logged: a response body may contain settings.
 
-## A shared Groq key (`GROQ_API_KEY`)
+## Transcription keys are not accepted
 
-The transcription key is normally the user's own, entered in their browser. When `GROQ_API_KEY` is
-configured (by environment or control plane) it is treated as **one key for everyone in the space**.
-
-- It reaches the browser through `GET /api/transcription-credentials`, readable **only by a joined
-  session** (it requires the media token). The key is billable, so an anonymous HTTP client must not
-  be able to farm it.
-- The client **never writes it to localStorage**: it belongs to whoever runs the space, not to that
-  browser.
-- A personal key a user has stored still works; the shared one simply outranks it.
-- Audio still goes **from the browser straight to Groq** — invariant #1 is unchanged.
+There is deliberately **no** `GROQ_API_KEY` setting. The transcription key is always the user's
+own, kept in their browser. A key supplied by whoever runs the space would let that operator read
+the transcription history of everyone in it from their Groq account — what was said in a
+conversation belongs to the people in it, not to the operator.
 
 ## A minimal implementation
 
@@ -163,7 +155,6 @@ app.get('/engawa/settings', (req, res) => {
     ACCESS_PASSWORD: tenant.accessPassword ?? null,
     CLOUDFLARE_TURN_TOKEN_ID: tenant.turnTokenId ?? null,
     CLOUDFLARE_TURN_TOKEN_SECRET: tenant.turnTokenSecret ?? null,
-    GROQ_API_KEY: tenant.groqApiKey ?? null,
   });
 
   res.set('X-Engawa-Signature',

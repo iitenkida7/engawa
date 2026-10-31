@@ -113,19 +113,6 @@ const server = Bun.serve({
       });
     }
 
-    // The transcription key, when the deployment provides one for everybody
-    // (GROQ_API_KEY / a control plane) instead of each person bringing their
-    // own. Behind the media token like the other credential endpoints: the key
-    // is billable, and an anonymous HTTP client must not be able to farm it.
-    // Unconfigured answers `null`, and the client falls back to asking the user.
-    if (url.pathname === '/api/transcription-credentials') {
-      if (!hasValidMediaToken(req)) return unauthorized();
-      return Response.json(
-        { apiKey: setting('GROQ_API_KEY') ?? null },
-        { headers: { 'Cache-Control': 'no-store' } },
-      );
-    }
-
     if (url.pathname === '/api/health') {
       return Response.json({ ok: true, clients: clients.size });
     }
