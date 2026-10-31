@@ -63,7 +63,7 @@ Webhook の署名（[`webhook.ja.md`](./webhook.ja.md)）と**同じ方式**な�
 
 Bearer は「engawa → コントロールプレーン」の認証にすぎません。署名が無いと、
 **答えた相手が本当にコントロールプレーンなのか**を engawa 側が確かめられません。
-設定には Cloudflare や Groq の鍵が含まれるため、**正しそうに見える設定を誰からでも受け取る**状態は、
+設定には Cloudflare の鍵が含まれるため、**正しそうに見える設定を誰からでも受け取る**状態は、
 コントロールプレーンを使わないより危険です。
 
 ```js
@@ -89,7 +89,6 @@ res.type('application/json').send(body);   // ← 同じバイト列を送るこ
   "CLOUDFLARE_REALTIME_APP_ID": "...",
   "CLOUDFLARE_REALTIME_APP_TOKEN": "...",
   "SFU_PROMOTE_AT": 4,
-  "GROQ_API_KEY": "gsk_...",
   "EVENT_WEBHOOK_URL": "https://hooks.example.com/engawa",
   "EVENT_WEBHOOK_SECRET": "...",
   "EVENT_INCLUDE_NAMES": false
@@ -98,7 +97,7 @@ res.type('application/json').send(body);   // ← 同じバイト列を送るこ
 
 ### 受け付ける設定（ホワイトリスト）
 
-上の 11 個だけです。**`PORT` と `MAP` は受け付けません** — プロセスと世界の形を起動時に決めるものであり、
+上の 10 個だけです。**`PORT` と `MAP` は受け付けません** — プロセスと世界の形を起動時に決めるものであり、
 外部のエンドポイントに任意の環境変数を設定させるのは、ここで求めている信頼より大きな話になるためです。
 
 - 知らないキーは**黙って無視**します（新しいコントロールプレーンと古いサーバーが共存できるように）。
@@ -117,7 +116,6 @@ res.type('application/json').send(body);   // ← 同じバイト列を送るこ
 | `CLOUDFLARE_TURN_*` | **次に発行する TURN クレデンシャルから**（確立済みの通話は従来どおり持ち続けます） |
 | `CLOUDFLARE_REALTIME_*` | **次のグループ再計算から**（SFU の有効/無効を含む） |
 | `SFU_PROMOTE_AT` | **次のグループ再計算から** |
-| `GROQ_API_KEY` | **次に取得するクライアントから** |
 | `EVENT_WEBHOOK_*` | **起動時のみ**（イベント記録はサーバー起動時に 1 度組み立てられます） |
 | `PORT` / `MAP` | 受け付けません（環境変数のみ・起動時） |
 
@@ -128,17 +126,11 @@ res.type('application/json').send(body);   // ← 同じバイト列を送るこ
 - 起動時の 1 回目が失敗した場合は、環境変数だけで起動します。
 - ログには**ステータスコードだけ**を出します（本文には設定値が入りうるため）。
 
-## 共通 Groq キー（`GROQ_API_KEY`）
+## 文字起こしの鍵は受け付けません
 
-文字起こしの API キーは通常「各自がブラウザに入れる自分の鍵」です。
-`GROQ_API_KEY`（または上記の設定）があるときは、**そのスペースの全員が使える共通の鍵**として扱われます。
-
-- クライアントには `GET /api/transcription-credentials` で渡します。
-  この口は**入室済みのセッション（media token）でのみ**読めます。課金が発生する鍵なので、
-  匿名の HTTP クライアントに収穫させないためです。
-- クライアントは受け取った鍵を **localStorage に保存しません**（運用者の鍵であって、ブラウザのものではないため）。
-- 共通鍵があるときも、各自が自分の鍵を登録していればそれは残ります（共通鍵が優先されるだけです）。
-- 音声は従来どおり**ブラウザから Groq へ直接**送られます（不変条件 #1 は変わりません）。
+`GROQ_API_KEY` という設定は**意図的にありません**。文字起こしの API キーは常に「各自がブラウザに入れる自分の鍵」です。
+スペースの運用者が鍵を配ると、運用者は自分の Groq アカウントから**参加者全員の文字起こし履歴を見られてしまいます**。
+会話の中身はその場にいた人のものであって、運用者のものではありません。
 
 ## 最小の実装例
 
@@ -155,7 +147,6 @@ app.get('/engawa/settings', (req, res) => {
     ACCESS_PASSWORD: tenant.accessPassword ?? null,
     CLOUDFLARE_TURN_TOKEN_ID: tenant.turnTokenId ?? null,
     CLOUDFLARE_TURN_TOKEN_SECRET: tenant.turnTokenSecret ?? null,
-    GROQ_API_KEY: tenant.groqApiKey ?? null,
   });
 
   res.set('X-Engawa-Signature',

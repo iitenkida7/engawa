@@ -261,7 +261,6 @@ EVENT_INCLUDE_NAMES=
   短命の**入室券**付きリンク（`/?t=…`）で入室し、**表示名は券から取る**ので詐称できません（文字起こし・録画の記録が本物になります）。
   検証は `CONTROL_PLANE_TOKEN` を使って**オフィス内で完結**し、外部への問い合わせは発生しません。
   詳細は [`docs/entry-token.ja.md`](./docs/entry-token.ja.md)（[English](./docs/entry-token.md)）。未設定なら従来の ACCESS_PASSWORD のままです。
-- **GROQ_API_KEY** を設定すると、文字起こしの API キーを**スペース全員で共有**します（未設定なら各自がブラウザに自分の鍵を入れる従来どおりの動作）。
 - **CONTROL_PLANE_URL** を設定すると、上記の設定を**外部の HTTP エンドポイントから定期的に受け取り**ます。
   engawa を誰かのために運用していて、**再起動＝全員切断**を避けながら設定を変えたいときに使います。
   詳細は [`docs/control-plane.ja.md`](./docs/control-plane.ja.md)。未設定なら環境変数だけを見ます（自己ホストの通常の動作）。

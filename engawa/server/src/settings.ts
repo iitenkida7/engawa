@@ -30,7 +30,9 @@ export const SETTINGS_SIGNATURE_HEADER = 'x-engawa-signature';
 
 // Settings a control plane may supply. Deliberately a whitelist: PORT and MAP
 // shape the process and the world at boot, and letting a remote endpoint set
-// arbitrary variables would be a much larger thing to trust.
+// arbitrary variables would be a much larger thing to trust. There is no
+// transcription key either: one supplied by the operator would let them read
+// everyone's transcription history from their Groq account.
 export const CONTROL_PLANE_KEYS = [
   'ACCESS_PASSWORD',
   'ENTRY_MODE',
@@ -39,7 +41,6 @@ export const CONTROL_PLANE_KEYS = [
   'CLOUDFLARE_REALTIME_APP_ID',
   'CLOUDFLARE_REALTIME_APP_TOKEN',
   'SFU_PROMOTE_AT',
-  'GROQ_API_KEY',
   'EVENT_WEBHOOK_URL',
   'EVENT_WEBHOOK_SECRET',
   'EVENT_INCLUDE_NAMES',
