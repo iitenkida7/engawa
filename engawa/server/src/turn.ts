@@ -1,4 +1,5 @@
 import { normalizeIceServers } from './logic';
+import { setting } from './settings';
 
 const FALLBACK_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -18,8 +19,10 @@ const TURN_FETCH_TIMEOUT_MS = 8000;
 const TURN_CREDENTIAL_TTL_S = 43200;
 
 export async function getTurnCredentials() {
-  const id = process.env.CLOUDFLARE_TURN_TOKEN_ID;
-  const secret = process.env.CLOUDFLARE_TURN_TOKEN_SECRET;
+  // Read per request (not cached): a control plane may rotate these while the
+  // office is running, and the next connection should get the new ones.
+  const id = setting('CLOUDFLARE_TURN_TOKEN_ID');
+  const secret = setting('CLOUDFLARE_TURN_TOKEN_SECRET');
 
   if (!id || !secret) {
     return FALLBACK_ICE_SERVERS;

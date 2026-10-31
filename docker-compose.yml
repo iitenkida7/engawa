@@ -30,6 +30,11 @@ services:
       - CLOUDFLARE_REALTIME_APP_ID=${CLOUDFLARE_REALTIME_APP_ID:-}
       - CLOUDFLARE_REALTIME_APP_TOKEN=${CLOUDFLARE_REALTIME_APP_TOKEN:-}
       - ACCESS_PASSWORD=${ACCESS_PASSWORD:-}
+      # Entry tickets (docs/entry-token.md): ENTRY_MODE=token gates entry on a
+      # ticket the control plane signs with CONTROL_PLANE_TOKEN. Both unset →
+      # the ACCESS_PASSWORD gate, unchanged.
+      - ENTRY_MODE=${ENTRY_MODE:-}
+      - CONTROL_PLANE_TOKEN=${CONTROL_PLANE_TOKEN:-}
       - EVENT_WEBHOOK_URL=${EVENT_WEBHOOK_URL:-}
       - EVENT_WEBHOOK_SECRET=${EVENT_WEBHOOK_SECRET:-}
       - EVENT_INCLUDE_NAMES=${EVENT_INCLUDE_NAMES:-}

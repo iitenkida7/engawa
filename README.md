@@ -257,6 +257,13 @@ EVENT_INCLUDE_NAMES=
 - **SFU** を使う場合は Cloudflare Dashboard → Realtime → SFU で App を作成し、App ID と Token を設定します。未設定でも全機能はメッシュで動作します（大人数時のスケールのみ制限されます）。
 - **SFU_PROMOTE_AT** は屋外グループが SFU に切り替わる人数です（既定 `2` = 2 人の会話も SFU 経由。接続の安定性を優先した既定値）。`4` にすると 2〜3 人は P2P メッシュのままになり、遅延が 1 ホップぶん減って SFU の帯域も使いません。会議室ゾーンは人数によらず常に SFU です。SFU 未設定ならこの値は無視されます。
 - **ACCESS_PASSWORD** を設定すると、入室時にパスワードが必要になります（名前入力の前に確認）。未設定ならパスワードは求めません。
+- **ENTRY_MODE=token** にすると、入室の可否を**コントロールプレーンに委ねます**。合言葉の代わりに、管理側が署名した
+  短命の**入室券**付きリンク（`/?t=…`）で入室し、**表示名は券から取る**ので詐称できません（文字起こし・録画の記録が本物になります）。
+  検証は `CONTROL_PLANE_TOKEN` を使って**オフィス内で完結**し、外部への問い合わせは発生しません。
+  詳細は [`docs/entry-token.ja.md`](./docs/entry-token.ja.md)（[English](./docs/entry-token.md)）。未設定なら従来の ACCESS_PASSWORD のままです。
+- **CONTROL_PLANE_URL** を設定すると、上記の設定を**外部の HTTP エンドポイントから定期的に受け取り**ます。
+  engawa を誰かのために運用していて、**再起動＝全員切断**を避けながら設定を変えたいときに使います。
+  詳細は [`docs/control-plane.ja.md`](./docs/control-plane.ja.md)。未設定なら環境変数だけを見ます（自己ホストの通常の動作）。
 - **MAP** は使うマップです。同梱プリセット名（`office_medium` / `office_small`）か、外部マップ JSON の URL を書きます。未設定なら `office_medium`。独自のマップはコンテナの `/maps` にマウントしてプリセット名で呼ぶか、URL で渡します。書き方は [マップ JSON 仕様](https://iitenkida7.github.io/engawa/map/)（[English](https://iitenkida7.github.io/engawa/map/en.html)）。検査に通らないマップはサーバーが起動を拒否します。
 - **EVENT_WEBHOOK_URL** を設定すると、入退室と会話の始まり・終わりを JSON で POST します（MTG の統計などに）。サーバーは送るだけで何も保存しません。参加者は既定で匿名 ID、`EVENT_INCLUDE_NAMES=true` で表示名になります。`EVENT_WEBHOOK_SECRET` で署名を付けられます。仕様は [`docs/webhook.ja.md`](./docs/webhook.ja.md)（[English](./docs/webhook.md)）、Google スプレッドシートに貯める受信サンプルは [`examples/webhook-gas/`](./examples/webhook-gas/README.ja.md) にあります。
 
