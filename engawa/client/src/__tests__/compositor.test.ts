@@ -33,38 +33,34 @@ describe('computeRecordingLayout', () => {
     b.x >= 0 && b.y >= 0 && b.x + b.w <= W + 0.001 && b.y + b.h <= H + 0.001;
 
   describe('screenshare present', () => {
-    it('puts the screen on the left and stacks tiles + map down the sidebar', () => {
+    it('puts the screen on the left and stacks the tiles down the sidebar', () => {
       const l = computeRecordingLayout(true, 2, W, H);
       // sideW = round(1280*0.26)=333, mainW=947.
       expect(l.screen).toEqual({ x: 12, y: 12, w: 935, h: 696 });
-      // sidebar: x=959, innerW=309; slots=3, slotH=(720-48)/3=224.
+      // sidebar: x=959, innerW=309; slotH=(720-36)/2=342.
       expect(l.tiles).toEqual([
-        { x: 959, y: 12, w: 309, h: 224 },
-        { x: 959, y: 248, w: 309, h: 224 },
+        { x: 959, y: 12, w: 309, h: 342 },
+        { x: 959, y: 366, w: 309, h: 342 },
       ]);
-      expect(l.map).toEqual({ x: 959, y: 484, w: 309, h: 224 });
     });
 
-    it('keeps the map in the sidebar even with no camera tiles', () => {
+    it('gives the screen the whole frame when there are no tiles', () => {
       const l = computeRecordingLayout(true, 0, W, H);
-      expect(l.screen).toEqual({ x: 12, y: 12, w: 935, h: 696 });
+      expect(l.screen).toEqual({ x: 12, y: 12, w: 1256, h: 696 });
       expect(l.tiles).toEqual([]);
-      // slots=1 → map fills the sidebar height.
-      expect(l.map).toEqual({ x: 959, y: 12, w: 309, h: 696 });
     });
 
     it('keeps every box inside the frame', () => {
-      for (const n of [1, 2, 3, 5, 8]) {
+      for (const n of [0, 1, 2, 3, 5, 8]) {
         const l = computeRecordingLayout(true, n, W, H);
         expect(inFrame(l.screen!)).toBe(true);
-        expect(inFrame(l.map)).toBe(true);
         for (const t of l.tiles) expect(inFrame(t)).toBe(true);
       }
     });
   });
 
   describe('gallery view (no screenshare)', () => {
-    it('has no screen and arranges tiles in a grid with a corner map inset', () => {
+    it('has no screen and arranges tiles in a grid', () => {
       const l = computeRecordingLayout(false, 2, W, H);
       expect(l.screen).toBeNull();
       // cols=2, rows=1 → cellW=640, cellH=720.
@@ -72,15 +68,12 @@ describe('computeRecordingLayout', () => {
         { x: 6, y: 6, w: 628, h: 708 },
         { x: 646, y: 6, w: 628, h: 708 },
       ]);
-      // mapW=round(1280*0.22)=282, mapH=round(282*9/16)=159; bottom-right.
-      expect(l.map).toEqual({ x: 986, y: 549, w: 282, h: 159 });
     });
 
-    it('shows the map full-frame when there are no tiles', () => {
+    it('is empty when there are no tiles', () => {
       const l = computeRecordingLayout(false, 0, W, H);
       expect(l.screen).toBeNull();
       expect(l.tiles).toEqual([]);
-      expect(l.map).toEqual({ x: 12, y: 12, w: 1256, h: 696 });
     });
 
     it('uses a near-square grid for larger counts', () => {
