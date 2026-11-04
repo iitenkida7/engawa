@@ -575,6 +575,10 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: '部屋を出たので、マイク・カメラ・画面共有をオフにしました。',
     en: 'Left the room — mic, camera and screen share turned off.',
   },
+  'app.aloneMediaOff': {
+    ja: '近くに誰もいない状態が続いたので、マイク・カメラ・画面共有をオフにしました。',
+    en: 'Nobody nearby for a while — mic, camera and screen share turned off.',
+  },
 
   // -- connection quality dots (issue #188) ----------------------------------
   'quality.q0': { ja: '回線: 良好', en: 'Connection: good' },
