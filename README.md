@@ -44,6 +44,7 @@ remote work loses, the minute of talk you never scheduled, and keeps it light an
 | 🟢 | Status | Online / busy / away |
 | 🔔 | Proximity chime | A light sound when someone arrives or leaves |
 | 🚪 | Leaving a room turns media off | Walking out of a meeting room or lounge switches mic, camera and screen share off (recording continues; coming back does not turn them on again) |
+| ⏳ | Alone on the floor turns media off | A minute alone on the open floor with nobody in your call switches mic, camera and screen share off, so an unattended desk stops broadcasting (rooms, lounges and team areas are exempt, as are recording and transcription) |
 | 🔒 | Entry password | Set `ACCESS_PASSWORD` and the office asks for it at the door (optional — open by default) |
 | 👥 | Calls that hold up | Two or more people go through the SFU by default, so a crowd scales (needs Cloudflare Realtime SFU; without it everyone is P2P) |
 | 📲 | Installable | Installs as a PWA on desktop Chrome / Edge — its own window, parked in the Dock or taskbar |

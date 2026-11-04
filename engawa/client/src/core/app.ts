@@ -1,3 +1,4 @@
+import { isAloneWithMediaOn, stepAloneMedia } from '@/core/alone-media';
 import BackgroundTicker from '@/core/background-ticker?worker';
 import { getLang, t } from '@/core/i18n';
 import {
@@ -173,6 +174,10 @@ export class App {
 
   private myId: string = '';
   private me: PlayerState | null = null;
+  // When the current "alone on the open floor with media on" stretch started,
+  // or null while the timer is not running (#426). Reset by anything that ends
+  // it — someone joining the call, stepping into a room, the media going off.
+  private aloneMediaSince: number | null = null;
   private players = new Map<string, PlayerState>();
 
   private lastSent = 0;
@@ -1582,6 +1587,9 @@ export class App {
     this.tickNetwork(nowMs);
     this.tickRecReminder(nowMs);
     this.update(dt);
+    // Alone on the open floor with media on (#426): runs after update() so it
+    // sees this frame's position and call group.
+    this.tickAloneMedia(nowMs);
     if (render) {
       const dest = this.movement.destination;
       // Show the media-reach ring only while we're actually publishing something.
@@ -1849,6 +1857,31 @@ export class App {
     if (speaking === this.lastSpeakingSent) return;
     this.lastSpeakingSent = speaking;
     this.net.send({ type: 'speaking', speaking });
+  }
+
+  // Nobody to talk to and the mic still hot (#426). On the open floor nothing
+  // tells us the user is done — there is no door to walk out of — so after a
+  // minute alone we cut mic, camera and screen share rather than let an empty
+  // desk keep broadcasting. Rooms, 1-on-1s, booths, the hanare, the lounges and
+  // the team areas are exempt: callZoneAt reports a non-null id for all of them.
+  private tickAloneMedia(now: number) {
+    const alone = isAloneWithMediaOn({
+      anyMediaOn: this.anyLocalMediaOn(),
+      callZoneId: this.me ? callZoneAt(this.me.x, this.me.y) : null,
+      // The server-decided call group (ourselves excluded), not the radius:
+      // these are the people who can actually hear us.
+      peerCount: this.inProximity.size,
+      recording: this.recorder.recording,
+      transcribing: this.transcriber.active,
+    });
+    const { since, disable } = stepAloneMedia(this.aloneMediaSince, alone, now);
+    this.aloneMediaSince = since;
+    if (!disable) return;
+    // Same teardown as the zone-exit cut (#306), and for the same reason
+    // `autoCamOff` is left alone: it belongs to the tier-3 policy, which would
+    // otherwise restore this camera as soon as the network recovers.
+    this.toolbar.disableAllMedia();
+    this.toasts.info(t('app.aloneMediaOff'));
   }
 
   // Ask once per meeting-room visit whether to record, when the reminder is on
