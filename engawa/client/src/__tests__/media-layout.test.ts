@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { pinSelfFirst } from '@/ui/media-layout';
+import { pinSelfFirst, togglePinned } from '@/ui/media-layout';
 
 const cam = (key: string) => ({ key, item: { aspectLocked: true } });
 const share = (key: string) => ({ key, item: { aspectLocked: false } });
@@ -32,5 +32,26 @@ describe('pinSelfFirst', () => {
   it('keeps the others in their original order', () => {
     const out = pinSelfFirst([cam('cam:c'), cam('self'), cam('cam:a'), cam('cam:b')]);
     expect(keys(out)).toEqual(['self', 'cam:c', 'cam:a', 'cam:b']);
+  });
+});
+
+describe('togglePinned', () => {
+  it('fills the gallery main area one click at a time, oldest pushed out', () => {
+    let pins: string[] = [];
+    pins = togglePinned(pins, 'cam:a', 2);
+    expect(pins).toEqual(['cam:a']);
+    pins = togglePinned(pins, 'cam:b', 2);
+    expect(pins).toEqual(['cam:a', 'cam:b']);
+    pins = togglePinned(pins, 'cam:c', 2);
+    expect(pins).toEqual(['cam:b', 'cam:c']);
+  });
+
+  it('unpins a window that is already pinned', () => {
+    expect(togglePinned(['cam:a', 'cam:b'], 'cam:a', 2)).toEqual(['cam:b']);
+    expect(togglePinned(['cam:a'], 'cam:a', 1)).toEqual([]);
+  });
+
+  it('swaps the single pin under a share', () => {
+    expect(togglePinned(['cam:a'], 'cam:b', 1)).toEqual(['cam:b']);
   });
 });
