@@ -44,6 +44,15 @@ export function pinSelfFirst<T extends { key: string; item: { aspectLocked: bool
   return [...shares, ...self, ...others];
 }
 
+// Clicking a meeting tile toggles it in the pinned list: a pinned one unpins;
+// any other joins as the newest, pushing the oldest out once `max` are pinned.
+// With a share featured only one fits under it (max 1); in the gallery the
+// right-hand pane takes two, stacked top (older) / bottom (newer).
+export function togglePinned(pinned: string[], key: string, max: number): string[] {
+  if (pinned.includes(key)) return pinned.filter((k) => k !== key);
+  return [...pinned, key].slice(-max);
+}
+
 // Chevron used by the filmstrip show-more button; rotated 180° (via the
 // `.expanded` class) for the fold-back direction, so up and down are the exact
 // same shape mirrored — not two differently-drawn text glyphs.
@@ -110,11 +119,13 @@ export class MediaLayout {
   // Filmstrip column width (px) in presentation mode, dragged via the seam
   // handle (#288). Per-meeting only: not persisted, reset when the meeting ends.
   private filmstripWidth = MEETING_FILMSTRIP_TILE_W;
-  // The window pinned under the featured share (presentation mode): clicking a
-  // filmstrip tile moves it here, splitting the main area top (share) / bottom
-  // (pinned). `meetingSplit` is the top pane's height fraction, dragged via the
+  // Windows pinned to the main (right) area, oldest first. With a share: the one
+  // pinned under it, splitting the main area top (share) / bottom (pinned).
+  // Without: clicking a gallery tile puts it in the main area alone, a second
+  // stacks below it, a third pushes the oldest back out (togglePinned).
+  // `meetingSplit` is the top pane's height fraction, dragged via the
   // horizontal seam. Both per-meeting only, reset when the meeting ends.
-  private meetingPinnedKey: string | null = null;
+  private meetingPinnedKeys: string[] = [];
   private meetingSplit = MEETING_SPLIT_DEFAULT;
   // Minimized: in a meeting zone but temporarily dropped back to floating tiles
   // so the map (and the way out of the room) is reachable. Reset on leaving.
@@ -255,7 +266,7 @@ export class MediaLayout {
       this.filmstripExpanded = false;
       this.meetingMinimized = false;
       this.filmstripWidth = MEETING_FILMSTRIP_TILE_W;
-      this.meetingPinnedKey = null;
+      this.meetingPinnedKeys = [];
       this.meetingSplit = MEETING_SPLIT_DEFAULT;
     }
     return true;
@@ -389,12 +400,17 @@ export class MediaLayout {
   private layoutMeeting(unordered: LayoutPanel[], vw: number, vh: number) {
     const panels = pinSelfFirst(unordered);
     const mainIdx = panels.findIndex((p) => !p.item.aspectLocked);
-    // A pin whose window is gone (peer left, share stopped, or it became the
-    // main share) is dropped, so the split never lingers with an empty pane.
-    const pinnedIdx = panels.findIndex((p, i) => i !== mainIdx && p.key === this.meetingPinnedKey);
-    if (mainIdx === -1 || pinnedIdx === -1) this.meetingPinnedKey = null;
-    if (mainIdx === -1) {
-      // Gallery: no screenshare to feature — every window fills a grid cell.
+    // A pin whose window is gone (peer left, or it became the main share) is
+    // dropped, so the split never lingers with an empty pane.
+    this.meetingPinnedKeys = this.meetingPinnedKeys.filter((k) =>
+      panels.some((p, i) => i !== mainIdx && p.key === k),
+    );
+    // Under a share only the newest pin fits; the gallery's main area takes two.
+    const pins = mainIdx === -1 ? this.meetingPinnedKeys : this.meetingPinnedKeys.slice(-1);
+    const pinnedIdxs = pins.map((k) => panels.findIndex((p) => p.key === k));
+    if (mainIdx === -1 && pinnedIdxs.length === 0) {
+      // Gallery: nothing featured — every window fills a grid cell, and a click
+      // on any of them pins it to the main area.
       const geos = computeMeetingGallery(
         panels.map((p) => p.item),
         vw,
@@ -402,14 +418,17 @@ export class MediaLayout {
       );
       panels.forEach((p, i) => {
         applyPanelGeometry(p.el, geos[i]);
+        p.el.classList.add('meeting-pinnable');
       });
       this.hideFilmstripToggle();
       return;
     }
-    // Presentation: main share + left filmstrip of everything else, trimmed to
-    // the visible (collapsed/expanded) set so a big meeting doesn't stack 20
-    // thumbnails down the edge.
-    const stripIdxs = panels.map((_, i) => i).filter((i) => i !== mainIdx && i !== pinnedIdx);
+    // Presentation: the main area (the share and/or up to two pinned windows)
+    // + left filmstrip of everything else, trimmed to the visible
+    // (collapsed/expanded) set so a big meeting doesn't stack 20 thumbnails
+    // down the edge.
+    const leadIdxs = mainIdx === -1 ? pinnedIdxs : [mainIdx, ...pinnedIdxs];
+    const stripIdxs = panels.map((_, i) => i).filter((i) => !leadIdxs.includes(i));
     // Re-clamp every reflow so a viewport shrink pulls an over-wide rail back.
     // Done before the cap because the rail's width decides its column count,
     // and the cap is counted in rows (#304): five rows is ten faces in two.
@@ -423,14 +442,14 @@ export class MediaLayout {
     const visible = stripIdxs.slice(0, visibleCount);
     for (const i of stripIdxs.slice(visibleCount)) panels[i].el.classList.add('meeting-hidden');
 
-    const pinned = pinnedIdx !== -1;
-    const order = pinned ? [mainIdx, pinnedIdx, ...visible] : [mainIdx, ...visible];
+    const split = leadIdxs.length === 2;
+    const order = [...leadIdxs, ...visible];
     const geos = computeMeetingPresentation(
       order.map((i) => panels[i].item),
       vw,
       vh,
       this.filmstripWidth,
-      pinned ? this.meetingSplit : null,
+      split ? this.meetingSplit : null,
     );
     order.forEach((pi, k) => {
       applyPanelGeometry(panels[pi].el, geos[k]);
@@ -438,12 +457,10 @@ export class MediaLayout {
     // Mark the featured share so the viewer-side zoom bar can show here too —
     // meeting mode has no ⤢ maximize, but the main share already fills the area
     // like a maximized view (screen-zoom.ts treats both as "big").
-    panels[mainIdx].el.classList.add('meeting-main');
+    if (mainIdx !== -1) panels[mainIdx].el.classList.add('meeting-main');
     for (const i of visible) panels[i].el.classList.add('meeting-pinnable');
-    if (pinned) {
-      panels[pinnedIdx].el.classList.add('meeting-pinned');
-      this.placeSplitResizer(geos[0]);
-    }
+    for (const i of pinnedIdxs) panels[i].el.classList.add('meeting-pinned');
+    if (split) this.placeSplitResizer(geos[0]);
 
     const railW = meetingFilmstripColWidth(this.filmstripWidth);
     if (needToggle) this.placeToggle(railW / 2, vh);
@@ -504,10 +521,13 @@ export class MediaLayout {
     });
   }
 
-  // Pins a filmstrip window under the share, swaps the pin to another window,
-  // or unpins (back to the filmstrip) when it is already the pinned one.
+  // Pins a window to the main area (under the share, or in the gallery's
+  // right-hand pane) or unpins it (back to the filmstrip / gallery) when it is
+  // already pinned. Under a share only the shown (newest) pin counts.
   private togglePin(key: string) {
-    this.meetingPinnedKey = this.meetingPinnedKey === key ? null : key;
+    const hasShare = this.collectPanels().some((p) => !p.item.aspectLocked);
+    const current = hasShare ? this.meetingPinnedKeys.slice(-1) : this.meetingPinnedKeys;
+    this.meetingPinnedKeys = togglePinned(current, key, hasShare ? 1 : 2);
     this.reflow();
   }
 

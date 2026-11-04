@@ -445,8 +445,99 @@ describe('meeting split view (pin a filmstrip tile under the share)', () => {
     view.setMeetingMode(true);
     expect(seamShown()).toBe(false);
     click(panelOf('cam:b'));
-    view.removeScreenshare('s');
-    view.attachRemoteStream('s', new MediaStream(), 'screen');
+    view.removePeer('b');
     expect(seamShown()).toBe(false);
+  });
+
+  it('keeps the pin through the share stopping: it takes the main area alone', () => {
+    click(panelOf('cam:a'));
+    view.removeScreenshare('s');
+    expect(box('cam:a').w).toBeGreaterThan(MEETING_FILMSTRIP_TILE_W);
+    expect(box('cam:b').w).toBe(MEETING_FILMSTRIP_TILE_W);
+    expect(seamShown()).toBe(false);
+  });
+});
+
+describe('meeting gallery pins (no share)', () => {
+  let view: RemoteMediaView;
+  const panelOf = (key: string) =>
+    document.querySelector<HTMLElement>(`.panel[data-focus-key="${key}"]`)!;
+  const box = (key: string) => {
+    const el = panelOf(key);
+    return {
+      x: Number.parseFloat(el.style.left),
+      y: Number.parseFloat(el.style.top),
+      w: Number.parseFloat(el.style.width),
+      h: Number.parseFloat(el.style.height),
+    };
+  };
+  const click = (el: HTMLElement) =>
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+  const seamShown = () =>
+    (document.getElementById('meeting-split-resizer') as HTMLElement).style.display !== 'none';
+  const inRail = (key: string) => box(key).w === MEETING_FILMSTRIP_TILE_W;
+
+  beforeEach(() => {
+    view = setup();
+    view.setMeetingMode(true);
+    addCam(view, 'a');
+    addCam(view, 'b');
+    addCam(view, 'c');
+  });
+
+  it('1st click: that tile fills the right-hand area, the rest go to the rail', () => {
+    click(panelOf('cam:a'));
+    const a = box('cam:a');
+    expect(a.w).toBeGreaterThan(MEETING_FILMSTRIP_TILE_W);
+    expect(a.x).toBeGreaterThan(MEETING_FILMSTRIP_TILE_W);
+    expect(inRail('cam:b')).toBe(true);
+    expect(inRail('cam:c')).toBe(true);
+    expect(seamShown()).toBe(false);
+  });
+
+  it('2nd click: the right-hand area splits top (1st) / bottom (2nd)', () => {
+    click(panelOf('cam:a'));
+    click(panelOf('cam:b'));
+    const a = box('cam:a');
+    const b = box('cam:b');
+    expect(b.x).toBe(a.x);
+    expect(b.w).toBe(a.w);
+    expect(b.y).toBeGreaterThan(a.y + a.h - 1);
+    expect(inRail('cam:c')).toBe(true);
+    expect(seamShown()).toBe(true);
+  });
+
+  it('3rd click pushes the 1st back to the rail: 2nd on top, 3rd below', () => {
+    click(panelOf('cam:a'));
+    click(panelOf('cam:b'));
+    click(panelOf('cam:c'));
+    expect(inRail('cam:a')).toBe(true);
+    const b = box('cam:b');
+    const c = box('cam:c');
+    expect(c.x).toBe(b.x);
+    expect(c.y).toBeGreaterThan(b.y + b.h - 1);
+  });
+
+  it('clicking a pinned tile unpins it; unpinning the last returns to the gallery', () => {
+    click(panelOf('cam:a'));
+    click(panelOf('cam:b'));
+    click(panelOf('cam:a'));
+    expect(inRail('cam:a')).toBe(true);
+    expect(seamShown()).toBe(false);
+    click(panelOf('cam:b'));
+    expect(inRail('cam:a')).toBe(false);
+    expect(box('cam:a').w).toBe(box('cam:b').w);
+  });
+
+  it('a share arriving keeps only the newest pin under it', () => {
+    click(panelOf('cam:a'));
+    click(panelOf('cam:b'));
+    view.attachRemoteStream('s', new MediaStream(), 'screen');
+    expect(inRail('cam:a')).toBe(true);
+    expect(box('cam:b').x).toBe(box('screen:s').x);
+    // Clicking the older (hidden) pin swaps it in rather than unpinning it.
+    click(panelOf('cam:a'));
+    expect(box('cam:a').x).toBe(box('screen:s').x);
+    expect(inRail('cam:b')).toBe(true);
   });
 });
