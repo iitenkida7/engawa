@@ -646,30 +646,6 @@ export class CanvasRenderer {
     }
   }
 
-  /**
-   * Paint what the user currently sees (background layer + avatars) into
-   * `ctx` at the given box — for the recording compositor, which used to blit
-   * the single floor canvas and now needs both layers.
-   */
-  drawViewInto(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
-    const sx = w / this.viewWidth;
-    const sy = h / this.viewHeight;
-    const off = (v: number, drift: number) => -BG_MARGIN - drift * this.zoomLevel + v;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x, y, w, h);
-    ctx.clip();
-    ctx.drawImage(
-      this.bg,
-      x + off(0, this.camX - this.bgCamX) * sx,
-      y + off(0, this.camY - this.bgCamY) * sy,
-      (this.bg.width / this.dpr) * sx,
-      (this.bg.height / this.dpr) * sy,
-    );
-    ctx.drawImage(this.canvas, x, y, w, h);
-    ctx.restore();
-  }
-
   // Draw every player's name label in SCREEN space at a fixed size, so labels
   // stay readable at any zoom (unlike the world-space room labels, which scale).
   // Positions are projected from world→screen; overlapping labels are nudged

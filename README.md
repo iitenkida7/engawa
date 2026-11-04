@@ -40,7 +40,7 @@ remote work loses, the minute of talk you never scheduled, and keeps it light an
 | 📷 | Video | Turn the camera on to show your face. Whoever is speaking gets a lit border |
 | 🖥 | Screen share | One click. Switch between a small window, a side panel and full screen |
 | 🪟 | Faces stay visible while sharing | Their camera tile mirrors into an always-on-top window (Chrome / Edge, for single-display setups). Off by default — tick "🪟 Face in a small window while screen sharing" in the ⋯ menu |
-| ⏺ | Recording | Records the whole screen (floor + screen share + every camera) with everyone's audio, in the browser. **The file downloads when you press ■ stop.** While recording, a "REC + elapsed" badge sits top-right and the tab title shows "● REC"; closing the tab without stopping saves what was recorded so far (filename gets `-autosave`) |
+| ⏺ | Recording | Records the screen share and every camera with everyone's audio, in the browser. **The file downloads when you press ■ stop.** While recording, a "REC + elapsed" badge sits top-right and the tab title shows "● REC"; closing the tab without stopping saves what was recorded so far (filename gets `-autosave`) |
 | 🟢 | Status | Online / busy / away |
 | 🔔 | Proximity chime | A light sound when someone arrives or leaves |
 | 🚪 | Leaving a room turns media off | Walking out of a meeting room or lounge switches mic, camera and screen share off (recording continues; coming back does not turn them on again) |

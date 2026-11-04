@@ -2,14 +2,15 @@
 // mirroring the live DOM (which reflows with the window and breaks the
 // recording's aspect ratio on resize), it lays the scene out into a FIXED
 // 16:9 frame with a recording-specific composition that is easy to watch back:
-//   - screenshare present → screenshare as the main stage + camera tiles and a
-//     small office-map inset down the side.
-//   - no screenshare → camera gallery grid + a small office-map inset.
-// The recording layout is intentionally decoupled from the on-screen layout:
-// dragging panels or resizing the window never changes the recording. The
-// content (video/audio/avatars) is still live; only the framing is fixed.
-// It reuses the already-rendered floor canvas (no second world render) and
-// throttles its own draw loop to 15fps so it never starves the main game loop.
+//   - screenshare present → screenshare as the main stage + camera tiles down
+//     the side.
+//   - no screenshare → camera gallery grid.
+// The office map is deliberately left out: it adds nothing when watching a
+// meeting back. The recording layout is intentionally decoupled from the
+// on-screen layout: dragging panels or resizing the window never changes the
+// recording. The content (video/audio) is still live; only the framing is
+// fixed. It throttles its own draw loop to 15fps so it never starves the main
+// game loop.
 
 import { FrameDriver } from '@/media/frame-driver';
 
@@ -47,8 +48,6 @@ export interface RecordingLayout {
   screen: Box | null;
   // One box per camera/mic tile, in the same order as the input tiles.
   tiles: Box[];
-  // Small office-map inset (kept for engawa identity — "where you were").
-  map: Box;
 }
 
 const GAP = 12;
@@ -63,37 +62,31 @@ export function computeRecordingLayout(
   H: number,
 ): RecordingLayout {
   if (hasScreen) {
-    // Screenshare is the main stage on the left; tiles + map stack down a
-    // right-hand sidebar.
+    // Nothing to put beside it: the screenshare takes the whole frame.
+    if (tileCount === 0) {
+      return { screen: { x: GAP, y: GAP, w: W - 2 * GAP, h: H - 2 * GAP }, tiles: [] };
+    }
+    // Screenshare is the main stage on the left; tiles stack down a right-hand
+    // sidebar.
     const sideW = Math.round(W * 0.26);
     const mainW = W - sideW;
     const screen: Box = { x: GAP, y: GAP, w: mainW - GAP, h: H - 2 * GAP };
 
     const sideX = mainW + GAP;
     const innerW = sideW - 2 * GAP;
-    const slots = tileCount + 1; // camera tiles + the map slot
-    const availH = H - GAP * (slots + 1);
-    const slotH = availH / slots;
+    const availH = H - GAP * (tileCount + 1);
+    const slotH = availH / tileCount;
     const slotY = (i: number) => GAP + i * (slotH + GAP);
 
     const tiles: Box[] = [];
     for (let i = 0; i < tileCount; i++) {
       tiles.push({ x: sideX, y: slotY(i), w: innerW, h: slotH });
     }
-    const map: Box = { x: sideX, y: slotY(tileCount), w: innerW, h: slotH };
-    return { screen, tiles, map };
+    return { screen, tiles };
   }
 
   // Gallery view: no screenshare.
-  if (tileCount === 0) {
-    // Nothing but the office — show the map full-frame so the recording isn't
-    // blank (e.g. cameras off, recording the room only).
-    return {
-      screen: null,
-      tiles: [],
-      map: { x: GAP, y: GAP, w: W - 2 * GAP, h: H - 2 * GAP },
-    };
-  }
+  if (tileCount === 0) return { screen: null, tiles: [] };
 
   const cols = Math.ceil(Math.sqrt(tileCount));
   const rows = Math.ceil(tileCount / cols);
@@ -110,11 +103,7 @@ export function computeRecordingLayout(
       h: cellH - GAP,
     });
   }
-  // Small map inset, bottom-right corner (overlaid on the grid).
-  const mapW = Math.round(W * 0.22);
-  const mapH = Math.round((mapW * 9) / 16);
-  const map: Box = { x: W - mapW - GAP, y: H - mapH - GAP, w: mapW, h: mapH };
-  return { screen: null, tiles, map };
+  return { screen: null, tiles };
 }
 
 // A video has a paintable frame.
@@ -124,18 +113,10 @@ function hasFrame(v: HTMLVideoElement | null): v is HTMLVideoElement {
 
 // 15fps: every source it composites already arrives at ≤15fps (SFU camera
 // layers, screen share), so 30fps only redrew and re-encoded duplicate frames
-// of a 2560×1440 canvas — roughly doubling the recording's CPU cost for nothing
-// but smoother avatar walking on the map inset.
+// of a 2560×1440 canvas — roughly doubling the recording's CPU cost for nothing.
 const FPS = 15;
 const FRAME_INTERVAL_MS = 1000 / FPS;
-const FLOOR_BG = '#1a1d24';
-
-// The live map view (the renderer's layers), painted into the recording frame.
-export interface FloorView {
-  readonly viewW: number;
-  readonly viewH: number;
-  drawViewInto(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void;
-}
+const FRAME_BG = '#1a1d24';
 
 // Fixed 16:9 recording frame (logical px). The backing store is always
 // REC_SCALE× this (2560×1440), independent of the device pixel ratio: the
@@ -160,7 +141,7 @@ export class SceneCompositor {
   private width = REC_WIDTH;
   private height = REC_HEIGHT;
 
-  constructor(private floor: FloorView) {
+  constructor() {
     const ctx = this.canvas.getContext('2d');
     if (!ctx) throw new Error('2d context not available');
     this.ctx = ctx;
@@ -211,7 +192,7 @@ export class SceneCompositor {
 
   private drawFrame() {
     const { ctx, width: W, height: H } = this;
-    ctx.fillStyle = FLOOR_BG;
+    ctx.fillStyle = FRAME_BG;
     ctx.fillRect(0, 0, W, H);
 
     // The featured ("main") screenshare is the big stage in the recording; any
@@ -223,10 +204,6 @@ export class SceneCompositor {
 
     const tiles = this.collectTiles();
     const layout = computeRecordingLayout(screenVisible, tiles.length, W, H);
-
-    // Office-map inset: reuse the already-rendered floor canvas, fit (contain)
-    // into the inset so it keeps its own aspect ratio.
-    this.drawMap(layout.map);
 
     if (screenVisible && layout.screen && stage && screenVideo) {
       this.drawBox(layout.screen, '#000');
@@ -256,20 +233,6 @@ export class SceneCompositor {
   private drawBox(box: Box, color: string) {
     this.ctx.fillStyle = color;
     this.ctx.fillRect(box.x, box.y, box.w, box.h);
-  }
-
-  private drawMap(box: Box) {
-    const fv = this.floor;
-    this.drawBox(box, FLOOR_BG);
-    if (fv.viewW <= 0 || fv.viewH <= 0) return;
-    const d = fitRect(fv.viewW, fv.viewH, box.x, box.y, box.w, box.h, 'contain');
-    const { ctx } = this;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(box.x, box.y, box.w, box.h);
-    ctx.clip();
-    fv.drawViewInto(ctx, d.x, d.y, d.w, d.h);
-    ctx.restore();
   }
 
   private drawTile(panel: HTMLElement, box: Box) {
