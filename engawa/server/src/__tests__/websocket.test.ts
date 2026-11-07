@@ -554,12 +554,12 @@ describe('createWebSocketHandler — status & stream-meta', () => {
     handler.open!(sender);
     handler.open!(peer);
 
-    deliver(handler, sender, { type: 'status', status: 'busy', isMuted: true, isVideoOn: false });
+    deliver(handler, sender, { type: 'status', status: 'online', isMuted: true, isVideoOn: false });
 
     expect(peer.sent).toContainEqual({
       type: 'player-status',
       userId: sender.data.userId,
-      status: 'busy',
+      status: 'online',
       isMuted: true,
       isVideoOn: false,
       camAutoOff: false,

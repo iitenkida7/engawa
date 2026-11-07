@@ -51,12 +51,13 @@ export function normalizeName(name: unknown): string {
  * Valid player statuses. Mirrors PlayerStatus in types.ts. Used to enum-check
  * an incoming status so a malformed value can't propagate to peers.
  */
-export const PLAYER_STATUSES = ['online', 'busy', 'away'] as const;
+export const PLAYER_STATUSES = ['online', 'away'] as const;
 
 /**
  * Normalize an incoming player status: keep it only when it's one of the known
  * enum values, otherwise fall back to 'online'. Guards against arbitrary strings
- * (or non-strings) reaching peers as a status.
+ * (or non-strings) reaching peers as a status. The retired 'busy' status from
+ * older clients also lands on 'online'.
  */
 export function normalizePlayerStatus(raw: unknown): PlayerStatus {
   return typeof raw === 'string' && (PLAYER_STATUSES as readonly string[]).includes(raw)

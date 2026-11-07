@@ -126,11 +126,10 @@ const STR: Record<string, Record<Lang, string>> = {
 
   // -- status labels --------------------------------------------------------
   'status.online': { ja: '🟢 オンライン', en: '🟢 Online' },
-  'status.busy': { ja: '🔴 取り込み中', en: '🔴 Busy' },
   'status.away': { ja: '🟡 離席中', en: '🟡 Away' },
   'status.awayOverlay': {
-    ja: '🟡 離席中（オンライン／取り込み中で復帰）',
-    en: '🟡 Away — set Online/Busy to return',
+    ja: '🟡 離席中（オンラインで復帰）',
+    en: '🟡 Away — set Online to return',
   },
 
   // -- toolbar buttons (state-dependent labels) -----------------------------

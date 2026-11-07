@@ -32,8 +32,8 @@ export function isBackgrounded(): boolean {
 
 /**
  * How loudly to surface a knock (pure, unit-tested). Focused window: the existing
- * toast + chime are enough. Away: we've soft-left, stay quiet. Busy, opted out,
- * or no permission: title badge only. Otherwise an OS notification + badge.
+ * toast + chime are enough. Away: we've soft-left, stay quiet. Opted out or no
+ * permission: title badge only. Otherwise an OS notification + badge.
  * `backgrounded` comes from isBackgrounded().
  */
 export function knockAlertLevel(opts: {
@@ -43,7 +43,7 @@ export function knockAlertLevel(opts: {
   permission: NotifyPermission;
 }): AlertLevel {
   if (!opts.backgrounded || opts.status === 'away') return 'none';
-  if (opts.status === 'busy' || !opts.enabled || opts.permission !== 'granted') return 'badge';
+  if (!opts.enabled || opts.permission !== 'granted') return 'badge';
   return 'desktop';
 }
 

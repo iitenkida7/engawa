@@ -37,7 +37,7 @@ export type GroupMethod = 'mesh' | 'sfu';
 // can pull each other (kind → Cloudflare trackName).
 export type SfuTrack = { kind: StreamKind; trackName: string };
 
-export type PlayerStatus = 'online' | 'busy' | 'away';
+export type PlayerStatus = 'online' | 'away';
 
 export type ClientMessage =
   // `workspace` is legacy (single-space now); the client no longer sends it and
@@ -275,6 +275,6 @@ export type WsData = {
   // Away mode (#220): a joined client that has stepped away. Stays connected and
   // keeps receiving broadcasts, but is hidden from peers (treated like a leave:
   // removed from their view and from proximity grouping) until it returns to
-  // online/busy. Transient, memory-only (invariant #2).
+  // online. Transient, memory-only (invariant #2).
   away: boolean;
 };

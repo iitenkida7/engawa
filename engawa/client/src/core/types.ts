@@ -27,7 +27,7 @@ export type GroupMethod = 'mesh' | 'sfu';
 // directory the server relays so peers can pull each other.
 export type SfuTrack = { kind: StreamKind; trackName: string };
 
-export type PlayerStatus = 'online' | 'busy' | 'away';
+export type PlayerStatus = 'online' | 'away';
 
 // The payload of an `annotate` message (both directions); see the server's
 // normalizeAnnotation for the bounds it enforces.
