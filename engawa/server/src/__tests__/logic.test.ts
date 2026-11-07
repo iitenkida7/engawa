@@ -616,6 +616,8 @@ describe('normalizePlayerStatus', () => {
 
   test('falls back to online for unknown or non-string input', () => {
     expect(normalizePlayerStatus('offline')).toBe('online');
+    // Retired status from older clients.
+    expect(normalizePlayerStatus('busy')).toBe('online');
     expect(normalizePlayerStatus('')).toBe('online');
     expect(normalizePlayerStatus(undefined)).toBe('online');
     expect(normalizePlayerStatus(null)).toBe('online');

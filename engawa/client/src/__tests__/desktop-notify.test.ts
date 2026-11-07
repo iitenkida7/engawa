@@ -28,10 +28,6 @@ describe('knockAlertLevel', () => {
     expect(knockAlertLevel({ ...base, status: 'away' })).toBe('none');
   });
 
-  it('only badges the title while busy', () => {
-    expect(knockAlertLevel({ ...base, status: 'busy' })).toBe('badge');
-  });
-
   it('only badges the title when opted out or without permission', () => {
     expect(knockAlertLevel({ ...base, enabled: false })).toBe('badge');
     expect(knockAlertLevel({ ...base, permission: 'default' })).toBe('badge');

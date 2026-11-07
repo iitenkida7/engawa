@@ -2059,7 +2059,7 @@ export class App {
   }
 
   // Set the presence status. No-ops when it already matches. Going away (#220)
-  // tears down all calls and media and hides us; returning to online/busy lets
+  // tears down all calls and media and hides us; returning to online lets
   // the server re-add us and the ensuing group-update rebuilds our calls.
   private setStatus(status: PlayerStatus) {
     if (this.myStatus === status) return;

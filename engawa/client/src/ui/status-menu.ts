@@ -1,5 +1,5 @@
 // Self-status menu, opened from the bottom toolbar's status button. Lets you pick
-// a presence status (online / busy / away). Extracted from the old roster panel
+// a presence status (online / away). Extracted from the old roster panel
 // when that was removed — the participant list is gone, but setting your own
 // status stays, now living with the other self controls in the toolbar.
 
@@ -10,14 +10,12 @@ import type { PlayerStatus } from '@/core/types';
 // map. `online` gets an explicit 🟢 so every avatar carries a status mark.
 export const STATUS_EMOJI: Record<PlayerStatus, string> = {
   online: '🟢',
-  busy: '🔴',
   away: '🟡',
 };
 
-const STATUS_ORDER: PlayerStatus[] = ['online', 'busy', 'away'];
+const STATUS_ORDER: PlayerStatus[] = ['online', 'away'];
 const STATUS_LABELS: Record<PlayerStatus, string> = {
   online: t('status.online'),
-  busy: t('status.busy'),
   away: t('status.away'),
 };
 
