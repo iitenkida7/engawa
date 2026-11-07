@@ -51,6 +51,37 @@ export interface RecordingLayout {
 }
 
 const GAP = 12;
+// Camera tiles are always 16:9 (the camera is captured at 960×540), so a tile
+// never turns into a tall sliver that crops away most of the face.
+const TILE_ASPECT = 16 / 9;
+// Share of the frame width given to the camera sidebar beside a screenshare.
+const SIDEBAR_RATIO = 0.26;
+
+// Lays out n 16:9 tiles inside an area as large as possible: tries every column
+// count, keeps the one with the widest tile, and centers the block (and a short
+// last row) in the area.
+export function layoutTileGrid(n: number, area: Box): Box[] {
+  if (n <= 0) return [];
+  let best = { cols: 1, rows: n, w: 0 };
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols);
+    const byW = (area.w - GAP * (cols - 1)) / cols;
+    const byH = ((area.h - GAP * (rows - 1)) / rows) * TILE_ASPECT;
+    const w = Math.min(byW, byH);
+    if (w > best.w) best = { cols, rows, w };
+  }
+  const { cols, rows, w } = best;
+  const h = w / TILE_ASPECT;
+  const top = area.y + (area.h - (rows * h + GAP * (rows - 1))) / 2;
+  const tiles: Box[] = [];
+  for (let i = 0; i < n; i++) {
+    const row = Math.floor(i / cols);
+    const inRow = Math.min(cols, n - row * cols);
+    const left = area.x + (area.w - (inRow * w + GAP * (inRow - 1))) / 2;
+    tiles.push({ x: left + (i % cols) * (w + GAP), y: top + row * (h + GAP), w, h });
+  }
+  return tiles;
+}
 
 // Pure layout for the recording frame. Given whether a screenshare is on stage
 // and how many camera/mic tiles there are, it places everything inside a fixed
@@ -61,49 +92,35 @@ export function computeRecordingLayout(
   W: number,
   H: number,
 ): RecordingLayout {
-  if (hasScreen) {
-    // Nothing to put beside it: the screenshare takes the whole frame.
-    if (tileCount === 0) {
-      return { screen: { x: GAP, y: GAP, w: W - 2 * GAP, h: H - 2 * GAP }, tiles: [] };
-    }
-    // Screenshare is the main stage on the left; tiles stack down a right-hand
-    // sidebar.
-    const sideW = Math.round(W * 0.26);
-    const mainW = W - sideW;
-    const screen: Box = { x: GAP, y: GAP, w: mainW - GAP, h: H - 2 * GAP };
+  const frame: Box = { x: GAP, y: GAP, w: W - 2 * GAP, h: H - 2 * GAP };
+  if (!hasScreen) return { screen: null, tiles: layoutTileGrid(tileCount, frame) };
 
-    const sideX = mainW + GAP;
-    const innerW = sideW - 2 * GAP;
-    const availH = H - GAP * (tileCount + 1);
-    const slotH = availH / tileCount;
-    const slotY = (i: number) => GAP + i * (slotH + GAP);
+  // Nothing to put beside it: the screenshare takes the whole frame.
+  if (tileCount === 0) return { screen: frame, tiles: [] };
 
-    const tiles: Box[] = [];
-    for (let i = 0; i < tileCount; i++) {
-      tiles.push({ x: sideX, y: slotY(i), w: innerW, h: slotH });
-    }
-    return { screen, tiles };
-  }
+  // Screenshare is the main stage on the left; 16:9 tiles sit in a right-hand
+  // sidebar, centered vertically (and wrapping into two columns when many).
+  const sideW = Math.round(W * SIDEBAR_RATIO);
+  const mainW = W - sideW;
+  const screen: Box = { x: GAP, y: GAP, w: mainW - GAP, h: H - 2 * GAP };
+  const sidebar: Box = { x: mainW + GAP, y: GAP, w: sideW - 2 * GAP, h: H - 2 * GAP };
+  return { screen, tiles: layoutTileGrid(tileCount, sidebar) };
+}
 
-  // Gallery view: no screenshare.
-  if (tileCount === 0) return { screen: null, tiles: [] };
+// Beyond this share of the picture cropped away, a camera tile letterboxes
+// instead of filling. A 4:3 camera in a 16:9 tile loses 25% (fill: just the
+// background edges); a portrait phone camera would lose ~68% (the face), so it
+// letterboxes.
+const MAX_COVER_CROP = 0.3;
 
-  const cols = Math.ceil(Math.sqrt(tileCount));
-  const rows = Math.ceil(tileCount / cols);
-  const cellW = W / cols;
-  const cellH = H / rows;
-  const tiles: Box[] = [];
-  for (let i = 0; i < tileCount; i++) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    tiles.push({
-      x: col * cellW + GAP / 2,
-      y: row * cellH + GAP / 2,
-      w: cellW - GAP,
-      h: cellH - GAP,
-    });
-  }
-  return { screen: null, tiles };
+// Fit for a camera source in a box: fill (cover) when that crops only a little,
+// otherwise show it whole (contain).
+export function cameraFit(srcW: number, srcH: number, boxW: number, boxH: number): ObjectFit {
+  if (srcW <= 0 || srcH <= 0 || boxW <= 0 || boxH <= 0) return 'cover';
+  const src = srcW / srcH;
+  const box = boxW / boxH;
+  const kept = Math.min(src / box, box / src);
+  return 1 - kept <= MAX_COVER_CROP ? 'cover' : 'contain';
 }
 
 // A video has a paintable frame.
@@ -117,6 +134,11 @@ function hasFrame(v: HTMLVideoElement | null): v is HTMLVideoElement {
 const FPS = 15;
 const FRAME_INTERVAL_MS = 1000 / FPS;
 const FRAME_BG = '#1a1d24';
+// Empty (camera-off) tiles are a shade lighter than the frame so they still
+// read as tiles.
+const TILE_BG = '#262a33';
+const TILE_RADIUS = 8;
+const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 
 // Fixed 16:9 recording frame (logical px). The backing store is always
 // REC_SCALE× this (2560×1440), independent of the device pixel ratio: the
@@ -232,14 +254,20 @@ export class SceneCompositor {
 
   private drawBox(box: Box, color: string) {
     this.ctx.fillStyle = color;
-    this.ctx.fillRect(box.x, box.y, box.w, box.h);
+    roundRect(this.ctx, box.x, box.y, box.w, box.h, TILE_RADIUS);
+    this.ctx.fill();
   }
 
   private drawTile(panel: HTMLElement, box: Box) {
-    this.drawBox(box, '#000');
     const video = panel.querySelector('video') as HTMLVideoElement | null;
     if (hasFrame(video)) {
-      const fit: ObjectFit = getComputedStyle(video).objectFit === 'contain' ? 'contain' : 'cover';
+      this.drawBox(box, '#000');
+      // Screenshares (styled contain) are never cropped; cameras fill unless
+      // their aspect is far off the tile's.
+      const fit: ObjectFit =
+        getComputedStyle(video).objectFit === 'contain'
+          ? 'contain'
+          : cameraFit(video.videoWidth, video.videoHeight, box.w, box.h);
       this.drawVideo(video, box, fit, panel.id === 'self-preview');
     } else {
       this.drawPlaceholder(panel, box);
@@ -251,8 +279,7 @@ export class SceneCompositor {
     const { ctx } = this;
     const d = fitRect(video.videoWidth, video.videoHeight, box.x, box.y, box.w, box.h, fit);
     ctx.save();
-    ctx.beginPath();
-    ctx.rect(box.x, box.y, box.w, box.h);
+    roundRect(ctx, box.x, box.y, box.w, box.h, TILE_RADIUS);
     ctx.clip();
     if (mirror) {
       // Flip horizontally within the box so the self preview reads as a mirror.
@@ -265,15 +292,14 @@ export class SceneCompositor {
 
   private drawPlaceholder(panel: HTMLElement, box: Box) {
     const { ctx } = this;
-    ctx.fillStyle = '#1a1d24';
-    ctx.fillRect(box.x, box.y, box.w, box.h);
+    this.drawBox(box, TILE_BG);
 
     const cx = box.x + box.w / 2;
     const cy = box.y + box.h / 2;
     const initials = panel.querySelector('.no-video-initials')?.textContent ?? '';
     const name = panel.querySelector('.no-video-name')?.textContent ?? '';
 
-    const radius = Math.min(28, box.w / 4, box.h / 4);
+    const radius = Math.min(40, box.w / 6, box.h / 4);
     ctx.beginPath();
     ctx.arc(cx, cy - radius / 2, radius, 0, Math.PI * 2);
     ctx.fillStyle = '#3a4050';
@@ -282,34 +308,37 @@ export class SceneCompositor {
     ctx.fillStyle = '#e6e8ee';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = `bold ${Math.round(radius * 0.75)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    ctx.font = `bold ${Math.round(radius * 0.75)}px ${FONT}`;
     ctx.fillText(initials, cx, cy - radius / 2);
 
     if (name) {
       ctx.fillStyle = '#9da3b0';
-      ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-      ctx.fillText(name, cx, cy + radius);
+      ctx.font = `14px ${FONT}`;
+      ctx.fillText(name, cx, cy + radius + 4);
     }
   }
 
-  // Name badge in the box's top-left corner — the only chrome we reproduce.
+  // Name badge in the box's bottom-left corner — the only chrome we reproduce.
   private drawLabel(panel: HTMLElement, box: Box) {
     const text = panel.querySelector('.panel-header .label')?.textContent?.trim();
     if (!text) return;
     const { ctx } = this;
-    ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+    ctx.font = `14px ${FONT}`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    const padX = 6;
-    const w = ctx.measureText(text).width + padX * 2;
-    const h = 18;
-    const x = box.x + 6;
-    const y = box.y + 6;
+    const padX = 8;
+    const w = Math.min(ctx.measureText(text).width + padX * 2, box.w - 16);
+    const h = 22;
+    const x = box.x + 8;
+    const y = box.y + box.h - h - 8;
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
     roundRect(ctx, x, y, w, h, 4);
     ctx.fill();
+    ctx.save();
+    ctx.clip();
     ctx.fillStyle = '#fff';
     ctx.fillText(text, x + padX, y + h / 2 + 1);
+    ctx.restore();
   }
 }
 
