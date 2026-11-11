@@ -43,7 +43,6 @@ remote work loses, the minute of talk you never scheduled, and keeps it light an
 | ⏺ | Recording | Records the screen share and every camera with everyone's audio, in the browser. **The file downloads when you press ■ stop.** While recording, a "REC + elapsed" badge sits top-right and the tab title shows "● REC"; closing the tab without stopping saves what was recorded so far (filename gets `-autosave`) |
 | 🟢 | Status | Online / away |
 | 🔔 | Proximity chime | A light sound when someone arrives or leaves |
-| 🚪 | Leaving a room turns media off | Walking out of a meeting room or lounge switches mic, camera and screen share off (recording continues; coming back does not turn them on again) |
 | ⏳ | Alone on the floor turns media off | A minute alone on the open floor with nobody in your call switches mic, camera and screen share off, so an unattended desk stops broadcasting (rooms, lounges and team areas are exempt, as are recording and transcription) |
 | 🔒 | Entry password | Set `ACCESS_PASSWORD` and the office asks for it at the door (optional — open by default) |
 | 👥 | Calls that hold up | Two or more people go through the SFU by default, so a crowd scales (needs Cloudflare Realtime SFU; without it everyone is P2P) |

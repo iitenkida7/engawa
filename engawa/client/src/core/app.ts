@@ -36,7 +36,6 @@ import {
   type ServerMessage,
   type SfuTrack,
 } from '@/core/types';
-import { shouldDisableOnZoneExit } from '@/core/zone-media';
 import { SceneCompositor } from '@/media/compositor';
 import { MediaManager } from '@/media/media';
 import { RecorderManager } from '@/media/recorder';
@@ -197,7 +196,7 @@ export class App {
   // Track which peers were in proximity last frame (for chime on enter/leave)
   private inProximity = new Set<string>();
   // Previous frame's zone id (null = open floor), so update() can spot the step
-  // out of a room and cut our media (#306). Same prev-state-diff shape as
+  // out of a room and stop transcription (#364). Same prev-state-diff shape as
   // `inProximity` above.
   private lastZoneId: string | null = null;
   // userId → the time they joined, kept briefly so we can SUPPRESS the proximity
@@ -1692,17 +1691,10 @@ export class App {
     // Meeting rooms seat up to ~20: start new camera pulls on the light layer.
     this.sfu.setInitialCamRid(initialSfuCamRid(isMeetingRoom(zoneId)));
 
-    // Walking out of a zone cuts mic, camera and screen share (#306). The flag
-    // `autoCamOff` is deliberately NOT set: that one belongs to the tier-3
-    // policy, which would otherwise restore this camera the moment the network
-    // recovers. Nothing here turns media back on — walking back in leaves the
-    // decision to re-share with the user.
-    // Recording keeps running: it was started deliberately and is the user's to
-    // stop.
-    if (shouldDisableOnZoneExit(this.lastZoneId, zoneId, this.anyLocalMediaOn())) {
-      this.toolbar.disableAllMedia();
-      this.toasts.info(t('app.zoneLeftMediaOff'));
-    }
+    // Walking out of a zone no longer cuts mic/camera/screen share (#306 was
+    // dropped): moving room to room meant switching everything back on each
+    // time. Media left on in the hallway is caught by the one-minute alone
+    // timer (tickAloneMedia, #426) instead.
     // Transcription stops on the way out too (#364). It was transcribing THAT
     // room's conversation, and unlike recording it streams other people's
     // voices to an outside service, so leaving it running in the hallway is
@@ -1877,9 +1869,9 @@ export class App {
     const { since, disable } = stepAloneMedia(this.aloneMediaSince, alone, now);
     this.aloneMediaSince = since;
     if (!disable) return;
-    // Same teardown as the zone-exit cut (#306), and for the same reason
-    // `autoCamOff` is left alone: it belongs to the tier-3 policy, which would
-    // otherwise restore this camera as soon as the network recovers.
+    // `autoCamOff` is deliberately NOT set: it belongs to the tier-3 policy,
+    // which would otherwise restore this camera as soon as the network
+    // recovers. Nothing here turns media back on.
     this.toolbar.disableAllMedia();
     this.toasts.info(t('app.aloneMediaOff'));
   }
