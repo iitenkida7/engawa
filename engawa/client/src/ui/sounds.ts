@@ -3,9 +3,19 @@
 // The AudioContext is created lazily on the first chime so that the user's
 // initial gesture (clicking 入室) counts as activation — without that, browsers
 // suspend the context and the first sound is silent.
+//
+// Every chime goes through one shared bus (a master gain into a compressor that
+// acts as a limiter) and enter/leave chimes are rate-limited (ui/sound-limit.ts),
+// so a crowd walking in or out together can't stack up past full scale and crackle.
+
+import { admitChime } from '@/ui/sound-limit';
 
 export class SoundManager {
   private ctx: AudioContext | null = null;
+  // Shared output stage: all notes feed this instead of ctx.destination.
+  private bus: AudioNode | null = null;
+  // Start times of the recent enter/leave chimes (see admitChime).
+  private recentChimes: number[] = [];
 
   private getCtx(): AudioContext {
     if (!this.ctx) {
@@ -13,19 +23,45 @@ export class SoundManager {
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new Ctor();
+      this.bus = this.createBus(this.ctx);
     }
     // Some browsers leave the context suspended until a gesture; resume on each play.
     if (this.ctx.state === 'suspended') void this.ctx.resume();
     return this.ctx;
   }
 
+  // Master gain → compressor (set up as a limiter) → speakers. Several chimes at
+  // once are squeezed instead of summed into clipping.
+  private createBus(ctx: AudioContext): AudioNode {
+    const master = ctx.createGain();
+    master.gain.value = 0.8;
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -18;
+    limiter.knee.value = 12;
+    limiter.ratio.value = 12;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.25;
+    master.connect(limiter).connect(ctx.destination);
+    return master;
+  }
+
+  // Whether an enter/leave chime may start now (a burst is thinned out). The
+  // knock is exempt: someone is calling you, and it is rare.
+  private admit(): boolean {
+    const r = admitChime(this.recentChimes, performance.now());
+    this.recentChimes = r.history;
+    return r.ok;
+  }
+
   // Rising 2-note chime when someone enters the call range.
   enter() {
+    if (!this.admit()) return;
     this.playSequence([523.25, 783.99], 0.08, 0.18); // C5 → G5
   }
 
   // Falling 2-note chime when someone leaves.
   leave() {
+    if (!this.admit()) return;
     this.playSequence([783.99, 523.25], 0.08, 0.12); // G5 → C5
   }
 
@@ -78,7 +114,7 @@ export class SoundManager {
     lowpass.type = 'lowpass';
     lowpass.frequency.value = 5000;
     lowpass.Q.value = Math.SQRT1_2;
-    gain.connect(lowpass).connect(ctx.destination);
+    gain.connect(lowpass).connect(this.bus ?? ctx.destination);
     const weightSum = harmonics.reduce((s, w) => s + w, 0) || 1;
     harmonics.forEach((weight, i) => {
       if (weight <= 0) return;
