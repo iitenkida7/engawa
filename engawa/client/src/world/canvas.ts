@@ -13,6 +13,7 @@ import {
 } from '@/core/types';
 import { STATUS_EMOJI } from '@/ui/status-menu';
 import { CharacterSheet } from '@/world/character';
+import { DUST_MAX_PUFFS, isRunning, puffLook, puffsToSpawn } from '@/world/dust';
 import { buildMapCache, roundRect } from '@/world/map-art';
 import type { PlayerState } from '@/world/player';
 import {
@@ -206,6 +207,8 @@ export class CanvasRenderer {
   // as it moves. Each is drawn floating up + fading; expired ones are pruned in
   // render(). Memory-only, like everything else here.
   private reactions: { userId: string; emoji: string; start: number }[] = [];
+  // Dust puffs kicked up by running avatars (world coordinates; see world/dust.ts).
+  private dust: { x: number; y: number; start: number }[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -513,6 +516,8 @@ export class CanvasRenderer {
 
     // players
     const selfAway = self?.status === 'away';
+    // Dust sits on the floor, under every avatar.
+    this.drawDust(ctx);
     for (const p of sortedPlayers) {
       // While away (#220) our own avatar is hidden; we only spectate others.
       if (p.isSelf && selfAway) continue;
@@ -555,7 +560,7 @@ export class CanvasRenderer {
     mediaActive: boolean,
     inConversation: boolean,
   ): string | null {
-    if (highlightId !== null || this.reactions.length > 0) return null;
+    if (highlightId !== null || this.reactions.length > 0 || this.dust.length > 0) return null;
     // Positions to 1/20 px: below that nothing visibly moves, and it lets a
     // remote avatar's exponential ease settle into a stable key.
     const q = (v: number) => Math.round(v * 20);
@@ -810,6 +815,45 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
+  // Kick up dust behind a running avatar: one puff per DUST_SPACING px travelled.
+  private kickUpDust(p: PlayerState, footY: number) {
+    const r = puffsToSpawn(p.dustCarry, p.stepDist, isRunning(p.speed));
+    p.dustCarry = r.carry;
+    if (r.count === 0) return;
+    const now = performance.now();
+    for (let i = 0; i < r.count; i++) {
+      // A little scatter so the puffs don't read as a neat row of circles.
+      this.dust.push({
+        x: p.x + (Math.random() - 0.5) * 8,
+        y: footY + (Math.random() - 0.5) * 4,
+        start: now,
+      });
+    }
+    // Drop the oldest if a crowd of runners piles up.
+    if (this.dust.length > DUST_MAX_PUFFS) this.dust.splice(0, this.dust.length - DUST_MAX_PUFFS);
+  }
+
+  // Draw each puff as a soft grey-beige circle that grows and fades, and prune
+  // the ones whose life is over.
+  private drawDust(ctx: CanvasRenderingContext2D) {
+    if (this.dust.length === 0) return;
+    const now = performance.now();
+    const alive: typeof this.dust = [];
+    ctx.save();
+    ctx.fillStyle = '#c9bfae';
+    for (const d of this.dust) {
+      const look = puffLook(now - d.start);
+      if (!look) continue;
+      alive.push(d);
+      ctx.globalAlpha = look.alpha;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, look.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    this.dust = alive;
+  }
+
   // Draw each live reaction floating above its player's head, fading as it
   // rises, and prune the ones that have expired. A reaction whose player has
   // left is simply not drawn but still ages out.
@@ -937,6 +981,7 @@ export class CanvasRenderer {
     // Advance the walk cycle for this frame first: seatOf() below (and the name
     // label pass) read the column it settles on.
     const col = p.advanceWalk();
+    this.kickUpDust(p, footY);
     const seat = seatOf(p);
     const drewSprite = this.characters.draw(
       ctx,
