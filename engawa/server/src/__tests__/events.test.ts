@@ -284,6 +284,7 @@ describe('websocket handler → events', () => {
       occluded: [],
       joined: false,
       away: false,
+      lastStatus: null,
     } satisfies WsData;
     return { data, send: () => 0, close: () => {} } as unknown as ServerWebSocket<WsData>;
   };
