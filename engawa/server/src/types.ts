@@ -15,6 +15,15 @@ export type Outfit = {
   glasses: number;
 };
 
+// The presence fields of a `status` / `player-status` message.
+export type PlayerStatusFields = {
+  status: PlayerStatus;
+  isMuted: boolean;
+  isVideoOn: boolean;
+  camAutoOff: boolean;
+  ptt: boolean;
+};
+
 export type Player = {
   userId: string;
   name: string;
@@ -242,6 +251,11 @@ export type WsData = {
   // Optional profile picture (small square data URL, or null). Size-capped on
   // join / avatar-image-update and relayed to peers; transient (invariant #2).
   avatarImage: string | null;
+  // The last status this client announced (mute / camera / push-to-talk), or
+  // null before its first. Status is only relayed when it changes, so a late
+  // joiner is sent this on welcome — otherwise everyone already here looks
+  // unmuted to them. Transient (invariant #2).
+  lastStatus: PlayerStatusFields | null;
   // SFU track directory for this connection (null = hasn't published). Relayed
   // to group peers for pulling. Transient: dropped on disconnect / restart.
   sfuSessionId: string | null;

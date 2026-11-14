@@ -1792,6 +1792,11 @@ export class App {
       if (gainedPeer && this.recorder.recording) {
         this.net.send({ type: 'recording', recording: true });
       }
+      // Same for transcription: a late joiner's voice goes to the transcription
+      // service too, so they must be told (and their panel opened).
+      if (gainedPeer && this.transcriber.active) {
+        this.net.send({ type: 'transcribing', transcribing: true });
+      }
       for (const id of this.inProximity) {
         if (!nowInProximity.has(id)) {
           this.sounds.leave();

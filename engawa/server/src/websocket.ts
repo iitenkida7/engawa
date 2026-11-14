@@ -79,6 +79,21 @@ function broadcast(
   }
 }
 
+// Tell a client that just got its welcome the current status (mute / camera /
+// push-to-talk) of everyone already here. Status is only relayed on change, so
+// without this a late joiner sees every existing peer as unmuted until they
+// next toggle something. Same audience as the welcome's player list.
+function sendKnownStatuses(
+  ws: ServerWebSocket<WsData>,
+  clients: Map<string, ServerWebSocket<WsData>>,
+) {
+  for (const [id, c] of clients) {
+    if (id === ws.data.userId || !c.data.joined || c.data.away) continue;
+    if (c.data.workspace !== ws.data.workspace || !c.data.lastStatus) continue;
+    send(ws, { type: 'player-status', userId: id, ...c.data.lastStatus });
+  }
+}
+
 function playerFromWs(ws: ServerWebSocket<WsData>): Player {
   return {
     userId: ws.data.userId,
@@ -457,6 +472,7 @@ export function createWebSocketHandler(
               resumeToken: ws.data.resumeToken,
               resumed: true,
             });
+            sendKnownStatuses(ws, clients);
             // No player-joined broadcast — peers never saw us leave. Groups are
             // recomputed in case topology changed during the gap.
             broadcastGroups(clients, ws.data.workspace, groupState, now(), events);
@@ -524,6 +540,7 @@ export function createWebSocketHandler(
             token: mediaToken,
             resumeToken: ws.data.resumeToken,
           });
+          sendKnownStatuses(ws, clients);
 
           broadcast(
             clients,
@@ -569,18 +586,17 @@ export function createWebSocketHandler(
             );
           }
 
+          ws.data.lastStatus = {
+            status,
+            isMuted: normalizeBool(msg.isMuted),
+            isVideoOn: normalizeBool(msg.isVideoOn),
+            camAutoOff: normalizeBool(msg.camAutoOff),
+            ptt: normalizeBool(msg.ptt),
+          };
           broadcast(
             clients,
             ws.data.workspace,
-            {
-              type: 'player-status',
-              userId: ws.data.userId,
-              status,
-              isMuted: normalizeBool(msg.isMuted),
-              isVideoOn: normalizeBool(msg.isVideoOn),
-              camAutoOff: normalizeBool(msg.camAutoOff),
-              ptt: normalizeBool(msg.ptt),
-            },
+            { type: 'player-status', userId: ws.data.userId, ...ws.data.lastStatus },
             ws.data.userId,
           );
           if (!nowAway && wasAway)
