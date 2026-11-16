@@ -86,6 +86,7 @@ const server = Bun.serve({
           occluded: [],
           joined: false,
           away: false,
+          lastStatus: null,
         } satisfies WsData,
       });
       if (upgraded) return undefined;

@@ -59,6 +59,7 @@ function makeWs(data: Partial<WsData> = {}): FakeWs {
       occluded: data.occluded ?? [],
       joined: data.joined ?? false,
       away: data.away ?? false,
+      lastStatus: data.lastStatus ?? null,
     } satisfies WsData,
     send(payload: string | Bun.BufferSource) {
       sent.push(JSON.parse(payload as string) as ServerMessage);
@@ -565,6 +566,52 @@ describe('createWebSocketHandler — status & stream-meta', () => {
       camAutoOff: false,
       ptt: false,
     });
+  });
+
+  test('tells a late joiner the current status of everyone already here', () => {
+    const muted = makeWs({ workspace: 'ws1', joined: true, name: 'Bob' });
+    const silent = makeWs({ workspace: 'ws1', joined: true, name: 'Carol' });
+    handler.open!(muted);
+    handler.open!(silent);
+    deliver(handler, muted, { type: 'status', status: 'online', isMuted: true, isVideoOn: true });
+
+    const joiner = makeWs();
+    handler.open!(joiner);
+    deliver(handler, joiner, { type: 'join', name: 'Alice', workspace: 'ws1' });
+
+    // After the welcome, so the client already has the player to apply it to.
+    const welcomeAt = joiner.sent.findIndex((m) => m.type === 'welcome');
+    const statusAt = joiner.sent.findIndex((m) => m.type === 'player-status');
+    expect(statusAt).toBeGreaterThan(welcomeAt);
+    expect(joiner.sent[statusAt]).toEqual({
+      type: 'player-status',
+      userId: muted.data.userId,
+      status: 'online',
+      isMuted: true,
+      isVideoOn: true,
+      camAutoOff: false,
+      ptt: false,
+    });
+    // Nothing to report for someone who never sent a status.
+    expect(joiner.sent.filter((m) => m.type === 'player-status')).toHaveLength(1);
+  });
+
+  test('keeps the latest status and skips peers who are away', () => {
+    const peer = makeWs({ workspace: 'ws1', joined: true });
+    const away = makeWs({ workspace: 'ws1', joined: true });
+    handler.open!(peer);
+    handler.open!(away);
+    deliver(handler, peer, { type: 'status', status: 'online', isMuted: true, isVideoOn: false });
+    deliver(handler, peer, { type: 'status', status: 'online', isMuted: false, isVideoOn: false });
+    deliver(handler, away, { type: 'status', status: 'away', isMuted: true, isVideoOn: false });
+
+    const joiner = makeWs();
+    handler.open!(joiner);
+    deliver(handler, joiner, { type: 'join', name: 'Alice', workspace: 'ws1' });
+
+    const statuses = joiner.sent.filter((m) => m.type === 'player-status');
+    expect(statuses).toHaveLength(1);
+    expect(statuses[0]).toMatchObject({ userId: peer.data.userId, isMuted: false });
   });
 
   test('relays the push-to-talk flag', () => {
