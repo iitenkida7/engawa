@@ -1,6 +1,9 @@
 import { EXTRAP_MAX_MS, INTERP_DECAY, type Player, type PlayerStatus } from '@/core/types';
 import { type Direction, defaultOutfit, type Outfit } from '@/world/outfit';
 
+// Share of the new instantaneous speed blended in per frame (the rest is history).
+const SPEED_SMOOTHING = 0.3;
+
 export class PlayerState implements Player {
   userId: string;
   name: string;
@@ -94,6 +97,15 @@ export class PlayerState implements Player {
   private lastDrawX?: number;
   private lastDrawY?: number;
   private col = 0;
+  private lastDrawTime?: number;
+  // Distance (px) covered in the last drawn frame, and the on-screen speed (px/s,
+  // smoothed so a single uneven frame doesn't flicker "running"). Both are
+  // measured from the drawn position, so they work the same for our own avatar
+  // and for remote ones.
+  stepDist = 0;
+  speed = 0;
+  // Distance travelled since the last dust puff (see world/dust.ts).
+  dustCarry = 0;
 
   /**
    * Advance the walk cycle by the distance covered since the last call, and
@@ -101,12 +113,17 @@ export class PlayerState implements Player {
    * STATEFUL — call exactly once per rendered frame. Anything else that needs
    * the column reads walkCol(), which just reports what this decided.
    */
-  advanceWalk(): number {
+  advanceWalk(now: number = performance.now()): number {
     const lx = this.lastDrawX ?? this.x;
     const ly = this.lastDrawY ?? this.y;
     const dist = Math.hypot(this.x - lx, this.y - ly);
     this.lastDrawX = this.x;
     this.lastDrawY = this.y;
+    this.stepDist = dist;
+    const dtSec = this.lastDrawTime === undefined ? 0 : (now - this.lastDrawTime) / 1000;
+    this.lastDrawTime = now;
+    // Smooth the instantaneous speed; a long gap (hidden tab) just reads as slow.
+    if (dtSec > 0) this.speed += (dist / dtSec - this.speed) * SPEED_SMOOTHING;
     if (dist <= 0.15) {
       this.col = 0; // effectively stationary → standing frame
     } else {

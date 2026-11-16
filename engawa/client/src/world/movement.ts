@@ -5,8 +5,8 @@ import {
   COLLISION_RADIUS,
   PLAYER_RADIUS,
   PLAYER_SPEED,
-  STEP_DURATION_MS,
 } from '@/core/types';
+import { type DashState, INITIAL_DASH, nextDashState, stepDurationMs } from '@/world/dash';
 import { stepTarget } from '@/world/grid';
 import { findPath } from '@/world/pathfind';
 import type { PlayerState } from '@/world/player';
@@ -29,7 +29,13 @@ export class MovementController {
     toX: number;
     toY: number;
     elapsed: number;
+    // How long this step takes, fixed when it starts (a dash that begins
+    // mid-step must not make the avatar jump).
+    durMs: number;
   } | null = null;
+
+  // Keyboard dash (see world/dash.ts): fed once per frame from the held keys.
+  private dash: DashState = INITIAL_DASH;
 
   // Final waypoint of the active click-to-move route (drawn as the destination
   // marker), or null when not walking a route.
@@ -59,29 +65,45 @@ export class MovementController {
     dt: number,
     readDirection: () => { dx: number; dy: number },
   ): { vx: number; vy: number } {
-    if (this.gridStep) return this.advanceStep(me, dt);
     const { dx, dy } = readDirection();
-    if (dx !== 0 || dy !== 0) {
+    const held = dx !== 0 || dy !== 0;
+    const dtMs = dt * 1000;
+    if (this.gridStep) {
+      // Keep the dash timers running while a step slides (the key is held).
+      this.dash = nextDashState(this.dash, held, false, dtMs);
+      return this.advanceStep(me, dt);
+    }
+    if (held) {
       this.path = null;
       // Turn to face the pressed direction even if the next tile is blocked.
       me.updateFacing(dx, dy);
       const target = stepTarget(me.x, me.y, dx, dy);
+      // A wall in the way ends the dash.
+      this.dash = nextDashState(this.dash, true, target === null, dtMs);
       if (!target) return { vx: 0, vy: 0 };
-      this.gridStep = { fromX: me.x, fromY: me.y, toX: target.x, toY: target.y, elapsed: 0 };
+      this.gridStep = {
+        fromX: me.x,
+        fromY: me.y,
+        toX: target.x,
+        toY: target.y,
+        elapsed: 0,
+        durMs: stepDurationMs(this.dash),
+      };
       return this.advanceStep(me, dt);
     }
+    this.dash = nextDashState(this.dash, false, false, dtMs);
     if (this.path) return this.followPath(me, dt);
     return { vx: 0, vy: 0 };
   }
 
   // Advances the active grid step for one frame, linearly interpolating from the
-  // step's origin tile toward the destination tile center over STEP_DURATION_MS.
+  // step's origin tile toward the destination tile center over the step's own duration.
   // Clears the step (snapping exactly onto the target) when it completes.
   private advanceStep(me: PlayerState, dt: number): { vx: number; vy: number } {
     const s = this.gridStep;
     if (!s) return { vx: 0, vy: 0 };
     s.elapsed += dt;
-    const dur = STEP_DURATION_MS / 1000;
+    const dur = s.durMs / 1000;
     const p = Math.min(1, s.elapsed / dur);
     const prevX = me.x;
     const prevY = me.y;

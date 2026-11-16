@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { PLAYER_RADIUS, STEP_DURATION_MS } from '@/core/types';
+import { DASH_HOLD_MS, DASH_STEP_DURATION_MS } from '@/world/dash';
 import { stepTarget } from '@/world/grid';
 import { MovementController } from '@/world/movement';
 import { PlayerState } from '@/world/player';
@@ -46,13 +47,9 @@ describe('MovementController grid step', () => {
     expect(me.x).toBeCloseTo((start.x + next.x) / 2);
     expect(me.y).toBeCloseTo((start.y + next.y) / 2);
 
-    // Mid-step input is not read: the step finishes on the first tile.
-    let read = 0;
-    m.update(me, half, () => {
-      read++;
-      return dir;
-    });
-    expect(read).toBe(0);
+    // Mid-step input is not acted on: even the opposite direction does not turn
+    // the avatar around, the step finishes on the first tile.
+    m.update(me, half, () => ({ dx: -dir.dx, dy: -dir.dy }));
     expect(me.x).toBeCloseTo(next.x);
     expect(me.y).toBeCloseTo(next.y);
     expect(me.targetX).toBe(me.x);
@@ -69,6 +66,48 @@ describe('MovementController grid step', () => {
     expect(v).toEqual({ vx: 0, vy: 0 });
     expect(me.x).toBe(TILE_SIZE / 2);
     expect(me.facing).toBe('left');
+  });
+});
+
+// True when a coordinate sits (almost exactly) in the middle of a tile.
+function atTileCenter(v: number): boolean {
+  return Math.abs((v % TILE_SIZE) - TILE_SIZE / 2) < 0.001;
+}
+
+describe('MovementController dash', () => {
+  // Walk one tile at a time in `dir` for `ms`, in 16ms frames, returning how many
+  // frames the LAST completed step took.
+  function lastStepFrames(ms: number): number {
+    const { start, dir } = startWithOpenStep();
+    const me = makeMe(start.x, start.y);
+    const m = new MovementController();
+    let sinceStep = 0;
+    let last = 0;
+    let prevX = me.x;
+    let prevY = me.y;
+    for (let t = 0; t < ms; t += 16) {
+      m.update(me, 0.016, () => dir);
+      sinceStep++;
+      // A step ends when the avatar lands exactly on a tile center again.
+      const onCenter = atTileCenter(me.x) && atTileCenter(me.y);
+      if (onCenter && (me.x !== prevX || me.y !== prevY)) {
+        last = sinceStep;
+        sinceStep = 0;
+      }
+      prevX = me.x;
+      prevY = me.y;
+    }
+    return last;
+  }
+
+  it('walks at the normal pace for a short hold', () => {
+    const frames = lastStepFrames(DASH_HOLD_MS - 100);
+    expect(frames * 16).toBeGreaterThanOrEqual(STEP_DURATION_MS - 16);
+  });
+
+  it('speeds up to the dash pace after a long hold', () => {
+    const frames = lastStepFrames(DASH_HOLD_MS + 1500);
+    expect(frames * 16).toBeLessThanOrEqual(DASH_STEP_DURATION_MS + 16);
   });
 });
 
