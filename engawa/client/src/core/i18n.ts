@@ -570,10 +570,6 @@ const STR: Record<string, Record<Lang, string>> = {
     ja: '回線が回復したため、映像の受信を再開しました。',
     en: 'Network recovered — incoming video resumed.',
   },
-  'app.zoneLeftMediaOff': {
-    ja: '部屋を出たので、マイク・カメラ・画面共有をオフにしました。',
-    en: 'Left the room — mic, camera and screen share turned off.',
-  },
   'app.aloneMediaOff': {
     ja: '近くに誰もいない状態が続いたので、マイク・カメラ・画面共有をオフにしました。',
     en: 'Nobody nearby for a while — mic, camera and screen share turned off.',

@@ -1,8 +1,9 @@
-// Media left running with nobody to talk to (#426). On the open floor there is
-// no door to walk out of, so the zone-exit cut (core/zone-media.ts) never
-// fires: a mic left hot at an empty desk keeps broadcasting the room — and the
-// muttering in it — to whoever wanders into range next. After a minute alone we
-// cut mic, camera and screen share.
+// Media left running with nobody to talk to (#426). A mic left hot at an empty
+// desk keeps broadcasting the room — and the muttering in it — to whoever
+// wanders into range next. After a minute alone on the open floor we cut mic,
+// camera and screen share. This is also the only cut on leaving a room: walking
+// out keeps media on so moving to the next meeting needs no re-enabling, and a
+// minute alone in the hallway turns it off.
 //
 // Only the open floor is covered. Rooms, 1-on-1s, booths, the hanare, the
 // lounges and the team areas are places people sit down IN order to be
@@ -10,7 +11,7 @@
 // accident — callZoneAt() already reports exactly those as a non-null id.
 //
 // Kept as pure logic so the timer is unit-testable without a game loop,
-// matching the "extract pure logic into a module" pattern (core/zone-media.ts).
+// matching the "extract pure logic into a module" pattern.
 
 // How long to stay alone, on the open floor, with media on before it is cut.
 export const ALONE_MEDIA_OFF_MS = 60_000;
