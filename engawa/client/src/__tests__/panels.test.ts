@@ -456,7 +456,9 @@ describe('computeMeetingPresentation', () => {
 
   it('splits into two columns once the rail can hold two default tiles', () => {
     const railW = MEETING_FILMSTRIP_2COL_MIN_W;
-    const geos = computeMeetingPresentation([screen(), cam(), cam(), cam(), cam()], VW, VH, railW);
+    // Enough faces that two columns hold them better than one tall stack.
+    const items = [screen(), ...Array.from({ length: 8 }, () => cam())];
+    const geos = computeMeetingPresentation(items, VW, VH, railW);
     const strip = geos.slice(1).map(meetBox);
     expect(computeFilmstripColumns(railW)).toBe(2);
     // Row-major: 1st and 2nd share a row, 3rd and 4th the next one down.
@@ -506,6 +508,27 @@ describe('computeMeetingPresentation', () => {
     const strip = geos.slice(1).map(meetBox);
     expect(strip[2].x).toBe(0);
     expect(strip[2].y).toBeGreaterThan(strip[0].y);
+  });
+
+  it('a two-column rail fills its whole box with no gaps', () => {
+    const railW = 600;
+    const bottom = VH - PANEL_BOTTOM_RESERVED;
+    for (const n of [2, 3, 4, 5]) {
+      const items = [screen(), ...Array.from({ length: n }, () => cam())];
+      const strip = computeMeetingPresentation(items, VW, VH, railW).slice(1).map(meetBox);
+      // Covered area = rail minus the thin gaps between tiles.
+      const covered = strip.reduce((a, s) => a + s.w * s.h, 0);
+      expect(covered).toBeGreaterThan(railW * bottom * 0.97);
+      expect(Math.min(...strip.map((s) => s.y))).toBe(0);
+      expect(Math.max(...strip.map((s) => s.y + s.h))).toBe(bottom);
+      for (const s of strip) {
+        expect(s.x).toBeGreaterThanOrEqual(0);
+        expect(s.x + s.w).toBeLessThanOrEqual(railW);
+      }
+      for (let i = 0; i < strip.length; i++)
+        for (let j = i + 1; j < strip.length; j++)
+          expect(overlaps({ ...strip[i] }, { ...strip[j] })).toBe(false);
+    }
   });
 
   it('defaults the filmstrip width to the fixed tile width when none is given', () => {
