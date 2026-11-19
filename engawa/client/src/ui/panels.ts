@@ -275,8 +275,9 @@ export function computeMeetingGallery(
 // already trimmed the filmstrip to the visible (collapsed ≤ MAX / expanded) set,
 // so this just places what it is given inside a rail `stripW` wide (default
 // MEETING_FILMSTRIP_TILE_W; user-dragged, #288). The rail runs one column, or
-// two once it is wide enough to hold two default tiles (#304); tiles are
-// centered in the rail when they fit and shrink to divide it when they don't.
+// two once it is wide enough to hold two default tiles (#304). One column:
+// tiles are centered in the rail when they fit and shrink to divide it when
+// they don't. Wider: the rail fills edge to edge like a gallery (fillRail).
 // With a `splitRatio`, items[1] is the pinned window: the main area splits into
 // the share on top (that fraction of the height) and items[1] below, and the
 // rail holds items[2..]. With nothing left for the rail the split spans the
@@ -315,6 +316,12 @@ export function computeMeetingPresentation(
   if (pinned) splitMain(result, mainX, area.y, mainW, area.h, splitRatio!);
   else result[0] = { left: mainX, top: area.y, width: mainW, height: area.h };
 
+  if (cols > 1) {
+    // A rail dragged wide enough for two columns is a gallery of its own: fill
+    // it edge to edge instead of leaving fixed-size tiles floating in it.
+    fillRail(result, first, area.x, area.y, stripW, area.h);
+    return result;
+  }
   const fixedTotalH = rows * tileH + (rows - 1) * MEETING_GAP;
   if (fixedTotalH <= area.h) {
     // Fits: fixed-size tiles, flush-left and vertically centered beside the share.
@@ -348,6 +355,51 @@ export function computeMeetingPresentation(
     }
   }
   return result;
+}
+
+// Fills the rail box [x, y, w, h] gap-free with result[first..]: picks the
+// column count whose cells best hold a filmstrip-aspect tile (so faces stay
+// face-shaped), then stretches every cell to fill the box — a short last row
+// widens its tiles to span the rail. Row-major, like the fixed-size rail.
+function fillRail(
+  result: PanelGeometry[],
+  first: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const n = result.length - first;
+  const aspect = MEETING_FILMSTRIP_TILE_W / MEETING_FILMSTRIP_TILE_H;
+  let cols = 1;
+  let best = -1;
+  for (let c = 1; c <= n; c++) {
+    const r = Math.ceil(n / c);
+    const cw = (w - MEETING_GAP * (c - 1)) / c;
+    const ch = (h - MEETING_GAP * (r - 1)) / r;
+    const fitW = Math.min(cw, ch * aspect);
+    const area = fitW * (fitW / aspect);
+    if (area > best) {
+      best = area;
+      cols = c;
+    }
+  }
+  const rows = Math.ceil(n / cols);
+  const cellH = (h - MEETING_GAP * (rows - 1)) / rows;
+  for (let i = 0; i < n; i++) {
+    const row = Math.floor(i / cols);
+    const inRow = Math.min(cols, n - row * cols);
+    const col = i % cols;
+    const cellW = (w - MEETING_GAP * (inRow - 1)) / inRow;
+    const left = Math.round(x + col * (cellW + MEETING_GAP));
+    const top = Math.round(y + row * (cellH + MEETING_GAP));
+    result[first + i] = {
+      left,
+      top,
+      width: Math.max(1, Math.round(x + col * (cellW + MEETING_GAP) + cellW) - left),
+      height: Math.max(1, Math.round(y + row * (cellH + MEETING_GAP) + cellH) - top),
+    };
+  }
 }
 
 // Splits the main box [x, y, w, h] into the share (result[0], top) and the
