@@ -502,23 +502,34 @@ describe('computeMeetingPresentation', () => {
     }
   });
 
-  it('places an odd last tile in the left column', () => {
-    const railW = MEETING_FILMSTRIP_2COL_MIN_W;
-    const geos = computeMeetingPresentation([screen(), cam(), cam(), cam()], VW, VH, railW);
-    const strip = geos.slice(1).map(meetBox);
-    expect(strip[2].x).toBe(0);
-    expect(strip[2].y).toBeGreaterThan(strip[0].y);
+  it('centers an odd last tile at the same size instead of stretching it', () => {
+    const railW = 600;
+    // 5 faces in a 600px rail → 2 columns, 3 rows, the last holding one.
+    const items = [screen(), ...Array.from({ length: 5 }, () => cam())];
+    const strip = computeMeetingPresentation(items, VW, VH, railW).slice(1).map(meetBox);
+    const last = strip[4];
+    expect(strip[0].y).toBe(strip[1].y);
+    expect(last.y).toBeGreaterThan(strip[2].y);
+    // Same tile size as the full rows, so the face keeps its aspect…
+    expect(Math.abs(last.w - strip[0].w)).toBeLessThanOrEqual(1);
+    expect(Math.abs(last.h - strip[0].h)).toBeLessThanOrEqual(1);
+    // …and centered in the rail.
+    expect(Math.abs(last.x + last.w / 2 - railW / 2)).toBeLessThanOrEqual(1);
   });
 
-  it('a two-column rail fills its whole box with no gaps', () => {
+  it('a two-column rail fills its height and width with equal tiles', () => {
     const railW = 600;
     const bottom = VH - PANEL_BOTTOM_RESERVED;
     for (const n of [2, 3, 4, 5]) {
       const items = [screen(), ...Array.from({ length: n }, () => cam())];
       const strip = computeMeetingPresentation(items, VW, VH, railW).slice(1).map(meetBox);
-      // Covered area = rail minus the thin gaps between tiles.
-      const covered = strip.reduce((a, s) => a + s.w * s.h, 0);
-      expect(covered).toBeGreaterThan(railW * bottom * 0.97);
+      // Every tile the same size; full rows span the rail edge to edge.
+      for (const s of strip) {
+        expect(Math.abs(s.w - strip[0].w)).toBeLessThanOrEqual(1);
+        expect(Math.abs(s.h - strip[0].h)).toBeLessThanOrEqual(1);
+      }
+      expect(strip[0].x).toBe(0);
+      expect(Math.max(...strip.map((s) => s.x + s.w))).toBe(railW);
       expect(Math.min(...strip.map((s) => s.y))).toBe(0);
       expect(Math.max(...strip.map((s) => s.y + s.h))).toBe(bottom);
       for (const s of strip) {

@@ -359,8 +359,9 @@ export function computeMeetingPresentation(
 
 // Fills the rail box [x, y, w, h] gap-free with result[first..]: picks the
 // column count whose cells best hold a filmstrip-aspect tile (so faces stay
-// face-shaped), then stretches every cell to fill the box — a short last row
-// widens its tiles to span the rail. Row-major, like the fixed-size rail.
+// face-shaped), then stretches every cell to fill the box. A short last row
+// keeps the same cell size, centered — widening it to span the rail would crop
+// a lone face into a letterbox. Row-major, like the fixed-size rail.
 function fillRail(
   result: PanelGeometry[],
   first: number,
@@ -386,17 +387,18 @@ function fillRail(
   }
   const rows = Math.ceil(n / cols);
   const cellH = (h - MEETING_GAP * (rows - 1)) / rows;
+  const cellW = (w - MEETING_GAP * (cols - 1)) / cols;
   for (let i = 0; i < n; i++) {
     const row = Math.floor(i / cols);
     const inRow = Math.min(cols, n - row * cols);
     const col = i % cols;
-    const cellW = (w - MEETING_GAP * (inRow - 1)) / inRow;
-    const left = Math.round(x + col * (cellW + MEETING_GAP));
+    const rowX = x + ((cols - inRow) * (cellW + MEETING_GAP)) / 2;
+    const left = Math.round(rowX + col * (cellW + MEETING_GAP));
     const top = Math.round(y + row * (cellH + MEETING_GAP));
     result[first + i] = {
       left,
       top,
-      width: Math.max(1, Math.round(x + col * (cellW + MEETING_GAP) + cellW) - left),
+      width: Math.max(1, Math.round(rowX + col * (cellW + MEETING_GAP) + cellW) - left),
       height: Math.max(1, Math.round(y + row * (cellH + MEETING_GAP) + cellH) - top),
     };
   }
