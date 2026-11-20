@@ -19,6 +19,8 @@ import {
   MEETING_FILMSTRIP_TILE_H,
   MEETING_FILMSTRIP_TILE_W,
   MEETING_GAP,
+  MEETING_RAIL_ASPECT_MAX,
+  MEETING_RAIL_ASPECT_MIN,
   MEETING_SPLIT_DEFAULT,
   MEETING_SPLIT_MAX,
   MEETING_SPLIT_MIN,
@@ -502,33 +504,73 @@ describe('computeMeetingPresentation', () => {
     }
   });
 
-  it('places an odd last tile in the left column', () => {
-    const railW = MEETING_FILMSTRIP_2COL_MIN_W;
-    const geos = computeMeetingPresentation([screen(), cam(), cam(), cam()], VW, VH, railW);
-    const strip = geos.slice(1).map(meetBox);
-    expect(strip[2].x).toBe(0);
-    expect(strip[2].y).toBeGreaterThan(strip[0].y);
+  it('centers an odd last tile at the same size instead of stretching it', () => {
+    const railW = 600;
+    // 5 faces in a 600px rail → 2 columns, 3 rows, the last holding one.
+    const items = [screen(), ...Array.from({ length: 5 }, () => cam())];
+    const strip = computeMeetingPresentation(items, VW, VH, railW).slice(1).map(meetBox);
+    const last = strip[4];
+    expect(strip[0].y).toBe(strip[1].y);
+    expect(last.y).toBeGreaterThan(strip[2].y);
+    // Same tile size as the full rows, so the face keeps its aspect…
+    expect(Math.abs(last.w - strip[0].w)).toBeLessThanOrEqual(1);
+    expect(Math.abs(last.h - strip[0].h)).toBeLessThanOrEqual(1);
+    // …and centered in the rail.
+    expect(Math.abs(last.x + last.w / 2 - railW / 2)).toBeLessThanOrEqual(1);
   });
 
-  it('a two-column rail fills its whole box with no gaps', () => {
-    const railW = 600;
-    const bottom = VH - PANEL_BOTTOM_RESERVED;
-    for (const n of [2, 3, 4, 5]) {
-      const items = [screen(), ...Array.from({ length: n }, () => cam())];
-      const strip = computeMeetingPresentation(items, VW, VH, railW).slice(1).map(meetBox);
-      // Covered area = rail minus the thin gaps between tiles.
-      const covered = strip.reduce((a, s) => a + s.w * s.h, 0);
-      expect(covered).toBeGreaterThan(railW * bottom * 0.97);
-      expect(Math.min(...strip.map((s) => s.y))).toBe(0);
-      expect(Math.max(...strip.map((s) => s.y + s.h))).toBe(bottom);
-      for (const s of strip) {
-        expect(s.x).toBeGreaterThanOrEqual(0);
-        expect(s.x + s.w).toBeLessThanOrEqual(railW);
+  // Whatever the viewport, rail width and head count: equal tiles, never cropped
+  // past the aspect band, nothing overlapping or leaving the rail, and the grid
+  // reaches the rail edges on at least one axis (it fills what the shape allows).
+  it('a wide rail lays out well for any viewport, width and head count', () => {
+    const viewports = [
+      [1280, 720],
+      [1440, 900],
+      [1920, 1080],
+      [2560, 1440],
+      [1024, 1366],
+    ];
+    for (const [vw, vh] of viewports) {
+      const bottom = vh - PANEL_BOTTOM_RESERVED;
+      for (const frac of [0.21, 0.3, 0.4, 0.5]) {
+        const railW = clampFilmstripWidth(vw * frac, vw);
+        if (computeFilmstripColumns(railW) < 2) continue;
+        for (let n = 1; n <= 16; n++) {
+          const items = [screen(), ...Array.from({ length: n }, () => cam())];
+          const strip = computeMeetingPresentation(items, vw, vh, railW).slice(1).map(meetBox);
+          for (const t of strip) {
+            expect(Math.abs(t.w - strip[0].w)).toBeLessThanOrEqual(1);
+            expect(Math.abs(t.h - strip[0].h)).toBeLessThanOrEqual(1);
+            expect(t.w / t.h).toBeGreaterThanOrEqual(MEETING_RAIL_ASPECT_MIN - 0.02);
+            expect(t.w / t.h).toBeLessThanOrEqual(MEETING_RAIL_ASPECT_MAX + 0.02);
+            expect(t.x).toBeGreaterThanOrEqual(0);
+            expect(t.x + t.w).toBeLessThanOrEqual(railW);
+            expect(t.y).toBeGreaterThanOrEqual(0);
+            expect(t.y + t.h).toBeLessThanOrEqual(bottom);
+          }
+          for (let i = 0; i < strip.length; i++)
+            for (let j = i + 1; j < strip.length; j++)
+              expect(overlaps({ ...strip[i] }, { ...strip[j] })).toBe(false);
+          const top = Math.min(...strip.map((t) => t.y));
+          const left = Math.min(...strip.map((t) => t.x));
+          const right = Math.max(...strip.map((t) => t.x + t.w));
+          const fillsH = top <= 1;
+          const fillsW = left <= 1 && right >= railW - 1;
+          expect(fillsH || fillsW).toBe(true);
+        }
       }
-      for (let i = 0; i < strip.length; i++)
-        for (let j = i + 1; j < strip.length; j++)
-          expect(overlaps({ ...strip[i] }, { ...strip[j] })).toBe(false);
     }
+  });
+
+  it('keeps a lone face in a tall rail square instead of a sliver, centered', () => {
+    const railW = 400;
+    const [t] = computeMeetingPresentation([screen(), cam()], 1440, 900, railW)
+      .slice(1)
+      .map(meetBox);
+    expect(t.w).toBe(railW);
+    expect(t.h).toBe(railW);
+    const bottom = 900 - PANEL_BOTTOM_RESERVED;
+    expect(Math.abs(t.y + t.h / 2 - bottom / 2)).toBeLessThanOrEqual(1);
   });
 
   it('defaults the filmstrip width to the fixed tile width when none is given', () => {
