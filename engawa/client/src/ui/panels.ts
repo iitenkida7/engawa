@@ -357,11 +357,29 @@ export function computeMeetingPresentation(
   return result;
 }
 
-// Fills the rail box [x, y, w, h] gap-free with result[first..]: picks the
-// column count whose cells best hold a filmstrip-aspect tile (so faces stay
-// face-shaped), then stretches every cell to fill the box. A short last row
-// keeps the same cell size, centered — widening it to span the rail would crop
-// a lone face into a letterbox. Row-major, like the fixed-size rail.
+// Aspect band (W:H) a wide-rail tile may stretch to. Inside it a camera crops
+// only a little under object-fit:cover; past it a face turns into a sliver
+// (a lone tile filling a tall rail) or a letterbox (a stack of wide strips).
+export const MEETING_RAIL_ASPECT_MIN = 1;
+export const MEETING_RAIL_ASPECT_MAX = 16 / 9;
+
+// Pure: the tile size for a `cols`-column grid of `n` tiles in a w×h box —
+// each cell, with its aspect pulled back into the band.
+function railTile(n: number, cols: number, w: number, h: number) {
+  const rows = Math.ceil(n / cols);
+  let tw = (w - MEETING_GAP * (cols - 1)) / cols;
+  let th = (h - MEETING_GAP * (rows - 1)) / rows;
+  if (tw > th * MEETING_RAIL_ASPECT_MAX) tw = th * MEETING_RAIL_ASPECT_MAX;
+  if (tw < th * MEETING_RAIL_ASPECT_MIN) th = tw / MEETING_RAIL_ASPECT_MIN;
+  return { rows, tw, th };
+}
+
+// Fills the rail box [x, y, w, h] with result[first..] like a gallery: picks
+// the column count that gives the biggest tiles, stretches them to fill their
+// cells as far as the aspect band allows, and centers the grid in the rail —
+// so it fills edge to edge whenever the shape allows and never crops a face
+// into a sliver when it doesn't. A short last row keeps the same tile size,
+// centered. Row-major, like the fixed-size rail.
 function fillRail(
   result: PanelGeometry[],
   first: number,
@@ -371,35 +389,33 @@ function fillRail(
   h: number,
 ) {
   const n = result.length - first;
-  const aspect = MEETING_FILMSTRIP_TILE_W / MEETING_FILMSTRIP_TILE_H;
   let cols = 1;
   let best = -1;
   for (let c = 1; c <= n; c++) {
-    const r = Math.ceil(n / c);
-    const cw = (w - MEETING_GAP * (c - 1)) / c;
-    const ch = (h - MEETING_GAP * (r - 1)) / r;
-    const fitW = Math.min(cw, ch * aspect);
-    const area = fitW * (fitW / aspect);
-    if (area > best) {
-      best = area;
+    const { tw, th } = railTile(n, c, w, h);
+    // Strictly bigger wins, so a tie keeps fewer columns (fuller rows).
+    if (tw * th > best + 1) {
+      best = tw * th;
       cols = c;
     }
   }
-  const rows = Math.ceil(n / cols);
-  const cellH = (h - MEETING_GAP * (rows - 1)) / rows;
-  const cellW = (w - MEETING_GAP * (cols - 1)) / cols;
+  const { rows, tw, th } = railTile(n, cols, w, h);
+  const gridH = rows * th + (rows - 1) * MEETING_GAP;
+  const y0 = y + (h - gridH) / 2;
   for (let i = 0; i < n; i++) {
     const row = Math.floor(i / cols);
     const inRow = Math.min(cols, n - row * cols);
     const col = i % cols;
-    const rowX = x + ((cols - inRow) * (cellW + MEETING_GAP)) / 2;
-    const left = Math.round(rowX + col * (cellW + MEETING_GAP));
-    const top = Math.round(y + row * (cellH + MEETING_GAP));
+    const rowW = inRow * tw + (inRow - 1) * MEETING_GAP;
+    const cx = x + (w - rowW) / 2 + col * (tw + MEETING_GAP);
+    const cy = y0 + row * (th + MEETING_GAP);
+    const left = Math.round(cx);
+    const top = Math.round(cy);
     result[first + i] = {
       left,
       top,
-      width: Math.max(1, Math.round(rowX + col * (cellW + MEETING_GAP) + cellW) - left),
-      height: Math.max(1, Math.round(y + row * (cellH + MEETING_GAP) + cellH) - top),
+      width: Math.max(1, Math.round(cx + tw) - left),
+      height: Math.max(1, Math.round(cy + th) - top),
     };
   }
 }
