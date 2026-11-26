@@ -4,12 +4,15 @@ import type { MediaManager } from '@/media/media';
 import type { RecorderManager } from '@/media/recorder';
 import { RemoteMediaView } from '@/ui/remote-media';
 import {
+  CORRELATED_STALL_WINDOW_MS,
   classifyStall,
   INITIAL_STALL_STATE,
+  isNetworkStall,
   LAYER_SWITCH_WINDOW_MS,
   STALL_ATTACH_GRACE_MS,
   STALL_CLEAR_MS,
   STALL_MS,
+  stalledRecently,
   updateStallState,
 } from '@/ui/video-stall';
 import type { PlayerState } from '@/world/player';
@@ -20,12 +23,22 @@ import type { PlayerState } from '@/world/player';
 
 describe('classifyStall', () => {
   it('is quiet while frames keep coming', () => {
-    expect(classifyStall({ stalledMs: STALL_MS - 1, sinceLayerSwitchMs: null, myTier: 3 })).toBe(
-      null,
-    );
+    expect(
+      classifyStall({
+        stalledMs: STALL_MS - 1,
+        sinceLayerSwitchMs: null,
+        myTier: 3,
+        othersStalled: false,
+      }),
+    ).toBe(null);
     // No frame clock at all (-Infinity): only a muted track can flag a stall.
     expect(
-      classifyStall({ stalledMs: Number.NEGATIVE_INFINITY, sinceLayerSwitchMs: null, myTier: 3 }),
+      classifyStall({
+        stalledMs: Number.NEGATIVE_INFINITY,
+        sinceLayerSwitchMs: null,
+        myTier: 3,
+        othersStalled: false,
+      }),
     ).toBe(null);
   });
 
@@ -35,24 +48,77 @@ describe('classifyStall', () => {
         stalledMs: STALL_MS,
         sinceLayerSwitchMs: LAYER_SWITCH_WINDOW_MS - 1,
         myTier: 3,
+        othersStalled: true,
       }),
     ).toBe('layer-switch');
     expect(
-      classifyStall({ stalledMs: STALL_MS, sinceLayerSwitchMs: LAYER_SWITCH_WINDOW_MS, myTier: 0 }),
+      classifyStall({
+        stalledMs: STALL_MS,
+        sinceLayerSwitchMs: LAYER_SWITCH_WINDOW_MS,
+        myTier: 0,
+        othersStalled: false,
+      }),
     ).toBe('peer-network');
   });
 
   it('blames our own link at tier ≥2, otherwise the peer', () => {
-    expect(classifyStall({ stalledMs: STALL_MS, sinceLayerSwitchMs: null, myTier: 2 })).toBe(
-      'my-network',
-    );
-    expect(classifyStall({ stalledMs: STALL_MS, sinceLayerSwitchMs: null, myTier: 1 })).toBe(
-      'peer-network',
-    );
+    expect(
+      classifyStall({
+        stalledMs: STALL_MS,
+        sinceLayerSwitchMs: null,
+        myTier: 2,
+        othersStalled: false,
+      }),
+    ).toBe('my-network');
+    expect(
+      classifyStall({
+        stalledMs: STALL_MS,
+        sinceLayerSwitchMs: null,
+        myTier: 1,
+        othersStalled: false,
+      }),
+    ).toBe('peer-network');
     // A muted track reads as stalled forever.
     expect(
-      classifyStall({ stalledMs: Number.POSITIVE_INFINITY, sinceLayerSwitchMs: null, myTier: 0 }),
+      classifyStall({
+        stalledMs: Number.POSITIVE_INFINITY,
+        sinceLayerSwitchMs: null,
+        myTier: 0,
+        othersStalled: false,
+      }),
     ).toBe('peer-network');
+  });
+
+  it('blames our own side when another sender stalled moments ago too', () => {
+    expect(
+      classifyStall({
+        stalledMs: STALL_MS,
+        sinceLayerSwitchMs: null,
+        myTier: 0,
+        othersStalled: true,
+      }),
+    ).toBe('my-network');
+  });
+});
+
+describe('isNetworkStall', () => {
+  it('counts missing frames that no layer switch explains', () => {
+    expect(isNetworkStall(STALL_MS - 1, null)).toBe(false);
+    expect(isNetworkStall(STALL_MS, null)).toBe(true);
+    expect(isNetworkStall(Number.POSITIVE_INFINITY, LAYER_SWITCH_WINDOW_MS)).toBe(true);
+    expect(isNetworkStall(Number.POSITIVE_INFINITY, LAYER_SWITCH_WINDOW_MS - 1)).toBe(false);
+  });
+});
+
+describe('stalledRecently', () => {
+  it('looks at other tiles only, within the window', () => {
+    const at = new Map<string, number | null>([
+      ['a', 1000],
+      ['b', null],
+    ]);
+    expect(stalledRecently('a', at, 1000)).toBe(false);
+    expect(stalledRecently('b', at, 1000 + CORRELATED_STALL_WINDOW_MS)).toBe(true);
+    expect(stalledRecently('b', at, 1000 + CORRELATED_STALL_WINDOW_MS + 1)).toBe(false);
   });
 });
 
@@ -241,6 +307,41 @@ describe('RemoteMediaView stall overlay (issue #312)', () => {
     setMuted(true);
     view.tickStalls(performance.now(), 2);
     expect(stallLabel('a')).toBe(t('media.stall.my-network'));
+  });
+
+  it('blames our own side when two senders stall close together', () => {
+    players.set('b', player('b', 'Bob'));
+    const a = makeCamStream('cam-a');
+    const b = makeCamStream('cam-b');
+    view.attachRemoteStream('a', a.stream, 'cam');
+    view.attachRemoteStream('b', b.stream, 'cam');
+    const now = Math.ceil(performance.now());
+    // Alice stalls alone first: nothing else is wrong, so it reads as hers.
+    a.setMuted(true);
+    view.tickStalls(now, 0);
+    expect(stallLabel('a')).toBe(t('media.stall.peer-network'));
+    // She recovers; Bob stalls a few seconds later — the shared factor is us.
+    a.setMuted(false);
+    view.tickStalls(now + STALL_CLEAR_MS, 0);
+    b.setMuted(true);
+    view.tickStalls(now + 4000, 0);
+    expect(stallLabel('b')).toBe(t('media.stall.my-network'));
+  });
+
+  it('keeps a lone stall on the sender once the last one is long past', () => {
+    players.set('b', player('b', 'Bob'));
+    const a = makeCamStream('cam-a');
+    const b = makeCamStream('cam-b');
+    view.attachRemoteStream('a', a.stream, 'cam');
+    view.attachRemoteStream('b', b.stream, 'cam');
+    const now = Math.ceil(performance.now());
+    a.setMuted(true);
+    view.tickStalls(now, 0);
+    a.setMuted(false);
+    view.tickStalls(now + STALL_CLEAR_MS, 0);
+    b.setMuted(true);
+    view.tickStalls(now + CORRELATED_STALL_WINDOW_MS + 1, 0);
+    expect(stallLabel('b')).toBe(t('media.stall.peer-network'));
   });
 
   it('blames a layer switch we just requested', () => {
