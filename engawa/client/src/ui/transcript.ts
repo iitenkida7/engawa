@@ -9,6 +9,7 @@
 // renderer over them.
 
 import { getLang, t } from '@/core/i18n';
+import { GroqAuthError } from '@/media/groq';
 import { makeDraggable } from '@/ui/draggable';
 import { canSummarize, summarize, toSummaryInput } from '@/ui/transcript-summary';
 
@@ -125,15 +126,13 @@ export class TranscriptPanel {
       header.insertBefore(copyBtn, saveBtn);
     }
 
-    // Summary button, only where Chrome's on-device model can run.
+    // Summary button (Groq, with the transcription key; ui/transcript-summary.ts).
     const summarizeBtn = document.createElement('button');
     summarizeBtn.className = 'transcript-action';
     summarizeBtn.title = t('transcript.summarize');
     summarizeBtn.textContent = '✨';
     summarizeBtn.addEventListener('click', () => void this.runSummary());
-    void canSummarize(getLang()).then((ok) => {
-      if (ok && header) header.insertBefore(summarizeBtn, copyBtn);
-    });
+    if (header) header.insertBefore(summarizeBtn, copyBtn);
 
     document.getElementById('transcript-summary-close')?.addEventListener('click', () => {
       this.summary.classList.add('hidden');
@@ -244,8 +243,7 @@ export class TranscriptPanel {
 
   // One line as a speech bubble under a "name  time" header; a continuation of
   // the same speaker's group drops the header so the bubbles stack.
-  // Summarise everything so far into the summary area. Called from the click so
-  // a first-time model download has the user activation it needs.
+  // Summarise everything so far into the summary area.
   private async runSummary() {
     if (this.summarizing) return;
     this.summary.classList.remove('hidden');
@@ -254,22 +252,23 @@ export class TranscriptPanel {
       this.summaryBody.textContent = t('transcript.summaryEmpty');
       return;
     }
+    // Peers who only receive shared lines have no key of their own; the person
+    // transcribing can summarise and share it with 📋.
+    if (!canSummarize()) {
+      this.summaryBody.textContent = t('transcript.summaryNeedsKey');
+      return;
+    }
     this.summarizing = true;
     this.summaryBody.textContent = t('transcript.summarizing');
     try {
-      const text = await summarize(toSummaryInput(this.entries), getLang(), (fraction) => {
-        // Once the download completes the model starts summarising; say so
-        // instead of leaving "100%" up for the whole run.
-        this.summaryBody.textContent =
-          fraction < 1
-            ? t('transcript.summaryDownloading', { percent: Math.round(fraction * 100) })
-            : t('transcript.summarizing');
-      });
-      this.summaryBody.textContent = text.trim();
+      this.summaryBody.textContent = await summarize(toSummaryInput(this.entries), getLang());
     } catch (err) {
-      this.summaryBody.textContent = t('transcript.summaryError', {
-        message: err instanceof Error ? err.message : String(err),
-      });
+      this.summaryBody.textContent =
+        err instanceof GroqAuthError
+          ? t('transcript.summaryBadKey')
+          : t('transcript.summaryError', {
+              message: err instanceof Error ? err.message : String(err),
+            });
     } finally {
       this.summarizing = false;
     }

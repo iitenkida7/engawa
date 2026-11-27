@@ -389,15 +389,19 @@ const STR: Record<string, Record<Lang, string>> = {
   'transcript.wait.hours': { ja: '約 {n} 時間後に', en: 'in about {n} h' },
   'transcript.wait.unknown': { ja: '解除されしだい', en: 'once it clears' },
   'transcript.summarize': {
-    ja: 'ここまでを要約（この端末の AI で処理）',
-    en: 'Summarize so far (runs on this device)',
+    ja: 'ここまでを要約（文字起こしと同じ Groq キーを使用）',
+    en: 'Summarize so far (uses the same Groq key as transcription)',
   },
   'transcript.summaryTitle': { ja: '✨ 要約', en: '✨ Summary' },
   'transcript.summaryCopy': { ja: '要約をコピー', en: 'Copy summary' },
   'transcript.summarizing': { ja: '要約しています…', en: 'Summarizing…' },
-  'transcript.summaryDownloading': {
-    ja: '要約モデルをダウンロード中… {percent}%（初回のみ）',
-    en: 'Downloading the summary model… {percent}% (first time only)',
+  'transcript.summaryNeedsKey': {
+    ja: '要約には Groq の API キーが必要です（ツールバーの「文字起こし」ボタンから設定できます）',
+    en: 'Summaries need a Groq API key (set it from the Transcribe button in the toolbar)',
+  },
+  'transcript.summaryBadKey': {
+    ja: 'Groq が API キーを受け付けませんでした。文字起こしの設定でキーを確認してください',
+    en: 'Groq rejected the API key. Check it in the transcription settings',
   },
   'transcript.summaryEmpty': {
     ja: 'まだ要約する文字起こしがありません',
