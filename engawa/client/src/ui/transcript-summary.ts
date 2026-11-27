@@ -1,123 +1,89 @@
-// On-device summary of the transcript with Chrome's built-in Summarizer API
-// (Gemini Nano). The text never leaves the browser — no key, no request — so it
-// sits well with invariant #1. Desktop Chrome only; elsewhere the API is absent
-// and the panel simply doesn't offer the button.
+// Summary of the transcript with a Groq-hosted LLM, using the same Groq key the
+// transcriber already holds (media/groq.ts). The text goes from the browser
+// straight to api.groq.com, exactly like the audio it was transcribed from —
+// never through our own server (invariant #1) — and the key stays the user's
+// own, in their browser.
 //
-// The model reads a small window, so a long meeting is summarised in halves
-// and the halves' summaries are summarised again until one pass fits. The
-// splitting helpers are pure and unit-tested.
+// Prompt building and input shaping are pure and unit-tested; `summarize`
+// only adds the HTTP call.
 
 import type { Lang } from '@/core/i18n';
+import { GroqAuthError } from '@/media/groq';
 import type { TranscriptEntry } from '@/ui/transcript';
+import { loadGroqKey } from '@/ui/transcript-setup';
 
-type Availability = 'unavailable' | 'downloadable' | 'downloading' | 'available';
+const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-type SummarizerOptions = {
-  type?: 'key-points' | 'tldr' | 'teaser' | 'headline';
-  format?: 'plain-text' | 'markdown';
-  length?: 'short' | 'medium' | 'long';
-  sharedContext?: string;
-  expectedInputLanguages?: string[];
-  outputLanguage?: string;
-  monitor?: (m: EventTarget) => void;
+// Large enough to follow a long meeting in one pass (131k-token window), and
+// served on the same account and key as Whisper.
+const SUMMARY_MODEL = 'openai/gpt-oss-120b';
+
+const REQUEST_TIMEOUT_MS = 60_000;
+
+// A very long meeting is cut to fit the model's window (roughly one token per
+// Japanese character). The tail is kept longer: decisions tend to come last.
+export const MAX_INPUT_CHARS = 80_000;
+
+const INSTRUCTIONS: Record<Lang, string> = {
+  ja: `あなたは会議の書記です。以下の会議の文字起こし（「話者: 発言」）を読み、日本語で要約してください。
+- まず「決まったこと」「宿題（担当者がわかれば名前）」「次の予定」を箇条書きで。該当が無い項目は書かない（「なし」とも書かない）。
+- 続けて、話した内容を議題ごとに短い箇条書きで。
+- 各行は「・」で始めるプレーンテキスト。見出し以外に Markdown は使わない。
+- 文字起こしに無いことは書かない。音声認識の誤字は文脈から自然に補う。`,
+  en: `You are a meeting scribe. Read the meeting transcript below ("speaker: line") and summarize it in English.
+- First list decisions, action items (with owners when known) and next steps. Leave out any that has none (do not write "none").
+- Then summarize what was discussed, as short bullets grouped by topic.
+- Plain text, each line starting with "• ". No Markdown.
+- Do not add anything that is not in the transcript. It comes from speech recognition; read typos charitably.`,
 };
-
-type Summarizer = {
-  inputQuota: number;
-  measureInputUsage(input: string): Promise<number>;
-  summarize(input: string): Promise<string>;
-  destroy(): void;
-};
-
-type SummarizerApi = {
-  availability(opts?: SummarizerOptions): Promise<Availability>;
-  create(opts?: SummarizerOptions): Promise<Summarizer>;
-};
-
-function api(): SummarizerApi | undefined {
-  return (globalThis as { Summarizer?: SummarizerApi }).Summarizer;
-}
-
-function options(lang: Lang): SummarizerOptions {
-  return {
-    type: 'key-points',
-    format: 'plain-text',
-    length: 'medium',
-    sharedContext:
-      lang === 'ja' ? '会議の文字起こし（話者: 発言）' : 'Meeting transcript (speaker: line)',
-    expectedInputLanguages: [lang],
-    outputLanguage: lang,
-  };
-}
 
 // Pure: the transcript as model input. Timestamps are dropped — they cost
-// window space and add nothing to a summary.
+// tokens and add nothing to a summary.
 export function toSummaryInput(entries: TranscriptEntry[]): string {
   return entries.map((e) => `${e.speakerName}: ${e.text}`).join('\n');
 }
 
-// Pure: cut text in two near the middle, on a line break when there is one, so
-// each half can be summarised on its own. Null when it can't be split further.
-export function splitInHalf(text: string): [string, string] | null {
-  if (text.length < 2) return null;
-  const mid = Math.floor(text.length / 2);
-  const before = text.lastIndexOf('\n', mid);
-  const after = text.indexOf('\n', mid);
-  let cut = -1;
-  if (before > 0 && after > 0) cut = mid - before <= after - mid ? before : after;
-  else cut = before > 0 ? before : after;
-  if (cut <= 0) return [text.slice(0, mid), text.slice(mid)];
-  return [text.slice(0, cut), text.slice(cut + 1)];
+// Pure: keep the head and (a longer) tail of an over-long transcript.
+export function clipInput(text: string, max = MAX_INPUT_CHARS): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max * 0.4);
+  return `${text.slice(0, head)}\n…\n${text.slice(text.length - (max - head))}`;
 }
 
-// Whether this browser can summarise in `lang` at all (possibly after a
-// one-time model download).
-export async function canSummarize(lang: Lang): Promise<boolean> {
-  const s = api();
-  if (!s) return false;
-  try {
-    return (await s.availability(options(lang))) !== 'unavailable';
-  } catch {
-    return false;
-  }
+// Pure: the chat request body.
+export function buildRequest(text: string, lang: Lang) {
+  return {
+    model: SUMMARY_MODEL,
+    messages: [
+      { role: 'system', content: INSTRUCTIONS[lang] },
+      { role: 'user', content: clipInput(text) },
+    ],
+    temperature: 0.2,
+  };
 }
 
-// Summarise `text`. `onDownload` reports model download progress (0..1), only
-// while the model is actually missing: Chrome fires 0 and 1 progress events
-// even when it is already on disk. Must be called from a click: creating the
-// summarizer may start that download, which needs user activation.
-export async function summarize(
-  text: string,
-  lang: Lang,
-  onDownload: (fraction: number) => void,
-): Promise<string> {
-  const s = api();
-  if (!s) throw new Error('Summarizer unavailable');
-  const needsDownload = (await s.availability(options(lang))) !== 'available';
-  const summarizer = await s.create({
-    ...options(lang),
-    monitor: (m) => {
-      if (!needsDownload) return;
-      m.addEventListener('downloadprogress', (e) => onDownload((e as ProgressEvent).loaded));
-    },
+// Whether this browser can summarise: it needs the Groq key that transcription
+// uses. Checked on click, since the key can be set after the panel is built.
+export function canSummarize(): boolean {
+  return loadGroqKey() !== null;
+}
+
+// Summarise `text` with the user's Groq key. Throws GroqAuthError on a bad key.
+export async function summarize(text: string, lang: Lang): Promise<string> {
+  const apiKey = loadGroqKey();
+  if (!apiKey) throw new GroqAuthError('no Groq API key');
+  const res = await fetch(GROQ_CHAT_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(buildRequest(text, lang)),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  try {
-    return await fit(summarizer, text);
-  } finally {
-    summarizer.destroy();
+  if (res.status === 401 || res.status === 403) {
+    throw new GroqAuthError(`Groq rejected the API key (${res.status})`);
   }
-}
-
-async function fit(summarizer: Summarizer, text: string): Promise<string> {
-  if ((await summarizer.measureInputUsage(text)) <= summarizer.inputQuota) {
-    return summarizer.summarize(text);
-  }
-  const halves = splitInHalf(text);
-  if (!halves) return summarizer.summarize(text);
-  // Sequential: the on-device model runs one request at a time anyway.
-  const first = await fit(summarizer, halves[0]);
-  const second = await fit(summarizer, halves[1]);
-  const merged = `${first}\n${second}`;
-  // Guard against a model that doesn't shrink its input: stop rather than loop.
-  return merged.length < text.length ? fit(summarizer, merged) : merged;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = (await res.json()) as { choices?: { message?: { content?: unknown } }[] };
+  const content = json.choices?.[0]?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) throw new Error('empty response');
+  return content.trim();
 }
