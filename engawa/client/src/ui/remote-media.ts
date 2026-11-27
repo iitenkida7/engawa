@@ -22,9 +22,11 @@ import { ScreenZoom } from '@/ui/screen-zoom';
 import {
   classifyStall,
   INITIAL_STALL_STATE,
+  isNetworkStall,
   STALL_ATTACH_GRACE_MS,
   type StallReason,
   type StallState,
+  stalledRecently,
   stallLabelKey,
   updateStallState,
 } from '@/ui/video-stall';
@@ -52,6 +54,9 @@ type RemoteTile = {
   lastFrameAt: number;
   trackMuted: boolean;
   layerSwitchAt: number | null;
+  // When this tile last read as a network stall (isNetworkStall), so another
+  // tile stalling moments later can be blamed on our side instead.
+  netStallAt: number | null;
   stallState: StallState;
   // The reason currently rendered, so applyStall stays a no-op per tick.
   shownStall: StallReason | null;
@@ -385,6 +390,11 @@ export class RemoteMediaView {
     // Hidden tabs render no frames: keep the clocks fresh so coming back does
     // not flash a stall that never was.
     const hidden = document.hidden;
+    // Two passes: first note which tiles are network-stalled this tick, so two
+    // tiles crossing the threshold on the same tick see each other regardless
+    // of iteration order; then classify with that shared picture.
+    const readings = new Map<string, { stalledMs: number; sinceLayerSwitchMs: number | null }>();
+    const lastNetStallAt = new Map<string, number | null>();
     for (const [userId, tile] of this.remoteTiles) {
       if (!tile.hasCam) continue;
       if (hidden) {
@@ -392,10 +402,18 @@ export class RemoteMediaView {
         continue;
       }
       const stalledMs = tile.trackMuted ? Number.POSITIVE_INFINITY : now - tile.lastFrameAt;
+      const sinceLayerSwitchMs = tile.layerSwitchAt === null ? null : now - tile.layerSwitchAt;
+      if (isNetworkStall(stalledMs, sinceLayerSwitchMs)) tile.netStallAt = now;
+      readings.set(userId, { stalledMs, sinceLayerSwitchMs });
+      lastNetStallAt.set(userId, tile.netStallAt);
+    }
+    for (const [userId, r] of readings) {
+      const tile = this.remoteTiles.get(userId);
+      if (!tile) continue;
       const candidate = classifyStall({
-        stalledMs,
-        sinceLayerSwitchMs: tile.layerSwitchAt === null ? null : now - tile.layerSwitchAt,
+        ...r,
         myTier,
+        othersStalled: stalledRecently(userId, lastNetStallAt, now),
       });
       // Hysteresis lives in the fold, not in the tick: see updateStallState.
       tile.stallState = updateStallState(tile.stallState, candidate, now);
@@ -650,6 +668,7 @@ export class RemoteMediaView {
       lastFrameAt: Number.POSITIVE_INFINITY,
       trackMuted: false,
       layerSwitchAt: null,
+      netStallAt: null,
       stallState: INITIAL_STALL_STATE,
       shownStall: null,
     };
